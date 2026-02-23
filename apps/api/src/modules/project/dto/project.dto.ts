@@ -123,6 +123,10 @@ export class UpdateProjectDto {
 
   @IsOptional()
   @IsString()
+  statusNote?: string;
+
+  @IsOptional()
+  @IsString()
   tenantClientId?: string;
 }
 

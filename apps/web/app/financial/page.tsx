@@ -31,7 +31,92 @@ type FinancialSection =
   | "PAYROLL"
   | "TIME_ACCOUNTING"
   | "FINANCIAL_ALLOCATION"
-  | "DIVISION_CODES_LOOKUP";
+  | "DIVISION_CODES_LOOKUP"
+  | "FORECASTING"
+  | "SUPPLIER_CATALOG";
+
+/** Card definitions for the Financial landing page grid. */
+const FINANCIAL_CARDS: {
+  id: FinancialSection | "EXT_SUPPLIER_CATALOG";
+  icon: string;
+  title: string;
+  subtitle: string;
+  href?: string;
+}[] = [
+  {
+    id: "PRICELIST_TREE",
+    icon: "📋",
+    title: "Pricelist Tree",
+    subtitle: "Golden PETL line items, unit prices & uploads",
+  },
+  {
+    id: "GOLDEN_COMPONENTS",
+    icon: "🧩",
+    title: "Golden Components",
+    subtitle: "Material, labor & equipment breakdowns per line",
+  },
+  {
+    id: "ESTIMATES",
+    icon: "📐",
+    title: "Estimates / Quotations",
+    subtitle: "Imported estimates, versions & comparison",
+  },
+  {
+    id: "ASSET_LOGISTICS",
+    icon: "🚛",
+    title: "Asset Logistics",
+    subtitle: "Locations, holdings & inventory movements",
+  },
+  {
+    id: "EXT_SUPPLIER_CATALOG",
+    icon: "🏪",
+    title: "Supplier Catalog",
+    subtitle: "Search HD, Lowe's & compare with CostBook",
+    href: "/tools/supplier-catalog",
+  },
+  {
+    id: "FORECASTING",
+    icon: "📈",
+    title: "Forecasting",
+    subtitle: "PETL-driven material requirements & order timing",
+  },
+  {
+    id: "ORIGINAL_CONTRACT",
+    icon: "📄",
+    title: "Original Contract",
+    subtitle: "Baseline contract value & schedule of values",
+  },
+  {
+    id: "CHANGES",
+    icon: "🔀",
+    title: "Changes",
+    subtitle: "Change orders, approved vs pending",
+  },
+  {
+    id: "CURRENT_CONTRACT_TOTAL",
+    icon: "💰",
+    title: "Current Contract Total",
+    subtitle: "Rollup of contract, changes & adjustments",
+  },
+  {
+    id: "PAYROLL",
+    icon: "💵",
+    title: "Payroll",
+    subtitle: "Time, labor costs & payroll allocations",
+  },
+  {
+    id: "FINANCIAL_ALLOCATION",
+    icon: "📊",
+    title: "Financial Allocation",
+    subtitle: "Revenue & cost allocation rules across projects",
+  },
+  {
+    id: "DIVISION_CODES_LOOKUP",
+    icon: "🏗️",
+    title: "Division Codes Lookup",
+    subtitle: "CSI-16 divisions & Xactimate category mapping",
+  },
+];
 
 type Division = {
   code: string;
@@ -126,15 +211,15 @@ type ImportJobDto = {
 };
 
 export default function FinancialPage() {
-  const [activeSection, setActiveSection] = useState<FinancialSection>(() => {
+  const [activeSection, setActiveSection] = useState<FinancialSection | null>(() => {
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
       const section = url.searchParams.get("section") as FinancialSection | null;
-      if (section === "TIME_ACCOUNTING" || section === "ASSET_LOGISTICS") {
+      if (section) {
         return section;
       }
     }
-    return "PRICELIST_TREE";
+    return null; // card landing by default
   });
   const [uploading, setUploading] = useState(false);
   const [priceListUploadMessage, setPriceListUploadMessage] = useState<string | null>(null);
@@ -1254,90 +1339,127 @@ export default function FinancialPage() {
 
   return (
     <PageCard>
-      <h2 style={{ marginTop: 0 }}>Financial</h2>
-      <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 16 }}>
-        Central place for cross-project financial views and configuration. Project-level
-        financials are still available per job under the <strong>FINANCIAL</strong> tab.
-      </p>
+      {/* ── Card Landing View ── */}
+      {activeSection === null && (
+        <>
+          <h2 style={{ marginTop: 0 }}>Financial</h2>
+          <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 20 }}>
+            Central place for cross-project financial views and configuration.
+            Project-level financials are still available per job under the{" "}
+            <strong>FINANCIAL</strong> tab.
+          </p>
 
-      {/* Pending imports summary */}
-      <div
-        style={{
-          marginBottom: 12,
-          padding: 8,
-          borderRadius: 6,
-          border: "1px solid #e5e7eb",
-          background: "#f9fafb",
-          fontSize: 12,
-        }}
-      >
-        <div style={{ fontWeight: 600, marginBottom: 4 }}>Pending imports</div>
-        {pendingError ? (
-          <div style={{ color: "#b91c1c" }}>{pendingError}</div>
-        ) : Object.keys(pendingImports).length === 0 ? (
-          <div style={{ color: "#6b7280" }}>No queued or running imports for this company.</div>
-        ) : (
-          <ul style={{ margin: 0, paddingLeft: 18 }}>
-            {Object.entries(pendingImports).map(([type, count]) => (
-              <li key={type}>
-                {type}: <strong>{count}</strong>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+          {/* Pending imports summary */}
+          {Object.keys(pendingImports).length > 0 && (
+            <div
+              style={{
+                marginBottom: 16,
+                padding: 8,
+                borderRadius: 6,
+                border: "1px solid #fbbf24",
+                background: "#fffbeb",
+                fontSize: 12,
+              }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>Pending imports</div>
+              {pendingError ? (
+                <div style={{ color: "#b91c1c" }}>{pendingError}</div>
+              ) : (
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {Object.entries(pendingImports).map(([type, count]) => (
+                    <li key={type}>
+                      {type}: <strong>{count}</strong>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
 
-      {/* Sub-menu within Financial */}
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          marginBottom: 16,
-          borderBottom: "1px solid #e5e7eb",
-          paddingBottom: 4,
-          flexWrap: "wrap",
-        }}
-      >
-        {([
-          { id: "PRICELIST_TREE", label: "Pricelist Tree" },
-          { id: "GOLDEN_COMPONENTS", label: "Golden Components" },
-          { id: "ESTIMATES", label: "Estimates / Quotations" },
-          { id: "ASSET_LOGISTICS", label: "Asset Logistics" },
-          { id: "ORIGINAL_CONTRACT", label: "Original Contract" },
-          { id: "CHANGES", label: "Changes" },
-          { id: "CURRENT_CONTRACT_TOTAL", label: "Current Contract Total" },
-          { id: "PAYROLL", label: "Payroll" },
-          { id: "FINANCIAL_ALLOCATION", label: "Financial Allocation" },
-          { id: "DIVISION_CODES_LOOKUP", label: "Division Codes Lookup" },
-        ] as { id: FinancialSection; label: string }[]).map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => {
-              setActiveSection(tab.id);
-              setPriceListUploadMessage(null);
-              setPriceListUploadError(null);
-              setComponentsUploadMessage(null);
-              setComponentsUploadError(null);
-            }}
+          {/* Card grid */}
+          <div
             style={{
-              padding: "4px 8px",
-              borderRadius: 999,
-              border:
-                activeSection === tab.id
-                  ? "1px solid #0f172a"
-                  : "1px solid transparent",
-              backgroundColor:
-                activeSection === tab.id ? "#0f172a" : "transparent",
-              color: activeSection === tab.id ? "#f9fafb" : "#374151",
-              fontSize: 12,
-              cursor: "pointer",
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+              gap: 16,
             }}
           >
-            {tab.label}
+            {FINANCIAL_CARDS.map((card) => (
+              <button
+                key={card.id}
+                type="button"
+                onClick={() => {
+                  if (card.href) {
+                    window.location.href = card.href;
+                  } else {
+                    setActiveSection(card.id as FinancialSection);
+                  }
+                }}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "flex-start",
+                  gap: 6,
+                  padding: 16,
+                  borderRadius: 12,
+                  border: "1px solid #e5e7eb",
+                  background: "#ffffff",
+                  cursor: "pointer",
+                  textAlign: "left",
+                  transition: "box-shadow 0.15s, border-color 0.15s",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = "#0f172a";
+                  e.currentTarget.style.boxShadow = "0 2px 8px rgba(15,23,42,0.10)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "#e5e7eb";
+                  e.currentTarget.style.boxShadow = "none";
+                }}
+              >
+                <span style={{ fontSize: 28 }}>{card.icon}</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>
+                  {card.title}
+                </span>
+                <span style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.4 }}>
+                  {card.subtitle}
+                </span>
+                {card.href && (
+                  <span style={{ fontSize: 10, color: "#2563eb", marginTop: 2 }}>
+                    External page &rarr;
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* ── Section Detail View (back button + content) ── */}
+      {activeSection !== null && (
+        <>
+          <button
+            type="button"
+            onClick={() => setActiveSection(null)}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "6px 12px",
+              marginBottom: 16,
+              borderRadius: 6,
+              border: "1px solid #e5e7eb",
+              background: "#f9fafb",
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: 600,
+              color: "#374151",
+            }}
+          >
+            <span aria-hidden="true">&larr;</span> Back to Financial
           </button>
-        ))}
-      </div>
+        </>
+      )}
 
       {/* Pricelist Tree section */}
       {activeSection === "PRICELIST_TREE" && (
@@ -3020,6 +3142,78 @@ export default function FinancialPage() {
       </div>
         </section>
       )}
+      {/* Forecasting */}
+      {activeSection === "FORECASTING" && (
+        <section style={{ marginBottom: 24 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, margin: "8px 0" }}>
+            Forecasting &mdash; Material Requirements &amp; Order Timing
+          </h3>
+          <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 16 }}>
+            PETL-driven forecasting pipeline: turns scope schedule dates + supplier lead
+            times into <strong>material requirements</strong> with need-on-site and
+            date-to-order calculations. Feeds <strong>purchase order suggestions</strong>{" "}
+            validated against real-time SerpApi pricing.
+          </p>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+              gap: 12,
+              marginBottom: 20,
+            }}
+          >
+            {[
+              { label: "PLANNED", color: "#3b82f6", bg: "#eff6ff", icon: "📝" },
+              { label: "DUE SOON", color: "#f59e0b", bg: "#fffbeb", icon: "⚠️" },
+              { label: "LATE", color: "#ef4444", bg: "#fef2f2", icon: "🛑" },
+              { label: "ORDERED", color: "#8b5cf6", bg: "#f5f3ff", icon: "📦" },
+              { label: "RECEIVED", color: "#22c55e", bg: "#f0fdf4", icon: "✅" },
+            ].map((s) => (
+              <div
+                key={s.label}
+                style={{
+                  padding: 14,
+                  borderRadius: 10,
+                  border: `1px solid ${s.color}33`,
+                  background: s.bg,
+                  textAlign: "center",
+                }}
+              >
+                <div style={{ fontSize: 24, marginBottom: 4 }}>{s.icon}</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: s.color }}>—</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: s.color, marginTop: 2 }}>
+                  {s.label}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div
+            style={{
+              padding: 16,
+              borderRadius: 8,
+              border: "1px dashed #d1d5db",
+              background: "#f9fafb",
+              fontSize: 13,
+              color: "#6b7280",
+            }}
+          >
+            <p style={{ margin: "0 0 8px", fontWeight: 600, color: "#374151" }}>
+              Pipeline Status: Schema Ready &mdash; Services Coming Soon
+            </p>
+            <p style={{ margin: 0 }}>
+              The procurement models (<code>SupplierItem</code>,{" "}
+              <code>MaterialRequirement</code>, <code>PurchaseOrder</code>) are defined in
+              the schema and ready for activation. The forecasting service will compute{" "}
+              <code>requiredOnSiteDate</code> and <code>dateToOrder</code> from PETL
+              schedule data + supplier lead times, then generate purchase order suggestions
+              validated against live SerpApi catalog pricing.
+            </p>
+          </div>
+        </section>
+      )}
+
     </PageCard>
   );
 }

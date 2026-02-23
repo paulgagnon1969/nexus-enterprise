@@ -47,7 +47,15 @@
       "expo-updates",
       "expo-secure-store",
       "expo-sharing",
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#0284c7",
+          "sounds": []
+        }
+      ]
     ],
     "updates": {
       "url": "https://u.expo.dev/28b82c06-3d43-44f0-ba56-110645a13d80"

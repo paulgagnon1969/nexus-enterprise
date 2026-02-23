@@ -350,6 +350,10 @@ export const ScheduleSection = memo(function ScheduleSection(props: ScheduleSect
     Record<string, { durationDays?: number; startDate?: string; lockType?: "SOFT" | "HARD" }>
   >({});
 
+  // Per-trade crew sizes. Initialized from the API response defaults, editable by user.
+  const [scheduleDraftCrewSizes, setScheduleDraftCrewSizes] = useState<Record<string, number>>({});
+  const [scheduleCrewSizesInitialized, setScheduleCrewSizesInitialized] = useState(false);
+
   const [scheduleDraftDeps, setScheduleDraftDeps] = useState<
     Record<string, { predecessorId: string; lagDays: number }[]>
   >({});
@@ -502,6 +506,9 @@ export const ScheduleSection = memo(function ScheduleSection(props: ScheduleSect
             body: JSON.stringify({
               startDate: scheduleStartDate,
               taskOverrides: scheduleOverridesPayload ?? undefined,
+              crewSizeByTrade: Object.keys(scheduleDraftCrewSizes).length > 0
+                ? scheduleDraftCrewSizes
+                : undefined,
             }),
           }
         );
@@ -520,6 +527,12 @@ export const ScheduleSection = memo(function ScheduleSection(props: ScheduleSect
         const json: any = await res.json();
         if (cancelled) return;
         setSchedulePreview(json);
+
+        // Seed crew sizes from the API response on first load (or when reset).
+        if (json?.crewSizeByTrade && !scheduleCrewSizesInitialized) {
+          setScheduleDraftCrewSizes(json.crewSizeByTrade);
+          setScheduleCrewSizesInitialized(true);
+        }
       } catch (err: any) {
         if (cancelled) return;
         setSchedulePreview(null);
@@ -541,7 +554,9 @@ export const ScheduleSection = memo(function ScheduleSection(props: ScheduleSect
     scheduleStartDate,
     scheduleReloadTick,
     scheduleOverridesPayload,
+    scheduleDraftCrewSizes,
     apiBase,
+    scheduleCrewSizesInitialized,
   ]);
 
   // Load canonical persisted schedule tasks (ORG source)
@@ -1096,6 +1111,8 @@ export const ScheduleSection = memo(function ScheduleSection(props: ScheduleSect
                   setScheduleDraftOverrides({});
                   setScheduleDraftDeps({});
                   setScheduleOverridesPayload(null);
+                  setScheduleDraftCrewSizes({});
+                  setScheduleCrewSizesInitialized(false);
                   setScheduleReloadTick((t) => t + 1);
                 }}
                 style={{
@@ -1432,6 +1449,67 @@ export const ScheduleSection = memo(function ScheduleSection(props: ScheduleSect
           {petlEstimateVersionId && scheduleGanttText && (
             <div style={{ marginTop: 10 }}>
               <MermaidGantt ganttText={scheduleGanttText} stickyHeader maxHeightPx={1280} />
+            </div>
+          )}
+
+          {/* Crew Size Editor */}
+          {petlEstimateVersionId && Object.keys(scheduleDraftCrewSizes).length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Crew Sizes by Trade</div>
+              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 8 }}>
+                Adjust crew sizes to recalculate durations. Man-hours stay the same — larger crews shorten duration.
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 12,
+                  flexWrap: "wrap",
+                  padding: "10px 12px",
+                  borderRadius: 8,
+                  border: "1px solid #e5e7eb",
+                  background: "#f9fafb",
+                }}
+              >
+                {Object.entries(scheduleDraftCrewSizes)
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([trade, size]) => (
+                    <label
+                      key={trade}
+                      style={{
+                        display: "flex",
+                        gap: 6,
+                        alignItems: "center",
+                        fontSize: 12,
+                      }}
+                    >
+                      <span style={{ fontWeight: 500, minWidth: 70 }}>{trade}</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="20"
+                        step="1"
+                        value={size}
+                        onChange={(e) => {
+                          const v = parseInt(e.target.value, 10);
+                          if (!Number.isFinite(v) || v < 1) return;
+                          setScheduleDraftCrewSizes((prev) => ({
+                            ...prev,
+                            [trade]: v,
+                          }));
+                        }}
+                        style={{
+                          width: 52,
+                          padding: "3px 6px",
+                          borderRadius: 6,
+                          border: "1px solid #d1d5db",
+                          fontSize: 12,
+                          textAlign: "center",
+                        }}
+                      />
+                      <span style={{ color: "#9ca3af", fontSize: 11 }}>crew</span>
+                    </label>
+                  ))}
+              </div>
             </div>
           )}
 

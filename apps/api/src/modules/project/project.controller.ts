@@ -215,6 +215,13 @@ export class ProjectController {
     return { teamTreeJson: updated.teamTreeJson };
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/status-notes")
+  getStatusNotes(@Req() req: any, @Param("id") projectId: string) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.getProjectStatusNotes(projectId, user);
+  }
+
   @UseGuards(CombinedAuthGuard)
   @Get(":id/bom")
   getBom(@Req() req: any, @Param("id") projectId: string) {

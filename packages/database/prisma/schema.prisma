@@ -186,6 +186,9 @@ model Company {
 
   // Cross-Tenant Invites targeting this company
   crossTenantInvites CrossTenantInvite[]
+
+  // Push notification preferences scoped to this company
+  notificationPreferences NotificationPreference[]
 }
 
 model OrganizationTemplate {
@@ -514,6 +517,13 @@ model User {
 
   // Personnel time entries (from TADL logs)
   timeEntries TimeEntry[]
+
+  // Project status change notes
+  projectStatusNotesCreated ProjectStatusNote[] @relation("ProjectStatusNoteCreatedBy")
+
+  // Push notification device tokens & preferences
+  devicePushTokens        DevicePushToken[]
+  notificationPreferences NotificationPreference[]
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -1160,6 +1170,12 @@ model Project {
   // Personnel time entries
   timeEntries TimeEntry[]
 
+  // Status change audit trail
+  statusNotes ProjectStatusNote[]
+
+  // Push notification preferences scoped to this project
+  notificationPreferences NotificationPreference[]
+
   @@index([companyId, groupId], map: "Project_company_group_idx")
   @@index([tenantClientId], map: "Project_tenant_client_idx")
 }
@@ -1197,6 +1213,23 @@ model TenantClient {
   @@index([companyId, phone], map: "TenantClient_company_phone_idx")
   @@index([companyId, lastName, firstName], map: "TenantClient_company_name_idx")
   @@index([userId], map: "TenantClient_user_idx")
+}
+
+/// Revision-controlled log of project status changes with notes.
+/// Each row captures who changed the status, from/to, and an optional note.
+model ProjectStatusNote {
+  id             String   @id @default(cuid())
+  projectId      String
+  previousStatus String
+  newStatus      String
+  note           String?  @db.Text
+  createdByUserId String
+  createdAt      DateTime @default(now())
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy User    @relation("ProjectStatusNoteCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@index([projectId, createdAt], map: "ProjectStatusNote_project_time_idx")
 }
 
 model ProjectGroup {
@@ -3425,13 +3458,75 @@ enum NotificationKind {
   PROJECT
   SYSTEM
   DIRECT_MESSAGE
+  DAILY_LOG
+  INCIDENT
 }
 
 /// Delivery channel used for a notification. IN_APP is always recorded; EMAIL
-/// indicates that an email was also sent.
+/// indicates that an email was also sent; PUSH for mobile push notifications.
 enum NotificationChannel {
   IN_APP
   EMAIL
+  PUSH
+}
+
+/// Schedule for daily progress digest push notifications.
+enum ProgressDigestSchedule {
+  NONE
+  MORNING
+  EVENING
+  BOTH
+}
+
+/// Platform type for push token registration.
+enum DevicePlatform {
+  IOS
+  ANDROID
+}
+
+/// Registered push notification token for a user's device. Each device
+/// gets a unique Expo push token stored here.
+model DevicePushToken {
+  id        String         @id @default(cuid())
+  userId    String
+  token     String         @unique
+  platform  DevicePlatform
+  active    Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, active], map: "DevicePushToken_user_active_idx")
+}
+
+/// Per-user notification preferences, optionally scoped to a company/project.
+/// Controls which push notifications the user receives and how.
+model NotificationPreference {
+  id        String  @id @default(cuid())
+  userId    String
+  companyId String?
+  projectId String?
+
+  /// Notify on any new daily log in the user's projects
+  dailyLogAlerts    Boolean                @default(true)
+  /// Push immediately for INCIDENT-type daily logs
+  incidentImmediate Boolean                @default(true)
+  /// Morning/evening progress digest schedule
+  progressDigest    ProgressDigestSchedule @default(NONE)
+  /// Flexible JSON filter for advanced polling criteria
+  /// e.g. { "logTypes": ["INCIDENT","JSA"], "projectIds": [...] }
+  pollingCriteria   Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company? @relation(fields: [companyId], references: [id])
+  project Project? @relation(fields: [projectId], references: [id])
+
+  @@unique([userId, companyId, projectId], map: "NotificationPreference_user_company_project_uk")
+  @@index([userId], map: "NotificationPreference_user_idx")
 }
 
 enum MessageThreadType {

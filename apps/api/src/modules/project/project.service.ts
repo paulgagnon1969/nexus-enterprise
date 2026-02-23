@@ -431,6 +431,9 @@ export class ProjectService {
       throw new NotFoundException("Project not found in this company");
     }
 
+    const nextStatus = dto.status ?? project.status;
+    const statusChanged = nextStatus !== project.status;
+
     const updated = await this.prisma.project.update({
       where: { id: projectId },
       data: {
@@ -448,9 +451,29 @@ export class ProjectService {
         primaryContactPhone: dto.primaryContactPhone ?? project.primaryContactPhone ?? undefined,
         primaryContactEmail: dto.primaryContactEmail ?? project.primaryContactEmail ?? undefined,
         tenantClientId: dto.tenantClientId !== undefined ? (dto.tenantClientId || null) : project.tenantClientId,
-        status: dto.status ?? project.status
+        status: nextStatus,
       }
     });
+
+    // Record a status change note when the status actually changed
+    if (statusChanged) {
+      try {
+        await this.prisma.projectStatusNote.create({
+          data: {
+            projectId,
+            previousStatus: project.status,
+            newStatus: nextStatus,
+            note: dto.statusNote?.trim() || null,
+            createdByUserId: actor.userId,
+          },
+        });
+      } catch (err: any) {
+        // Non-fatal: don't fail the update if the table doesn't exist yet
+        this.logger.warn(
+          `Failed to create ProjectStatusNote for project ${projectId}: ${err?.message}`,
+        );
+      }
+    }
 
     // Auto-sync client portal membership if tenantClientId was changed
     if (dto.tenantClientId !== undefined && dto.tenantClientId !== project.tenantClientId) {
@@ -467,11 +490,46 @@ export class ProjectService {
       projectId: updated.id,
       metadata: {
         projectName: updated.name,
-        status: updated.status
+        status: updated.status,
+        ...(statusChanged ? { previousStatus: project.status, statusNote: dto.statusNote ?? null } : {}),
       }
     });
 
     return updated;
+  }
+
+  async getProjectStatusNotes(projectId: string, actor: AuthenticatedUser) {
+    await this.getProjectByIdForUser(projectId, actor);
+
+    try {
+      const notes = await this.prisma.projectStatusNote.findMany({
+        where: { projectId },
+        orderBy: { createdAt: "desc" },
+        include: {
+          createdBy: {
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
+        },
+      });
+
+      return notes.map((n) => ({
+        id: n.id,
+        previousStatus: n.previousStatus,
+        newStatus: n.newStatus,
+        note: n.note,
+        createdAt: n.createdAt,
+        createdBy: {
+          id: n.createdBy.id,
+          name: [n.createdBy.firstName, n.createdBy.lastName].filter(Boolean).join(" ") || n.createdBy.email,
+        },
+      }));
+    } catch (err: any) {
+      // Table may not exist yet in all environments
+      if (this.isMissingPrismaTableError(err, "ProjectStatusNote")) {
+        return [];
+      }
+      throw err;
+    }
   }
 
   /**

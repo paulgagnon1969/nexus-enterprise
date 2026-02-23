@@ -17,6 +17,10 @@ interface GenerateScheduleParams {
       lockType?: "SOFT" | "HARD";
     }
   >;
+  // Optional per-trade crew size overrides, keyed by trade name (e.g. "Drywall": 6).
+  // When provided, overrides the default crewSizeForTrade() for duration calculations.
+  // Man-hours stay the same — larger crews just shorten the duration.
+  crewSizeByTrade?: Record<string, number>;
 }
 
 interface WorkPackagePreview {
@@ -83,6 +87,8 @@ interface SchedulePreviewResult {
   mitigationWindow: MitigationWindowPreview | null;
   scheduledTasks: ScheduledTaskPreview[];
   conflicts: ScheduleConflict[];
+  // Per-trade crew sizes used for this preview (includes overrides and defaults).
+  crewSizeByTrade: Record<string, number>;
 }
 
 interface DailySummaryTask {
@@ -456,6 +462,7 @@ export class XactScheduleService {
         mitigationWindow,
         scheduledTasks: [],
         conflicts: [],
+        crewSizeByTrade: {},
       };
     }
 
@@ -854,9 +861,14 @@ export class XactScheduleService {
 
     const workPackages: WorkPackagePreview[] = [];
     let totalLaborHours = 0;
+    const crewOverrides = params.crewSizeByTrade ?? {};
 
     for (const pkg of pkgMap.values()) {
-      const crewSize = crewSizeForTrade(pkg.trade);
+      const overrideCrewSize = crewOverrides[pkg.trade];
+      const crewSize =
+        overrideCrewSize != null && Number.isFinite(overrideCrewSize) && overrideCrewSize > 0
+          ? overrideCrewSize
+          : crewSizeForTrade(pkg.trade);
       const durationDaysRaw = pkg.totalLaborHours / (crewSize * HOURS_PER_DAY_DEFAULT);
       const durationDays = Number.isFinite(durationDaysRaw) && durationDaysRaw > 0
         ? Math.ceil(durationDaysRaw * 2) / 2
@@ -1140,6 +1152,14 @@ export class XactScheduleService {
       scheduledTasks.push(task);
     }
 
+    // Build the effective crew size map for all trades seen in this preview.
+    const effectiveCrewSizeByTrade: Record<string, number> = {};
+    for (const wp of workPackages) {
+      if (!effectiveCrewSizeByTrade[wp.trade]) {
+        effectiveCrewSizeByTrade[wp.trade] = wp.crewSize;
+      }
+    }
+
     return {
       projectId,
       estimateVersionId,
@@ -1149,6 +1169,7 @@ export class XactScheduleService {
       mitigationWindow,
       scheduledTasks,
       conflicts,
+      crewSizeByTrade: effectiveCrewSizeByTrade,
     };
   }
 

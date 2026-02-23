@@ -1,13 +1,15 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import { NavigationContainer } from "@react-navigation/native";
+import { NavigationContainer, NavigationContainerRef } from "@react-navigation/native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import * as Updates from "expo-updates";
+import * as Notifications from "expo-notifications";
 import { getTokens } from "./src/storage/tokens";
 import { initDb } from "./src/offline/db";
 import { recoverStuckProcessing } from "./src/offline/outbox";
 import { startAutoSync, stopAutoSync } from "./src/offline/autoSync";
+import { registerForPushNotifications, deregisterPushToken, parseNotificationData } from "./src/utils/pushNotifications";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { AppNavigator } from "./src/navigation/AppNavigator";
 
@@ -30,6 +32,8 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const navigationRef = useRef<NavigationContainerRef<any>>(null);
+  const notificationResponseListener = useRef<Notifications.EventSubscription | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -49,14 +53,33 @@ export default function App() {
     })();
   }, []);
 
-  // Start/stop auto-sync based on login state
+  // Start/stop auto-sync and push registration based on login state
   useEffect(() => {
     if (isLoggedIn) {
       startAutoSync();
+      registerForPushNotifications().catch(console.warn);
     } else {
       stopAutoSync();
     }
   }, [isLoggedIn]);
+
+  // Handle notification tap → deep-link to daily log
+  useEffect(() => {
+    notificationResponseListener.current =
+      Notifications.addNotificationResponseReceivedListener((response) => {
+        const data = parseNotificationData(response);
+        if (data?.type === "daily_log" && data.dailyLogId && navigationRef.current) {
+          navigationRef.current.navigate("DailyLogDetail", {
+            logId: data.dailyLogId,
+            projectId: data.projectId,
+          });
+        }
+      });
+
+    return () => {
+      notificationResponseListener.current?.remove();
+    };
+  }, []);
 
   if (!ready) {
     return (
@@ -87,12 +110,17 @@ export default function App() {
     );
   }
 
+  const handleLogout = async () => {
+    await deregisterPushToken();
+    setIsLoggedIn(false);
+  };
+
   return (
     <SafeAreaProvider>
-      <NavigationContainer>
+      <NavigationContainer ref={navigationRef}>
         <View style={styles.container}>
           <StatusBar style="auto" />
-          <AppNavigator onLogout={() => setIsLoggedIn(false)} />
+          <AppNavigator onLogout={handleLogout} />
         </View>
       </NavigationContainer>
     </SafeAreaProvider>

@@ -258,6 +258,7 @@ export class XactScheduleController {
 
     const rawStartDate: unknown = body?.startDate;
     const rawTaskOverrides: unknown = body?.taskOverrides;
+    const rawCrewSizes: unknown = body?.crewSizeByTrade;
     const startDateOverride =
       typeof rawStartDate === "string" && rawStartDate.trim().length > 0
         ? rawStartDate.trim()
@@ -266,12 +267,16 @@ export class XactScheduleController {
     const taskOverrides =
       rawTaskOverrides && typeof rawTaskOverrides === "object" ? (rawTaskOverrides as any) : undefined;
 
+    const crewSizeByTrade =
+      rawCrewSizes && typeof rawCrewSizes === "object" ? (rawCrewSizes as Record<string, number>) : undefined;
+
     return this.schedule.generateSchedulePreview({
       companyId: user?.companyId ?? null,
       projectId,
       estimateVersionId,
       startDateOverride,
       taskOverrides,
+      crewSizeByTrade,
     });
   }
 
@@ -287,6 +292,7 @@ export class XactScheduleController {
 
     const rawStartDate: unknown = body?.startDate;
     const rawTaskOverrides: unknown = body?.taskOverrides;
+    const rawCrewSizes: unknown = body?.crewSizeByTrade;
     const startDateOverride =
       typeof rawStartDate === "string" && rawStartDate.trim().length > 0
         ? rawStartDate.trim()
@@ -295,12 +301,16 @@ export class XactScheduleController {
     const taskOverrides =
       rawTaskOverrides && typeof rawTaskOverrides === "object" ? (rawTaskOverrides as any) : undefined;
 
+    const crewSizeByTrade =
+      rawCrewSizes && typeof rawCrewSizes === "object" ? (rawCrewSizes as Record<string, number>) : undefined;
+
     const preview = await this.schedule.generateSchedulePreview({
       companyId: user?.companyId ?? null,
       projectId,
       estimateVersionId,
       startDateOverride,
       taskOverrides,
+      crewSizeByTrade,
     });
 
     const prisma = (this.schedule as any)["prisma"];
@@ -361,6 +371,7 @@ export class XactScheduleController {
 
     const rawStartDate: unknown = body?.startDate;
     const rawTaskOverrides: unknown = body?.taskOverrides;
+    const rawCrewSizes: unknown = body?.crewSizeByTrade;
 
     const startDateOverride =
       typeof rawStartDate === "string" && rawStartDate.trim().length > 0
@@ -370,12 +381,16 @@ export class XactScheduleController {
     const taskOverrides =
       rawTaskOverrides && typeof rawTaskOverrides === "object" ? (rawTaskOverrides as any) : undefined;
 
+    const crewSizeByTrade =
+      rawCrewSizes && typeof rawCrewSizes === "object" ? (rawCrewSizes as Record<string, number>) : undefined;
+
     const result = await this.schedule.commitSchedule({
       companyId: user.companyId ?? null,
       projectId,
       estimateVersionId,
       startDateOverride,
       taskOverrides,
+      crewSizeByTrade,
       actorUserId: user.userId,
     });
 

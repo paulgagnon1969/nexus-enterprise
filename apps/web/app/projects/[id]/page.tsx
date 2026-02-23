@@ -5258,6 +5258,9 @@ ${htmlBody}
   const [editProjectMessage, setEditProjectMessage] = useState<string | null>(null);
   const [deleteProjectMessage, setDeleteProjectMessage] = useState<string | null>(null);
   const [editProjectState, setEditProjectState] = useState<ProjectStateChoice>("OPEN");
+  const [editStatusNote, setEditStatusNote] = useState("");
+  const [statusNotes, setStatusNotes] = useState<any[] | null>(null);
+  const [statusNotesOpen, setStatusNotesOpen] = useState(false);
 
   // Tenant client search state for linking
   interface TenantClientResult {
@@ -12284,6 +12287,18 @@ ${htmlBody}
       else setEditProjectState("OPEN");
 
       setEditProjectMode(true);
+      setEditStatusNote("");
+
+      // Fetch status notes history
+      const tk = localStorage.getItem("accessToken");
+      if (tk) {
+        fetch(`${API_BASE}/projects/${project.id}/status-notes`, {
+          headers: { Authorization: `Bearer ${tk}` },
+        })
+          .then((r) => (r.ok ? r.json() : []))
+          .then((data) => setStatusNotes(Array.isArray(data) ? data : []))
+          .catch(() => setStatusNotes([]));
+      }
     });
   };
 
@@ -12319,6 +12334,7 @@ ${htmlBody}
         else if (state === "WARRANTY") nextStatus = "warranty";
         else if (state === "OPEN") nextStatus = "open";
 
+        const statusChanged = nextStatus !== (project.status || "").toLowerCase();
         const body: any = {
           name: editProject.name,
           status: nextStatus,
@@ -12329,6 +12345,7 @@ ${htmlBody}
           primaryContactName: editProject.primaryContactName,
           primaryContactEmail: editProject.primaryContactEmail,
           primaryContactPhone: editProject.primaryContactPhone,
+          ...(statusChanged && editStatusNote.trim() ? { statusNote: editStatusNote.trim() } : {}),
         };
         const res = await fetch(`${API_BASE}/projects/${project.id}`, {
           method: "PATCH",
@@ -13321,6 +13338,117 @@ ${htmlBody}
                   for filtering in the projects list.
                 </p>
               </div>
+
+              {/* Status change note — shown when state differs from current */}
+              {(() => {
+                const currentState = (() => {
+                  const s = (project.status || "").toLowerCase();
+                  if (s === "archived") return "ARCHIVED";
+                  if (s === "deleted") return "DELETED";
+                  if (s === "warranty") return "WARRANTY";
+                  return "OPEN";
+                })();
+                const stateChanged = editProjectState !== currentState;
+                return stateChanged ? (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      padding: "8px 10px",
+                      backgroundColor: "#fffbeb",
+                      border: "1px solid #fbbf24",
+                      borderRadius: 6,
+                    }}
+                  >
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#92400e" }}>
+                      Status change note
+                      <span style={{ fontWeight: 400, color: "#b45309" }}>
+                        {" "}({currentState} → {editProjectState})
+                      </span>
+                    </label>
+                    <textarea
+                      value={editStatusNote}
+                      onChange={(e) => setEditStatusNote(e.target.value)}
+                      placeholder="Reason for status change (e.g., archiving due to inactivity)…"
+                      rows={2}
+                      style={{
+                        width: "100%",
+                        marginTop: 4,
+                        padding: "4px 6px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        fontSize: 12,
+                        resize: "vertical",
+                      }}
+                    />
+                  </div>
+                ) : null;
+              })()}
+
+              {/* Status change revision history */}
+              {statusNotes && statusNotes.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setStatusNotesOpen((o) => !o)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      padding: 0,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: "#6b7280",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <span style={{ transform: statusNotesOpen ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s", display: "inline-block" }}>▶</span>
+                    Status history ({statusNotes.length})
+                  </button>
+                  {statusNotesOpen && (
+                    <div
+                      style={{
+                        marginTop: 4,
+                        maxHeight: 200,
+                        overflowY: "auto",
+                        borderRadius: 4,
+                        border: "1px solid #e5e7eb",
+                        backgroundColor: "#f9fafb",
+                      }}
+                    >
+                      {statusNotes.map((sn: any) => (
+                        <div
+                          key={sn.id}
+                          style={{
+                            padding: "6px 8px",
+                            borderBottom: "1px solid #e5e7eb",
+                            fontSize: 11,
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                            <span style={{ fontWeight: 600 }}>
+                              {sn.previousStatus} → {sn.newStatus}
+                            </span>
+                            <span style={{ color: "#9ca3af", whiteSpace: "nowrap" }}>
+                              {new Date(sn.createdAt).toLocaleDateString()}{" "}
+                              {new Date(sn.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                          </div>
+                          <div style={{ color: "#6b7280", marginTop: 2 }}>
+                            by {sn.createdBy?.name ?? "Unknown"}
+                          </div>
+                          {sn.note && (
+                            <div style={{ marginTop: 3, color: "#374151", fontStyle: "italic" }}>
+                              &ldquo;{sn.note}&rdquo;
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

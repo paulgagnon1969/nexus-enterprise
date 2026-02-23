@@ -9,6 +9,7 @@ import { Role, DailyLogStatus, DailyLogType, ProjectBillStatus, $Enums } from "@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { NotificationsService } from "../notifications/notifications.service";
+import { PushService, PushPayload } from "../notifications/push.service";
 import { TaskService } from "../task/task.service";
 import { TaskPriorityEnum } from "../task/dto/task.dto";
 import { ReceiptOcrService } from "../ocr/receipt-ocr.service";
@@ -31,6 +32,7 @@ export class DailyLogService {
     private readonly audit: AuditService,
     private readonly gcs: GcsService,
     private readonly notifications: NotificationsService,
+    private readonly push: PushService,
     private readonly tasks: TaskService,
     private readonly receiptOcr: ReceiptOcrService,
     private readonly openAiOcr: OpenAiOcrProvider,
@@ -1047,6 +1049,11 @@ export class DailyLogService {
       }
     }
 
+    // ── Push notification hook ──────────────────────────────────────
+    await this.sendDailyLogPush(created, projectId, companyId, actor).catch((err) =>
+      this.logger.warn(`Push notification failed for log ${created.id}: ${err?.message ?? err}`),
+    );
+
     // Re-fetch the log with attachments included (attachments were added after initial create)
     const finalLog = await this.prisma.dailyLog.findUnique({
       where: { id: created.id },
@@ -1284,6 +1291,69 @@ export class DailyLogService {
       this.logger.error(`[handleReceiptExpenseLog] Stack: ${errStack}`);
       // Don't throw - let the daily log creation succeed even if bill creation fails
     }
+  }
+
+  /**
+   * Send a push notification to relevant project members when a daily log is created.
+   * - INCIDENT logs: immediate push to all members (respecting incidentImmediate pref)
+   * - Other log types: push to members who have dailyLogAlerts enabled
+   */
+  private async sendDailyLogPush(
+    log: { id: string; type: DailyLogType | null; title: string | null; logDate: Date },
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+  ) {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { id: true, name: true },
+    });
+    if (!project) return;
+
+    const isIncident = log.type === DailyLogType.INCIDENT;
+    const logTypeLabel = log.type?.replace(/_/g, " ") ?? "Daily Log";
+    const dateLabel = new Date(log.logDate).toLocaleDateString();
+
+    const payload: PushPayload = {
+      title: isIncident
+        ? `⚠️ INCIDENT — ${project.name}`
+        : `${logTypeLabel} — ${project.name}`,
+      body: log.title
+        ? `${log.title} (${dateLabel})`
+        : `New ${logTypeLabel.toLowerCase()} for ${dateLabel}`,
+      data: {
+        type: "daily_log",
+        dailyLogId: log.id,
+        projectId,
+        logType: log.type,
+      },
+      sound: "default",
+    };
+
+    // Get project members (excluding the creator)
+    const memberships = await this.prisma.projectMembership.findMany({
+      where: { projectId },
+      select: { userId: true },
+    });
+    let memberIds = memberships.map((m) => m.userId).filter((id) => id !== actor.userId);
+    if (!memberIds.length) return;
+
+    // Filter by notification preferences
+    const prefs = await this.prisma.notificationPreference.findMany({
+      where: { userId: { in: memberIds } },
+    });
+    const prefMap = new Map(prefs.map((p) => [p.userId, p]));
+
+    memberIds = memberIds.filter((uid) => {
+      const pref = prefMap.get(uid);
+      if (!pref) return true; // Default: send if no preference record exists
+      if (isIncident) return pref.incidentImmediate;
+      return pref.dailyLogAlerts;
+    });
+
+    if (!memberIds.length) return;
+
+    await this.push.sendToUsers(memberIds, payload);
   }
 
   async approveLog(
