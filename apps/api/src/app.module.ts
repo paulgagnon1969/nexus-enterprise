@@ -54,6 +54,7 @@ import { GovInfoModule } from "./modules/govinfo/govinfo.module";
 import { WeatherModule } from "./modules/weather/weather.module";
 import { SupplierCatalogModule } from "./modules/supplier-catalog/supplier-catalog.module";
 import { VideoModule } from "./modules/video/video.module";
+import { LocationsModule } from "./modules/locations/locations.module";
 
 @Module({
   imports: [
@@ -116,6 +117,7 @@ import { VideoModule } from "./modules/video/video.module";
     WeatherModule,
     SupplierCatalogModule,
     VideoModule,
+    LocationsModule,
   ],
   controllers: [DevController]
 })
