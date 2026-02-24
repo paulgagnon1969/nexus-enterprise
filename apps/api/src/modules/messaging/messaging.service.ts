@@ -91,6 +91,7 @@ export class MessagingService {
     if (actor.userId !== subjectUserId) {
       const membership = await this.prisma.companyMembership.findFirst({
         where: { companyId, userId: subjectUserId },
+        select: { userId: true },
       });
       if (!membership) {
         throw new ForbiddenException("Cannot write journal for this user");
@@ -255,7 +256,7 @@ export class MessagingService {
       } else {
         const membership = await this.prisma.companyMembership.findFirst({
           where: { companyId, userId: actor.userId },
-          include: { profile: true },
+          select: { role: true, profile: { select: { code: true } } },
         });
         const profileCode = membership?.profile?.code ?? null;
         if (
@@ -1029,7 +1030,7 @@ export class MessagingService {
     if (actor.globalRole !== "SUPER_ADMIN") {
       const membership = await this.prisma.companyMembership.findFirst({
         where: { companyId, userId: actor.userId },
-        include: { profile: true },
+        select: { role: true, profile: { select: { code: true } } },
       });
       const profileCode = membership?.profile?.code ?? null;
       const isPrivileged =

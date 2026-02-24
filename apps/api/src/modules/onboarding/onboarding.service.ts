@@ -622,7 +622,8 @@ export class OnboardingService {
           companyId,
           role: Role.MEMBER,
           profileId: profileId ?? undefined,
-        }
+        },
+        select: { userId: true },
       });
 
       const session = await tx.onboardingSession.create({
@@ -2188,6 +2189,7 @@ export class OnboardingService {
               userId: candidateUserId,
               isActive: true,
             },
+            select: { userId: true },
           });
           if (activeMembership) {
             throw new BadRequestException(
@@ -2886,7 +2888,8 @@ export class OnboardingService {
         userId: user.id,
         companyId: session.companyId,
         role: "MEMBER" as any
-      }
+      },
+      select: { userId: true },
     });
 
     // Migrate onboarding skill ratings into UserSkillRating as self-levels so
@@ -3627,6 +3630,7 @@ export class OnboardingService {
           companyId: invite.targetCompanyId,
         },
       },
+      select: { userId: true, isActive: true },
     });
 
     if (existingMembership?.isActive) {
@@ -3670,6 +3674,7 @@ export class OnboardingService {
           role: invite.role as Role,
           isActive: true,
         },
+        select: { userId: true },
       });
     }
 

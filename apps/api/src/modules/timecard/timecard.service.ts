@@ -435,6 +435,7 @@ export class TimecardService {
             companyId: rowCompanyId,
             role: Role.MEMBER,
           },
+          select: { userId: true },
         });
 
         await this.prisma.projectMembership.upsert({

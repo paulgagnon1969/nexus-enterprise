@@ -90,7 +90,8 @@ export class CompanyService {
           userId,
           companyId: created.id,
           role: Role.OWNER,
-        }
+        },
+        select: { userId: true },
       });
 
       // Ensure all SUPER_ADMIN users have access to the new company.
@@ -872,6 +873,7 @@ export class CompanyService {
 
     const membership = await this.prisma.companyMembership.findUnique({
       where: { userId_companyId: { userId, companyId } },
+      select: { userId: true, role: true },
     });
 
     if (!membership) {
@@ -920,6 +922,7 @@ export class CompanyService {
 
     const membership = await this.prisma.companyMembership.findUnique({
       where: { userId_companyId: { userId, companyId } },
+      select: { userId: true, isActive: true },
     });
 
     if (!membership) {
@@ -1025,6 +1028,7 @@ export class CompanyService {
 
     const membership = await this.prisma.companyMembership.findUnique({
       where: { userId_companyId: { userId, companyId } },
+      select: { userId: true, blackFlagged: true },
     });
 
     if (!membership) {

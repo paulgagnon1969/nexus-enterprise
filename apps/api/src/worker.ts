@@ -81,7 +81,8 @@ async function buildActorForImportJob(prisma: PrismaService, params: {
           companyId,
         },
       },
-      include: {
+      select: {
+        role: true,
         profile: { select: { code: true } },
       },
     }),
@@ -1564,6 +1565,7 @@ async function processImportJob(
             companyId: targetCompanyId,
           },
         },
+        select: { userId: true },
       });
 
       if (!membership) {
@@ -1573,6 +1575,7 @@ async function processImportJob(
             companyId: targetCompanyId,
             role: DbRole.MEMBER,
           },
+          select: { userId: true },
         });
         membershipsCreated += 1;
       }

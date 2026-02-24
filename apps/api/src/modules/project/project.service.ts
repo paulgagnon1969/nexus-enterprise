@@ -1526,7 +1526,8 @@ export class ProjectService {
           userId: targetUserId,
           companyId
         }
-      }
+      },
+      select: { userId: true },
     });
 
     if (!userMembership) {

@@ -875,6 +875,7 @@ export class AdminService {
           companyId,
           role,
         },
+        select: { userId: true },
       });
 
       created.push({ email, role, userId: user.id });
@@ -914,7 +915,8 @@ export class AdminService {
         userId: user.id,
         companyId,
         role: role as any,
-      }
+      },
+      select: { userId: true, companyId: true, role: true },
     });
 
     await this.audit(actor, "ADMIN_ADD_USER_TO_COMPANY", {
@@ -990,7 +992,8 @@ export class AdminService {
         userId: user.id,
         companyId,
         role: role as Role
-      }
+      },
+      select: { userId: true, companyId: true, role: true },
     });
 
     await this.audit(actor, "ADMIN_CREATE_USER_WITH_PASSWORD", {

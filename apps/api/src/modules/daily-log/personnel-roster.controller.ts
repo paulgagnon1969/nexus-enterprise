@@ -129,7 +129,9 @@ export class PersonnelRosterController {
 
     const memberships = await this.prisma.companyMembership.findMany({
       where: membershipWhere,
-      include: {
+      select: {
+        userId: true,
+        role: true,
         user: {
           select: {
             id: true,
