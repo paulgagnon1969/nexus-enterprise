@@ -197,6 +197,9 @@ model Company {
   bomPricingSnapshots      BomPricingSnapshot[]
   materialPriceObservations MaterialPriceObservation[]
 
+  // Drawings → BOM pipeline
+  drawingUploads ProjectDrawingUpload[]
+
   // Project Org Templates
   orgTemplates OrgTemplate[]
 }
@@ -1212,6 +1215,9 @@ model Project {
 
   // BOM Pricing snapshots
   bomPricingSnapshots BomPricingSnapshot[]
+
+  // Drawings → BOM pipeline
+  drawingUploads ProjectDrawingUpload[]
 
   /// Building model type (e.g. "A Model", "G Model", "F Model")
   buildingModelType String?
@@ -3375,6 +3381,9 @@ model CompanyPriceListItem {
   priceUpdates              TenantPriceUpdateLog[]
   petlReconciliationEntries PetlReconciliationEntry[]
   invoiceLineItems          ProjectInvoiceLineItem[]  @relation("InvoiceLineItemCostBookItem")
+
+  // Drawings BOM matches
+  drawingBomMatches DrawingBomLine[] @relation("DrawingBomCostBookMatch")
 
   @@index([companyPriceListId, canonicalKeyHash])
   @@index([companyPriceListId, cat, sel])
@@ -6660,4 +6669,110 @@ model OrgTemplateNode {
   children OrgTemplateNode[] @relation("OrgTemplateNodeParent")
 
   @@index([templateId, parentNodeId, sortOrder], map: "OrgTemplateNode_template_parent_sort_idx")
+}
+
+// =============================================================================
+// Drawings → BOM → PETL Pipeline
+// =============================================================================
+
+enum DrawingUploadStatus {
+  UPLOADING
+  EXTRACTING_TEXT
+  EXTRACTING_BOM
+  MATCHING
+  READY         // BOM extracted, matches scored, awaiting user review
+  GENERATING    // PETL generation in progress
+  COMPLETED
+  FAILED
+}
+
+/// An architectural drawing PDF uploaded for automated BOM extraction.
+/// One upload = one PDF file (e.g. one volume of a construction drawing set).
+model ProjectDrawingUpload {
+  id        String @id @default(cuid())
+  projectId String
+  companyId String
+
+  fileName   String
+  storedPath String              // GCS path or local path
+  pageCount  Int     @default(0)
+  fileSizeBytes BigInt?
+
+  status       DrawingUploadStatus @default(UPLOADING)
+  errorMessage String?
+
+  /// Extracted text per page: [{page: 1, sheetId: "S1.1", text: "..."}]
+  extractedTextJson Json?
+
+  /// AI extraction metadata (model used, token count, etc.)
+  aiModelUsed     String?
+  aiTokensUsed    Int?
+  aiExtractionMs  Int?    // Time taken for AI extraction in ms
+
+  /// Summary stats
+  totalBomLines    Int @default(0)
+  matchedBomLines  Int @default(0)
+  unmatchedBomLines Int @default(0)
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  project  Project  @relation(fields: [projectId], references: [id])
+  company  Company  @relation(fields: [companyId], references: [id])
+  bomLines DrawingBomLine[]
+
+  /// Link to the EstimateVersion created when PETL is generated
+  generatedEstimateVersionId String?
+
+  @@index([projectId, createdAt], map: "ProjectDrawingUpload_project_created_idx")
+  @@index([companyId], map: "ProjectDrawingUpload_company_idx")
+}
+
+/// A single line item extracted from architectural drawings by AI.
+/// Represents one material/product/system identified in the BOM.
+model DrawingBomLine {
+  id       String @id @default(cuid())
+  uploadId String
+  lineNo   Int
+
+  /// CSI division (e.g. "03", "07", "22", "26")
+  csiDivision     String?
+  csiDivisionName String?  // "Concrete", "Thermal & Moisture Protection", etc.
+
+  /// What was extracted
+  description   String           // e.g. "Standing seam metal roof panels"
+  specification String?          // Manufacturer, model: "074113.A04" or "Kohler K-25077"
+  qty           Float?
+  unit          String?          // EA, SF, LF, etc.
+
+  /// Source reference in the drawing
+  sourcePage    Int?             // PDF page number
+  sourceSheet   String?          // Sheet ID: "A-201", "P-601", "E-501"
+
+  /// Cost book match
+  matchedCostBookItemId String?  // CompanyPriceListItem.id
+  matchConfidence       Float?   // 0–1 score
+  matchMethod           String?  // "exact_cat_sel", "fuzzy_description", "manual"
+
+  /// Pricing (from matched cost book item or manual entry)
+  unitPrice  Float?
+  totalPrice Float?
+
+  /// Status flags
+  isMatched       Boolean @default(false)
+  isManualPrice   Boolean @default(false) // User overrode the price
+  needsReview     Boolean @default(true)
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  upload        ProjectDrawingUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  costBookItem  CompanyPriceListItem? @relation("DrawingBomCostBookMatch", fields: [matchedCostBookItemId], references: [id])
+
+  @@index([uploadId, lineNo], map: "DrawingBomLine_upload_line_idx")
+  @@index([uploadId, csiDivision], map: "DrawingBomLine_upload_division_idx")
+  @@index([matchedCostBookItemId], map: "DrawingBomLine_cost_book_match_idx")
 }

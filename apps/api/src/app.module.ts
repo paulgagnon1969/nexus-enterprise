@@ -55,6 +55,7 @@ import { WeatherModule } from "./modules/weather/weather.module";
 import { SupplierCatalogModule } from "./modules/supplier-catalog/supplier-catalog.module";
 import { VideoModule } from "./modules/video/video.module";
 import { LocationsModule } from "./modules/locations/locations.module";
+import { DrawingsBomModule } from "./modules/drawings-bom/drawings-bom.module";
 
 @Module({
   imports: [
@@ -118,6 +119,7 @@ import { LocationsModule } from "./modules/locations/locations.module";
     SupplierCatalogModule,
     VideoModule,
     LocationsModule,
+    DrawingsBomModule,
   ],
   controllers: [DevController]
 })
