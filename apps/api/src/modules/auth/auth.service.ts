@@ -165,7 +165,8 @@ export class AuthService {
     // Ensure the superadmin can access every company.
     // Also ensure they have at least one company membership so login works.
     const existingMemberships = await this.prisma.companyMembership.findMany({
-      where: { userId: user.id }
+      where: { userId: user.id },
+      select: { userId: true },
     });
     if (existingMemberships.length === 0) {
       const company = await this.prisma.company.create({
@@ -203,10 +204,15 @@ export class AuthService {
               deletedAt: null,
             },
           },
-          include: {
-            company: true,
-            profile: { select: { code: true } },
-          },
+      select: {
+        isActive: true,
+        companyId: true,
+        role: true,
+        company: {
+          select: { id: true, name: true, workerInviteToken: true },
+        },
+        profile: { select: { code: true } },
+      },
         },
       },
     });
@@ -429,7 +435,8 @@ export class AuthService {
         userId: actor.userId,
         isActive: true,
       },
-      include: {
+      select: {
+        companyId: true,
         company: {
           select: { id: true, name: true },
         },
@@ -635,7 +642,8 @@ export class AuthService {
         companyId: invite.companyId,
         role: invite.role,
       },
-      include: {
+      select: {
+        role: true,
         profile: { select: { code: true } },
       },
     });
@@ -714,8 +722,12 @@ export class AuthService {
       where: { id: targetUserId },
       include: {
         memberships: {
-          include: {
-            company: true,
+          select: {
+            companyId: true,
+            role: true,
+            company: {
+              select: { id: true, name: true },
+            },
             profile: { select: { code: true } },
           },
         },
@@ -833,7 +845,11 @@ export class AuthService {
           companyId,
         },
       },
-      include: {
+      select: {
+        isActive: true,
+        role: true,
+        userId: true,
+        companyId: true,
         profile: { select: { code: true } },
       },
     });
@@ -846,7 +862,11 @@ export class AuthService {
           companyId,
           role: Role.OWNER,
         },
-        include: {
+        select: {
+          isActive: true,
+          role: true,
+          userId: true,
+          companyId: true,
           profile: { select: { code: true } },
         },
       });
