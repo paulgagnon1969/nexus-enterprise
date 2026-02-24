@@ -13833,13 +13833,13 @@ ${htmlBody}
           [
             { key: "DAILY_LOGS", label: "Daily Logs" },
             { key: "SCHEDULE", label: "Schedule" },
-            { key: "PETL", label: "PETL" },
+            ...(isPmOrAbove ? [{ key: "PETL" as TabKey, label: "PETL" }] : []),
             ...(isPmOrAbove ? [{ key: "BOM" as TabKey, label: "BOM & Procure" }] : []),
             { key: "STRUCTURE", label: "Project Organization" },
             { key: "FILES", label: "Files" },
             ...(isAdminOrAbove ? [{ key: "JOURNAL" as TabKey, label: "Journal" }] : []),
-            { key: "FINANCIAL", label: "Financial" },
-            { key: "SUMMARY", label: "Job Parameters" },
+            ...(isPmOrAbove ? [{ key: "FINANCIAL" as TabKey, label: "Financial" }] : []),
+            ...(isPmOrAbove ? [{ key: "SUMMARY" as TabKey, label: "Job Parameters" }] : []),
           ] as { key: TabKey; label: string }[]
         ).map(tab => (
           <button
