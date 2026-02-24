@@ -1,0 +1,58 @@
+name: Prod Worker deploy (Cloud Run)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/api/**"
+      - "packages/database/**"
+      - "scripts/deploy-worker.sh"
+
+jobs:
+  deploy-worker-prod:
+    runs-on: ubuntu-latest
+
+    # Required for Workload Identity Federation
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      GOOGLE_CLOUD_PROJECT: nexus-enterprise-480610
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies (root)
+        run: npm install --legacy-peer-deps
+
+      # Authenticate to GCP using Workload Identity Federation (no keys needed)
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/979156454944/locations/global/workloadIdentityPools/github-actions-pool/providers/github-provider
+          service_account: nexus-api-deployer@nexus-enterprise-480610.iam.gserviceaccount.com
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GOOGLE_CLOUD_PROJECT }}
+
+      - name: Configure Docker auth for Artifact Registry
+        run: gcloud auth configure-docker us-docker.pkg.dev --quiet
+
+      - name: Deploy Worker to Cloud Run (prod)
+        run: |
+          cd scripts
+          bash ./deploy-worker.sh
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ env.GOOGLE_CLOUD_PROJECT }}

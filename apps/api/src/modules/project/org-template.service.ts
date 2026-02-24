@@ -103,8 +103,16 @@ export class OrgTemplateService implements OnModuleInit {
   // ---------------------------------------------------------------------------
 
   async onModuleInit() {
-    for (const def of STOCK_TEMPLATES) {
-      await this.seedStockTemplate(def);
+    try {
+      for (const def of STOCK_TEMPLATES) {
+        await this.seedStockTemplate(def);
+      }
+    } catch (err: any) {
+      // Non-fatal: stock template seeding must not crash the process.
+      // The OrgTemplate table may not exist yet if migrations are pending.
+      this.logger.warn(
+        `Stock template seeding failed (non-fatal): ${err?.message ?? err}`,
+      );
     }
   }
 

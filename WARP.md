@@ -67,6 +67,32 @@ This file provides guidance to WARP (warp.dev) when working with code in this re
     - `npm run check-types`
 - When editing Prisma/database logic used by the API, prefer to make changes in `packages/database` (see below) and import from there instead of accessing Prisma directly inside `apps/api`.
 
+### Import Worker (`apps/api/src/worker.ts`)
+
+- The import worker is a **separate process** from the API. It runs as its own Cloud Run service (`nexus-worker`).
+- It listens on the BullMQ `import-jobs` queue (backed by Redis) and processes CSV imports asynchronously.
+- Entry points:
+  - `apps/api/src/worker.ts`: BullMQ worker logic (processes XACT_RAW, XACT_COMPONENTS, PRICE_LIST, etc.).
+  - `apps/api/src/worker-http.ts`: Wraps the worker with a lightweight HTTP health-check server for Cloud Run probes.
+- Scripts (from `apps/api/package.json`):
+  - `worker:dev`: `nodemon --watch src --ext ts --exec ts-node src/worker.ts` (worker in watch mode).
+  - `worker`: `node dist/worker.js` (run compiled worker).
+- Root script: `npm run dev:worker` (runs worker:dev from root).
+
+**Production deployment:**
+- Uses the same Docker image as the API (`apps/api/Dockerfile`) but with CMD overridden to `node dist/worker-http.js`.
+- Deployed via `scripts/deploy-worker.sh` or the `prod-worker-deploy.yml` GitHub Actions workflow.
+- Cloud Run config: `--min-instances 1` (always-on), `--concurrency 1` (one import at a time per instance), `--timeout 900` (15 min for large imports).
+- Requires the same env vars as the API: `DATABASE_URL`, `REDIS_URL`, `GCS_UPLOADS_BUCKET`, etc.
+
+**CRITICAL: API and Worker must stay in sync.**
+Both services use the same Docker image. When deploying API changes that affect import logic (worker.ts, import-xact.ts, pricing.service.ts), the worker MUST be redeployed too. The GitHub Actions workflows trigger on the same paths to ensure this.
+
+**Common worker workflows:**
+- Run worker locally (alongside API dev server): `npm run dev:worker`
+- Deploy worker to prod: `bash scripts/deploy-worker.sh`
+- Check worker health in prod: `curl https://<worker-url>/health`
+
 ### Web (`apps/web`)
 
 - Tech stack: Next.js 14, React 18, TypeScript.
@@ -195,6 +221,40 @@ npm -w packages/database exec -- npx prisma db push
 - Do NOT use `--force-reset`
 - Create a proper migration instead
 - Or ask the user how they want to handle it
+
+## Dev Server Stability - CRITICAL RULES
+
+The local dev servers use file-watching auto-reload (`ts-node-dev --respawn` for API, Next.js HMR for web). Warp MUST respect running processes.
+
+**NEVER do any of the following:**
+- `kill`, `kill -9`, `killall`, or `pkill` on dev server processes (node, ts-node-dev, next)
+- `lsof -ti:<port> | xargs kill` or any variant that kills processes by port
+- Start a competing dev server when one is already running (causes "port in use" errors)
+- Run `npm run dev:api` or `npm run dev` from an agent interactive session (the process dies when the session ends)
+
+**How code changes are picked up (no restart needed):**
+- API (`ts-node-dev --respawn`): Detects file changes in `apps/api/src/` and auto-restarts the NestJS process. Editing service/controller files triggers reload automatically.
+- Web (`next dev`): Hot Module Replacement (HMR) picks up changes instantly in the browser.
+
+**When a manual restart IS required (rare):**
+- New npm dependency added (`npm install` was run)
+- `.env` file changed
+- Prisma client regenerated (`prisma generate`)
+- `package.json` scripts changed
+
+In these cases, **ask the user to restart** in their own terminal. Do NOT kill and respawn from an agent session.
+
+**To verify a dev server is running without disrupting it:**
+```bash
+# Check if port is listening (read-only, safe)
+lsof -i:8001 | head -3   # API
+lsof -i:3000 | head -3   # Web
+```
+
+**To verify code changes were picked up:**
+- Hit a health/test endpoint: `curl -s http://localhost:8001/health`
+- Or check the API response includes the expected new data
+- Do NOT restart the server just to "make sure"
 
 ## Diagrams in NCC eDocs
 

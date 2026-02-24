@@ -1,0 +1,141 @@
+Line No,Cat,Sel,Activity,Description,Unit,Qty,Unit Price,Group Code,Group Description,Phase,Trade,Duration Days,Predecessor,Notes
+1,GEN,PERM,Permits,Building permit and plan review,EA,1,2500,PHASE_01,1 - General Requirements,1-Preconstruction,General,5,,Includes plan review
+2,GEN,SURV,Survey,Property survey and staking,EA,1,1800,PHASE_01,1 - General Requirements,1-Preconstruction,Surveyor,2,1,Lot corners and setbacks
+3,GEN,GEOTECH,Soil Test,Geotechnical soil investigation and report,EA,1,2200,PHASE_01,1 - General Requirements,1-Preconstruction,Geotechnical,3,1,Verify 2000 PSF bearing assumed in plans
+4,GEN,TERM,Termite Treatment,Termite soil treatment - entire footprint + 2ft perimeter,SF,2200,0.85,PHASE_01,1 - General Requirements,1-Preconstruction,Pest Control,1,8,5-year guarantee required - Very Heavy zone
+5,EXC,CLEAR,Site Clearing,Site clearing and grubbing,LS,1,3500,PHASE_02,2 - Site Work & Excavation,2-Sitework,Excavation,2,2,Remove vegetation and debris
+6,EXC,EXCA,Excavation,Excavation for footings and crawlspace,CY,120,18,PHASE_02,2 - Site Work & Excavation,2-Sitework,Excavation,3,5,ICF stem wall and sonotube piers
+7,EXC,GRADE,Grading,Rough grading - slope away from building 2% min,LS,1,2800,PHASE_02,2 - Site Work & Excavation,2-Sitework,Excavation,2,5,Per civil engineer drawings
+8,EXC,BKFL,Backfill,Backfill and compaction - 95% density ASTM D698,CY,80,22,PHASE_02,2 - Site Work & Excavation,2-Sitework,Excavation,2,18,6-8 inch lifts - clean fill only
+9,EXC,GRVL,Crushed Stone,4 inch crushed stone base - garage and slabs,CY,8,65,PHASE_02,2 - Site Work & Excavation,2-Sitework,Excavation,1,8,Under vapor barrier
+10,CON,ICF,Foundation Wall,8 inch ICF stem wall with #4 vert @ 24 in OC,LF,162,85,PHASE_03,3 - Foundation,3-Foundation,Concrete,5,6,Straight ICF forms - includes rebar
+11,CON,FTG,Continuous Footing,16x8 continuous footing - 3 #5 bar cont with #4 @ 12 in OC,LF,162,28,PHASE_03,3 - Foundation,3-Foundation,Concrete,3,6,Pour before stem wall
+12,CON,SONO,Sonotube Piers,18x48 sonotubes with Bigfoot 36 in footings - 4 #5 vert rebar,EA,8,450,PHASE_03,3 - Foundation,3-Foundation,Concrete,2,6,Simpson CB66 post bases
+13,CON,PIER,Interior Bearing Piers,24x24x8 footings with 4 #5 bar and #4 @ 8 in OC,EA,4,320,PHASE_03,3 - Foundation,3-Foundation,Concrete,1,6,4x4 SPF#2 posts
+14,CON,SLAB,Garage Slab,4 inch concrete slab on grade with 6x6 W1.4 WWF,SF,576,8.5,PHASE_03,3 - Foundation,3-Foundation,Concrete,2,10,6mil poly vapor barrier on 4 inch stone
+15,CON,REBAR,Rebar Package,#3 #4 #5 rebar - foundation and piers,LF,1600,1.85,PHASE_03,3 - Foundation,3-Foundation,Concrete,2,6,Cut bend and tie
+16,CON,ANCHOR,Anchor Bolts,1/2 and 5/8 dia anchor bolts with washers,EA,70,8.5,PHASE_03,3 - Foundation,3-Foundation,Concrete,1,10,Galvanized - set in wet concrete
+17,CON,WP,Waterproofing,Foundation waterproofing membrane - footing to grade,SF,650,4.25,PHASE_03,3 - Foundation,3-Foundation,Waterproofing,2,10,Bituminous membrane
+18,CON,DRAIN,Drainage,4 inch perforated drain pipe with gravel and filter cloth,LF,162,18,PHASE_03,3 - Foundation,3-Foundation,Plumbing,2,10,Drain to daylight or sump
+19,CON,PARG,Parging,Portland cement parging on exterior stem wall,SF,650,3.5,PHASE_03,3 - Foundation,3-Foundation,Concrete,2,17,3/8 inch minimum
+20,CON,VPOLY,Vapor Barrier,6 mil WP membrane on crawlspace grade,SF,1540,0.45,PHASE_03,3 - Foundation,3-Foundation,General,1,10,Clean compacted natural grade
+21,FRM,FJ12,Floor Joists,2x12 SPF#1 floor joists @ 16 in OC,BF,3000,2.85,PHASE_04,4 - Floor Framing,4-Framing,Framing,5,19,Crown edge up - various spans
+22,FRM,GLB14,Glulam Beams 14,3.5x14 GLB floor beams,EA,8,485,PHASE_04,4 - Floor Framing,4-Framing,Framing,2,19,Grid lines 2 3 5
+23,FRM,GLB12,Glulam Beams 12,3.5x12 GLB floor beams,EA,4,420,PHASE_04,4 - Floor Framing,4-Framing,Framing,1,19,Grid line 6
+24,FRM,GLB105,Glulam Beam 10.5,3.5x10.5 GLB deck beam,EA,1,380,PHASE_04,4 - Floor Framing,4-Framing,Framing,1,19,Deck support
+25,FRM,POST6,Posts 6x6,6x6 SPF#2 posts on sonotube piers,EA,8,85,PHASE_04,4 - Floor Framing,4-Framing,Framing,1,12,Simpson CB66 connection
+26,FRM,POST4,Posts 4x4,4x4 SPF#2 interior bearing posts,EA,4,45,PHASE_04,4 - Floor Framing,4-Framing,Framing,1,13,On 24x24 footings
+27,FRM,SUBFL,Subfloor,3/4 inch T&G plywood subfloor - glued and nailed,SF,1600,3.25,PHASE_04,4 - Floor Framing,4-Framing,Framing,3,21,8d nails @ 4 in OC edges 6 in OC field
+28,FRM,XBRDG,X-Bridging,Cross bridging between floor joists,LF,400,2.1,PHASE_04,4 - Floor Framing,4-Framing,Framing,1,21,At mid-span
+29,FRM,EXT26,Exterior Walls,2x6 @ 16 in OC exterior stud walls - 9ft,LF,162,32,PHASE_05,5 - Wall Framing,4-Framing,Framing,6,27,Stud grade - double top plate
+30,FRM,INT24,Interior Walls,2x4 @ 16 in OC interior partition walls,LF,180,18,PHASE_05,5 - Wall Framing,4-Framing,Framing,4,27,Stud grade
+31,FRM,HDRS,Headers and Lintels,LVL and dimensional lumber headers at all openings,EA,18,285,PHASE_05,5 - Wall Framing,4-Framing,Framing,2,29,Per lintel schedule S0 - sized by span
+32,FRM,DTOP,Double Top Plate,Double top plate with 48 inch lap splices,LF,340,4.5,PHASE_05,5 - Wall Framing,4-Framing,Framing,1,29,Simpson ST6224 straps at splices
+33,FRM,SOLE,Sole Plates,Pressure treated sole plates on concrete,LF,200,5.25,PHASE_05,5 - Wall Framing,4-Framing,Framing,1,27,Ground contact 0.40 lb/cf
+34,FRM,SHTH,Wall Sheathing,7/16 inch OSB exterior wall sheathing,SF,1500,2.15,PHASE_05,5 - Wall Framing,4-Framing,Framing,3,29,8d nails @ 6 in OC edges 12 in OC field
+35,FRM,RAFT14,Roof Rafters Main,2x14 engineered rafters @ 16 in OC - main roof,EA,35,125,PHASE_06,6 - Roof Framing,4-Framing,Framing,5,34,36ft span - 2:12 pitch
+36,FRM,RAFT8,Roof Rafters Garage,2x8 SPF#1 rafters @ 16 in OC - garage roof,EA,20,45,PHASE_06,6 - Roof Framing,4-Framing,Framing,2,34,Garage wing
+37,FRM,RIDGE,Ridge Board,2x10 SPF#2 ridge board,LF,46,4.8,PHASE_06,6 - Roof Framing,4-Framing,Framing,1,35,Full building length
+38,FRM,GLB16,Roof Beams,3.5x16 GLB roof beams,EA,4,580,PHASE_06,6 - Roof Framing,4-Framing,Framing,2,34,Primary roof support
+39,FRM,RSHTH,Roof Sheathing,1/2 inch CDX plywood roof sheathing,SF,2200,2.35,PHASE_06,6 - Roof Framing,4-Framing,Framing,3,35,8d ring shank - 4 in OC edges at perimeter
+40,FRM,HCLIP,Hurricane Clips,Simpson H2.5 hurricane clips at each rafter,EA,55,4.25,PHASE_06,6 - Roof Framing,4-Framing,Framing,1,35,Required - 115 MPH wind zone
+41,FRM,BLKG,Blocking,Rafter blocking and vented eave blocking,LF,200,3.5,PHASE_06,6 - Roof Framing,4-Framing,Framing,1,35,Vented at eaves
+42,FRM,CONN,Simpson Connectors,CS16 straps - H6 ties - SP2 clips - HUFT - CC connectors,EA,100,6.5,PHASE_05,5 - Wall Framing,4-Framing,Framing,2,29,All structural connections per S0
+43,ROF,METAL,Standing Seam Metal,Standing seam metal roofing,SF,2200,9.5,PHASE_07,7 - Roofing,5-Dry-In,Roofing,5,39,Primary roof finish per sections A6
+44,ROF,FELT,Roofing Underlayment,30 lb felt underlayment,SF,2400,0.65,PHASE_07,7 - Roofing,5-Dry-In,Roofing,1,39,Lapped per spec
+45,ROF,DRIP,Drip Edge,Aluminum drip edge at all roof edges,LF,200,3.25,PHASE_07,7 - Roofing,5-Dry-In,Roofing,1,39,Non-corrosive
+46,ROF,ICE,Ice and Water Shield,Self-adhering polymer modified bitumen - eave to 24 in inside wall,SF,200,4.5,PHASE_07,7 - Roofing,5-Dry-In,Roofing,1,39,Low slope 2:12 - critical
+47,ROF,FLASH,Valley and Wall Flashing,#28 gauge galvanized valley and step flashing,LF,60,12,PHASE_07,7 - Roofing,5-Dry-In,Roofing,1,43,8 in from centerline each way
+48,EXT,SIDING,Metal Siding,Standing seam metal siding - exterior walls,SF,1500,12.5,PHASE_08,8 - Exterior Envelope,5-Dry-In,Siding,8,43,Match roof material
+49,EXT,WRAP,House Wrap,Building wrap drainage plane - min 6 in overlap,SF,1600,0.85,PHASE_08,8 - Exterior Envelope,5-Dry-In,Siding,2,34,Before siding
+50,EXT,SNOW,Snow Guards,Snow guard installation per manufacturer specs,LS,1,1200,PHASE_07,7 - Roofing,5-Dry-In,Roofing,1,43,2:12 metal roof
+51,WIN,W1,Windows,3x8 Fixed Picture Window - dual glazed,EA,4,1850,PHASE_09,9 - Windows & Doors,5-Dry-In,Windows,2,48,Floor to ceiling
+52,WIN,W2,Windows,3-10x3-6 Fixed Picture Window - dual glazed,EA,3,680,PHASE_09,9 - Windows & Doors,5-Dry-In,Windows,1,48,
+53,WIN,W3,Windows,7x8 Sliding Window - dual glazed,EA,1,2400,PHASE_09,9 - Windows & Doors,5-Dry-In,Windows,1,48,Kitchen window
+54,WIN,W4,Windows,7x3-6 Fixed Picture Window - dual glazed,EA,2,1100,PHASE_09,9 - Windows & Doors,5-Dry-In,Windows,1,48,
+55,WIN,W5,Windows,6x5 Sliding Window - dual glazed,EA,2,1450,PHASE_09,9 - Windows & Doors,5-Dry-In,Windows,1,48,Bedrooms - 3ft sill height
+56,WIN,W7,Windows,3x2 Bathroom High Window,EA,2,380,PHASE_09,9 - Windows & Doors,5-Dry-In,Windows,1,48,6ft sill height
+57,DOR,D1,Doors,3-0x6-8 Exterior/Interior Swing Door,EA,3,650,PHASE_09,9 - Windows & Doors,5-Dry-In,Doors,1,48,Fiberglass - weatherstripped
+58,DOR,D2,Doors,6-0 Double Entry Door pair,EA,2,1800,PHASE_09,9 - Windows & Doors,5-Dry-In,Doors,1,48,
+59,DOR,D3,Doors,4-0x6-8 Interior Double Swing Door,EA,1,480,PHASE_09,9 - Windows & Doors,5-Dry-In,Doors,1,48,
+60,DOR,D5,Doors,2-6x6-8 Interior Hollow Core Door,EA,7,185,PHASE_09,9 - Windows & Doors,6-Interior Rough,Doors,2,48,Bedrooms closets baths
+61,DOR,D6,Doors,3-0x8-0 Exterior Swing Door - main entry,EA,1,1250,PHASE_09,9 - Windows & Doors,5-Dry-In,Doors,1,48,Fiberglass insulated - full weatherstrip
+62,DOR,D7,Doors,11-6x8-0 3-Panel Sliding Door,EA,1,4500,PHASE_09,9 - Windows & Doors,5-Dry-In,Doors,1,48,Living room to deck
+63,DOR,D8,Doors,7-0x8-0 Sliding Door,EA,2,2200,PHASE_09,9 - Windows & Doors,5-Dry-In,Doors,1,48,
+64,DOR,D10,Doors,Overhead Garage Door with automatic opener,EA,1,2800,PHASE_09,9 - Windows & Doors,5-Dry-In,Doors,1,48,UL325 listed opener
+65,DOR,FIRE,Doors,20-min Fire Rated Garage-to-Interior Door with self-closer,EA,1,485,PHASE_09,9 - Windows & Doors,5-Dry-In,Doors,1,48,Metal or solid wood core 1-3/4
+66,PLM,ROUGH,Plumbing Rough,Plumbing rough-in - all supply and DWV,LS,1,8500,PHASE_10,10 - Plumbing Rough,6-Interior Rough,Plumbing,5,29,Kitchen 2 baths laundry
+67,PLM,KSINK,Fixtures,Kitchen sink with 2.2 GPM faucet and garbage disposal,EA,1,650,PHASE_10,10 - Plumbing Rough,8-Finishes,Plumbing,1,82,
+68,PLM,MLAV,Fixtures,Master bath lavatory with 2.2 GPM faucet,EA,1,380,PHASE_10,10 - Plumbing Rough,8-Finishes,Plumbing,1,82,
+69,PLM,B2LAV,Fixtures,Bath #2 lavatory with 2.2 GPM faucet,EA,1,350,PHASE_10,10 - Plumbing Rough,8-Finishes,Plumbing,1,82,
+70,PLM,MTOIL,Fixtures,Master bath toilet 1.6 GPF,EA,1,285,PHASE_10,10 - Plumbing Rough,8-Finishes,Plumbing,1,82,
+71,PLM,B2TOIL,Fixtures,Bath #2 toilet 1.6 GPF,EA,1,265,PHASE_10,10 - Plumbing Rough,8-Finishes,Plumbing,1,82,
+72,PLM,MSHWR,Fixtures,Master bath shower/tub with 2.5 GPM showerhead,EA,1,850,PHASE_10,10 - Plumbing Rough,8-Finishes,Plumbing,1,82,
+73,PLM,B2SHWR,Fixtures,Bath #2 shower/tub with 2.5 GPM showerhead,EA,1,750,PHASE_10,10 - Plumbing Rough,8-Finishes,Plumbing,1,82,
+74,PLM,LAUND,Fixtures,Laundry faucet and W/D connections,EA,1,320,PHASE_10,10 - Plumbing Rough,8-Finishes,Plumbing,1,82,Mud room
+75,PLM,HOSE,Fixtures,Hose bibs with anti-siphon devices - front and rear,EA,2,125,PHASE_10,10 - Plumbing Rough,6-Interior Rough,Plumbing,1,66,
+76,PLM,WH,Equipment,Water heater - strapped to wall - elevated 18 in min,EA,1,1800,PHASE_10,10 - Plumbing Rough,6-Interior Rough,Plumbing,1,66,2 straps - 1/3 top and 1/3 bottom
+77,PLM,REFRIG,Fixtures,Refrigerator water line,EA,1,185,PHASE_10,10 - Plumbing Rough,6-Interior Rough,Plumbing,1,66,Ice maker supply
+78,PLM,VENT,Vent,Dryer vent - 4 inch smooth round metal - max 14ft,EA,1,165,PHASE_10,10 - Plumbing Rough,6-Interior Rough,Plumbing,1,66,90 degree bends reduce max length
+79,MEC,HVAC,HVAC System,Heating and cooling system - design by mechanical contractor,LS,1,14000,PHASE_11,11 - HVAC,6-Interior Rough,HVAC,5,29,Must maintain 68F at design temp 26F
+80,MEC,DUCT,Ductwork,Duct layout and installation per mechanical design,LS,1,4500,PHASE_11,11 - HVAC,6-Interior Rough,HVAC,3,79,Shop drawings required before install
+81,MEC,EXFAN,Exhaust Fans,Bath exhaust fans - 50 CFM Energy Star - vented to outside,EA,2,185,PHASE_11,11 - HVAC,6-Interior Rough,HVAC,1,79,Separate switch - GFCI circuit
+82,ELE,PANEL,Service,Electrical panel and service entrance,EA,1,3200,PHASE_12,12 - Electrical Rough,6-Interior Rough,Electrical,2,29,200A service typical
+83,ELE,ROUGH,Rough-In,Electrical rough-in - all circuits,LS,1,6500,PHASE_12,12 - Electrical Rough,6-Interior Rough,Electrical,5,82,Wire pull and box install
+84,ELE,OUTLT,Outlets,Duplex outlets - standard,EA,40,65,PHASE_12,12 - Electrical Rough,6-Interior Rough,Electrical,2,83,12 in AFF max 12ft OC on walls
+85,ELE,GFI,Outlets,GFI outlets - kitchen bath garage exterior,EA,16,95,PHASE_12,12 - Electrical Rough,6-Interior Rough,Electrical,1,83,Within 6ft of water sources
+86,ELE,WPGFI,Outlets,Weatherproof GFI exterior outlets with bubble covers,EA,4,115,PHASE_12,12 - Electrical Rough,6-Interior Rough,Electrical,1,83,Min 2 front 2 rear
+87,ELE,240R,Outlets,240V dedicated circuit - range,EA,1,285,PHASE_12,12 - Electrical Rough,6-Interior Rough,Electrical,1,83,
+88,ELE,240D,Outlets,240V dedicated circuit - dryer,EA,1,285,PHASE_12,12 - Electrical Rough,6-Interior Rough,Electrical,1,83,
+89,ELE,20ABT,Outlets,Dedicated 20A bath circuits,EA,2,185,PHASE_12,12 - Electrical Rough,6-Interior Rough,Electrical,1,83,One per bathroom
+90,ELE,20ALA,Outlets,Dedicated 20A laundry circuit,EA,1,185,PHASE_12,12 - Electrical Rough,6-Interior Rough,Electrical,1,83,
+91,ELE,RCAN,Lighting,Recessed can lights - IC rated airtight,EA,30,85,PHASE_12,12 - Electrical Rough,8-Finishes,Electrical,2,82,JA8-2016-E bulbs
+92,ELE,CFAN,Lighting,Ceiling fans with bracing,EA,4,285,PHASE_12,12 - Electrical Rough,8-Finishes,Electrical,1,82,Living room and bedrooms
+93,ELE,PEND,Lighting,Pendant light fixtures,EA,4,225,PHASE_12,12 - Electrical Rough,8-Finishes,Electrical,1,82,Kitchen and dining
+94,ELE,SCONCE,Lighting,Wall sconces - exterior entries,EA,6,165,PHASE_12,12 - Electrical Rough,8-Finishes,Electrical,1,82,
+95,ELE,FLUOR,Lighting,Fluorescent lights - garage,EA,2,85,PHASE_12,12 - Electrical Rough,8-Finishes,Electrical,1,82,
+96,ELE,SWSGL,Switches,Single pole switches,EA,15,35,PHASE_12,12 - Electrical Rough,6-Interior Rough,Electrical,1,83,
+97,ELE,SW34,Switches,3-way and 4-way switches,EA,10,55,PHASE_12,12 - Electrical Rough,6-Interior Rough,Electrical,1,83,
+98,ELE,SWDIM,Switches,Dimmer switches,EA,6,65,PHASE_12,12 - Electrical Rough,6-Interior Rough,Electrical,1,83,
+99,ELE,SMOKE,Safety,Smoke detectors - interconnected 120V with battery backup,EA,6,75,PHASE_12,12 - Electrical Rough,6-Interior Rough,Electrical,1,83,All bedrooms hallways and levels
+100,ELE,CO,Safety,Carbon monoxide detectors,EA,3,85,PHASE_12,12 - Electrical Rough,6-Interior Rough,Electrical,1,83,Adjacent to sleeping rooms each story
+101,ELE,AFCI,Safety,AFCI interrupters - bedroom circuits,EA,3,125,PHASE_12,12 - Electrical Rough,6-Interior Rough,Electrical,1,83,All bedrooms required
+102,ELE,DBELL,Low Voltage,Doorbell,EA,1,125,PHASE_12,12 - Electrical Rough,8-Finishes,Electrical,1,82,
+103,ELE,TSTAT,Low Voltage,Programmable thermostat,EA,1,285,PHASE_12,12 - Electrical Rough,8-Finishes,Electrical,1,82,
+104,ELE,MEDIA,Low Voltage,Multi-media outlets,EA,4,95,PHASE_12,12 - Electrical Rough,6-Interior Rough,Electrical,1,83,
+105,ELE,GDO,Equipment,Garage door opener circuit and wiring,EA,1,185,PHASE_12,12 - Electrical Rough,6-Interior Rough,Electrical,1,83,
+106,INS,WALL,Insulation,R-19 batt insulation - exterior walls,SF,1500,1.85,PHASE_13,13 - Insulation,7-Insulation,Insulation,3,34,2x6 wall cavity
+107,INS,ROOF,Insulation,R-38 spray foam insulation - roof,SF,2200,5.5,PHASE_13,13 - Insulation,7-Insulation,Insulation,3,39,Closed cell spray foam
+108,INS,FLOOR,Insulation,R-30 batt insulation - under floor at crawlspace,SF,1600,2.25,PHASE_13,13 - Insulation,7-Insulation,Insulation,2,27,Staple to joist bottoms
+109,INS,STRAP,Insulation,1x3 strapping @ 16 in OC under roof framing,LF,1400,1.65,PHASE_13,13 - Insulation,7-Insulation,Insulation,2,39,Thermal barrier support
+110,INS,THBAR,Insulation,1/2 inch gypsum board thermal barrier under spray foam,SF,2200,1.85,PHASE_13,13 - Insulation,7-Insulation,Drywall,2,109,Required thermal barrier for spray foam
+111,DRY,WALL,Drywall,1/2 inch gypsum wallboard - walls,SF,6000,2.25,PHASE_14,14 - Drywall,8-Finishes,Drywall,6,106,Tape mud and sand - 3 coat finish
+112,DRY,CEIL,Drywall,1/2 inch gypsum wallboard - ceilings,SF,1600,2.65,PHASE_14,14 - Drywall,8-Finishes,Drywall,3,106,
+113,DRY,TYPEX,Drywall,5/8 inch Type-X fire rated drywall - garage,SF,1200,3.25,PHASE_14,14 - Drywall,8-Finishes,Drywall,2,106,Ceiling and shared walls
+114,DRY,BACKER,Drywall,Cement backer board at tub/shower areas,SF,200,5.5,PHASE_14,14 - Drywall,8-Finishes,Tile,1,111,Min 70 in above drain
+115,PNT,INTWALL,Paint,Interior walls - latex flat 2 coats,SF,6000,1.45,PHASE_15,15 - Paint,8-Finishes,Paint,4,111,
+116,PNT,INTCEIL,Paint,Interior ceilings - latex flat 2 coats,SF,1600,1.65,PHASE_15,15 - Paint,8-Finishes,Paint,2,112,
+117,PNT,TRIM,Paint,Interior trim - latex semi-gloss over flat primer,LF,800,2.25,PHASE_15,15 - Paint,8-Finishes,Paint,3,115,Brush applied second coat
+118,PNT,BTHPNT,Paint,Kitchen and bath - enamel trim 2 coats,LF,200,2.85,PHASE_15,15 - Paint,8-Finishes,Paint,1,115,
+119,PNT,EXTRIM,Paint,Exterior trim - latex prime plus finish coat,LF,400,3.25,PHASE_15,15 - Paint,8-Finishes,Paint,2,48,
+120,FLR,TILE,Flooring,Ceramic floor tile - bathrooms - thin set non-slip,SF,120,12.5,PHASE_16,16 - Flooring,8-Finishes,Tile,3,114,Includes grout and sealant
+121,FLR,THRESH,Flooring,Marble thresholds at tile transitions,EA,4,85,PHASE_16,16 - Flooring,8-Finishes,Tile,1,120,
+122,FLR,MAIN,Flooring,Floor finish - living areas - per owner selection,SF,850,8,PHASE_16,16 - Flooring,8-Finishes,Flooring,4,115,LVP hardwood or engineered
+123,FLR,BDRM,Flooring,Floor finish - bedrooms - per owner selection,SF,450,7,PHASE_16,16 - Flooring,8-Finishes,Flooring,2,115,Carpet LVP or hardwood
+124,FLR,UNDER,Flooring,Floor underlayment for tile and resilient flooring,SF,300,2.5,PHASE_16,16 - Flooring,8-Finishes,Flooring,1,111,
+125,TRM,INTDOOR,Trim,Interior door trim - 2-1/2 inch traditional profile,LF,340,3.85,PHASE_17,17 - Trim & Millwork,8-Finishes,Trim,3,115,May be finger-jointed
+126,TRM,INTBASE,Trim,Interior baseboard trim,LF,500,3.5,PHASE_17,17 - Trim & Millwork,8-Finishes,Trim,2,115,
+127,TRM,WINTRM,Trim,Window trim - interior casing,LF,280,4.25,PHASE_17,17 - Trim & Millwork,8-Finishes,Trim,2,115,
+128,TRM,SHELF,Trim,Closet and pantry shelving,LF,60,18,PHASE_17,17 - Trim & Millwork,8-Finishes,Trim,2,115,3/4 flakeboard or wire shelf per owner
+129,CAB,KITCH,Cabinets,Kitchen cabinets - per owner selection,LF,18,350,PHASE_18,18 - Cabinets & Countertops,8-Finishes,Cabinets,3,111,Upper and lower
+130,CAB,MBATH,Cabinets,Master bath vanity cabinet,EA,1,650,PHASE_18,18 - Cabinets & Countertops,8-Finishes,Cabinets,1,111,
+131,CAB,B2BATH,Cabinets,Bath #2 vanity cabinet,EA,1,480,PHASE_18,18 - Cabinets & Countertops,8-Finishes,Cabinets,1,111,
+132,CAB,CTOP,Countertops,Kitchen countertops - per owner selection,SF,40,65,PHASE_18,18 - Cabinets & Countertops,8-Finishes,Countertops,2,129,Granite quartz or laminate
+133,CAB,BCTOP,Countertops,Bathroom vanity countertops,EA,2,380,PHASE_18,18 - Cabinets & Countertops,8-Finishes,Countertops,1,130,
+134,DEC,DECK,Decking,Deck framing and decking - pressure treated,SF,485,22,PHASE_19,19 - Deck & Exterior,9-Exterior Finish,Framing,5,48,Ground contact 0.40 lb/cf
+135,DEC,RAIL,Railings,Deck guardrails - 36 in min height - 4 in max sphere,LF,70,45,PHASE_19,19 - Deck & Exterior,9-Exterior Finish,Framing,2,134,Code compliant
+136,DEC,LEDGER,Decking,Deck ledger connection to house,LF,46,18,PHASE_19,19 - Deck & Exterior,9-Exterior Finish,Framing,1,134,Flashed and bolted per code
+137,FIN,APPL,Appliances,Appliance package - per owner selection,LS,1,5500,PHASE_20,20 - Final,10-Punchlist,General,1,129,Range refrigerator dishwasher
+138,FIN,CLEAN,Cleaning,Construction cleaning - rough and final,LS,1,2500,PHASE_20,20 - Final,10-Punchlist,General,2,137,
+139,FIN,PUNCH,Punchlist,Punchlist walkthrough and corrections,LS,1,2000,PHASE_20,20 - Final,10-Punchlist,General,3,138,
+140,FIN,FINAL,Inspection,Final inspection and certificate of occupancy,EA,1,500,PHASE_20,20 - Final,10-Punchlist,General,2,139,
