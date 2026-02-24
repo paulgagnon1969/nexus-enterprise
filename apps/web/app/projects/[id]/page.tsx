@@ -5357,6 +5357,32 @@ ${htmlBody}
   const invoiceFullscreen = searchParams?.get("invoiceFullscreen") === "1";
   const invoiceIdFromUrl = searchParams?.get("invoiceId") || null;
 
+  // Full-screen body toggle — hides the app header / sidebar and lets the tab
+  // content fill the entire viewport.  Press Escape or click the ✕ to exit.
+  const [bodyFullscreen, setBodyFullscreen] = useState(false);
+
+  useEffect(() => {
+    if (!bodyFullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setBodyFullscreen(false);
+    };
+    window.addEventListener("keydown", onKey);
+
+    // Inject CSS to hide the app shell header + expand the main area
+    const style = document.createElement("style");
+    style.dataset.fullscreen = "project";
+    style.textContent = [
+      ".app-header { display: none !important; }",
+      ".app-main { padding: 0 !important; margin: 0 !important; max-width: 100vw !important; overflow: auto !important; }",
+    ].join("\n");
+    document.head.appendChild(style);
+
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      style.remove();
+    };
+  }, [bodyFullscreen]);
+
   useEffect(() => {
     const tab = searchParams?.get("tab");
     if (!tab) return;
@@ -12395,15 +12421,23 @@ ${htmlBody}
     <div
       className="app-card"
       style={
-        invoiceFullscreen
+        bodyFullscreen
           ? {
-              // Cancel app shell padding so the invoice can use the full viewport.
-              margin: "-12px -20px -24px",
+              margin: 0,
               borderRadius: 0,
               padding: 12,
               maxHeight: "none",
+              minHeight: "100vh",
             }
-          : undefined
+          : invoiceFullscreen
+            ? {
+                // Cancel app shell padding so the invoice can use the full viewport.
+                margin: "-12px -20px -24px",
+                borderRadius: 0,
+                padding: 12,
+                maxHeight: "none",
+              }
+            : undefined
       }
     >
       {/* GALLERY MODAL - INLINE TEST */}
@@ -13780,10 +13814,11 @@ ${htmlBody}
       {/* Tab strip for project detail sections */}
       <div
         style={{
-          marginTop: 16,
+          marginTop: bodyFullscreen ? 0 : 16,
           borderBottom: "1px solid #e5e7eb",
           display: "flex",
           gap: 8,
+          alignItems: "center",
         }}
       >
       {(
@@ -13830,6 +13865,24 @@ ${htmlBody}
             {tab.label}
           </button>
         ))}
+        {/* Full-screen toggle */}
+        <button
+          type="button"
+          onClick={() => setBodyFullscreen((v) => !v)}
+          title={bodyFullscreen ? "Exit full screen (Esc)" : "Full screen"}
+          style={{
+            marginLeft: "auto",
+            border: "none",
+            background: "transparent",
+            cursor: "pointer",
+            fontSize: 16,
+            padding: "4px 6px",
+            lineHeight: 1,
+            color: bodyFullscreen ? "#2563eb" : "#6b7280",
+          }}
+        >
+          {bodyFullscreen ? "⛶" : "⛶"}
+        </button>
       </div>
 
       {activeTabUi === "PETL" && activeTab !== "PETL" && (

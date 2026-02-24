@@ -750,6 +750,67 @@ function CompanyUsersPageInner() {
     }
   };
 
+  async function handleBulkReleaseToMarketplace() {
+    if (!companyId) return;
+    if (!canManageMembers) return;
+
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      alert("Missing access token. Please log in again.");
+      return;
+    }
+
+    const selected = filteredMembers.filter(
+      m => memberSelectedIds.includes(m.userId) && m.isActive,
+    );
+    if (!selected.length) {
+      alert("No active members selected to release.");
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `Release ${selected.length} member${selected.length > 1 ? "s" : ""} to the marketplace? They will be deactivated from this tenant but remain available as unassigned in the marketplace.`,
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await Promise.all(
+        selected.map(async m => {
+          const res = await fetch(
+            `${API_BASE}/companies/${companyId}/members/${m.userId}/active`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ isActive: false }),
+            },
+          );
+          if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            console.error(
+              `Failed to release ${m.user.email} (${m.userId}):`,
+              res.status,
+              text,
+            );
+          }
+        }),
+      );
+
+      setMembers(prev =>
+        prev.map(m =>
+          memberSelectedIds.includes(m.userId) ? { ...m, isActive: false } : m,
+        ),
+      );
+    } catch (err: any) {
+      alert(err?.message ?? "Failed to release members.");
+    }
+  }
+
   const handleSingleInvite = async (e: FormEvent) => {
     e.preventDefault();
     setSingleError(null);
@@ -2371,6 +2432,35 @@ function CompanyUsersPageInner() {
                             <span>Set role to OWNER</span>
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setMemberBulkMenuOpen(false);
+                            await handleBulkReleaseToMarketplace();
+                          }}
+                          disabled={memberSelectedCount === 0}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            width: "100%",
+                            padding: "6px 10px",
+                            borderTop: "2px solid #fca5a5",
+                            borderBottom: "none",
+                            borderLeft: "none",
+                            borderRight: "none",
+                            background:
+                              memberSelectedCount === 0 ? "#f9fafb" : "#fef2f2",
+                            color:
+                              memberSelectedCount === 0 ? "#9ca3af" : "#b91c1c",
+                            cursor:
+                              memberSelectedCount === 0 ? "default" : "pointer",
+                            fontSize: 12,
+                            textAlign: "left",
+                          }}
+                        >
+                          <span>Release to marketplace</span>
+                        </button>
                       </div>
                     )}
                   </th>
@@ -2760,8 +2850,46 @@ function CompanyUsersPageInner() {
                                 textAlign: "left",
                               }}
                             >
-                              <span>Journal</span>
+                            <span>Journal</span>
                             </button>
+                            {canManageMembers && (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  setMemberOpenMenuUserId(null);
+                                  if (
+                                    !window.confirm(
+                                      `Release ${m.user.firstName || m.user.email} from this tenant? They will be deactivated but remain available in the marketplace.`,
+                                    )
+                                  )
+                                    return;
+                                  await handleChangeMemberActive(
+                                    m.userId,
+                                    m.isActive,
+                                    false,
+                                  );
+                                }}
+                                disabled={!m.isActive}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 6,
+                                  width: "100%",
+                                  padding: "6px 10px",
+                                  borderTop: "2px solid #fca5a5",
+                                  borderBottom: "none",
+                                  borderLeft: "none",
+                                  borderRight: "none",
+                                  background: !m.isActive ? "#f9fafb" : "#fef2f2",
+                                  color: !m.isActive ? "#9ca3af" : "#b91c1c",
+                                  cursor: !m.isActive ? "default" : "pointer",
+                                  fontSize: 12,
+                                  textAlign: "left",
+                                }}
+                              >
+                                <span>{m.isActive ? "Release to marketplace" : "Already released"}</span>
+                              </button>
+                            )}
                           </div>
                         )}
                       </td>

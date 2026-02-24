@@ -11,7 +11,7 @@ import { initDb } from "./src/offline/db";
 import { recoverStuckProcessing } from "./src/offline/outbox";
 import { startAutoSync, stopAutoSync } from "./src/offline/autoSync";
 import { registerForPushNotifications, deregisterPushToken, parseNotificationData } from "./src/utils/pushNotifications";
-import { apiJson } from "./src/api/client";
+import { apiJson, setOnAuthExhausted } from "./src/api/client";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { AppNavigator } from "./src/navigation/AppNavigator";
 import { VideoCallScreen, type VideoCallParams } from "./src/screens/VideoCallScreen";
@@ -44,6 +44,14 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const navigationRef = useRef<NavigationContainerRef<any>>(null);
   const notificationResponseListener = useRef<Notifications.EventSubscription | null>(null);
+
+  // Auto-logout when the API client exhausts all auth (JWT + refresh + DeviceSync)
+  useEffect(() => {
+    setOnAuthExhausted(() => {
+      console.log("[App] Auth exhausted — forcing logout");
+      setIsLoggedIn(false);
+    });
+  }, []);
 
   useEffect(() => {
     (async () => {

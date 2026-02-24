@@ -7,11 +7,28 @@ import { BigBoxProvider } from "./bigbox.provider";
 import { SerpApiProvider } from "./serpapi.provider";
 import { SerpApiLowesProvider } from "./serpapi-lowes.provider";
 import { LowesProvider } from "./lowes.provider";
+import { VendorRegistryService } from "./vendor-registry.service";
+import { ShopService } from "./shop.service";
 
 @Module({
   imports: [PrismaModule, RedisModule],
   controllers: [SupplierCatalogController],
-  providers: [SupplierCatalogService, SerpApiProvider, BigBoxProvider, SerpApiLowesProvider, LowesProvider],
-  exports: [SupplierCatalogService, BigBoxProvider, SerpApiProvider, SerpApiLowesProvider],
+  providers: [
+    SupplierCatalogService,
+    SerpApiProvider,
+    BigBoxProvider,
+    SerpApiLowesProvider,
+    LowesProvider,
+    VendorRegistryService,
+    ShopService,
+  ],
+  exports: [
+    SupplierCatalogService,
+    BigBoxProvider,
+    SerpApiProvider,
+    SerpApiLowesProvider,
+    VendorRegistryService,
+    ShopService,
+  ],
 })
 export class SupplierCatalogModule {}

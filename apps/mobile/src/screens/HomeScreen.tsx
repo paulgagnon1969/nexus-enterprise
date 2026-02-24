@@ -570,19 +570,8 @@ export function HomeScreen({
           )}
         </Pressable>
 
-        {/* Right: pending count + map pin */}
+        {/* Right: pending count */}
         <View style={styles.rightControls}>
-          <View style={styles.rightControlsRow}>
-            {selectedProject &&
-              (selectedProject.latitude || selectedProject.addressLine1) && (
-                <Pressable
-                  style={styles.mapPinButton}
-                  onPress={() => setShowDirections(true)}
-                >
-                  <MapPinIcon size={20} color="#0ea5e9" />
-                </Pressable>
-              )}
-          </View>
           {pending > 0 && (
             <Pressable onPress={onGoOutbox}>
               <Text style={styles.pendingBadge}>{pending} pending</Text>
@@ -606,9 +595,15 @@ export function HomeScreen({
           <View style={styles.projectHeader}>
             <Text style={styles.projectHeaderName}>{selectedProject.name}</Text>
             {getProjectAddress(selectedProject) && (
-              <Text style={styles.projectHeaderAddress}>
-                {getProjectAddress(selectedProject)}
-              </Text>
+              <Pressable
+                style={styles.projectAddressRow}
+                onPress={() => setShowDirections(true)}
+              >
+                <MapPinIcon size={16} color="#0ea5e9" />
+                <Text style={styles.projectHeaderAddress}>
+                  {getProjectAddress(selectedProject)}
+                </Text>
+              </Pressable>
             )}
           </View>
 
@@ -723,16 +718,6 @@ export function HomeScreen({
           >
             <Text style={styles.backToAllText}>← View All Projects</Text>
           </Pressable>
-
-          {/* Version info */}
-          <Text style={styles.versionText}>
-            v{appJson.expo.version} ({Platform.OS === "ios" ? "iOS" : "Android"}) • build {appJson.expo.runtimeVersion}
-          </Text>
-
-          {/* Logout */}
-          <Pressable style={styles.logout} onPress={doLogout}>
-            <Text style={styles.logoutText}>Logout</Text>
-          </Pressable>
         </ScrollView>
       ) : (
         // === PROJECT FEED VIEW ===
@@ -785,15 +770,6 @@ export function HomeScreen({
             ))
           )}
 
-          {/* Version info */}
-          <Text style={styles.versionText}>
-            v{appJson.expo.version} ({Platform.OS === "ios" ? "iOS" : "Android"}) • build {appJson.expo.runtimeVersion}
-          </Text>
-
-          {/* Logout at bottom */}
-          <Pressable style={styles.logout} onPress={doLogout}>
-            <Text style={styles.logoutText}>Logout</Text>
-          </Pressable>
         </ScrollView>
       )}
 
@@ -1723,6 +1699,13 @@ const styles = StyleSheet.create({
   projectHeaderAddress: {
     fontSize: 14,
     color: "#6b7280",
+    flex: 1,
+  },
+  projectAddressRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 2,
   },
 
   // Combined Action Bar (Daily Log + Clock)

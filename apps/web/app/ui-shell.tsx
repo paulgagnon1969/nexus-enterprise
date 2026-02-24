@@ -806,11 +806,14 @@ function CompanySwitcher() {
             if (adminRes.ok) {
               const all = await adminRes.json();
               if (Array.isArray(all) && all.length) {
-                visibleCompanies = all.map((c: any) => ({
-                  id: c.id,
-                  name: c.name ?? c.id,
-                  kind: c.kind,
-                }));
+                // Filter out deactivated (deletedAt != null) and nameless companies
+                visibleCompanies = all
+                  .filter((c: any) => !c.deletedAt && c.name)
+                  .map((c: any) => ({
+                    id: c.id,
+                    name: c.name ?? c.id,
+                    kind: c.kind,
+                  }));
               }
             }
           } catch {

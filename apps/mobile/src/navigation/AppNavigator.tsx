@@ -238,7 +238,7 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
         initialRouteName={initialTab}
         screenOptions={{ headerShown: false }}
         tabBar={(props) => (
-          <ScrollableTabBar {...props} todoBadgeCount={urgentCount} />
+          <ScrollableTabBar {...props} todoBadgeCount={urgentCount} onLogout={onLogout} />
         )}
         screenListeners={{
           tabPress: (e) => {

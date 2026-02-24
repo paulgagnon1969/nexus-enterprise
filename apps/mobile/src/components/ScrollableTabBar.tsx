@@ -4,7 +4,6 @@ import {
   Text,
   Pressable,
   Modal,
-  Switch,
   StyleSheet,
   Platform,
   Alert,
@@ -12,10 +11,9 @@ import {
 } from "react-native";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { colors } from "../theme/colors";
-import { getWifiOnlySync, setWifiOnlySync } from "../storage/settings";
 import { apiJson } from "../api/client";
 import * as Haptics from "expo-haptics";
-import appJson from "../../app.json";
+import { UserMenuButton } from "./UserMenuButton";
 
 /** Module metadata (everything except Home) */
 const MODULES: { key: string; icon: string; label: string }[] = [
@@ -40,25 +38,18 @@ const TAB_META: Record<string, { icon: string; label: string }> = {
 interface Props extends BottomTabBarProps {
   /** Badge count to show on the ToDo's module (0 = no badge) */
   todoBadgeCount?: number;
+  /** Logout handler passed to the UserMenuButton */
+  onLogout: () => void;
 }
 
 export function ScrollableTabBar({
   state,
   navigation,
   todoBadgeCount = 0,
+  onLogout,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [wifiOnly, setWifiOnly] = useState(false);
   const [calling, setCalling] = useState(false);
-
-  useEffect(() => {
-    getWifiOnlySync().then(setWifiOnly);
-  }, []);
-
-  const toggleWifi = async (val: boolean) => {
-    setWifiOnly(val);
-    await setWifiOnlySync(val);
-  };
 
   const currentRoute = state.routes[state.index]?.name ?? "HomeTab";
   const isHome = currentRoute === "HomeTab";
@@ -157,20 +148,8 @@ export function ScrollableTabBar({
           )}
         </Pressable>
 
-        {/* WiFi Only toggle */}
-        <View style={styles.wifiToggle}>
-          <Text style={styles.wifiLabel}>WiFi</Text>
-          <Switch
-            value={wifiOnly}
-            onValueChange={toggleWifi}
-            style={styles.wifiSwitch}
-          />
-        </View>
-
-        {/* Version badge */}
-        <Text style={styles.versionText}>
-          v{appJson.expo.version}
-        </Text>
+        {/* User menu button (profile, WiFi toggle, logout, version) */}
+        <UserMenuButton onLogout={onLogout} />
       </View>
 
       {/* Module picker popup */}
@@ -321,25 +300,6 @@ const styles = StyleSheet.create({
   },
   callIcon: {
     fontSize: 18,
-  },
-  wifiToggle: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-  },
-  wifiLabel: {
-    fontSize: 9,
-    fontWeight: "600",
-    color: colors.tabInactive,
-  },
-  wifiSwitch: {
-    transform: [{ scaleX: 0.65 }, { scaleY: 0.65 }],
-    marginHorizontal: -4,
-  },
-  versionText: {
-    fontSize: 10,
-    fontWeight: "500",
-    color: colors.tabInactive,
   },
 
   // ---- Modal overlay ----

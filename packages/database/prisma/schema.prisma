@@ -948,6 +948,20 @@ model CompanyMembership {
   /// access this specific company as a member.
   isActive  Boolean      @default(true)
   profileId String?
+
+  /// Deactivation tracking — records when and by whom a member was removed
+  /// from the tenant. Cleared when the member is reactivated.
+  deactivatedAt       DateTime? @map("deactivated_at")
+  deactivatedByUserId String?   @map("deactivated_by_user_id")
+
+  /// Black Flag — highly classified per-tenant risk classification.
+  /// Only visible to OWNER and SUPER_ADMIN. Marks an individual as a risk
+  /// who should not be rehired or given access to the organization.
+  blackFlagged          Boolean   @default(false)
+  blackFlaggedAt        DateTime? @map("black_flagged_at")
+  blackFlaggedByUserId  String?   @map("black_flagged_by_user_id")
+  blackFlagReason       String?   @map("black_flag_reason")
+
   company   Company      @relation(fields: [companyId], references: [id])
   profile   RoleProfile? @relation(fields: [profileId], references: [id])
   user      User         @relation(fields: [userId], references: [id])
@@ -3192,15 +3206,27 @@ model PriceListItem {
   lastKnownUnitPrice Float?
   canonicalKeyHash   String?
   divisionCode       String?
+
+  /// Origin tag for non-Xactimate items in Master Costbook (e.g. "BWC_CABINETS",
+  /// "VENDOR_QUOTE"). Null for Golden/Xactimate items.
+  sourceCategory     String?
+
+  /// Optional link to the canonical product catalog item.
+  catalogItemId      String?
+
   components         PriceListComponent[]
   division           Division?              @relation(fields: [divisionCode], references: [code])
   priceList          PriceList              @relation(fields: [priceListId], references: [id])
+  catalogItem        CatalogItem?           @relation(fields: [catalogItemId], references: [id])
   assets             Asset[]
-  companyItems       CompanyPriceListItem[]
+  companyItems       CompanyPriceListItem[] @relation("CompanyItemGoldenSource")
+  masterCompanyItems CompanyPriceListItem[] @relation("CompanyItemMasterSource")
 
   @@unique([priceListId, canonicalKeyHash], map: "PriceListItem_priceList_canonical_hash_key")
   @@index([priceListId, cat, sel], map: "PriceListItem_priceList_cat_sel_idx")
   @@index([divisionCode], map: "PriceListItem_division_code_idx")
+  @@index([sourceCategory], map: "PriceListItem_source_category_idx")
+  @@index([catalogItemId], map: "PriceListItem_catalog_item_idx")
 }
 
 model PriceListComponent {
@@ -3285,10 +3311,11 @@ model CompanyPriceList {
 /// Individual tenant-level price list items that start from Golden but can
 /// diverge per organization over time. Enriched automatically from PETL imports.
 model CompanyPriceListItem {
-  id                 String    @id @default(cuid())
-  companyPriceListId String
-  priceListItemId    String?
-  canonicalKeyHash   String?
+  id                    String    @id @default(cuid())
+  companyPriceListId    String
+  priceListItemId       String?
+  masterPriceListItemId String?
+  canonicalKeyHash      String?
   lineNo             Int?
   groupCode          String?
   groupDescription   String?
@@ -3330,7 +3357,8 @@ model CompanyPriceListItem {
   lastPriceChangedSource            String?
 
   companyPriceList          CompanyPriceList          @relation(fields: [companyPriceListId], references: [id])
-  priceListItem             PriceListItem?            @relation(fields: [priceListItemId], references: [id])
+  priceListItem             PriceListItem?            @relation("CompanyItemGoldenSource", fields: [priceListItemId], references: [id])
+  masterPriceListItem       PriceListItem?            @relation("CompanyItemMasterSource", fields: [masterPriceListItemId], references: [id])
   division                  Division?                 @relation("CompanyPriceListItemDivision", fields: [divisionCode], references: [code])
   priceUpdates              TenantPriceUpdateLog[]
   petlReconciliationEntries PetlReconciliationEntry[]
@@ -3340,6 +3368,7 @@ model CompanyPriceListItem {
   @@index([companyPriceListId, cat, sel])
   @@index([divisionCode])
   @@index([sourceProjectId])
+  @@index([masterPriceListItemId])
 }
 
 /// Project-level regional pricing factors learned from PETL imports.
@@ -3629,6 +3658,7 @@ enum ImportJobType {
   COMPANY_PRICE_LIST
   FORTIFIED_PAYROLL_ADMIN
   PROJECT_PETL_PERCENT
+  MASTER_COSTBOOK
 }
 
 enum ImportJobStatus {
@@ -3641,11 +3671,13 @@ enum ImportJobStatus {
 enum PriceListKind {
   GOLDEN
   ACTIVE
+  MASTER
 }
 
 enum GoldenPriceUpdateSource {
   XACT_ESTIMATE
   GOLDEN_PETL
+  MASTER_COSTBOOK
 }
 
 enum Role {
@@ -4349,13 +4381,18 @@ model BomPricingProduct {
   storeZip     String?
   storePhone   String?
 
+  /// Optional link to canonical product catalog.
+  catalogItemId String?
+
   rawJson Json?
 
   createdAt DateTime @default(now())
 
-  hit BomPricingHit @relation(fields: [hitId], references: [id], onDelete: Cascade)
+  hit         BomPricingHit @relation(fields: [hitId], references: [id], onDelete: Cascade)
+  catalogItem CatalogItem?  @relation(fields: [catalogItemId], references: [id])
 
   @@index([hitId])
+  @@index([catalogItemId], map: "BomPricingProduct_catalog_item_idx")
 }
 
 /// Long-lived price observation. Every scrape appends rows here.
@@ -4380,6 +4417,98 @@ model MaterialPriceObservation {
   @@index([companyId, searchQuery, observedAt])
   @@index([companyId, productId, observedAt])
   @@index([companyId, provider, observedAt])
+}
+
+// ── Procurement Intelligence: Canonical Catalog & Vendor Registry ──────────
+
+enum VendorProviderType {
+  SERPAPI
+  BIGBOX
+  WEB_SCRAPER
+  MANUAL
+  API
+}
+
+/// Canonical product identity. One row = one real-world product regardless of vendor.
+/// specHash is computed from normalized product attributes.
+model CatalogItem {
+  id          String  @id @default(cuid())
+  specHash    String  @unique
+  category    String  /// "KIT", "LBR", "DRY", "PLM", etc.
+  productType String  /// "Base Cabinet", "2x4", "Type X", etc.
+  description String  /// Human-readable canonical name
+  unit        String  /// "EA", "LF", "SF", etc.
+  width       String? /// Normalized dimension
+  height      String?
+  depth       String?
+  finish      String? /// "White Shaker", "#2 Pine", etc.
+  specJson    Json?   /// Full spec attributes for extensibility
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  vendorQuotes       VendorQuote[]
+  priceListItems     PriceListItem[]
+  bomPricingProducts BomPricingProduct[]
+
+  @@index([category], map: "CatalogItem_category_idx")
+  @@index([category, productType], map: "CatalogItem_category_type_idx")
+}
+
+/// DB-backed vendor configuration ("scraping address book").
+/// Each row defines how to reach a vendor for pricing + availability.
+model VendorRegistry {
+  id           String             @id @default(cuid())
+  code         String             @unique /// "RTA", "USKITCHEN", "HOMEDEPOT", "LOWES"
+  name         String             /// Display name
+  websiteUrl   String?            /// Base URL
+  providerType VendorProviderType /// How we fetch data from this vendor
+  isEnabled    Boolean            @default(true)
+
+  /// For WEB_SCRAPER: URL patterns, CSS/regex selectors, sitemap URLs
+  scrapeConfig Json?
+  /// For API type: endpoint, auth method, headers
+  apiConfig    Json?
+  /// Rate limiting: { requestsPerMinute, delayMs, maxRetries }
+  rateLimit    Json?
+  /// How this vendor prefixes SKUs (e.g. "SW-")
+  skuPrefix    String?
+  /// Cross-prefix mapping JSON (e.g. { "S-ONB-": "BS-" })
+  prefixMap    Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  quotes VendorQuote[]
+}
+
+/// Per-vendor pricing + availability for a canonical product.
+model VendorQuote {
+  id            String   @id @default(cuid())
+  catalogItemId String
+  vendorId      String
+  vendorSku     String?  /// Vendor-specific SKU (e.g. "SW-B24")
+  unitPrice     Float?
+  wasPrice      Float?   /// Previous/list price if on sale
+  currency      String   @default("USD")
+  inStock       Boolean?
+  stockQty      Int?     /// Exact quantity if available
+  leadTimeDays  Int?     /// Estimated delivery days
+  shippingCost  Float?
+  productUrl    String?  /// Direct link to product page
+  imageUrl      String?
+  scrapedAt     DateTime /// When this quote was captured
+  expiresAt     DateTime? /// When this quote is considered stale
+  rawJson       Json?    /// Full scrape response for debugging
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  catalogItem CatalogItem    @relation(fields: [catalogItemId], references: [id])
+  vendor      VendorRegistry @relation(fields: [vendorId], references: [id])
+
+  @@unique([catalogItemId, vendorId, vendorSku], map: "VendorQuote_item_vendor_sku_key")
+  @@index([catalogItemId, scrapedAt], map: "VendorQuote_item_scraped_idx")
+  @@index([vendorId, scrapedAt], map: "VendorQuote_vendor_scraped_idx")
 }
 
 enum MaterialRequirementStatus {

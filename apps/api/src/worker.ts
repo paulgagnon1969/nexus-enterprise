@@ -18,7 +18,7 @@ import { ImportJobStatus, ImportJobType, Role as DbRole } from "@prisma/client";
 import type { AuthenticatedUser } from "./modules/auth/jwt.strategy";
 import { GlobalRole as AuthGlobalRole, Role as AuthRole } from "./modules/auth/auth.guards";
 import { ProjectService } from "./modules/project/project.service";
-import { importPriceListFromFile, importCompanyPriceListFromFile, type PriceListImportMode } from "./modules/pricing/pricing.service";
+import { importPriceListFromFile, importCompanyPriceListFromFile, importMasterCostbookFromFile, type PriceListImportMode } from "./modules/pricing/pricing.service";
 import { RedisService, CACHE_KEY } from "./infra/redis/redis.service";
 import { Storage } from "@google-cloud/storage";
 import { parse } from "csv-parse/sync";
@@ -897,6 +897,74 @@ async function processImportJob(
       console.log("[worker] COMPANY_PRICE_LIST cache invalidated for company=%s", job.companyId);
     } catch (cacheErr) {
       console.warn("[worker] COMPANY_PRICE_LIST cache invalidation failed", cacheErr);
+    }
+
+    return;
+  }
+
+  if (job.type === ImportJobType.MASTER_COSTBOOK) {
+    await prisma.importJob.update({
+      where: { id: importJobId },
+      data: {
+        status: ImportJobStatus.RUNNING,
+        startedAt: new Date(),
+        progress: 10,
+        message: "Importing Master Costbook...",
+      },
+    });
+
+    let effectiveCsvPath = csvPath;
+    if ((!effectiveCsvPath || !fs.existsSync(effectiveCsvPath)) && fileUri) {
+      console.log("[worker] MASTER_COSTBOOK using fileUri, downloading from GCS", { importJobId, fileUri });
+      effectiveCsvPath = await downloadGcsToTmp(fileUri);
+    }
+
+    if (!effectiveCsvPath || !fs.existsSync(effectiveCsvPath)) {
+      throw new Error("MASTER_COSTBOOK import job has no usable csvPath or fileUri to read from.");
+    }
+
+    const metaJson = job.metaJson as Record<string, any> | null;
+    const importMode: PriceListImportMode = metaJson?.mode === "replace" ? "replace" : "merge";
+    const sourceCategory = typeof metaJson?.sourceCategory === "string" ? metaJson.sourceCategory : undefined;
+
+    const startedAtMaster = Date.now();
+    const masterResult = await importMasterCostbookFromFile(effectiveCsvPath, {
+      mode: importMode,
+      sourceCategory,
+    });
+    const masterDurationMs = Date.now() - startedAtMaster;
+
+    await prisma.importJob.update({
+      where: { id: importJobId },
+      data: {
+        status: ImportJobStatus.SUCCEEDED,
+        finishedAt: new Date(),
+        progress: 100,
+        message: "Master Costbook import complete",
+        resultJson: masterResult as any,
+      },
+    });
+
+    console.log("[worker] MASTER_COSTBOOK complete", {
+      importJobId,
+      durationMs: masterDurationMs,
+      resultSummary: masterResult,
+    });
+
+    // Record revision event.
+    if (job.companyId && job.createdByUserId) {
+      await prisma.goldenPriceUpdateLog.create({
+        data: {
+          companyId: job.companyId,
+          projectId: null,
+          estimateVersionId: null,
+          userId: job.createdByUserId,
+          updatedCount: masterResult.itemCount ?? 0,
+          avgDelta: 0,
+          avgPercentDelta: 0,
+          source: "MASTER_COSTBOOK",
+        },
+      });
     }
 
     return;

@@ -16,6 +16,9 @@ import {
   getCurrentGoldenPriceListTable,
   getGoldenPriceListUploads,
   ensureCompanyPriceListForCompany,
+  getCurrentMasterCostbook,
+  getMasterCostbookTable,
+  shareMasterItemsToTenant,
   type PriceListImportMode,
 } from "./pricing.service";
 import { PrismaService } from "../../infra/prisma/prisma.service";
@@ -1155,6 +1158,207 @@ export class PricingController {
       },
       lastComponentsUpload,
     };
+  }
+
+  // ── Master Costbook Endpoints ──────────────────────────────────────
+
+  // Upload a CSV into the Nexus System Master Costbook (SUPER_ADMIN only).
+  // Creates a MASTER_COSTBOOK ImportJob for the worker.
+  @UseGuards(JwtAuthGuard)
+  @Post("master-costbook/import")
+  async uploadMasterCostbook(@Req() req: FastifyRequest) {
+    const anyReq: any = req as any;
+    const user = anyReq.user as AuthenticatedUser | undefined;
+
+    if (!user) {
+      throw new BadRequestException("Missing user in request context");
+    }
+
+    if (user.globalRole !== GlobalRole.SUPER_ADMIN) {
+      throw new BadRequestException(
+        "Only Nexus System administrators can upload the Master Costbook.",
+      );
+    }
+
+    const { file: filePart } = await readSingleFileFromMultipart(req, {
+      fieldName: "file",
+    });
+
+    if (!filePart.mimetype.includes("csv")) {
+      throw new BadRequestException("Only CSV uploads are supported for the Master Costbook");
+    }
+
+    const uploadsRoot = path.resolve(process.cwd(), "uploads/pricing");
+    if (!fs.existsSync(uploadsRoot)) {
+      fs.mkdirSync(uploadsRoot, { recursive: true });
+    }
+
+    const fileBuffer = await filePart.toBuffer();
+    const ext = path.extname(filePart.filename || "") || ".csv";
+    const fileName = `master-costbook-${Date.now()}${ext}`;
+    const destPath = path.join(uploadsRoot, fileName);
+
+    fs.writeFileSync(destPath, fileBuffer);
+
+    const companyId = user.companyId;
+    const createdByUserId = user.userId;
+
+    if (!companyId || !createdByUserId) {
+      throw new BadRequestException("Missing company context for Master Costbook import");
+    }
+
+    // Parse optional sourceCategory and mode from multipart body.
+    const anyFastReq = req as any;
+    const formFields = anyFastReq.body || {};
+    const sourceCategory = typeof formFields.sourceCategory === "string"
+      ? formFields.sourceCategory.trim() || null
+      : null;
+    const rawMode = formFields.mode ?? "merge";
+    const importMode: PriceListImportMode = rawMode === "replace" ? "replace" : "merge";
+
+    // Upload to GCS for cloud workers.
+    let fileUri: string | null = null;
+    try {
+      const safeName = (filePart.filename || fileName).replace(/[^a-zA-Z0-9_.-]/g, "_");
+      const key = ["master-costbook", companyId, `${Date.now()}`, safeName].join("/");
+      fileUri = await this.gcs.uploadBuffer({
+        key,
+        buffer: fileBuffer,
+        contentType: filePart.mimetype || "text/csv",
+      });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[pricing] uploadMasterCostbook: GCS upload failed", err);
+    }
+
+    const job = await this.prisma.importJob.create({
+      data: {
+        companyId,
+        projectId: null,
+        createdByUserId,
+        type: "MASTER_COSTBOOK",
+        status: "QUEUED",
+        progress: 0,
+        message: `Queued Master Costbook import${sourceCategory ? ` (${sourceCategory})` : ""} (mode: ${importMode})`,
+        csvPath: destPath,
+        fileUri,
+        metaJson: { mode: importMode, sourceCategory },
+      },
+    });
+
+    if (isRedisAvailable()) {
+      try {
+        const queue = getImportQueue();
+        await queue.add(
+          "process",
+          { importJobId: job.id },
+          { attempts: 1, removeOnComplete: 1000, removeOnFail: 1000 },
+        );
+        return { jobId: job.id };
+      } catch (queueErr) {
+        // eslint-disable-next-line no-console
+        console.error("[pricing] uploadMasterCostbook: Redis/BullMQ error, falling back to sync", queueErr);
+      }
+    }
+
+    // Synchronous fallback (same pattern as price-list/import-from-uri).
+    try {
+      const { importMasterCostbookFromFile } = await import("./pricing.service");
+
+      await this.prisma.importJob.update({
+        where: { id: job.id },
+        data: { status: "RUNNING", startedAt: new Date(), progress: 10, message: "Importing Master Costbook (synchronous)..." },
+      });
+
+      const result = await importMasterCostbookFromFile(destPath, {
+        sourceCategory: sourceCategory ?? undefined,
+        mode: importMode,
+      });
+
+      await this.prisma.importJob.update({
+        where: { id: job.id },
+        data: {
+          status: "SUCCEEDED",
+          finishedAt: new Date(),
+          progress: 100,
+          message: "Master Costbook import complete",
+          resultJson: result as any,
+        },
+      });
+
+      return { jobId: job.id, sync: true };
+    } catch (syncErr) {
+      // eslint-disable-next-line no-console
+      console.error("[pricing] uploadMasterCostbook: sync failed", syncErr);
+      await this.prisma.importJob.update({
+        where: { id: job.id },
+        data: {
+          status: "FAILED",
+          finishedAt: new Date(),
+          message: `Import failed: ${syncErr instanceof Error ? syncErr.message : String(syncErr)}`,
+        },
+      }).catch(() => {});
+      throw new BadRequestException(
+        `Master Costbook import failed: ${syncErr instanceof Error ? syncErr.message : String(syncErr)}`,
+      );
+    }
+  }
+
+  // Get active Master Costbook metadata.
+  @UseGuards(JwtAuthGuard)
+  @Post("master-costbook/current")
+  async masterCostbookCurrent() {
+    return await getCurrentMasterCostbook();
+  }
+
+  // Filtered table view of Master Costbook items.
+  @UseGuards(JwtAuthGuard)
+  @Post("master-costbook/table")
+  async masterCostbookTable(@Req() req: FastifyRequest) {
+    const anyReq: any = req as any;
+    const body: any = anyReq.body || {};
+    const sourceCategory = typeof body.sourceCategory === "string" ? body.sourceCategory.trim() || undefined : undefined;
+    const groupCode = typeof body.groupCode === "string" ? body.groupCode.trim() || undefined : undefined;
+    const cat = typeof body.cat === "string" ? body.cat.trim() || undefined : undefined;
+    return await getMasterCostbookTable({ sourceCategory, groupCode, cat });
+  }
+
+  // Share Master Costbook items to a specific tenant (SUPER_ADMIN only).
+  @UseGuards(JwtAuthGuard)
+  @Post("master-costbook/share-to-tenant")
+  async shareMasterToTenant(@Req() req: FastifyRequest) {
+    const anyReq: any = req as any;
+    const user = anyReq.user as AuthenticatedUser | undefined;
+
+    if (!user) {
+      throw new BadRequestException("Missing user in request context");
+    }
+
+    if (user.globalRole !== GlobalRole.SUPER_ADMIN) {
+      throw new BadRequestException(
+        "Only Nexus System administrators can share Master Costbook items.",
+      );
+    }
+
+    const body: any = anyReq.body || {};
+    const targetCompanyId = typeof body.companyId === "string" ? body.companyId.trim() : null;
+
+    if (!targetCompanyId) {
+      throw new BadRequestException("companyId is required");
+    }
+
+    const filters: any = {};
+    if (typeof body.sourceCategory === "string" && body.sourceCategory.trim()) {
+      filters.sourceCategory = body.sourceCategory.trim();
+    }
+    if (typeof body.groupCode === "string" && body.groupCode.trim()) {
+      filters.groupCode = body.groupCode.trim();
+    }
+    if (typeof body.cat === "string" && body.cat.trim()) {
+      filters.cat = body.cat.trim();
+    }
+
+    return await shareMasterItemsToTenant(targetCompanyId, Object.keys(filters).length ? filters : undefined);
   }
 
   // Golden price list revision history: per-company log of updates when

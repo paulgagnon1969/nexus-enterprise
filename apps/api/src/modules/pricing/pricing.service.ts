@@ -608,6 +608,406 @@ export async function importCompanyPriceListFromFile(companyId: string, csvPath:
   };
 }
 
+// ── Master Costbook ─────────────────────────────────────────────────
+
+export interface MasterCostbookImportOptions {
+  /** Source category tag for these items (e.g. "BWC_CABINETS", "VENDOR_QUOTE") */
+  sourceCategory?: string;
+  /** Import mode: 'merge' (default) keeps existing items, 'replace' starts fresh */
+  mode?: PriceListImportMode;
+}
+
+/**
+ * Import a CSV into the Nexus System Master Costbook (PriceList kind=MASTER).
+ * Same CSV format as Golden PETL (Cat/Sel/Activity/Desc/Unit Cost/etc.)
+ * but stored separately for non-Xactimate items.
+ */
+export async function importMasterCostbookFromFile(
+  csvPath: string,
+  options?: MasterCostbookImportOptions,
+) {
+  const mode = options?.mode ?? "merge";
+  const sourceCategory = options?.sourceCategory ?? null;
+
+  if (!fs.existsSync(csvPath)) {
+    throw new Error(`CSV not found at ${csvPath}`);
+  }
+
+  const rawCsv = fs.readFileSync(csvPath, "utf8");
+  const records: any[] = parse(rawCsv, {
+    columns: true,
+    skip_empty_lines: true,
+  });
+
+  if (!records.length) {
+    throw new Error("Master costbook CSV has no data rows");
+  }
+
+  // Compute revision from latest MASTER.
+  const latest = await prisma.priceList.findFirst({
+    where: { kind: "MASTER" },
+    orderBy: { revision: "desc" },
+  });
+  const revision = latest ? latest.revision + 1 : 1;
+
+  // Capture previous prices for lastKnownUnitPrice tracking.
+  const prevPriceByHash = new Map<string, number | null>();
+  if (latest) {
+    const prevItems = await prisma.priceListItem.findMany({
+      where: { priceListId: latest.id },
+      select: { canonicalKeyHash: true, unitPrice: true },
+    });
+    for (const it of prevItems) {
+      if (it.canonicalKeyHash) {
+        prevPriceByHash.set(it.canonicalKeyHash, it.unitPrice);
+      }
+    }
+  }
+
+  const label = sourceCategory
+    ? `Master Costbook – ${sourceCategory} (rev ${revision})`
+    : `Master Costbook (rev ${revision})`;
+
+  // Load existing Master items for merge mode.
+  type MasterItem = {
+    groupCode: string | null;
+    groupDescription: string | null;
+    description: string | null;
+    cat: string | null;
+    sel: string | null;
+    unit: string | null;
+    unitPrice: number | null;
+    lastKnownUnitPrice: number | null;
+    coverage: string | null;
+    activity: string | null;
+    owner: string | null;
+    sourceVendor: string | null;
+    sourceDate: Date | null;
+    canonicalKeyHash: string | null;
+    sourceCategory: string | null;
+  };
+
+  const existingByHash = new Map<string, MasterItem>();
+  if (mode === "merge" && latest) {
+    const existing = await prisma.priceListItem.findMany({
+      where: { priceListId: latest.id },
+      select: {
+        groupCode: true, groupDescription: true, description: true,
+        cat: true, sel: true, unit: true, unitPrice: true,
+        lastKnownUnitPrice: true, coverage: true, activity: true,
+        owner: true, sourceVendor: true, sourceDate: true,
+        canonicalKeyHash: true, sourceCategory: true,
+      },
+    });
+    for (const item of existing) {
+      if (item.canonicalKeyHash) {
+        existingByHash.set(item.canonicalKeyHash, item);
+      }
+    }
+  }
+
+  const { priceListId, itemCount, mergeStats } = await prisma.$transaction(async (tx: any) => {
+    // Deactivate previous MASTER revision(s).
+    await tx.priceList.updateMany({
+      where: { kind: "MASTER", isActive: true },
+      data: { isActive: false },
+    });
+
+    const priceList = await tx.priceList.create({
+      data: {
+        kind: "MASTER",
+        code: sourceCategory ? `MASTER_${sourceCategory}` : "MASTER_ALL",
+        label,
+        revision,
+        effectiveDate: new Date(),
+        currency: "USD",
+        isActive: true,
+      },
+    });
+
+    let updatedCount = 0;
+    let addedCount = 0;
+    let unchangedCount = 0;
+    const processedHashes = new Set<string>();
+
+    // Build items from CSV, deduplicating by hash.
+    const csvByHash = new Map<string, any>();
+
+    for (const record of records) {
+      const cat = cleanText(record["Cat"]);
+      const sel = cleanText(record["Sel"]);
+      const activity = normalizeActivity(cleanText(record["Activity"]));
+      const description = cleanText(record["Desc"]);
+      const hash = buildCanonicalKeyHash(cat, sel, activity, description);
+
+      csvByHash.set(hash, {
+        priceListId: priceList.id,
+        canonicalKeyHash: hash,
+        groupCode: cleanText(record["Group Code"]),
+        groupDescription: cleanText(record["Group Description"]),
+        description,
+        cat,
+        sel,
+        unit: cleanText(record["Unit"]),
+        unitPrice: toNumber(record["Unit Cost"]),
+        lastKnownUnitPrice: prevPriceByHash.get(hash) ?? null,
+        coverage: cleanText(record["Coverage"]),
+        activity,
+        owner: cleanText(record["Owner"]),
+        sourceVendor: cleanText(record["Original Vendor"]),
+        sourceDate: toDate(record["Date"] as string | undefined),
+        sourceCategory,
+      });
+
+      processedHashes.add(hash);
+
+      if (existingByHash.has(hash)) {
+        updatedCount++;
+      } else {
+        addedCount++;
+      }
+    }
+
+    // Build final items list: CSV items + unprocessed existing items (merge).
+    const finalItems: any[] = [...csvByHash.values()];
+
+    if (mode === "merge") {
+      for (const [hash, item] of existingByHash) {
+        if (!processedHashes.has(hash)) {
+          unchangedCount++;
+          finalItems.push({ priceListId: priceList.id, ...item });
+        }
+      }
+    }
+
+    // Assign sequential line numbers.
+    const itemsData = finalItems.map((item, i) => ({ ...item, lineNo: i + 1 }));
+
+    const chunkSize = 500;
+    for (let i = 0; i < itemsData.length; i += chunkSize) {
+      await tx.priceListItem.createMany({ data: itemsData.slice(i, i + chunkSize) });
+    }
+
+    return {
+      priceListId: priceList.id,
+      itemCount: itemsData.length,
+      mergeStats: { updatedCount, addedCount, unchangedCount },
+    };
+  }, { timeout: 600_000 });
+
+  return { priceListId, revision, itemCount, mode, mergeStats, sourceCategory };
+}
+
+/**
+ * Get the currently active Master Costbook metadata.
+ */
+export async function getCurrentMasterCostbook() {
+  const priceList = await prisma.priceList.findFirst({
+    where: { kind: "MASTER", isActive: true },
+    orderBy: { revision: "desc" },
+  });
+
+  if (!priceList) return null;
+
+  const itemCount = await prisma.priceListItem.count({
+    where: { priceListId: priceList.id },
+  });
+
+  // Count items by sourceCategory for summary.
+  const categories = await prisma.priceListItem.groupBy({
+    by: ["sourceCategory"],
+    where: { priceListId: priceList.id },
+    _count: true,
+  });
+
+  return {
+    id: priceList.id,
+    kind: priceList.kind,
+    code: priceList.code,
+    label: priceList.label,
+    revision: priceList.revision,
+    effectiveDate: priceList.effectiveDate,
+    currency: priceList.currency,
+    isActive: priceList.isActive,
+    itemCount,
+    categories: categories.map((c: any) => ({
+      sourceCategory: c.sourceCategory,
+      count: c._count,
+    })),
+    createdAt: priceList.createdAt,
+  };
+}
+
+/**
+ * Get a filtered table view of the Master Costbook items.
+ */
+export async function getMasterCostbookTable(filters?: {
+  sourceCategory?: string;
+  groupCode?: string;
+  cat?: string;
+}) {
+  const priceList = await prisma.priceList.findFirst({
+    where: { kind: "MASTER", isActive: true },
+    orderBy: { revision: "desc" },
+  });
+
+  if (!priceList) return null;
+
+  const where: any = { priceListId: priceList.id };
+  if (filters?.sourceCategory) where.sourceCategory = filters.sourceCategory;
+  if (filters?.groupCode) where.groupCode = filters.groupCode;
+  if (filters?.cat) where.cat = filters.cat;
+
+  const items = await prisma.priceListItem.findMany({
+    where,
+    orderBy: { lineNo: "asc" },
+    select: {
+      id: true,
+      lineNo: true,
+      cat: true,
+      sel: true,
+      description: true,
+      unit: true,
+      unitPrice: true,
+      lastKnownUnitPrice: true,
+      activity: true,
+      groupCode: true,
+      groupDescription: true,
+      sourceVendor: true,
+      sourceCategory: true,
+    },
+  });
+
+  return { priceListId: priceList.id, label: priceList.label, items };
+}
+
+export interface ShareMasterItemsOptions {
+  /** Filter by sourceCategory (e.g. "BWC_CABINETS") */
+  sourceCategory?: string;
+  /** Filter by groupCode */
+  groupCode?: string;
+  /** Filter by cat */
+  cat?: string;
+}
+
+/**
+ * Share (copy) Master Costbook items into a specific tenant's CompanyPriceList.
+ * Links each copied item back via masterPriceListItemId.
+ * If the tenant already has an item with the same canonicalKeyHash, updates the price.
+ */
+export async function shareMasterItemsToTenant(
+  companyId: string,
+  filters?: ShareMasterItemsOptions,
+) {
+  const masterList = await prisma.priceList.findFirst({
+    where: { kind: "MASTER", isActive: true },
+    orderBy: { revision: "desc" },
+  });
+
+  if (!masterList) {
+    throw new Error("No active Master Costbook found in Nexus System.");
+  }
+
+  // Fetch Master items matching filters.
+  const where: any = { priceListId: masterList.id };
+  if (filters?.sourceCategory) where.sourceCategory = filters.sourceCategory;
+  if (filters?.groupCode) where.groupCode = filters.groupCode;
+  if (filters?.cat) where.cat = filters.cat;
+
+  const masterItems = await prisma.priceListItem.findMany({ where });
+
+  if (!masterItems.length) {
+    return { companyId, sharedCount: 0, updatedCount: 0, message: "No matching Master items to share." };
+  }
+
+  // Ensure tenant has a cost book.
+  const companyPriceList = await ensureCompanyPriceListForCompany(companyId);
+
+  // Preload existing tenant items by hash for fast upsert.
+  const existing = await prisma.companyPriceListItem.findMany({
+    where: { companyPriceListId: companyPriceList.id },
+    select: { id: true, canonicalKeyHash: true, unitPrice: true },
+  });
+  const byHash = new Map<string, { id: string; unitPrice: number | null }>();
+  for (const it of existing) {
+    if (it.canonicalKeyHash) byHash.set(it.canonicalKeyHash, { id: it.id, unitPrice: it.unitPrice });
+  }
+
+  const updates: { id: string; oldPrice: number | null; newPrice: number | null; masterItemId: string }[] = [];
+  const inserts: any[] = [];
+
+  for (const mi of masterItems) {
+    const hash = mi.canonicalKeyHash;
+    const existingItem = hash ? byHash.get(hash) ?? null : null;
+
+    if (existingItem) {
+      updates.push({
+        id: existingItem.id,
+        oldPrice: existingItem.unitPrice,
+        newPrice: mi.unitPrice,
+        masterItemId: mi.id,
+      });
+    } else {
+      inserts.push({
+        companyPriceListId: companyPriceList.id,
+        masterPriceListItemId: mi.id,
+        canonicalKeyHash: mi.canonicalKeyHash,
+        lineNo: mi.lineNo,
+        groupCode: mi.groupCode,
+        groupDescription: mi.groupDescription,
+        description: mi.description,
+        cat: mi.cat,
+        sel: mi.sel,
+        unit: mi.unit,
+        unitPrice: mi.unitPrice,
+        coverage: mi.coverage,
+        activity: mi.activity,
+        owner: mi.owner,
+        sourceVendor: mi.sourceVendor,
+        sourceDate: mi.sourceDate,
+        lastKnownUnitPrice: null,
+        lastPriceChangedSource: "MASTER_COSTBOOK_SHARE",
+        lastPriceChangedAt: new Date(),
+      });
+    }
+  }
+
+  await prisma.$transaction(async (tx: any) => {
+    const chunkSize = 200;
+
+    for (let i = 0; i < updates.length; i += chunkSize) {
+      const chunk = updates.slice(i, i + chunkSize);
+      await Promise.all(
+        chunk.map((u) =>
+          tx.companyPriceListItem.update({
+            where: { id: u.id },
+            data: {
+              lastKnownUnitPrice: u.oldPrice,
+              unitPrice: u.newPrice,
+              masterPriceListItemId: u.masterItemId,
+              lastPriceChangedSource: "MASTER_COSTBOOK_SHARE",
+              lastPriceChangedAt: new Date(),
+            },
+          }),
+        ),
+      );
+    }
+
+    for (let i = 0; i < inserts.length; i += chunkSize) {
+      const chunk = inserts.slice(i, i + chunkSize);
+      await tx.companyPriceListItem.createMany({ data: chunk });
+    }
+  });
+
+  return {
+    companyId,
+    companyPriceListId: companyPriceList.id,
+    sharedCount: inserts.length,
+    updatedCount: updates.length,
+    totalMasterItems: masterItems.length,
+  };
+}
+
 export async function getCurrentGoldenPriceList() {
   const priceList = await prisma.priceList.findFirst({
     where: { kind: "GOLDEN", isActive: true },

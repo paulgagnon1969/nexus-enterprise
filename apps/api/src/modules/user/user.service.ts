@@ -90,6 +90,10 @@ export class UserService {
         peopleToken: true,
         profileCompletionPercent: true,
         memberships: {
+          where: {
+            isActive: true,
+            company: { deletedAt: null },
+          },
           select: {
             companyId: true,
             role: true,

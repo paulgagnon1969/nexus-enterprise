@@ -4,6 +4,17 @@ import { getTokens, setTokens, clearTokens, getSyncCredentials } from "../storag
 
 let refreshPromise: Promise<RefreshResponse> | null = null;
 
+/** Global callback invoked when all auth methods fail (JWT, refresh, DeviceSync). */
+let onAuthExhausted: (() => void) | null = null;
+
+/**
+ * Register a callback to fire when the client exhausts all auth options.
+ * Typically wired to the app-level logout so the user isn't stuck.
+ */
+export function setOnAuthExhausted(cb: () => void) {
+  onAuthExhausted = cb;
+}
+
 async function runRefresh(): Promise<RefreshResponse> {
   const base = getApiBaseUrl();
   const tokens = await getTokens();
@@ -123,8 +134,12 @@ export async function apiFetch(
       return deviceSyncRes;
     }
 
-    // All auth methods failed
+    // All auth methods failed — clear tokens and kick back to login
     await clearTokens();
+    if (onAuthExhausted) {
+      console.log(`[apiFetch] All auth exhausted, triggering auto-logout`);
+      onAuthExhausted();
+    }
     return deviceSyncRes || first;
   } finally {
     refreshPromise = null;
