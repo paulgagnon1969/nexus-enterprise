@@ -30,6 +30,7 @@ import { FileDropZone } from "../../components/file-drop-zone";
 import { ScheduleSection, makeMermaidSafeId, scheduleExtractGroupCode, MermaidGantt } from "./schedule-section";
 import { DescriptionPicker } from "../../components/DescriptionPicker";
 import PersonnelPicker, { type PersonnelEntry } from "./personnel-picker";
+import { ProcurementPanel } from "./procurement-panel";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -1426,7 +1427,7 @@ export default function ProjectDetailPage({
   const [bomData, setBomData] = useState<any | null>(null);
   const [bomLoading, setBomLoading] = useState(false);
   const [bomError, setBomError] = useState<string | null>(null);
-  const [bomView, setBomView] = useState<"petl" | "components" | "raw" | "pricing">("petl");
+  const [bomView, setBomView] = useState<"petl" | "components" | "raw" | "pricing" | "procure">("petl");
 
   // BOM Pricing (SerpApi catalog search)
   const [bomPricingData, setBomPricingData] = useState<any | null>(null);
@@ -13833,7 +13834,7 @@ ${htmlBody}
             { key: "DAILY_LOGS", label: "Daily Logs" },
             { key: "SCHEDULE", label: "Schedule" },
             { key: "PETL", label: "PETL" },
-            ...(isPmOrAbove ? [{ key: "BOM" as TabKey, label: "BOM" }] : []),
+            ...(isPmOrAbove ? [{ key: "BOM" as TabKey, label: "BOM & Procure" }] : []),
             { key: "STRUCTURE", label: "Project Organization" },
             { key: "FILES", label: "Files" },
             ...(isAdminOrAbove ? [{ key: "JOURNAL" as TabKey, label: "Journal" }] : []),
@@ -23239,11 +23240,10 @@ ${htmlBody}
       {activeTab === "BOM" && (
         <div style={{ marginTop: 8, marginBottom: 16 }}>
           <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>
-            Bill of Materials (BOM)
+            BOM &amp; Procurement
           </h2>
           <p style={{ fontSize: 12, color: "#4b5563", marginBottom: 12 }}>
-            Aggregated material costs from the PETL (qty × per-unit material), grouped by Cat/Sel.
-            Compare with the Components CSV to reconcile.
+            Aggregated material costs, vendor comparison, and procurement tools.
           </p>
 
           {bomLoading && (
@@ -23325,6 +23325,26 @@ ${htmlBody}
                     💲 Local Pricing ({bomPricingData.searchableLines ?? 0})
                   </button>
                 )}
+
+                {/* Procure view — Catalog, Comparison Grid, Vendors */}
+                <button
+                  type="button"
+                  onClick={() => setBomView("procure")}
+                  style={{
+                    padding: "6px 12px",
+                    fontSize: 12,
+                    border: bomView === "procure" ? "1px solid #059669" : "1px solid #e5e7eb",
+                    borderRadius: 4,
+                    background: bomView === "procure"
+                      ? "linear-gradient(135deg, #059669 0%, #10b981 100%)"
+                      : "#fff",
+                    color: bomView === "procure" ? "#fff" : "#374151",
+                    cursor: "pointer",
+                    fontWeight: bomView === "procure" ? 600 : 400,
+                  }}
+                >
+                  Procure
+                </button>
 
                 {/* Spacer to push action buttons to right */}
                 <div style={{ flex: 1 }} />
@@ -24291,6 +24311,11 @@ ${htmlBody}
                     );
                   })()}
                 </div>
+              )}
+
+              {/* Procurement Intelligence View */}
+              {bomView === "procure" && (
+                <ProcurementPanel projectId={id} />
               )}
 
               {/* Raw Components View (Debug) */}
