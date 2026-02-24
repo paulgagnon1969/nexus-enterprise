@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { PageCard } from "../ui-shell";
 import ProjectFilePicker, { ProjectFileSummary } from "./project-file-picker";
 
@@ -67,6 +67,8 @@ interface DraftRecipient {
 }
 
 export default function MessagingPage() {
+  const [, startUiTransition] = useTransition();
+
   const [threads, setThreads] = useState<ThreadDto[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedThread, setSelectedThread] = useState<ThreadWithMessages | null>(null);
@@ -874,7 +876,7 @@ export default function MessagingPage() {
                   <button
                     key={folder.id}
                     type="button"
-                    onClick={() => setSelectedFolder(folder.id as any)}
+                    onClick={() => startUiTransition(() => setSelectedFolder(folder.id as any))}
                     style={{
                       display: "flex",
                       width: "100%",

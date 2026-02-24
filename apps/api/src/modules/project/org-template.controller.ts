@@ -8,6 +8,8 @@ import {
   Post,
   Req,
   UseGuards,
+  NotFoundException,
+  BadRequestException,
 } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
@@ -139,6 +141,20 @@ export class OrgTemplateController {
   }
 
   // ---------------------------------------------------------------------------
+  // Remove template from project
+  // ---------------------------------------------------------------------------
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('projects/:id/org-template')
+  removeTemplateFromProject(
+    @Req() req: any,
+    @Param('id') projectId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.templates.removeTemplateFromProject(projectId, user.companyId);
+  }
+
+  // ---------------------------------------------------------------------------
   // Save project as template
   // ---------------------------------------------------------------------------
 
@@ -173,7 +189,7 @@ export class OrgTemplateController {
     const project = await this.prisma.project.findFirst({
       where: { id: projectId, companyId: user.companyId },
     });
-    if (!project) throw new Error("Project not found");
+    if (!project) throw new NotFoundException("Project not found");
 
     // Resolve unit — use "Project Site" unit.
     let unit = await this.prisma.projectUnit.findFirst({
@@ -214,7 +230,7 @@ export class OrgTemplateController {
     const particle = await this.prisma.projectParticle.findFirst({
       where: { id: particleId, projectId, companyId: user.companyId },
     });
-    if (!particle) throw new Error("Particle not found");
+    if (!particle) throw new NotFoundException("Particle not found");
 
     const data: any = {};
     if (body.name != null) {
@@ -242,15 +258,15 @@ export class OrgTemplateController {
     const particle = await this.prisma.projectParticle.findFirst({
       where: { id: particleId, projectId, companyId: user.companyId },
     });
-    if (!particle) throw new Error("Particle not found");
+    if (!particle) throw new NotFoundException("Particle not found");
 
     // Check for attached PETL items.
     const itemCount = await this.prisma.sowItem.count({
       where: { projectParticleId: particleId },
     });
     if (itemCount > 0) {
-      throw new Error(
-        `Cannot delete particle "${particle.name}" — it has ${itemCount} PETL item(s) attached`,
+      throw new BadRequestException(
+        `Cannot delete \"${particle.name}\" — ${itemCount} PETL item(s) attached`,
       );
     }
 
@@ -259,8 +275,8 @@ export class OrgTemplateController {
       where: { parentParticleId: particleId },
     });
     if (childCount > 0) {
-      throw new Error(
-        `Cannot delete particle "${particle.name}" — it has ${childCount} child particle(s)`,
+      throw new BadRequestException(
+        `Cannot delete \"${particle.name}\" — ${childCount} child item(s) present`,
       );
     }
 

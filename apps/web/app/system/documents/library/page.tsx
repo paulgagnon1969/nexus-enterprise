@@ -242,7 +242,7 @@ export default function SystemDocumentsLibraryPage() {
             alignItems: "center",
             zIndex: 1000,
           }}
-          onClick={() => setShowImportHtml(false)}
+          onClick={undefined}
         >
           <div
             style={{

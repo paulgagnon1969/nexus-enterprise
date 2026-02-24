@@ -71,7 +71,7 @@ export class SystemDocumentsService {
   async createSystemDocument(userId: string, dto: CreateSystemDocumentDto) {
     const contentHash = this.hashContent(dto.htmlContent);
 
-    return this.prisma.$transaction(async (tx) => {
+    const docId = await this.prisma.$transaction(async (tx) => {
       // Create the document
       const doc = await tx.systemDocument.create({
         data: {
@@ -103,8 +103,11 @@ export class SystemDocumentsService {
         data: { currentVersionId: version.id },
       });
 
-      return this.getSystemDocument(doc.id);
+      return doc.id;
     });
+
+    // Read the full document AFTER the transaction commits so it's visible
+    return this.getSystemDocument(docId);
   }
 
   async updateSystemDocument(id: string, userId: string, dto: UpdateSystemDocumentDto) {
@@ -123,7 +126,7 @@ export class SystemDocumentsService {
     // Only create new version if content changed
     const contentChanged = contentHash !== currentHash;
 
-    return this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx) => {
       // Update document metadata
       await tx.systemDocument.update({
         where: { id },
@@ -168,9 +171,10 @@ export class SystemDocumentsService {
           data: { hasNewerSystemVersion: true },
         });
       }
-
-      return this.getSystemDocument(id);
     });
+
+    // Read the full document AFTER the transaction commits for consistent data
+    return this.getSystemDocument(id);
   }
 
   async deleteSystemDocument(id: string) {

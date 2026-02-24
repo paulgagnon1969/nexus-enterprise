@@ -256,6 +256,60 @@ lsof -i:3000 | head -3   # Web
 - Or check the API response includes the expected new data
 - Do NOT restart the server just to "make sure"
 
+## INP Performance Testing Contract
+
+All pages in `apps/web` MUST meet the Interaction to Next Paint (INP) target of **< 200 ms** for every interactive element. This contract defines mandatory rules, testing procedures, and review gates.
+
+### Mandatory Rules
+
+1. **Pages over ~2,000 lines** MUST declare at least one `useTransition` hook (typically `startUiTransition`).
+2. **Every `onClick` handler that sets state causing a heavy re-render** (tab switch, collapse/expand of large lists, dialog open, view toggle) MUST wrap the setter in a transition:
+   - Tab switches via `setTab()`: use `setTab(key, { deferContentSwitch: true })`.
+   - All other heavy setters: `startUiTransition(() => setter(...))`.
+3. **PETL-related setters** (filters, cost book picker, recon flags) must use the dedicated `startPetlTransition` hook on the project detail page.
+4. **Lightweight state** (form inputs, local booleans controlling small UI, modals with trivial content) does NOT require a transition.
+5. **New pages over ~2,000 lines** must include a `useTransition` hook from the start.
+
+### Pages Currently Using Transitions
+
+- `apps/web/app/projects/[id]/page.tsx` (~36K lines) — 4 transitions: `startEditTransition`, `startPetlTransition`, `startUiTransition`, `startTabTransition`.
+- `apps/web/app/financial/page.tsx` (~3,200 lines) — `startUiTransition` for section switches and info toggles.
+- `apps/web/app/admin/documents/page.tsx` (~3,800 lines) — `startUiTransition` for collapse toggles.
+- `apps/web/app/messaging/page.tsx` (~2,700 lines) — `startUiTransition` for folder switch.
+
+### Pages Assessed as Low Risk (No Transition Needed Currently)
+
+- `company/users/page.tsx` (7,260 lines) — already uses `startTransition` for sort; paginated at 50/page.
+- `company/users/[userId]/page.tsx` (5,341 lines) — moderate-size sections, HR collapse toggles.
+- `candidates/[sessionId]/page.tsx` (3,458 lines) — moderate-size, no large table unmounts.
+- `settings/company/page.tsx` (1,894 lines) — under threshold.
+- Pages under 1,500 lines — unlikely to cause 200ms+ INP.
+
+### Chrome DevTools Testing Procedure
+
+1. Open the page in Chrome (Incognito recommended to avoid extension interference).
+2. Open DevTools → **Performance** tab → check **Web Vitals**.
+3. Click "Record", then interact with the element under test.
+4. Stop recording. Look for the **INP** annotation in the timeline.
+5. **Pass:** INP < 200 ms. **Warning:** 200–500 ms. **Fail:** > 500 ms.
+6. Alternatively, install the **Web Vitals Chrome extension** for a quick pass/fail overlay.
+
+### Code Review Checklist (PR Gate)
+
+Before approving any PR that modifies `onClick` handlers in pages > 2,000 lines:
+
+- [ ] Any new `setState` in `onClick` that triggers heavy re-render is wrapped in a transition.
+- [ ] `setTab()` calls from user clicks use `{ deferContentSwitch: true }`.
+- [ ] No synchronous `setState` that mounts/unmounts large components (> ~50 items).
+- [ ] If a new page exceeds ~2,000 lines, it declares a `useTransition` hook.
+- [ ] INP was tested in Chrome DevTools and confirmed < 200 ms for affected interactions.
+
+### Ongoing Monitoring
+
+- Re-audit pages quarterly or whenever a page crosses the ~2,000 line threshold.
+- Production INP can be monitored via Chrome UX Report (CrUX) or a RUM provider if integrated.
+- Any user-reported "slow click" should be profiled with the Chrome DevTools procedure above.
+
 ## Diagrams in NCC eDocs
 
 As of Feb 18, 2026, NCC eDocs supports **Mermaid diagrams** natively. Documents containing `<div class="mermaid">` blocks will automatically render as flowcharts, architecture diagrams, etc.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { PageCard } from "../ui-shell";
 import {
   GoldenComponentsCoverageCard,
@@ -211,6 +211,8 @@ type ImportJobDto = {
 };
 
 export default function FinancialPage() {
+  const [, startUiTransition] = useTransition();
+
   const [activeSection, setActiveSection] = useState<FinancialSection | null>(() => {
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
@@ -1392,7 +1394,7 @@ export default function FinancialPage() {
                   if (card.href) {
                     window.location.href = card.href;
                   } else {
-                    setActiveSection(card.id as FinancialSection);
+                    startUiTransition(() => setActiveSection(card.id as FinancialSection));
                   }
                 }}
                 style={{
@@ -1440,7 +1442,7 @@ export default function FinancialPage() {
         <>
           <button
             type="button"
-            onClick={() => setActiveSection(null)}
+            onClick={() => startUiTransition(() => setActiveSection(null))}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -2067,7 +2069,7 @@ export default function FinancialPage() {
               {" "}
               <button
                 type="button"
-                onClick={() => setShowInventoryLogisticsInfo((prev) => !prev)}
+                onClick={() => startUiTransition(() => setShowInventoryLogisticsInfo((prev) => !prev))}
                 style={{
                   border: "none",
                   background: "none",

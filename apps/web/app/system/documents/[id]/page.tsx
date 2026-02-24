@@ -77,6 +77,11 @@ function useMermaidRender(htmlContent: string | undefined, containerRef: React.R
           .replace(/&quot;/g, '"')
           .replace(/&#39;/g, "'");
         
+        // Fix Grok-style line-broken arrows: join continuation lines that
+        // start with an arrow back onto the previous line.
+        // e.g. "A[Label]\n    --> B" becomes "A[Label] --> B"
+        code = code.replace(/\n\s*(-->|-.->|==>)/g, ' $1');
+        
         // Remove any HTML tags EXCEPT <br/> which Mermaid uses for line breaks
         // This regex keeps <br/> but removes other tags
         code = code.replace(/<(?!\/?(br)\s*\/?>)[^>]+>/gi, '').trim();
@@ -99,6 +104,15 @@ function useMermaidRender(htmlContent: string | undefined, containerRef: React.R
       }
     }).catch((err) => {
       console.error('Failed to load Mermaid:', err);
+      // Show visible error on all unprocessed mermaid blocks
+      for (const block of Array.from(mermaidBlocks)) {
+        if (!block.getAttribute('data-processed')) {
+          block.innerHTML = `<div style="padding: 12px; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 6px; color: #92400e; font-size: 13px;">
+            <strong>⚠️ Diagram library failed to load.</strong> Try refreshing the page.
+          </div>`;
+          block.setAttribute('data-processed', 'true');
+        }
+      }
     });
   }, [htmlContent, containerRef]);
 }

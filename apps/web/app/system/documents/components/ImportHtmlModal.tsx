@@ -102,7 +102,7 @@ export function ImportHtmlModal({ isOpen, onClose, onSuccess }: ImportHtmlModalP
         justifyContent: "center",
         zIndex: 1000,
       }}
-      onClick={(e) => e.target === e.currentTarget && handleClose()}
+      onClick={undefined}
     >
       <div
         style={{

@@ -14,22 +14,43 @@ import { ProjectParticleType } from "@prisma/client";
 // Stock template definitions — seeded on app startup for all tenants.
 // ---------------------------------------------------------------------------
 
+interface StockPhaseDefinition {
+  code: string;       // "Phase - 01"
+  name: string;       // "Site Prep"
+  activities: string[];
+}
+
 interface StockTemplateDefinition {
   name: string;
   description: string;
   vertical: string;
-  phases: { name: string; activities: string[] }[];
+  phases: StockPhaseDefinition[];
 }
 
+const LEGACY_STOCK_NAMES = [
+  "New Construction Template",
+  "Iron Side Residential New Construction",
+  "New Construction Project Organization",
+];
+
+/**
+ * Canonical stock template definition.
+ * Source: Iron Side Construction FL "job checklist example.csv"
+ *   Column A = group code (1, 2, 3, 4)
+ *   Column B = activity name
+ * 40 line items in exact CSV order. Do NOT rename, reorder, or add items
+ * without consulting the tenant's business process.
+ */
 const STOCK_TEMPLATES: StockTemplateDefinition[] = [
   {
-    name: "New Construction Template",
+    name: "Iron Side New Construction",
     description:
-      "4-phase residential new construction template with site prep, structure, finishes, and exterior phases.",
+      "40-item residential new construction checklist — Iron Side Construction FL.",
     vertical: "residential",
     phases: [
       {
-        name: "Phase 1 – Site Prep",
+        code: "1",
+        name: "Site Prep",
         activities: [
           "Soil Test",
           "Boundary Survey",
@@ -42,7 +63,8 @@ const STOCK_TEMPLATES: StockTemplateDefinition[] = [
         ],
       },
       {
-        name: "Phase 2 – Structure",
+        code: "2",
+        name: "Structure",
         activities: [
           "Pump Service",
           "Block",
@@ -60,7 +82,8 @@ const STOCK_TEMPLATES: StockTemplateDefinition[] = [
         ],
       },
       {
-        name: "Phase 3 – Finishes",
+        code: "3",
+        name: "Interior Finishes",
         activities: [
           "Drywall",
           "Cabinet Assembly",
@@ -68,14 +91,15 @@ const STOCK_TEMPLATES: StockTemplateDefinition[] = [
           "Plumbing Trim",
           "Soffit Install",
           "Well Install",
-          "Mirros & Shelving",
+          "Mirrors & Shelving",
           "Bathroom Hardware",
           "Shelving",
           "Lighting",
         ],
       },
       {
-        name: "Phase 4 – Exterior",
+        code: "4",
+        name: "Site Completion",
         activities: [
           "DriveWay Pour",
           "Final Grade",
@@ -105,7 +129,31 @@ export class OrgTemplateService implements OnModuleInit {
   async onModuleInit() {
     try {
       for (const def of STOCK_TEMPLATES) {
-        await this.seedStockTemplate(def);
+        // If a legacy-named template exists, rename it in-place.
+        const legacy = await this.prisma.orgTemplate.findFirst({
+          where: { isStock: true, name: { in: LEGACY_STOCK_NAMES } },
+        });
+        if (legacy) {
+          await this.prisma.orgTemplate.update({
+            where: { id: legacy.id },
+            data: { name: def.name, isStock: true, companyId: null, isActive: true },
+          });
+        }
+
+        // Remove duplicate stock templates with the same name (keep first).
+        const dupes = await this.prisma.orgTemplate.findMany({
+          where: { name: def.name, isStock: true },
+          orderBy: { createdAt: 'asc' },
+        });
+        if (dupes.length > 1) {
+          for (const dupe of dupes.slice(1)) {
+            await this.prisma.orgTemplateNode.deleteMany({ where: { templateId: dupe.id } });
+            await this.prisma.orgTemplate.delete({ where: { id: dupe.id } });
+            this.logger.log(`Removed duplicate stock template "${def.name}" (${dupe.id})`);
+          }
+        }
+
+        await this.seedOrResyncStockTemplate(def);
       }
     } catch (err: any) {
       // Non-fatal: stock template seeding must not crash the process.
@@ -116,22 +164,87 @@ export class OrgTemplateService implements OnModuleInit {
     }
   }
 
-  private async seedStockTemplate(def: StockTemplateDefinition) {
-    // Skip if already seeded (match by name + isStock).
-    const existing = await this.prisma.orgTemplate.findFirst({
+  /**
+   * Seed a stock template if it doesn't exist, or resync its nodes if the
+   * definition has changed (e.g. codes/names were corrected).
+   */
+  private async seedOrResyncStockTemplate(def: StockTemplateDefinition) {
+    let template = await this.prisma.orgTemplate.findFirst({
       where: { name: def.name, isStock: true },
+      include: { nodes: { orderBy: [{ sortOrder: "asc" }, { name: "asc" }] } },
     });
-    if (existing) return;
 
-    const template = await this.prisma.orgTemplate.create({
-      data: {
-        companyId: null,
-        name: def.name,
-        description: def.description,
-        vertical: def.vertical,
-        isStock: true,
-      },
-    });
+    if (!template) {
+      // Fresh seed.
+      template = await this.prisma.orgTemplate.create({
+        data: {
+          companyId: null,
+          name: def.name,
+          description: def.description,
+          vertical: def.vertical,
+          isStock: true,
+        },
+        include: { nodes: true },
+      });
+    }
+
+    // Check if nodes need resyncing: compare top-level codes.
+    const currentPhaseCodes = template.nodes
+      .filter((n) => !n.parentNodeId)
+      .map((n) => n.code);
+    const expectedPhaseCodes = def.phases.map((p) => p.code);
+    const needsResync =
+      template.nodes.length === 0 ||
+      currentPhaseCodes.length !== expectedPhaseCodes.length ||
+      currentPhaseCodes.some((c, i) => c !== expectedPhaseCodes[i]);
+
+    if (!needsResync) {
+      // Update metadata.
+      await this.prisma.orgTemplate.update({
+        where: { id: template.id },
+        data: { description: def.description },
+      });
+
+      // Update phase names and activity names if they've drifted.
+      const currentPhases = template.nodes.filter((n) => !n.parentNodeId);
+      for (let i = 0; i < currentPhases.length && i < def.phases.length; i++) {
+        if (currentPhases[i].name !== def.phases[i].name) {
+          await this.prisma.orgTemplateNode.update({
+            where: { id: currentPhases[i].id },
+            data: { name: def.phases[i].name },
+          });
+          this.logger.log(
+            `Updated phase name "${currentPhases[i].name}" → "${def.phases[i].name}"`,
+          );
+        }
+        // Check activity names under this phase.
+        const currentActivities = template.nodes
+          .filter((n) => n.parentNodeId === currentPhases[i].id)
+          .sort((a, b) => a.sortOrder - b.sortOrder);
+        for (let j = 0; j < currentActivities.length && j < def.phases[i].activities.length; j++) {
+          if (currentActivities[j].name !== def.phases[i].activities[j]) {
+            await this.prisma.orgTemplateNode.update({
+              where: { id: currentActivities[j].id },
+              data: { name: def.phases[i].activities[j] },
+            });
+            this.logger.log(
+              `Updated activity name "${currentActivities[j].name}" → "${def.phases[i].activities[j]}"`,
+            );
+          }
+        }
+      }
+      return;
+    }
+
+    // Wipe existing nodes and recreate from definition.
+    if (template.nodes.length > 0) {
+      await this.prisma.orgTemplateNode.deleteMany({
+        where: { templateId: template.id },
+      });
+      this.logger.log(
+        `Clearing ${template.nodes.length} stale nodes from stock template "${def.name}"`,
+      );
+    }
 
     let globalSort = 0;
     for (let pi = 0; pi < def.phases.length; pi++) {
@@ -139,6 +252,7 @@ export class OrgTemplateService implements OnModuleInit {
       const phaseNode = await this.prisma.orgTemplateNode.create({
         data: {
           templateId: template.id,
+          code: phase.code,
           name: phase.name,
           sortOrder: pi + 1,
         },
@@ -157,7 +271,7 @@ export class OrgTemplateService implements OnModuleInit {
     }
 
     this.logger.log(
-      `Seeded stock template "${def.name}" (${template.id}) with ${def.phases.length} phases`,
+      `Synced stock template "${def.name}" (${template.id}) — ${def.phases.length} groups, ${def.phases.reduce((s, p) => s + p.activities.length, 0)} items`,
     );
   }
 
@@ -177,6 +291,136 @@ export class OrgTemplateService implements OnModuleInit {
       },
       orderBy: [{ isStock: "desc" }, { name: "asc" }],
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Admin (SUPER_ADMIN) — cross-tenant template management
+  // ---------------------------------------------------------------------------
+
+  /** List ALL org templates across all tenants (admin only). */
+  async adminListAllTemplates() {
+    return this.prisma.orgTemplate.findMany({
+      where: { isActive: true },
+      include: {
+        _count: { select: { nodes: true, projects: true } },
+        company: { select: { id: true, name: true } },
+      },
+      orderBy: [{ isStock: "desc" }, { name: "asc" }],
+    });
+  }
+
+  /** Get full template with nodes (admin — no tenant restriction). */
+  async adminGetTemplate(templateId: string) {
+    const template = await this.prisma.orgTemplate.findFirst({
+      where: { id: templateId, isActive: true },
+      include: {
+        nodes: { orderBy: [{ sortOrder: "asc" }, { name: "asc" }] },
+        company: { select: { id: true, name: true } },
+      },
+    });
+    if (!template) throw new NotFoundException('Template not found');
+    return template;
+  }
+
+  /** Create a new stock template (admin only). */
+  async adminCreateTemplate(body: {
+    name: string;
+    description?: string | null;
+    vertical?: string | null;
+  }) {
+    return this.prisma.orgTemplate.create({
+      data: {
+        companyId: null,
+        name: body.name.trim(),
+        description: body.description?.trim() || null,
+        vertical: body.vertical?.trim() || null,
+        isStock: true,
+      },
+    });
+  }
+
+  /** Update any template (admin — no tenant restriction). */
+  async adminUpdateTemplate(
+    templateId: string,
+    body: { name?: string; description?: string; vertical?: string; isStock?: boolean },
+  ) {
+    const template = await this.prisma.orgTemplate.findFirst({
+      where: { id: templateId, isActive: true },
+    });
+    if (!template) throw new NotFoundException('Template not found');
+
+    const data: any = {};
+    if (body.name != null) data.name = body.name.trim();
+    if (body.description !== undefined) data.description = body.description?.trim() || null;
+    if (body.vertical !== undefined) data.vertical = body.vertical?.trim() || null;
+    if (body.isStock !== undefined) data.isStock = body.isStock;
+
+    return this.prisma.orgTemplate.update({ where: { id: templateId }, data });
+  }
+
+  /** Hard-delete any template (admin only). */
+  async adminDeleteTemplate(templateId: string) {
+    const template = await this.prisma.orgTemplate.findFirst({
+      where: { id: templateId, isActive: true },
+    });
+    if (!template) throw new NotFoundException('Template not found');
+
+    // Check for projects still referencing this template.
+    const projectCount = await this.prisma.project.count({
+      where: { orgTemplateId: templateId },
+    });
+
+    // Wipe nodes, then delete template.
+    await this.prisma.orgTemplateNode.deleteMany({ where: { templateId } });
+    await this.prisma.orgTemplate.delete({ where: { id: templateId } });
+
+    return { deleted: true, projectsUnlinked: projectCount };
+  }
+
+  /** Add a node to any template (admin — no tenant restriction). */
+  async adminAddNode(
+    templateId: string,
+    body: { name: string; parentNodeId?: string | null; code?: string | null; sortOrder?: number },
+  ) {
+    const template = await this.prisma.orgTemplate.findFirst({
+      where: { id: templateId, isActive: true },
+    });
+    if (!template) throw new NotFoundException('Template not found');
+
+    return this.prisma.orgTemplateNode.create({
+      data: {
+        templateId,
+        parentNodeId: body.parentNodeId?.trim() || null,
+        name: body.name.trim(),
+        code: body.code?.trim() || null,
+        sortOrder: body.sortOrder ?? 0,
+      },
+    });
+  }
+
+  /** Update any template node (admin). */
+  async adminUpdateNode(
+    nodeId: string,
+    body: { name?: string; code?: string; sortOrder?: number },
+  ) {
+    const node = await this.prisma.orgTemplateNode.findUnique({ where: { id: nodeId } });
+    if (!node) throw new NotFoundException('Node not found');
+
+    const data: any = {};
+    if (body.name != null) data.name = body.name.trim();
+    if (body.code !== undefined) data.code = body.code?.trim() || null;
+    if (body.sortOrder != null) data.sortOrder = body.sortOrder;
+
+    return this.prisma.orgTemplateNode.update({ where: { id: nodeId }, data });
+  }
+
+  /** Delete any template node (admin). */
+  async adminDeleteNode(nodeId: string) {
+    const node = await this.prisma.orgTemplateNode.findUnique({ where: { id: nodeId } });
+    if (!node) throw new NotFoundException('Node not found');
+
+    await this.prisma.orgTemplateNode.delete({ where: { id: nodeId } });
+    return { deleted: true };
   }
 
   /** Get full template with node tree. */
@@ -374,6 +618,25 @@ export class OrgTemplateService implements OnModuleInit {
       });
     }
 
+    // Ensure there is a visible root particle named "Project Site" under the unit.
+    let rootParticle = await this.prisma.projectParticle.findFirst({
+      where: { projectId, unitId: unit.id, parentParticleId: null, name: "Project Site" },
+    });
+    if (!rootParticle) {
+      rootParticle = await this.prisma.projectParticle.create({
+        data: {
+          companyId,
+          projectId,
+          unitId: unit.id,
+          type: ProjectParticleType.ROOM,
+          name: "Project Site",
+          fullLabel: "Project Site",
+          parentParticleId: null,
+          percentComplete: 0,
+        },
+      });
+    }
+
     // Build node tree in memory.
     const nodesByParent = new Map<string | null, typeof template.nodes>();
     for (const node of template.nodes) {
@@ -383,16 +646,26 @@ export class OrgTemplateService implements OnModuleInit {
       nodesByParent.set(key, list);
     }
 
+    // Build a lookup from node ID → node (for resolving parent code).
+    const nodesById = new Map<string, (typeof template.nodes)[0]>();
+    for (const node of template.nodes) {
+      nodesById.set(node.id, node);
+    }
+
     // Recursively create particles.
     const createdParticles: any[] = [];
 
     const createParticles = async (
       parentNodeId: string | null,
       parentParticleId: string | null,
+      inheritedGroupCode: string | null,
     ) => {
       const key = parentNodeId ?? "__root__";
       const children = nodesByParent.get(key) ?? [];
       for (const node of children) {
+        // Phase nodes carry their own code; activity nodes inherit from parent.
+        const groupCode = node.code ?? inheritedGroupCode;
+
         const particle = await this.prisma.projectParticle.create({
           data: {
             companyId,
@@ -403,14 +676,16 @@ export class OrgTemplateService implements OnModuleInit {
             fullLabel: node.name,
             parentParticleId,
             percentComplete: node.defaultPctComplete,
+            externalGroupCode: groupCode,
+            externalGroupDescription: node.name,
           },
         });
         createdParticles.push(particle);
-        await createParticles(node.id, particle.id);
+        await createParticles(node.id, particle.id, groupCode);
       }
     };
 
-    await createParticles(null, null);
+    await createParticles(null, rootParticle.id, null);
 
     // Set provenance on project.
     await this.prisma.project.update({
@@ -427,6 +702,102 @@ export class OrgTemplateService implements OnModuleInit {
       templateId: orgTemplateId,
       templateName: template.name,
       particlesCreated: createdParticles.length,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Remove template particles from project
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Delete all org-tree particles that are NOT attached to PETL items.
+   * Preserves the root "Project Site" particle and any particles (including
+   * their ancestors) that have SowItems linked.
+   */
+  async removeTemplateFromProject(projectId: string, companyId: string) {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, companyId },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+
+    // Load all particles for this project.
+    const allParticles = await this.prisma.projectParticle.findMany({
+      where: { projectId },
+      include: { _count: { select: { sowItems: true } } },
+    });
+
+    // Find root "Project Site" particle — always keep.
+    const rootParticle = allParticles.find(
+      (p) => !p.parentParticleId && p.name === 'Project Site',
+    );
+
+    // Identify particles with PETL items attached.
+    const petlParticleIds = new Set(
+      allParticles.filter((p) => p._count.sowItems > 0).map((p) => p.id),
+    );
+
+    // Walk up the tree to also keep ancestors of PETL-attached particles.
+    const keepIds = new Set<string>();
+    if (rootParticle) keepIds.add(rootParticle.id);
+
+    const particleById = new Map(allParticles.map((p) => [p.id, p]));
+
+    const markAncestors = (id: string) => {
+      let current = particleById.get(id);
+      while (current) {
+        if (keepIds.has(current.id)) break;
+        keepIds.add(current.id);
+        current = current.parentParticleId
+          ? particleById.get(current.parentParticleId)
+          : undefined;
+      }
+    };
+
+    for (const pid of petlParticleIds) {
+      markAncestors(pid);
+    }
+
+    // Everything NOT in keepIds gets deleted.
+    const toDelete = allParticles
+      .filter((p) => !keepIds.has(p.id))
+      .map((p) => p.id);
+
+    if (toDelete.length > 0) {
+      // Delete leaf-first to respect the self-referential FK.
+      // Build depth map.
+      const depthOf = (id: string, seen = new Set<string>()): number => {
+        const p = particleById.get(id);
+        if (!p || !p.parentParticleId || seen.has(id)) return 0;
+        seen.add(id);
+        return 1 + depthOf(p.parentParticleId, seen);
+      };
+      const sorted = [...toDelete].sort(
+        (a, b) => depthOf(b) - depthOf(a),
+      );
+
+      // Batch delete in depth order.
+      for (const id of sorted) {
+        await this.prisma.projectParticle.delete({ where: { id } }).catch(() => {
+          // Ignore if already deleted via cascade.
+        });
+      }
+    }
+
+    // Clear template reference on project.
+    await this.prisma.project.update({
+      where: { id: projectId },
+      data: { orgTemplateId: null },
+    });
+
+    this.logger.log(
+      `Removed template from project ${projectId}: deleted ${toDelete.length} particles, kept ${keepIds.size}`,
+    );
+
+    return {
+      projectId,
+      particlesDeleted: toDelete.length,
+      particlesKept: keepIds.size,
+      petlItemsPreserved: petlParticleIds.size,
     };
   }
 

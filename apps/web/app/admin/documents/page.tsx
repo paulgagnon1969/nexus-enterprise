@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useTransition } from "react";
 import { PageCard } from "../../ui-shell";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -112,6 +112,8 @@ type StatusFilter = "ACTIVE" | "ARCHIVED" | "ALL";
 // --- Main Page Component ---
 
 export default function DocumentImportPage() {
+  const [, startUiTransition] = useTransition();
+
   const [documents, setDocuments] = useState<StagedDocument[]>([]);
   const [stats, setStats] = useState<DocumentStats | null>(null);
   const [scanJobs, setScanJobs] = useState<ScanJob[]>([]);
@@ -551,7 +553,7 @@ export default function DocumentImportPage() {
           >
             <button
               type="button"
-              onClick={() => setSopsExpanded(!sopsExpanded)}
+              onClick={() => startUiTransition(() => setSopsExpanded(!sopsExpanded))}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -711,7 +713,7 @@ export default function DocumentImportPage() {
           >
             <button
               type="button"
-              onClick={() => setSystemDocsExpanded(!systemDocsExpanded)}
+              onClick={() => startUiTransition(() => setSystemDocsExpanded(!systemDocsExpanded))}
               style={{
                 display: "flex",
                 alignItems: "center",

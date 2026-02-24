@@ -553,6 +553,8 @@ interface Project {
   primaryContactPhone?: string | null;
   // Team Tree: role → userId[]
   teamTreeJson?: Record<string, string[]> | null;
+  // Org template provenance (set when a PO template was applied)
+  orgTemplateId?: string | null;
 }
 
 interface PetlItem {
@@ -5005,6 +5007,16 @@ ${htmlBody}
 
   const [structureOpen, setStructureOpen] = useState(false);
 
+  // Template modals state
+  const [importTemplateOpen, setImportTemplateOpen] = useState(false);
+  const [manageTemplatesOpen, setManageTemplatesOpen] = useState(false);
+  const [tmplList, setTmplList] = useState<any[] | null>(null);
+  const [tmplListLoading, setTmplListLoading] = useState(false);
+  const [tmplError, setTmplError] = useState<string | null>(null);
+  const [selectedTmpl, setSelectedTmpl] = useState<any | null>(null);
+  const [selectedTmplNodes, setSelectedTmplNodes] = useState<any[] | null>(null);
+  const [tmplLocked, setTmplLocked] = useState(true);
+
   // Split "which tab is highlighted" from "which tab content is mounted".
   // Switching content can be expensive (unmounting a large tab + mounting PETL), so we
   // update the underline immediately, then transition the content change on the next frame.
@@ -7687,6 +7699,54 @@ ${htmlBody}
       cancelled = true;
     };
   }, [project, activeTab, hierarchy]);
+
+  // Load templates when a template modal opens
+  useEffect(() => {
+    const shouldLoad = importTemplateOpen || manageTemplatesOpen;
+    if (!shouldLoad) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+    let cancelled = false;
+    const load = async () => {
+      setTmplListLoading(true);
+      setTmplError(null);
+      try {
+        const res = await fetch(`${API_BASE}/org-templates`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!cancelled) {
+          if (res.ok) {
+            const json: any = await res.json();
+            setTmplList(Array.isArray(json) ? json : []);
+          } else {
+            const txt = await res.text().catch(() => "");
+            setTmplError(txt || `Failed to load templates (${res.status})`);
+          }
+        }
+      } catch (err: any) {
+        if (!cancelled) setTmplError(err?.message || "Failed to load templates");
+      } finally {
+        if (!cancelled) setTmplListLoading(false);
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [importTemplateOpen, manageTemplatesOpen]);
+
+  const loadTemplateNodes = useCallback(async (tmpl: any) => {
+    const token = localStorage.getItem("accessToken");
+    if (!token || !tmpl) return;
+    try {
+      const res = await fetch(`${API_BASE}/org-templates/${tmpl.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const json: any = await res.json();
+        setSelectedTmpl(tmpl);
+        setSelectedTmplNodes(Array.isArray(json.nodes) ? json.nodes : []);
+      }
+    } catch {}
+  }, []);
 
   // Load import structuring room buckets when STRUCTURE tab is opened
   useEffect(() => {
@@ -14750,7 +14810,7 @@ ${htmlBody}
               >
                 <button
                   type="button"
-                  onClick={() => setRosterExpanded((v) => !v)}
+                  onClick={() => startUiTransition(() => setRosterExpanded((v) => !v))}
                   style={{
                     width: "100%",
                     padding: "6px 10px",
@@ -15733,7 +15793,7 @@ ${htmlBody}
                 type="button"
                 className="no-print"
                 onClick={() => {
-                  setActiveInvoice(null);
+                  startUiTransition(() => setActiveInvoice(null));
                   if (invoiceFullscreen) {
                     router.push(`/projects/${id}?tab=FINANCIAL`);
                   }
@@ -15793,7 +15853,7 @@ ${htmlBody}
               </button>
               <button
                 type="button"
-                onClick={() => setInvoiceCostBookPickerOpen(true)}
+                onClick={() => startUiTransition(() => setInvoiceCostBookPickerOpen(true))}
                 style={{
                   padding: "4px 8px",
                   borderRadius: 4,
@@ -17359,7 +17419,7 @@ ${htmlBody}
               >
                 <button
                   type="button"
-                  onClick={() => setPetlArchivesCollapsed((v) => !v)}
+                onClick={() => startUiTransition(() => setPetlArchivesCollapsed((v) => !v))}
                   style={{
                     border: "none",
                     background: "transparent",
@@ -17546,7 +17606,7 @@ ${htmlBody}
             >
               <button
                 type="button"
-                onClick={() => setBillsCollapsed((v) => !v)}
+                onClick={() => startUiTransition(() => setBillsCollapsed((v) => !v))}
                 style={{
                   border: "none",
                   background: "transparent",
@@ -18304,7 +18364,7 @@ ${htmlBody}
             >
               <button
                 type="button"
-                onClick={() => setPaymentsCollapsed((v) => !v)}
+                onClick={() => startUiTransition(() => setPaymentsCollapsed((v) => !v))}
                 style={{
                   border: "none",
                   background: "transparent",
@@ -20030,7 +20090,7 @@ ${htmlBody}
                             onClick={() => {
                               setInvoicePrintLayout("KEEP");
                               setInvoicePrintGroups("KEEP");
-                              setInvoicePrintDialogOpen(true);
+                              startUiTransition(() => setInvoicePrintDialogOpen(true));
                             }}
                             style={{
                               padding: "6px 10px",
@@ -21516,7 +21576,7 @@ ${htmlBody}
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                     <button
                       type="button"
-                      onClick={() => setInvoiceLineExclusionModalOpen(true)}
+                      onClick={() => startUiTransition(() => setInvoiceLineExclusionModalOpen(true))}
                       style={{
                         padding: "6px 12px",
                         borderRadius: 4,
@@ -21568,17 +21628,17 @@ ${htmlBody}
                     <button
                       type="button"
                       disabled={invoicePrintBusy || invoicePrintFields.size === 0}
-                      onClick={() => {
+                      onClick={async () => {
                         if (!activeInvoice) return;
                         if (invoicePrintFields.size === 0) return;
 
                         setInvoicePrintBusy(true);
                         try {
-                          printActiveInvoiceAsHtml({
+                          await printActiveInvoiceAsHtml({
                             layout: invoicePrintGroupBy === "none" ? "FLAT" : "GROUPED",
                             groups: "EXPAND_ALL",
                           });
-                          setInvoicePrintDialogOpen(false);
+                          startUiTransition(() => setInvoicePrintDialogOpen(false));
                         } finally {
                           window.setTimeout(() => setInvoicePrintBusy(false), 300);
                         }
@@ -22107,7 +22167,7 @@ ${htmlBody}
                               <button
                                 key={mode}
                                 type="button"
-                                onClick={() => setInvoicePetlView(mode)}
+                                onClick={() => startUiTransition(() => setInvoicePetlView(mode))}
                                 style={{
                                   padding: "2px 8px",
                                   borderRadius: 999,
@@ -22130,7 +22190,7 @@ ${htmlBody}
                               <button
                                 key={mode}
                                 type="button"
-                                onClick={() => setInvoicePetlView(mode)}
+                                onClick={() => startUiTransition(() => setInvoicePetlView(mode))}
                                 style={{
                                   padding: "2px 8px",
                                   borderRadius: 999,
@@ -22246,7 +22306,7 @@ ${htmlBody}
                       {(activeInvoice.status === "DRAFT" || invoiceEditUnlocked) && (
                         <button
                           type="button"
-                          onClick={() => setInvoiceCostBookPickerOpen(true)}
+                          onClick={() => startUiTransition(() => setInvoiceCostBookPickerOpen(true))}
                           style={{
                             padding: "3px 10px",
                             borderRadius: 999,
@@ -23211,7 +23271,7 @@ ${htmlBody}
                           />
                           <button
                             type="button"
-                            onClick={() => setInvoiceIssuePreviewOpen(true)}
+                            onClick={() => startUiTransition(() => setInvoiceIssuePreviewOpen(true))}
                             style={{
                               padding: "6px 10px",
                               borderRadius: 4,
@@ -23260,7 +23320,7 @@ ${htmlBody}
               <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
                 <button
                   type="button"
-                  onClick={() => setBomView("petl")}
+                  onClick={() => startUiTransition(() => setBomView("petl"))}
                   style={{
                     padding: "6px 12px",
                     fontSize: 12,
@@ -23276,7 +23336,7 @@ ${htmlBody}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setBomView("components")}
+                  onClick={() => startUiTransition(() => setBomView("components"))}
                   style={{
                     padding: "6px 12px",
                     fontSize: 12,
@@ -23292,7 +23352,7 @@ ${htmlBody}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setBomView("raw")}
+                  onClick={() => startUiTransition(() => setBomView("raw"))}
                   style={{
                     padding: "6px 12px",
                     fontSize: 12,
@@ -23310,7 +23370,7 @@ ${htmlBody}
                 {bomPricingData && (
                   <button
                     type="button"
-                    onClick={() => setBomView("pricing")}
+                    onClick={() => startUiTransition(() => setBomView("pricing"))}
                     style={{
                       padding: "6px 12px",
                       fontSize: 12,
@@ -23329,7 +23389,7 @@ ${htmlBody}
                 {/* Procure view — Catalog, Comparison Grid, Vendors */}
                 <button
                   type="button"
-                  onClick={() => setBomView("procure")}
+                  onClick={() => startUiTransition(() => setBomView("procure"))}
                   style={{
                     padding: "6px 12px",
                     fontSize: 12,
@@ -24332,7 +24392,7 @@ ${htmlBody}
                     </div>
                     <button
                       type="button"
-                      onClick={() => setBomView("petl")}
+                      onClick={() => startUiTransition(() => setBomView("petl"))}
                       style={{
                         padding: "8px 16px",
                         fontSize: 12,
@@ -24500,42 +24560,7 @@ ${htmlBody}
             <div style={{ display: "flex", gap: 8 }}>
               <button
                 type="button"
-                onClick={async () => {
-                  const token = localStorage.getItem("accessToken");
-                  if (!token) return;
-                  try {
-                    const res = await fetch(`${API_BASE}/org-templates`, {
-                      headers: { Authorization: `Bearer ${token}` },
-                    });
-                    if (!res.ok) return;
-                    const templates = await res.json();
-                    if (!Array.isArray(templates) || templates.length === 0) {
-                      alert("No templates available. Create one first.");
-                      return;
-                    }
-                    const names = templates.map((t: any, i: number) => `${i + 1}. ${t.name}${t.isStock ? " (stock)" : ""}`);
-                    const choice = prompt(`Choose a template to import:\n${names.join("\n")}\n\nEnter number:`);
-                    if (!choice) return;
-                    const idx = parseInt(choice, 10) - 1;
-                    if (idx < 0 || idx >= templates.length) return;
-                    const tmpl = templates[idx];
-                    const applyRes = await fetch(`${API_BASE}/projects/${id}/apply-org-template`, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                      body: JSON.stringify({ orgTemplateId: tmpl.id }),
-                    });
-                    if (applyRes.ok) {
-                      const result = await applyRes.json();
-                      alert(`Applied "${tmpl.name}" — ${result.particlesCreated} items created.`);
-                      setHierarchy(null); // Force reload
-                    } else {
-                      const text = await applyRes.text().catch(() => "");
-                      alert(`Failed to apply template: ${text}`);
-                    }
-                  } catch (err: any) {
-                    alert(err?.message || "Failed to load templates.");
-                  }
-                }}
+onClick={() => setImportTemplateOpen(true)}
                 style={{ padding: "5px 10px", borderRadius: 4, border: "1px solid #2563eb", backgroundColor: "#eff6ff", color: "#1d4ed8", fontSize: 11, cursor: "pointer" }}
               >
                 Import Template
@@ -24568,8 +24593,270 @@ ${htmlBody}
               >
                 Save as Template
               </button>
+              <button
+                type="button"
+onClick={() => setManageTemplatesOpen(true)}
+                style={{ padding: "5px 10px", borderRadius: 4, border: "1px solid #6b7280", backgroundColor: "#f9fafb", color: "#374151", fontSize: 11, cursor: "pointer" }}
+              >
+                Manage Templates
+              </button>
             </div>
           </div>
+
+          {/* Import Template Modal */}
+          {importTemplateOpen && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ width: 720, maxWidth: '92vw', maxHeight: '80vh', overflow: 'auto', background: '#fff', borderRadius: 8, border: '1px solid #e5e7eb' }}>
+                <div style={{ padding: 12, borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center' }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, flex: 1 }}>Import Template</div>
+                  <button type="button" onClick={() => setImportTemplateOpen(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 16 }}>×</button>
+                </div>
+                <div style={{ padding: 12, fontSize: 12 }}>
+                  {tmplListLoading ? (
+                    <div>Loading…</div>
+                  ) : tmplError ? (
+                    <div style={{ color: '#b91c1c' }}>{tmplError}</div>
+                  ) : !tmplList?.length ? (
+                    <div>No templates available.</div>
+                  ) : (
+                    <div>
+                      {tmplList.map((t: any) => (
+                        <div key={t.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #f3f4f6' }}>
+                          <div>
+                            <div style={{ fontWeight: 600 }}>{t.name}{t.isStock ? ' (stock)' : ''}</div>
+                            {typeof t._count?.nodes === 'number' && (
+                              <div style={{ color: '#6b7280' }}>{t._count.nodes} items</div>
+                            )}
+                          </div>
+                          <div>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const token = localStorage.getItem('accessToken');
+                                if (!token) return;
+                                try {
+                                  const res = await fetch(`${API_BASE}/projects/${id}/apply-org-template`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                    body: JSON.stringify({ orgTemplateId: t.id }),
+                                  });
+                                  if (res.ok) {
+                                    setImportTemplateOpen(false);
+                                    setHierarchy(null);
+                                  } else {
+                                    const txt = await res.text().catch(() => '');
+                                    alert(`Import failed (${res.status}) ${txt}`);
+                                  }
+                                } catch (err: any) {
+                                  alert(err?.message || 'Import failed');
+                                }
+                              }}
+                              style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #2563eb', background: '#eff6ff', color: '#1d4ed8', fontSize: 11, cursor: 'pointer' }}
+                            >
+                              Apply
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Manage Templates Modal */}
+          {manageTemplatesOpen && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div style={{ width: 960, maxWidth: '94vw', maxHeight: '86vh', overflow: 'auto', background: '#fff', borderRadius: 8, border: '1px solid #e5e7eb' }}>
+                <div style={{ padding: 12, borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, flex: 1 }}>Manage Project Organization Templates</div>
+                  <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input type="checkbox" checked={tmplLocked} onChange={e => setTmplLocked(e.target.checked)} /> Lock editing
+                  </label>
+                  <button type="button" onClick={() => setManageTemplatesOpen(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 16 }}>×</button>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 0, minHeight: 420 }}>
+                  <div style={{ borderRight: '1px solid #e5e7eb', padding: 12 }}>
+                    {tmplListLoading ? (
+                      <div style={{ fontSize: 12 }}>Loading…</div>
+                    ) : tmplError ? (
+                      <div style={{ color: '#b91c1c', fontSize: 12 }}>{tmplError}</div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {(tmplList || []).map((t: any) => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => loadTemplateNodes(t)}
+                            style={{ textAlign: 'left', padding: '6px 8px', borderRadius: 6, border: '1px solid #e5e7eb', background: selectedTmpl?.id === t.id ? '#eff6ff' : '#fff', cursor: 'pointer', fontSize: 12 }}
+                          >
+                            <div style={{ fontWeight: 600 }}>{t.name}{t.isStock ? ' (stock)' : ''}</div>
+                            {typeof t._count?.nodes === 'number' && (
+                              <div style={{ color: '#6b7280' }}>{t._count.nodes} items</div>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ padding: 12 }}>
+                    {!selectedTmpl ? (
+                      <div style={{ fontSize: 12, color: '#6b7280' }}>Select a template to edit.</div>
+                    ) : (
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                          <input
+                            type="text"
+                            defaultValue={selectedTmpl.name}
+                            disabled={tmplLocked || selectedTmpl.isStock}
+                            onBlur={async (e) => {
+                              const name = e.currentTarget.value.trim();
+                              if (!name || name === selectedTmpl.name) return;
+                              const token = localStorage.getItem('accessToken');
+                              if (!token) return;
+                              if (selectedTmpl.isStock) return; // stock not directly editable
+                              const res = await fetch(`${API_BASE}/org-templates/${selectedTmpl.id}`, {
+                                method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ name })
+                              });
+                              if (res.ok) {
+                                setSelectedTmpl({ ...selectedTmpl, name });
+                                setTmplList((prev) => prev?.map(t => t.id === selectedTmpl.id ? { ...t, name } : t) ?? prev);
+                              }
+                            }}
+                            style={{ flex: 1, padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12 }}
+                          />
+                          {!selectedTmpl.isStock && (
+                            <button
+                              type="button"
+                              disabled={tmplLocked}
+                              onClick={async () => {
+                                if (!confirm('Delete this template?')) return;
+                                const token = localStorage.getItem('accessToken');
+                                if (!token) return;
+                                const res = await fetch(`${API_BASE}/org-templates/${selectedTmpl.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` }});
+                                if (res.ok) {
+                                  setSelectedTmpl(null);
+                                  setSelectedTmplNodes(null);
+                                  setTmplList(prev => prev?.filter(t => t.id !== selectedTmpl.id) ?? null);
+                                }
+                              }}
+                              style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #ef4444', background: '#fef2f2', color: '#b91c1c', fontSize: 12, cursor: 'pointer' }}
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', gap: 12 }}>
+                          <div style={{ flex: 1, maxHeight: '60vh', overflow: 'auto' }}>
+                            {/* Tree renderer for nodes with inline editing */}
+                            {(() => {
+                              // Build children map by parentNodeId
+                              const byParent = new Map<string|null, any[]>();
+                              for (const n of selectedTmplNodes ?? []) {
+                                const key = n.parentNodeId ?? null;
+                                const list = byParent.get(key) ?? [];
+                                list.push(n);
+                                byParent.set(key, list);
+                              }
+
+                              const inlineRenameNode = async (nodeId: string, newName: string, oldName: string) => {
+                                if (!newName.trim() || newName.trim() === oldName) return;
+                                const token = localStorage.getItem('accessToken');
+                                if (!token) return;
+                                const res = await fetch(`${API_BASE}/org-templates/${selectedTmpl!.id}/nodes/${nodeId}`, {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                  body: JSON.stringify({ name: newName.trim() }),
+                                });
+                                if (res.ok) { void loadTemplateNodes(selectedTmpl); }
+                              };
+
+                              const inlineAddChild = async (parentNodeId: string, inputEl: HTMLInputElement) => {
+                                const name = inputEl.value.trim();
+                                if (!name) { inputEl.value = ''; return; }
+                                const token = localStorage.getItem('accessToken');
+                                if (!token) return;
+                                const res = await fetch(`${API_BASE}/org-templates/${selectedTmpl!.id}/nodes`, {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                  body: JSON.stringify({ name, parentNodeId }),
+                                });
+                                if (res.ok) {
+                                  inputEl.value = '';
+                                  void loadTemplateNodes(selectedTmpl);
+                                }
+                              };
+
+                              const renderNode = (n: any) => {
+                                const isGroup = !!byParent.get(n.id)?.length;
+                                return (
+                                  <div key={n.id} style={{ marginBottom: 4 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
+                                      <span style={{ color: isGroup ? '#4338ca' : '#6b7280', flexShrink: 0 }}>{isGroup ? '📁' : '📋'}</span>
+                                      {n.code && (
+                                        <span style={{ fontSize: 9, fontWeight: 700, color: '#fff', background: '#6366f1', borderRadius: 3, padding: '1px 4px', lineHeight: 1.3, flexShrink: 0 }}>
+                                          {n.code}
+                                        </span>
+                                      )}
+                                      {!tmplLocked ? (
+                                        <input
+                                          type="text"
+                                          defaultValue={n.name}
+                                          onBlur={(e) => inlineRenameNode(n.id, e.currentTarget.value, n.name)}
+                                          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                                          style={{ flex: 1, minWidth: 0, border: '1px solid #e5e7eb', borderRadius: 4, padding: '2px 5px', fontSize: 12, fontWeight: isGroup ? 600 : 400 }}
+                                        />
+                                      ) : (
+                                        <span style={{ fontWeight: isGroup ? 600 : 400, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.name}</span>
+                                      )}
+                                      {!tmplLocked && (
+                                        <button type="button" title="Delete" onClick={async () => {
+                                          if (!confirm(`Delete "${n.name}"?`)) return;
+                                          const token = localStorage.getItem('accessToken'); if (!token) return;
+                                          const res = await fetch(`${API_BASE}/org-templates/${selectedTmpl!.id}/nodes/${n.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+                                          if (res.ok) { void loadTemplateNodes(selectedTmpl); }
+                                        }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#9ca3af', flexShrink: 0, fontSize: 11, padding: 0, lineHeight: 1 }}>✕</button>
+                                      )}
+                                    </div>
+                                    {isGroup && (
+                                      <div style={{ marginLeft: 14, borderLeft: '2px solid #e5e7eb', paddingLeft: 8 }}>
+                                        {byParent.get(n.id)!.map((c: any) => renderNode(c))}
+                                        {!tmplLocked && (
+                                          <div style={{ marginTop: 2 }}>
+                                            <input
+                                              type="text"
+                                              placeholder="+ add item…"
+                                              onKeyDown={(e) => {
+                                                if (e.key === 'Enter') { void inlineAddChild(n.id, e.currentTarget); }
+                                              }}
+                                              onBlur={(e) => { if (e.currentTarget.value.trim()) void inlineAddChild(n.id, e.currentTarget); }}
+                                              style={{ width: '100%', border: '1px dashed #d1d5db', borderRadius: 4, padding: '2px 5px', fontSize: 11, color: '#6b7280' }}
+                                            />
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              };
+
+                              return (
+                                <div>
+                                  {(byParent.get(null) ?? []).map((n: any) => renderNode(n))}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <p style={{ fontSize: 12, color: "#4b5563", marginBottom: 12 }}>
             Build your project structure with the <strong>"+"</strong> buttons, or import a template from your Template Store.
           </p>
@@ -24578,9 +24865,10 @@ ${htmlBody}
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "380px 1fr",
+              gridTemplateColumns: "minmax(280px, 1fr) minmax(280px, 2fr)",
               gap: 16,
               marginBottom: 16,
+              width: "100%",
             }}
           >
             {/* Left: Interactive Org Tree */}
@@ -24599,11 +24887,56 @@ ${htmlBody}
                   borderBottom: "1px solid #e5e7eb",
                   fontSize: 12,
                   fontWeight: 600,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
                 }}
               >
-                Org Tree
+                <span>Org Tree</span>
+                {project?.orgTemplateId && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!confirm('Remove the PO template from this project?\n\nThis will delete all template-generated org items that do NOT have PETL data attached. PETL items and their parent groups will be preserved.\n\nYou can re-apply a template afterward.')) return;
+                      const token = localStorage.getItem('accessToken');
+                      if (!token) return;
+                      try {
+                        const res = await fetch(`${API_BASE}/projects/${id}/org-template`, {
+                          method: 'DELETE',
+                          headers: { Authorization: `Bearer ${token}` },
+                        });
+                        if (!res.ok) {
+                          const text = await res.text().catch(() => '');
+                          alert(`Failed to remove template: ${text}`);
+                          return;
+                        }
+                        const result = await res.json().catch(() => null);
+                        setHierarchy(null); // Force reload of org tree
+                        // Clear template reference in local project state
+                        if (project) {
+                          (project as any).orgTemplateId = null;
+                        }
+                        alert(`Template removed. ${result?.particlesDeleted ?? 0} items deleted, ${result?.petlItemsPreserved ?? 0} PETL items preserved.`);
+                      } catch (err: any) {
+                        alert(err?.message ?? 'Failed to remove template.');
+                      }
+                    }}
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: 4,
+                      border: '1px solid #ef4444',
+                      background: '#fef2f2',
+                      color: '#b91c1c',
+                      fontSize: 10,
+                      cursor: 'pointer',
+                      fontWeight: 500,
+                    }}
+                  >
+                    Remove Template
+                  </button>
+                )}
               </div>
-              <div style={{ padding: 12, fontSize: 12, maxHeight: 600, overflow: "auto" }}>
+              <div style={{ padding: 12, fontSize: 12, maxHeight: "75vh", overflow: "auto" }}>
                 {/* Property (Project) - Root */}
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, color: "#1f2937" }}>
@@ -24621,17 +24954,21 @@ ${htmlBody}
 
                 {/* Recursive particle tree renderer */}
                 {(() => {
-                  // Collect all particles from hierarchy into a flat list.
+                  // Collect all particles (including nested children) from hierarchy into a flat list.
                   const allParticles: any[] = [];
+                  const pushWithChildren = (p: any) => {
+                    allParticles.push(p);
+                    for (const c of p.children ?? []) pushWithChildren(c);
+                  };
                   if (hierarchy) {
                     for (const b of hierarchy.buildings ?? []) {
                       for (const u of b.units ?? []) {
-                        for (const p of u.particles ?? []) allParticles.push(p);
+                        for (const p of u.particles ?? []) pushWithChildren(p);
                       }
-                      for (const p of b.particles ?? []) allParticles.push(p);
+                      for (const p of b.particles ?? []) pushWithChildren(p);
                     }
                     for (const u of hierarchy.units ?? []) {
-                      for (const p of u.particles ?? []) allParticles.push(p);
+                      for (const p of u.particles ?? []) pushWithChildren(p);
                     }
                   }
 
@@ -24721,6 +25058,11 @@ ${htmlBody}
                           <span style={{ color: children.length > 0 ? "#4338ca" : "#6b7280" }}>
                             {children.length > 0 ? "📁" : "📋"}
                           </span>
+                          {p.externalGroupCode && (
+                            <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#6366f1", borderRadius: 3, padding: "1px 4px", lineHeight: 1.3 }}>
+                              {p.externalGroupCode}
+                            </span>
+                          )}
                           <span style={{ fontWeight: children.length > 0 ? 600 : 400, color: "#1f2937", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {p.name || p.fullLabel || "Item"}
                           </span>
@@ -29900,7 +30242,7 @@ ${htmlBody}
                                               roomParticleId: g.particleId,
                                             }));
 
-                                            setTab("DAILY_LOGS");
+                                            setTab("DAILY_LOGS", { deferContentSwitch: true });
                                           }}
                                           style={{
                                             marginLeft: 6,
@@ -30192,7 +30534,7 @@ ${htmlBody}
                                                           sowItemId: item.id,
                                                         }));
 
-                                                        setTab("DAILY_LOGS");
+                                                        setTab("DAILY_LOGS", { deferContentSwitch: true });
                                                       }}
                                                       style={{
                                                         padding: "2px 6px",

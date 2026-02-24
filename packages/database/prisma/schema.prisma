@@ -1213,6 +1213,9 @@ model Project {
   // BOM Pricing snapshots
   bomPricingSnapshots BomPricingSnapshot[]
 
+  /// Building model type (e.g. "A Model", "G Model", "F Model")
+  buildingModelType String?
+
   /// Org template applied to this project (provenance tracking)
   orgTemplateId String?
   orgTemplate   OrgTemplate? @relation(fields: [orgTemplateId], references: [id])
@@ -6645,7 +6648,8 @@ model OrgTemplateNode {
   templateId          String
   parentNodeId        String?           // null = top-level (under Project Site)
   sortOrder           Int      @default(0)
-  name                String            // "Phase 1 – Site Prep", "Soil Test"
+  code                String?           // Group code: "Phase - 01", "Phase - 02"
+  name                String            // Group description: "Soil Test", "Framing"
   defaultPctComplete  Float    @default(0)
   defaultDurationDays Float?            // optional schedule seed
   createdAt           DateTime @default(now())
