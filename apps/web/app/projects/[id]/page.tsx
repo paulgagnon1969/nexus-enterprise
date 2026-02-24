@@ -24493,24 +24493,97 @@ ${htmlBody}
       {/* IMPORT STRUCTURE tab content */}
       {activeTab === "STRUCTURE" && (
         <div style={{ marginTop: 8, marginBottom: 16 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>
-            Project Organization
-          </h2>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+            <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>
+              Project Organization
+            </h2>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                onClick={async () => {
+                  const token = localStorage.getItem("accessToken");
+                  if (!token) return;
+                  try {
+                    const res = await fetch(`${API_BASE}/org-templates`, {
+                      headers: { Authorization: `Bearer ${token}` },
+                    });
+                    if (!res.ok) return;
+                    const templates = await res.json();
+                    if (!Array.isArray(templates) || templates.length === 0) {
+                      alert("No templates available. Create one first.");
+                      return;
+                    }
+                    const names = templates.map((t: any, i: number) => `${i + 1}. ${t.name}${t.isStock ? " (stock)" : ""}`);
+                    const choice = prompt(`Choose a template to import:\n${names.join("\n")}\n\nEnter number:`);
+                    if (!choice) return;
+                    const idx = parseInt(choice, 10) - 1;
+                    if (idx < 0 || idx >= templates.length) return;
+                    const tmpl = templates[idx];
+                    const applyRes = await fetch(`${API_BASE}/projects/${id}/apply-org-template`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                      body: JSON.stringify({ orgTemplateId: tmpl.id }),
+                    });
+                    if (applyRes.ok) {
+                      const result = await applyRes.json();
+                      alert(`Applied "${tmpl.name}" — ${result.particlesCreated} items created.`);
+                      setHierarchy(null); // Force reload
+                    } else {
+                      const text = await applyRes.text().catch(() => "");
+                      alert(`Failed to apply template: ${text}`);
+                    }
+                  } catch (err: any) {
+                    alert(err?.message || "Failed to load templates.");
+                  }
+                }}
+                style={{ padding: "5px 10px", borderRadius: 4, border: "1px solid #2563eb", backgroundColor: "#eff6ff", color: "#1d4ed8", fontSize: 11, cursor: "pointer" }}
+              >
+                Import Template
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const token = localStorage.getItem("accessToken");
+                  if (!token) return;
+                  const name = prompt("Template name:");
+                  if (!name?.trim()) return;
+                  try {
+                    const res = await fetch(`${API_BASE}/projects/${id}/save-as-org-template`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                      body: JSON.stringify({ name: name.trim() }),
+                    });
+                    if (res.ok) {
+                      const result = await res.json();
+                      alert(`Saved as "${result.name}" (${result.nodeCount} nodes).`);
+                    } else {
+                      const text = await res.text().catch(() => "");
+                      alert(`Save failed: ${text}`);
+                    }
+                  } catch (err: any) {
+                    alert(err?.message || "Failed to save template.");
+                  }
+                }}
+                style={{ padding: "5px 10px", borderRadius: 4, border: "1px solid #059669", backgroundColor: "#ecfdf5", color: "#047857", fontSize: 11, cursor: "pointer" }}
+              >
+                Save as Template
+              </button>
+            </div>
+          </div>
           <p style={{ fontSize: 12, color: "#4b5563", marginBottom: 12 }}>
-            Organize your project structure: <strong>Property → Buildings → Units → Rooms</strong>.
-            Assign imported room buckets to units to build the hierarchy.
+            Build your project structure with the <strong>"+"</strong> buttons, or import a template from your Template Store.
           </p>
 
           {/* Real-time Hierarchy Tree */}
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "320px 1fr",
+              gridTemplateColumns: "380px 1fr",
               gap: 16,
               marginBottom: 16,
             }}
           >
-            {/* Left: Hierarchy Tree */}
+            {/* Left: Interactive Org Tree */}
             <div
               style={{
                 border: "1px solid #e5e7eb",
@@ -24528,9 +24601,9 @@ ${htmlBody}
                   fontWeight: 600,
                 }}
               >
-                Hierarchy Tree
+                Org Tree
               </div>
-              <div style={{ padding: 12, fontSize: 12, maxHeight: 400, overflow: "auto" }}>
+              <div style={{ padding: 12, fontSize: 12, maxHeight: 600, overflow: "auto" }}>
                 {/* Property (Project) - Root */}
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, color: "#1f2937" }}>
@@ -24546,87 +24619,172 @@ ${htmlBody}
                   )}
                 </div>
 
-                {/* Buildings with their units */}
-                {hierarchy?.buildings && hierarchy.buildings.length > 0 && (
-                  <div style={{ marginLeft: 12, borderLeft: "2px solid #e5e7eb", paddingLeft: 12 }}>
-                    {hierarchy.buildings.map((b: any) => (
-                      <div key={b.id} style={{ marginBottom: 8 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, color: "#4338ca" }}>
-                          <span style={{ fontSize: 13 }}>🏢</span>
-                          <span>{b.code ? `${b.code} - ` : ""}{b.name || "Building"}</span>
+                {/* Recursive particle tree renderer */}
+                {(() => {
+                  // Collect all particles from hierarchy into a flat list.
+                  const allParticles: any[] = [];
+                  if (hierarchy) {
+                    for (const b of hierarchy.buildings ?? []) {
+                      for (const u of b.units ?? []) {
+                        for (const p of u.particles ?? []) allParticles.push(p);
+                      }
+                      for (const p of b.particles ?? []) allParticles.push(p);
+                    }
+                    for (const u of hierarchy.units ?? []) {
+                      for (const p of u.particles ?? []) allParticles.push(p);
+                    }
+                  }
+
+                  // Build parent → children map.
+                  const childrenOf = new Map<string | null, any[]>();
+                  for (const p of allParticles) {
+                    const parentKey = p.parentParticleId ?? "__root__";
+                    const list = childrenOf.get(parentKey) ?? [];
+                    list.push(p);
+                    childrenOf.set(parentKey, list);
+                  }
+
+                  // Determine root particles (no parent, or parent = "Project Site" root).
+                  const projectSiteParticle = allParticles.find(
+                    (p: any) => !p.parentParticleId && p.name === "Project Site"
+                  );
+                  const rootParticles = projectSiteParticle
+                    ? (childrenOf.get(projectSiteParticle.id) ?? [])
+                    : (childrenOf.get("__root__") ?? []);
+
+                  const addParticleHandler = async (parentParticleId?: string) => {
+                    const name = prompt("New item name:");
+                    if (!name?.trim()) return;
+                    const token = localStorage.getItem("accessToken");
+                    if (!token) return;
+                    try {
+                      await fetch(`${API_BASE}/projects/${id}/particles`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                        body: JSON.stringify({ name: name.trim(), parentParticleId: parentParticleId || undefined }),
+                      });
+                      setHierarchy(null); // Force reload
+                    } catch {}
+                  };
+
+                  const updatePctHandler = async (particleId: string, pct: number) => {
+                    const token = localStorage.getItem("accessToken");
+                    if (!token) return;
+                    try {
+                      await fetch(`${API_BASE}/projects/${id}/particles/${particleId}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                        body: JSON.stringify({ percentComplete: pct }),
+                      });
+                      // Update locally without full reload.
+                      const updateParticle = (particles: any[]): any[] =>
+                        particles.map((p: any) => p.id === particleId ? { ...p, percentComplete: pct } : p);
+                      if (hierarchy) {
+                        setHierarchy({
+                          ...hierarchy,
+                          buildings: hierarchy.buildings.map((b: any) => ({
+                            ...b,
+                            units: (b.units ?? []).map((u: any) => ({ ...u, particles: updateParticle(u.particles ?? []) })),
+                            particles: updateParticle(b.particles ?? []),
+                          })),
+                          units: hierarchy.units.map((u: any) => ({ ...u, particles: updateParticle(u.particles ?? []) })),
+                        });
+                      }
+                    } catch {}
+                  };
+
+                  const deleteParticleHandler = async (particleId: string, name: string) => {
+                    if (!confirm(`Delete "${name}"?`)) return;
+                    const token = localStorage.getItem("accessToken");
+                    if (!token) return;
+                    try {
+                      const res = await fetch(`${API_BASE}/projects/${id}/particles/${particleId}`, {
+                        method: "DELETE",
+                        headers: { Authorization: `Bearer ${token}` },
+                      });
+                      if (!res.ok) {
+                        const text = await res.text().catch(() => "");
+                        alert(`Cannot delete: ${text}`);
+                        return;
+                      }
+                      setHierarchy(null); // Force reload
+                    } catch {}
+                  };
+
+                  const renderParticle = (p: any, depth: number) => {
+                    const children = childrenOf.get(p.id) ?? [];
+                    const pct = typeof p.percentComplete === "number" ? p.percentComplete : 0;
+                    const pctColor = pct >= 100 ? "#059669" : pct > 0 ? "#d97706" : "#9ca3af";
+                    return (
+                      <div key={p.id} style={{ marginBottom: 4 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>
+                          <span style={{ color: children.length > 0 ? "#4338ca" : "#6b7280" }}>
+                            {children.length > 0 ? "📁" : "📋"}
+                          </span>
+                          <span style={{ fontWeight: children.length > 0 ? 600 : 400, color: "#1f2937", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {p.name || p.fullLabel || "Item"}
+                          </span>
+                          <select
+                            value={pct}
+                            onChange={(e) => updatePctHandler(p.id, Number(e.target.value))}
+                            style={{ fontSize: 10, padding: "1px 2px", borderRadius: 3, border: `1px solid ${pctColor}`, color: pctColor, background: "#fff", cursor: "pointer", width: 52 }}
+                          >
+                            <option value={0}>0%</option>
+                            <option value={25}>25%</option>
+                            <option value={50}>50%</option>
+                            <option value={75}>75%</option>
+                            <option value={100}>100%</option>
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => addParticleHandler(p.id)}
+                            title="Add child"
+                            style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 13, color: "#2563eb", padding: 0, lineHeight: 1 }}
+                          >
+                            +
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteParticleHandler(p.id, p.name)}
+                            title="Delete"
+                            style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 11, color: "#9ca3af", padding: 0, lineHeight: 1 }}
+                          >
+                            ✕
+                          </button>
                         </div>
-                        {/* Units in this building */}
-                        {b.units && b.units.length > 0 && (
-                          <div style={{ marginLeft: 12, borderLeft: "2px solid #c7d2fe", paddingLeft: 12, marginTop: 4 }}>
-                            {b.units.map((u: any) => (
-                              <div key={u.id} style={{ marginBottom: 6 }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 500, color: "#0891b2" }}>
-                                  <span style={{ fontSize: 12 }}>📦</span>
-                                  <span>{u.label}{typeof u.floor === "number" ? ` (Floor ${u.floor})` : ""}</span>
-                                </div>
-                                {/* Rooms in this unit */}
-                                {u.particles && u.particles.length > 0 && (
-                                  <div style={{ marginLeft: 12, marginTop: 2 }}>
-                                    {u.particles.map((p: any) => (
-                                      <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 4, color: "#6b7280", fontSize: 11, marginBottom: 2 }}>
-                                        <span>📍</span>
-                                        <span>{p.name || p.fullLabel || "Room"}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {/* Rooms directly in building (no unit) */}
-                        {b.particles && b.particles.length > 0 && (
-                          <div style={{ marginLeft: 12, marginTop: 4 }}>
-                            {b.particles.map((p: any) => (
-                              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 4, color: "#6b7280", fontSize: 11, marginBottom: 2 }}>
-                                <span>📍</span>
-                                <span>{p.name || p.fullLabel || "Room"}</span>
-                              </div>
-                            ))}
+                        {children.length > 0 && (
+                          <div style={{ marginLeft: 14, borderLeft: "2px solid #e5e7eb", paddingLeft: 10, marginTop: 2 }}>
+                            {children.map((child: any) => renderParticle(child, depth + 1))}
                           </div>
                         )}
                       </div>
-                    ))}
-                  </div>
-                )}
+                    );
+                  };
 
-                {/* Standalone Units (no building) */}
-                {hierarchy?.units && hierarchy.units.length > 0 && (
-                  <div style={{ marginLeft: 12, borderLeft: "2px solid #e5e7eb", paddingLeft: 12 }}>
-                    {hierarchy.units.map((u: any) => (
-                      <div key={u.id} style={{ marginBottom: 6 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 500, color: "#0891b2" }}>
-                          <span style={{ fontSize: 12 }}>📦</span>
-                          <span>{u.label}{typeof u.floor === "number" ? ` (Floor ${u.floor})` : ""}</span>
-                          <span style={{ fontSize: 10, color: "#9ca3af", fontWeight: 400 }}>(no building)</span>
-                        </div>
-                        {/* Rooms in this unit */}
-                        {u.particles && u.particles.length > 0 && (
-                          <div style={{ marginLeft: 12, marginTop: 2 }}>
-                            {u.particles.map((p: any) => (
-                              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 4, color: "#6b7280", fontSize: 11, marginBottom: 2 }}>
-                                <span>📍</span>
-                                <span>{p.name || p.fullLabel || "Room"}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                  return (
+                    <div style={{ marginLeft: 12, borderLeft: "2px solid #e5e7eb", paddingLeft: 12 }}>
+                      {/* Project Site label */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, color: "#0891b2", marginBottom: 6 }}>
+                        <span style={{ fontSize: 12 }}>📦</span>
+                        <span>Project Site</span>
+                        <button
+                          type="button"
+                          onClick={() => addParticleHandler(projectSiteParticle?.id)}
+                          title="Add to Project Site"
+                          style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 15, color: "#2563eb", padding: 0, lineHeight: 1, fontWeight: 700 }}
+                        >
+                          +
+                        </button>
                       </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Empty state */}
-                {(!hierarchy || ((!hierarchy.buildings || hierarchy.buildings.length === 0) && (!hierarchy.units || hierarchy.units.length === 0))) && (
-                  <div style={{ marginLeft: 12, color: "#9ca3af", fontStyle: "italic" }}>
-                    No buildings or units yet. Assign room buckets below to create the structure.
-                  </div>
-                )}
+                      {rootParticles.length === 0 && (
+                        <div style={{ color: "#9ca3af", fontStyle: "italic", fontSize: 11, marginLeft: 4 }}>
+                          Empty — use "+" above or import a template.
+                        </div>
+                      )}
+                      {rootParticles.map((p: any) => renderParticle(p, 0))}
+                    </div>
+                  );
+                })()}
 
                 {/* Summary stats */}
                 {hierarchy && (

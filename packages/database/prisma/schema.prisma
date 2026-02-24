@@ -196,6 +196,9 @@ model Company {
   // BOM Pricing snapshots & price history
   bomPricingSnapshots      BomPricingSnapshot[]
   materialPriceObservations MaterialPriceObservation[]
+
+  // Project Org Templates
+  orgTemplates OrgTemplate[]
 }
 
 model OrganizationTemplate {
@@ -1210,6 +1213,10 @@ model Project {
   // BOM Pricing snapshots
   bomPricingSnapshots BomPricingSnapshot[]
 
+  /// Org template applied to this project (provenance tracking)
+  orgTemplateId String?
+  orgTemplate   OrgTemplate? @relation(fields: [orgTemplateId], references: [id])
+
   @@index([companyId, groupId], map: "Project_company_group_idx")
   @@index([tenantClientId], map: "Project_tenant_client_idx")
 }
@@ -1493,6 +1500,8 @@ model ProjectParticle {
   externalGroupCode         String?
   externalGroupDescription  String?
   parentParticleId          String?
+  /// Completion percentage for this particle (0-100), tracked via the org tree dropdown.
+  percentComplete           Float                     @default(0)
   createdAt                 DateTime                  @default(now())
   updatedAt                 DateTime                  @updatedAt
   parcels                   Parcel[]
@@ -6600,4 +6609,51 @@ model AccountLinkEvent {
   @@index([linkedEmail], map: "AccountLinkEvent_email_idx")
   @@index([phone], map: "AccountLinkEvent_phone_idx")
   @@index([status, createdAt], map: "AccountLinkEvent_status_created_idx")
+}
+
+// =============================================================================
+// Project Org Templates
+// =============================================================================
+
+/// Reusable project organization template ("Template Store").
+/// Defines a structural skeleton of phases/areas/tasks that can be applied
+/// to any project. Tenant-scoped (companyId set) or system-wide stock
+/// templates (companyId null, isStock true).
+model OrgTemplate {
+  id              String   @id @default(cuid())
+  companyId       String?             // null = system-wide stock template
+  name            String              // "Residential New Construction", "Commercial TI"
+  description     String?
+  vertical        String?             // "residential", "commercial", "restoration"
+  isStock         Boolean  @default(false)  // true = available to all tenants
+  isActive        Boolean  @default(true)
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company  Company?          @relation(fields: [companyId], references: [id])
+  nodes    OrgTemplateNode[]
+  projects Project[]
+
+  @@index([companyId, isActive], map: "OrgTemplate_company_active_idx")
+}
+
+/// A single node in an org template tree. Top-level nodes (parentNodeId null)
+/// sit directly under "Project Site". Nested nodes use parentNodeId for hierarchy.
+model OrgTemplateNode {
+  id                  String   @id @default(cuid())
+  templateId          String
+  parentNodeId        String?           // null = top-level (under Project Site)
+  sortOrder           Int      @default(0)
+  name                String            // "Phase 1 – Site Prep", "Soil Test"
+  defaultPctComplete  Float    @default(0)
+  defaultDurationDays Float?            // optional schedule seed
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  template OrgTemplate      @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  parent   OrgTemplateNode? @relation("OrgTemplateNodeParent", fields: [parentNodeId], references: [id])
+  children OrgTemplateNode[] @relation("OrgTemplateNodeParent")
+
+  @@index([templateId, parentNodeId, sortOrder], map: "OrgTemplateNode_template_parent_sort_idx")
 }

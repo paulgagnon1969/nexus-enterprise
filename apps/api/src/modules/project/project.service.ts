@@ -311,7 +311,7 @@ export class ProjectService {
         data: {
           companyId,
           projectId: project.id,
-          label: "Unit 1"
+          label: "Project Site"
         }
       });
       this.logger.log(`ProjectUnit created: id=${unit.id}`);
@@ -327,8 +327,8 @@ export class ProjectService {
           projectId: project.id,
           unitId: unit.id,
           type: ProjectParticleType.ROOM,
-          name: "Whole Unit",
-          fullLabel: `${unit.label} - Whole Unit`
+          name: "Project Site",
+          fullLabel: "Project Site"
         }
       });
       this.logger.log(`ProjectParticle created for project=${project.id}`);
