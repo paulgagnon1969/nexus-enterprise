@@ -77,6 +77,7 @@ export class SkillsService {
     // Ensure target user exists and is in the same company
     const membership = await this.prisma.companyMembership.findFirst({
       where: { userId: targetUserId, companyId: actor.companyId },
+      select: { userId: true },
     });
 
     if (!membership) {
@@ -204,6 +205,7 @@ export class SkillsService {
     // Ensure target user exists and is in the same company
     const membership = await this.prisma.companyMembership.findFirst({
       where: { userId: targetUserId, companyId: actor.companyId },
+      select: { userId: true },
     });
 
     if (!membership) {

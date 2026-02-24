@@ -57,6 +57,7 @@ export class ReputationService {
     // Ensure target user is in the same company as actor (employer-on-worker for now)
     const membership = await this.prisma.companyMembership.findFirst({
       where: { userId: targetUserId, companyId: actor.companyId },
+      select: { userId: true },
     });
     if (!membership) {
       throw new NotFoundException("Target user is not a member of your company");
