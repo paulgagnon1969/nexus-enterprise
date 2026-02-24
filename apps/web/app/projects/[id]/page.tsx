@@ -13835,7 +13835,7 @@ ${htmlBody}
             { key: "SCHEDULE", label: "Schedule" },
             ...(isPmOrAbove ? [{ key: "PETL" as TabKey, label: "PETL" }] : []),
             ...(isPmOrAbove ? [{ key: "BOM" as TabKey, label: "BOM & Procure" }] : []),
-            { key: "STRUCTURE", label: "Project Organization" },
+            ...(isPmOrAbove ? [{ key: "STRUCTURE" as TabKey, label: "Project Organization" }] : []),
             { key: "FILES", label: "Files" },
             ...(isAdminOrAbove ? [{ key: "JOURNAL" as TabKey, label: "Journal" }] : []),
             ...(isPmOrAbove ? [{ key: "FINANCIAL" as TabKey, label: "Financial" }] : []),
