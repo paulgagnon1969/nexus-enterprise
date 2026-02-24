@@ -88,7 +88,9 @@ function CompanyUsersPageInner() {
     "INTERNAL" | "CLIENT" | "APPLICANT" | "ALL"
   >("INTERNAL");
   const [memberRoleFilter, setMemberRoleFilter] = useState<CompanyRole | "ALL">("ALL");
-  const [memberSearchEmail, setMemberSearchEmail] = useState("");
+  const [memberSearch, setMemberSearch] = useState("");
+  const [memberGlobalRoleFilter, setMemberGlobalRoleFilter] = useState<GlobalRole | "ALL">("ALL");
+  const [memberAccessFilter, setMemberAccessFilter] = useState<"ACTIVE" | "INACTIVE" | "ALL">("ALL");
   const [memberSelectedIds, setMemberSelectedIds] = useState<string[]>([]);
   const [memberBulkMenuOpen, setMemberBulkMenuOpen] = useState(false);
   const [memberOpenMenuUserId, setMemberOpenMenuUserId] = useState<string | null>(null);
@@ -419,11 +421,28 @@ function CompanyUsersPageInner() {
         return false;
       }
 
-      if (
-        memberSearchEmail.trim() &&
-        !m.user.email.toLowerCase().includes(memberSearchEmail.trim().toLowerCase())
-      ) {
+      if (memberGlobalRoleFilter !== "ALL" && m.user.globalRole !== memberGlobalRoleFilter) {
         return false;
+      }
+
+      if (memberAccessFilter === "ACTIVE" && !m.isActive) return false;
+      if (memberAccessFilter === "INACTIVE" && m.isActive) return false;
+
+      if (memberSearch.trim()) {
+        const q = memberSearch.trim().toLowerCase();
+        const haystack = [
+          m.user.email,
+          m.user.firstName,
+          m.user.lastName,
+          m.user.phone,
+          m.role,
+          m.user.globalRole,
+          m.user.userType,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(q)) return false;
       }
 
       return true;
@@ -464,7 +483,7 @@ function CompanyUsersPageInner() {
 
       return 0;
     });
-  }, [members, memberTypeFilter, memberRoleFilter, memberSearchEmail, memberSortKey]);
+  }, [members, memberTypeFilter, memberRoleFilter, memberGlobalRoleFilter, memberAccessFilter, memberSearch, memberSortKey]);
 
   const memberSelectedCount = memberSelectedIds.filter(id =>
     filteredMembers.some(m => m.userId === id),
@@ -1914,11 +1933,47 @@ function CompanyUsersPageInner() {
               </label>
 
               <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                Search email
+                Global role
+                <select
+                  value={memberGlobalRoleFilter}
+                  onChange={e => setMemberGlobalRoleFilter(e.target.value as any)}
+                  style={{
+                    padding: "4px 6px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    minWidth: 160,
+                  }}
+                >
+                  <option value="ALL">All global roles</option>
+                  <option value="SUPER_ADMIN">SUPER_ADMIN</option>
+                  <option value="NONE">NONE</option>
+                </select>
+              </label>
+
+              <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                Access
+                <select
+                  value={memberAccessFilter}
+                  onChange={e => setMemberAccessFilter(e.target.value as any)}
+                  style={{
+                    padding: "4px 6px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    minWidth: 130,
+                  }}
+                >
+                  <option value="ALL">All</option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="INACTIVE">Inactive</option>
+                </select>
+              </label>
+
+              <label style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                Search
                 <input
-                  value={memberSearchEmail}
-                  onChange={e => setMemberSearchEmail(e.target.value)}
-                  placeholder="name@example.com"
+                  value={memberSearch}
+                  onChange={e => setMemberSearch(e.target.value)}
+                  placeholder="Name, email, phone…"
                   style={{
                     padding: "4px 6px",
                     borderRadius: 4,
