@@ -108,6 +108,10 @@ interface UserProfileDto {
   companyProfileCode?: string | null;
   companyProfileLabel?: string | null;
   companyMembershipActive?: boolean;
+  deactivatedAt?: string | null;
+  blackFlagged?: boolean;
+  blackFlaggedAt?: string | null;
+  blackFlagReason?: string | null;
   canEditHr?: boolean;
   canViewHr?: boolean;
   canViewWorkerComp?: boolean;
@@ -143,6 +147,11 @@ export default function CompanyUserProfilePage() {
 
   const [updatingTenantAccess, setUpdatingTenantAccess] = useState(false);
   const [tenantAccessError, setTenantAccessError] = useState<string | null>(null);
+
+  // Black Flag (classified — OWNER / SUPER_ADMIN only)
+  const [blackFlagSaving, setBlackFlagSaving] = useState(false);
+  const [blackFlagError, setBlackFlagError] = useState<string | null>(null);
+  const [blackFlagReasonDraft, setBlackFlagReasonDraft] = useState("");
 
   // Skills matrix style: category groups start collapsed by default.
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
@@ -688,6 +697,10 @@ export default function CompanyUserProfilePage() {
   const canViewWorkerComp =
     !!profile.worker && ((profile.canViewWorkerComp ?? false) || canEditWorkerComp);
   const canManageTenantAccess = isAdminOrAbove || isSuperAdmin;
+  const canSeeBlackFlag =
+    profile.companyRole === "OWNER" ||
+    isSuperAdmin ||
+    (isAdminOrAbove && (profile as any).blackFlagged !== undefined);
 
   const canUseAdminContactImport = isSuperAdmin;
 
@@ -1534,6 +1547,195 @@ export default function CompanyUserProfilePage() {
             <strong>Tenant access disabled.</strong>{" "}
             This worker cannot log into <strong>{profile.company.name}</strong>. They can
             still use their login/password to access the NEXUS MARKET.
+            {profile.deactivatedAt && (
+              <div style={{ marginTop: 4, color: "#6b7280" }}>
+                Removed on {new Date(profile.deactivatedAt).toLocaleDateString()}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Black Flag — classified section (OWNER / SUPER_ADMIN only) */}
+        {canSeeBlackFlag && (
+          <div
+            style={{
+              marginTop: 10,
+              padding: 10,
+              borderRadius: 8,
+              border: profile.blackFlagged ? "2px solid #1f2937" : "1px solid #d1d5db",
+              backgroundColor: profile.blackFlagged ? "#1f2937" : "#f9fafb",
+              color: profile.blackFlagged ? "#ffffff" : "#111827",
+              fontSize: 12,
+              maxWidth: 640,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 14 }}>⚫</span>
+              <strong style={{ fontSize: 13 }}>
+                {profile.blackFlagged ? "BLACK FLAGGED" : "Black Flag"}
+              </strong>
+              <span style={{ fontSize: 10, color: profile.blackFlagged ? "#9ca3af" : "#6b7280" }}>
+                OWNER / SUPER_ADMIN EYES ONLY
+              </span>
+            </div>
+
+            {profile.blackFlagged && profile.blackFlagReason && (
+              <div
+                style={{
+                  marginBottom: 8,
+                  padding: 6,
+                  borderRadius: 4,
+                  backgroundColor: "rgba(255,255,255,0.1)",
+                  fontStyle: "italic",
+                }}
+              >
+                {profile.blackFlagReason}
+              </div>
+            )}
+
+            {profile.blackFlagged && profile.blackFlaggedAt && (
+              <div style={{ marginBottom: 8, fontSize: 11, color: "#9ca3af" }}>
+                Flagged on {new Date(profile.blackFlaggedAt).toLocaleDateString()}
+              </div>
+            )}
+
+            {!profile.blackFlagged && (
+              <div style={{ display: "flex", gap: 6, alignItems: "flex-end", flexWrap: "wrap" }}>
+                <label style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minWidth: 200 }}>
+                  <span style={{ fontSize: 11, color: "#6b7280" }}>Reason (classified)</span>
+                  <input
+                    type="text"
+                    value={blackFlagReasonDraft}
+                    onChange={e => setBlackFlagReasonDraft(e.target.value)}
+                    placeholder="Reason for flagging this individual…"
+                    style={{
+                      padding: "4px 6px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={blackFlagSaving}
+                  onClick={async () => {
+                    if (!profile) return;
+                    setBlackFlagError(null);
+                    setBlackFlagSaving(true);
+                    try {
+                      const token = localStorage.getItem("accessToken");
+                      if (!token) throw new Error("Missing access token.");
+                      const res = await fetch(
+                        `${API_BASE}/companies/${profile.company.id}/members/${profile.id}/black-flag`,
+                        {
+                          method: "POST",
+                          headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`,
+                          },
+                          body: JSON.stringify({ flagged: true, reason: blackFlagReasonDraft || null }),
+                        },
+                      );
+                      if (!res.ok) {
+                        const text = await res.text().catch(() => "");
+                        throw new Error(text || `Failed (${res.status})`);
+                      }
+                      const updated = await res.json();
+                      setProfile(prev =>
+                        prev
+                          ? {
+                              ...prev,
+                              blackFlagged: updated.blackFlagged,
+                              blackFlaggedAt: updated.blackFlaggedAt,
+                              blackFlagReason: updated.blackFlagReason,
+                            }
+                          : prev,
+                      );
+                      setBlackFlagReasonDraft("");
+                    } catch (err: any) {
+                      setBlackFlagError(err?.message ?? "Failed to set black flag.");
+                    } finally {
+                      setBlackFlagSaving(false);
+                    }
+                  }}
+                  style={{
+                    padding: "5px 10px",
+                    borderRadius: 4,
+                    border: "none",
+                    backgroundColor: "#1f2937",
+                    color: "#ffffff",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: blackFlagSaving ? "default" : "pointer",
+                  }}
+                >
+                  {blackFlagSaving ? "Flagging…" : "⚫ Apply black flag"}
+                </button>
+              </div>
+            )}
+
+            {profile.blackFlagged && (
+              <button
+                type="button"
+                disabled={blackFlagSaving}
+                onClick={async () => {
+                  if (!profile) return;
+                  if (!window.confirm("Remove the black flag from this individual?")) return;
+                  setBlackFlagError(null);
+                  setBlackFlagSaving(true);
+                  try {
+                    const token = localStorage.getItem("accessToken");
+                    if (!token) throw new Error("Missing access token.");
+                    const res = await fetch(
+                      `${API_BASE}/companies/${profile.company.id}/members/${profile.id}/black-flag`,
+                      {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                          Authorization: `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({ flagged: false }),
+                      },
+                    );
+                    if (!res.ok) {
+                      const text = await res.text().catch(() => "");
+                      throw new Error(text || `Failed (${res.status})`);
+                    }
+                    const updated = await res.json();
+                    setProfile(prev =>
+                      prev
+                        ? {
+                            ...prev,
+                            blackFlagged: updated.blackFlagged,
+                            blackFlaggedAt: updated.blackFlaggedAt,
+                            blackFlagReason: updated.blackFlagReason,
+                          }
+                        : prev,
+                    );
+                  } catch (err: any) {
+                    setBlackFlagError(err?.message ?? "Failed to remove black flag.");
+                  } finally {
+                    setBlackFlagSaving(false);
+                  }
+                }}
+                style={{
+                  padding: "5px 10px",
+                  borderRadius: 4,
+                  border: "1px solid rgba(255,255,255,0.3)",
+                  backgroundColor: "transparent",
+                  color: "#ffffff",
+                  fontSize: 12,
+                  cursor: blackFlagSaving ? "default" : "pointer",
+                }}
+              >
+                {blackFlagSaving ? "Removing…" : "Remove black flag"}
+              </button>
+            )}
+
+            {blackFlagError && (
+              <div style={{ marginTop: 6, color: "#fca5a5", fontSize: 11 }}>{blackFlagError}</div>
+            )}
           </div>
         )}
 

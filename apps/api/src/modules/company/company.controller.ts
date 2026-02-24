@@ -100,6 +100,26 @@ export class CompanyController {
     return this.companies.updateMemberActive(companyId, userId, !!isActive, actor);
   }
 
+  // Black Flag: classified risk marker (OWNER / SUPPORT only)
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER)
+  @Post(":id/members/:userId/black-flag")
+  setBlackFlag(
+    @Param("id") companyId: string,
+    @Param("userId") userId: string,
+    @Req() req: any,
+    @Body() body: { flagged: boolean; reason?: string },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.companies.setBlackFlag(
+      companyId,
+      userId,
+      !!body.flagged,
+      body.reason ?? null,
+      actor,
+    );
+  }
+
   // --- Role profiles (SORM-backed) ---
 
   @UseGuards(JwtAuthGuard)

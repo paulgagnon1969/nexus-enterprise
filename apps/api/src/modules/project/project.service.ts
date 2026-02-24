@@ -1679,17 +1679,49 @@ export class ProjectService {
       }
     });
 
-    const myOrganization = memberships.filter(
-      (m) =>
-        m.companyId === project.companyId &&
-        m.scope === ProjectParticipantScope.OWNER_MEMBER
+    // Batch-lookup company membership isActive for every participant so the
+    // frontend can indicate deactivated members.
+    const userCompanyPairs = memberships.map((m) => ({
+      userId: m.userId,
+      companyId: m.companyId,
+    }));
+    const companyMemberships =
+      userCompanyPairs.length > 0
+        ? await this.prisma.companyMembership.findMany({
+            where: {
+              OR: userCompanyPairs.map((p) => ({
+                userId: p.userId,
+                companyId: p.companyId,
+              })),
+            },
+            select: { userId: true, companyId: true, isActive: true },
+          })
+        : [];
+    const activeMap = new Map(
+      companyMemberships.map((cm) => [`${cm.userId}:${cm.companyId}`, cm.isActive]),
     );
 
-    const collaborators = memberships.filter(
-      (m) =>
-        m.companyId !== project.companyId &&
-        m.scope === ProjectParticipantScope.COLLABORATOR_MEMBER
-    );
+    const enrich = (m: (typeof memberships)[number]) => ({
+      ...m,
+      companyMembershipActive:
+        activeMap.get(`${m.userId}:${m.companyId}`) ?? true,
+    });
+
+    const myOrganization = memberships
+      .filter(
+        (m) =>
+          m.companyId === project.companyId &&
+          m.scope === ProjectParticipantScope.OWNER_MEMBER,
+      )
+      .map(enrich);
+
+    const collaborators = memberships
+      .filter(
+        (m) =>
+          m.companyId !== project.companyId &&
+          m.scope === ProjectParticipantScope.COLLABORATOR_MEMBER,
+      )
+      .map(enrich);
 
     return {
       projectId,

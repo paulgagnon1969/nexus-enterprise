@@ -596,6 +596,8 @@ interface Participant {
   role: string;
   scope: "OWNER_MEMBER" | "COLLABORATOR_MEMBER" | "EXTERNAL_CONTACT";
   visibility: "FULL" | "LIMITED" | "READ_ONLY";
+  /** Whether the user's company membership is still active. */
+  companyMembershipActive?: boolean;
   user: {
     id: string;
     email: string;
@@ -1225,7 +1227,7 @@ export default function ProjectDetailPage({
   } | null>(null);
 
   const [availableMembers, setAvailableMembers] = useState<
-    { userId: string; email: string; firstName: string; lastName: string; role: string }[]
+    { userId: string; email: string; firstName: string; lastName: string; role: string; isActive: boolean }[]
   >([]);
   const [newMemberRole, setNewMemberRole] = useState<string>("CREW");
   const [bulkInternalSelection, setBulkInternalSelection] = useState<string[]>([]);
@@ -1242,6 +1244,10 @@ export default function ProjectDetailPage({
   const [participantAdminMode, setParticipantAdminMode] = useState<
     "none" | "internal" | "invite"
   >("none");
+
+  // Roster — Non Users: collapsible section (default collapsed).
+  const ROSTER_ROLES = useMemo(() => new Set(["VIEWER", "ROSTER"]), []);
+  const [rosterExpanded, setRosterExpanded] = useState(false);
 
   // Soft search for participant picker + displayed participant lists
   const [participantSearch, setParticipantSearch] = useState("");
@@ -7810,6 +7816,7 @@ ${htmlBody}
               firstName: m.user?.firstName ?? "",
               lastName: m.user?.lastName ?? "",
               role: m.role,
+              isActive: m.isActive !== false,
             })),
           );
           // Store company contact info for invoice printing
@@ -13838,15 +13845,14 @@ ${htmlBody}
             key={tab.key}
             type="button"
             onClick={() => {
-              // PETL is heavy: update underline instantly, then transition the content
-              // switch (unmounting previous tab + mounting PETL shell) on the next frame.
+              // This component is very large (35K+ lines); synchronous tab content
+              // switches cause 300ms+ INP stalls.  Defer all content switches so the
+              // underline paints immediately and the heavy unmount/mount happens in a
+              // non-blocking transition.
               if (tab.key === "PETL") {
                 setPetlTabMounted(false);
-                setTab("PETL", { deferContentSwitch: true });
-                return;
               }
-
-              setTab(tab.key);
+              setTab(tab.key, { deferContentSwitch: true });
             }}
             style={{
               border: "none",
@@ -13868,7 +13874,7 @@ ${htmlBody}
         {/* Full-screen toggle */}
         <button
           type="button"
-          onClick={() => setBodyFullscreen((v) => !v)}
+          onClick={() => startUiTransition(() => setBodyFullscreen((v) => !v))}
           title={bodyFullscreen ? "Exit full screen (Esc)" : "Full screen"}
           style={{
             marginLeft: "auto",
@@ -14726,6 +14732,91 @@ ${htmlBody}
             </div>
           )}
 
+          {/* Roster — Non Users card (collapsed by default) */}
+          {(() => {
+            const rosterMembers = (participants?.myOrganization ?? []).filter(
+              (m) => ROSTER_ROLES.has(m.role),
+            );
+            if (rosterMembers.length === 0) return null;
+            return (
+              <div
+                style={{
+                  marginTop: 12,
+                  borderRadius: 8,
+                  border: "1px solid #e5e7eb",
+                  background: "#ffffff",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setRosterExpanded((v) => !v)}
+                  style={{
+                    width: "100%",
+                    padding: "6px 10px",
+                    borderBottom: rosterExpanded ? "1px solid #e5e7eb" : "none",
+                    border: "none",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    background: "#f3f4f6",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "flex-start",
+                    gap: 8,
+                    cursor: "pointer",
+                    borderRadius: rosterExpanded ? "8px 8px 0 0" : 8,
+                    textAlign: "left",
+                  }}
+                >
+                  <span
+                    style={{
+                      display: "inline-block",
+                      transform: rosterExpanded ? "rotate(90deg)" : "rotate(0deg)",
+                      transition: "transform 0.15s",
+                      fontSize: 11,
+                    }}
+                  >
+                    ▶
+                  </span>
+                  <span>Roster — Non Users</span>
+                  <span style={{ fontWeight: 400, fontSize: 12, color: "#6b7280" }}>
+                    ({rosterMembers.length})
+                  </span>
+                </button>
+                {rosterExpanded && (
+                  <div style={{ padding: 10, fontSize: 12 }}>
+                    <p style={{ margin: "0 0 8px", color: "#6b7280", fontSize: 11 }}>
+                      Tracked for attendance, payroll, and accountability. These personnel do not use the software.
+                    </p>
+                    <div style={{ border: "1px solid #e5e7eb", borderRadius: 4, overflow: "hidden" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                        <thead>
+                          <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
+                            <th style={{ padding: "4px 8px", textAlign: "left", fontWeight: 600, color: "#374151" }}>Last Name</th>
+                            <th style={{ padding: "4px 8px", textAlign: "left", fontWeight: 600, color: "#374151" }}>First Name</th>
+                            <th style={{ padding: "4px 8px", textAlign: "left", fontWeight: 600, color: "#374151" }}>Email</th>
+                            <th style={{ padding: "4px 8px", textAlign: "left", fontWeight: 600, color: "#374151" }}>Role</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rosterMembers.map((m, i) => (
+                            <tr key={`${m.id ?? m.userId}-${i}`} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                              <td style={{ padding: "4px 8px", color: "#111827" }}>{m.user?.lastName || "—"}</td>
+                              <td style={{ padding: "4px 8px", color: "#111827" }}>{m.user?.firstName || "—"}</td>
+                              <td style={{ padding: "4px 8px", color: "#4b5563" }}>{m.user?.email || "—"}</td>
+                              <td style={{ padding: "4px 8px", color: "#6b7280" }}>
+                                {roleProfileMap.get(m.role)?.label ?? (m.role === "ROSTER" ? "Roster — Non User" : m.role === "VIEWER" ? "Roster (legacy)" : m.role)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Participants card */}
           <div
             style={{
@@ -14831,7 +14922,9 @@ ${htmlBody}
               };
 
               const filteredMyOrg = sortParticipants(
-                (participants?.myOrganization ?? []).filter(filterParticipant),
+                (participants?.myOrganization ?? []).filter(
+                  (m) => filterParticipant(m) && !ROSTER_ROLES.has(m.role),
+                ),
               );
               const filteredCollabs = (participants?.collaborators ?? []).filter(filterParticipant);
 
@@ -14864,9 +14957,29 @@ ${htmlBody}
                       <tbody>
                         {rows.map((m, i) => (
                           <tr key={`${m.id ?? m.userId}-${i}`} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                            <td style={{ padding: "4px 8px", color: "#111827" }}>{m.user?.lastName || "—"}</td>
-                            <td style={{ padding: "4px 8px", color: "#111827" }}>{m.user?.firstName || "—"}</td>
-                            <td style={{ padding: "4px 8px", color: "#4b5563" }}>
+                            <td style={{ padding: "4px 8px", color: m.companyMembershipActive === false ? "#9ca3af" : "#111827" }}>
+                              {m.user?.lastName || "—"}
+                              {m.companyMembershipActive === false && (
+                                <span
+                                  title="Deactivated from company"
+                                  style={{
+                                    marginLeft: 6,
+                                    fontSize: 9,
+                                    fontWeight: 700,
+                                    padding: "1px 5px",
+                                    borderRadius: 999,
+                                    backgroundColor: "#f3f4f6",
+                                    color: "#9ca3af",
+                                    border: "1px solid #e5e7eb",
+                                    verticalAlign: "middle",
+                                  }}
+                                >
+                                  INACTIVE
+                                </span>
+                              )}
+                            </td>
+                            <td style={{ padding: "4px 8px", color: m.companyMembershipActive === false ? "#9ca3af" : "#111827" }}>{m.user?.firstName || "—"}</td>
+                            <td style={{ padding: "4px 8px", color: m.companyMembershipActive === false ? "#9ca3af" : "#4b5563" }}>
                               {m.user?.email || "—"}
                             </td>
                             <td style={{ padding: "4px 8px", color: "#6b7280" }}>
@@ -15092,6 +15205,7 @@ ${htmlBody}
                           : (
                             <>
                               <option value="MANAGER">Manager</option>
+                              <option value="ROSTER">Roster — Non User</option>
                               <option value="VIEWER">Viewer</option>
                             </>
                           )}
@@ -15109,6 +15223,7 @@ ${htmlBody}
                       {(() => {
                         const searchLower = participantSearch.toLowerCase();
                         const addableMembers = availableMembers
+                          .filter(m => m.isActive)
                           .filter(m =>
                             !participants?.myOrganization.some(p => p.userId === m.userId),
                           )
@@ -15426,6 +15541,7 @@ ${htmlBody}
                               : (
                                 <>
                                   <option value="MANAGER">Manager</option>
+                                  <option value="ROSTER">Roster — Non User</option>
                                   <option value="VIEWER">Viewer</option>
                                 </>
                               )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, startTransition, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { formatPhone } from "../../lib/phone";
 
@@ -35,6 +35,10 @@ interface CompanyMemberRow {
   role: CompanyRole;
   isActive: boolean;
   createdAt: string;
+  deactivatedAt?: string | null;
+  blackFlagged?: boolean;
+  blackFlaggedAt?: string | null;
+  blackFlagReason?: string | null;
   user: {
     id: string;
     email: string;
@@ -90,13 +94,17 @@ function CompanyUsersPageInner() {
   const [memberRoleFilter, setMemberRoleFilter] = useState<CompanyRole | "ALL">("ALL");
   const [memberSearch, setMemberSearch] = useState("");
   const [memberGlobalRoleFilter, setMemberGlobalRoleFilter] = useState<GlobalRole | "ALL">("ALL");
-  const [memberAccessFilter, setMemberAccessFilter] = useState<"ACTIVE" | "INACTIVE" | "ALL">("ALL");
+  const [memberAccessFilter, setMemberAccessFilter] = useState<"ACTIVE" | "INACTIVE" | "ALL">("ACTIVE");
   const [memberSelectedIds, setMemberSelectedIds] = useState<string[]>([]);
   const [memberBulkMenuOpen, setMemberBulkMenuOpen] = useState(false);
   const [memberOpenMenuUserId, setMemberOpenMenuUserId] = useState<string | null>(null);
   const [memberSortKey, setMemberSortKey] = useState<
     "NAME_ASC" | "NAME_DESC" | "EMAIL_ASC" | "EMAIL_DESC" | "ROLE_ASC" | "ROLE_DESC" | "JOINED_ASC" | "JOINED_DESC"
   >("NAME_ASC");
+
+  // Pagination for members table (INP fix — cap rendered DOM rows).
+  const MEMBERS_PAGE_SIZE = 50;
+  const [memberPage, setMemberPage] = useState(0);
 
   const [invites, setInvites] = useState<CompanyInviteRow[]>([]);
   const [invitesLoading, setInvitesLoading] = useState(false);
@@ -485,6 +493,21 @@ function CompanyUsersPageInner() {
     });
   }, [members, memberTypeFilter, memberRoleFilter, memberGlobalRoleFilter, memberAccessFilter, memberSearch, memberSortKey]);
 
+  // Reset page when filters change.
+  const prevFilteredLen = useRef(filteredMembers.length);
+  useEffect(() => {
+    if (filteredMembers.length !== prevFilteredLen.current) {
+      prevFilteredLen.current = filteredMembers.length;
+      setMemberPage(0);
+    }
+  }, [filteredMembers.length]);
+
+  const memberTotalPages = Math.max(1, Math.ceil(filteredMembers.length / MEMBERS_PAGE_SIZE));
+  const paginatedMembers = useMemo(
+    () => filteredMembers.slice(memberPage * MEMBERS_PAGE_SIZE, (memberPage + 1) * MEMBERS_PAGE_SIZE),
+    [filteredMembers, memberPage],
+  );
+
   const memberSelectedCount = memberSelectedIds.filter(id =>
     filteredMembers.some(m => m.userId === id),
   ).length;
@@ -750,7 +773,7 @@ function CompanyUsersPageInner() {
     }
   };
 
-  async function handleBulkReleaseToMarketplace() {
+  async function handleBulkRemoveToMarketplace() {
     if (!companyId) return;
     if (!canManageMembers) return;
 
@@ -764,13 +787,13 @@ function CompanyUsersPageInner() {
       m => memberSelectedIds.includes(m.userId) && m.isActive,
     );
     if (!selected.length) {
-      alert("No active members selected to release.");
+      alert("No active members selected to remove.");
       return;
     }
 
     if (
       !window.confirm(
-        `Release ${selected.length} member${selected.length > 1 ? "s" : ""} to the marketplace? They will be deactivated from this tenant but remain available as unassigned in the marketplace.`,
+        `Remove ${selected.length} member${selected.length > 1 ? "s" : ""} and send to marketplace? They will be deactivated from this tenant but remain available as unassigned in the marketplace.`,
       )
     ) {
       return;
@@ -793,7 +816,7 @@ function CompanyUsersPageInner() {
           if (!res.ok) {
             const text = await res.text().catch(() => "");
             console.error(
-              `Failed to release ${m.user.email} (${m.userId}):`,
+              `Failed to remove ${m.user.email} (${m.userId}):`,
               res.status,
               text,
             );
@@ -807,7 +830,7 @@ function CompanyUsersPageInner() {
         ),
       );
     } catch (err: any) {
-      alert(err?.message ?? "Failed to release members.");
+      alert(err?.message ?? "Failed to remove members.");
     }
   }
 
@@ -2133,8 +2156,10 @@ function CompanyUsersPageInner() {
                     <button
                       type="button"
                       onClick={() =>
-                        setMemberSortKey(prev =>
-                          prev === "NAME_ASC" ? "NAME_DESC" : "NAME_ASC",
+                        startTransition(() =>
+                          setMemberSortKey(prev =>
+                            prev === "NAME_ASC" ? "NAME_DESC" : "NAME_ASC",
+                          ),
                         )
                       }
                       style={{
@@ -2164,8 +2189,10 @@ function CompanyUsersPageInner() {
                     <button
                       type="button"
                       onClick={() =>
-                        setMemberSortKey(prev =>
-                          prev === "EMAIL_ASC" ? "EMAIL_DESC" : "EMAIL_ASC",
+                        startTransition(() =>
+                          setMemberSortKey(prev =>
+                            prev === "EMAIL_ASC" ? "EMAIL_DESC" : "EMAIL_ASC",
+                          ),
                         )
                       }
                       style={{
@@ -2199,8 +2226,10 @@ function CompanyUsersPageInner() {
                     <button
                       type="button"
                       onClick={() =>
-                        setMemberSortKey(prev =>
-                          prev === "ROLE_ASC" ? "ROLE_DESC" : "ROLE_ASC",
+                        startTransition(() =>
+                          setMemberSortKey(prev =>
+                            prev === "ROLE_ASC" ? "ROLE_DESC" : "ROLE_ASC",
+                          ),
                         )
                       }
                       style={{
@@ -2230,8 +2259,10 @@ function CompanyUsersPageInner() {
                     <button
                       type="button"
                       onClick={() =>
-                        setMemberSortKey(prev =>
-                          prev === "JOINED_ASC" ? "JOINED_DESC" : "JOINED_ASC",
+                        startTransition(() =>
+                          setMemberSortKey(prev =>
+                            prev === "JOINED_ASC" ? "JOINED_DESC" : "JOINED_ASC",
+                          ),
                         )
                       }
                       style={{
@@ -2436,7 +2467,7 @@ function CompanyUsersPageInner() {
                           type="button"
                           onClick={async () => {
                             setMemberBulkMenuOpen(false);
-                            await handleBulkReleaseToMarketplace();
+                            await handleBulkRemoveToMarketplace();
                           }}
                           disabled={memberSelectedCount === 0}
                           style={{
@@ -2459,7 +2490,7 @@ function CompanyUsersPageInner() {
                             textAlign: "left",
                           }}
                         >
-                          <span>Release to marketplace</span>
+                          <span>Remove — send to marketplace</span>
                         </button>
                       </div>
                     )}
@@ -2467,7 +2498,7 @@ function CompanyUsersPageInner() {
                 </tr>
               </thead>
               <tbody>
-                {filteredMembers.map(m => {
+                {paginatedMembers.map(m => {
                   const nameParts = [m.user.firstName, m.user.lastName].filter(Boolean);
                   const displayName = nameParts.length
                     ? nameParts.join(" ")
@@ -2859,7 +2890,7 @@ function CompanyUsersPageInner() {
                                   setMemberOpenMenuUserId(null);
                                   if (
                                     !window.confirm(
-                                      `Release ${m.user.firstName || m.user.email} from this tenant? They will be deactivated but remain available in the marketplace.`,
+                                      `Remove ${m.user.firstName || m.user.email} from this tenant and send to marketplace? They will be deactivated but remain available as unassigned.`,
                                     )
                                   )
                                     return;
@@ -2887,7 +2918,7 @@ function CompanyUsersPageInner() {
                                   textAlign: "left",
                                 }}
                               >
-                                <span>{m.isActive ? "Release to marketplace" : "Already released"}</span>
+                                <span>{m.isActive ? "Remove — send to marketplace" : "Already removed"}</span>
                               </button>
                             )}
                           </div>
@@ -2936,6 +2967,63 @@ function CompanyUsersPageInner() {
                 )}
               </tbody>
             </table>
+            {/* Pagination controls */}
+            {memberTotalPages > 1 && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "8px 12px",
+                  borderTop: "1px solid #e5e7eb",
+                  fontSize: 12,
+                  color: "#4b5563",
+                }}
+              >
+                <span>
+                  {memberPage * MEMBERS_PAGE_SIZE + 1}–
+                  {Math.min((memberPage + 1) * MEMBERS_PAGE_SIZE, filteredMembers.length)}{" "}
+                  of {filteredMembers.length}
+                </span>
+                <div style={{ display: "flex", gap: 4 }}>
+                  <button
+                    type="button"
+                    disabled={memberPage === 0}
+                    onClick={() => setMemberPage(p => Math.max(0, p - 1))}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      background: memberPage === 0 ? "#f9fafb" : "#ffffff",
+                      color: memberPage === 0 ? "#9ca3af" : "#111827",
+                      cursor: memberPage === 0 ? "default" : "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    ← Prev
+                  </button>
+                  <span style={{ padding: "4px 6px", fontSize: 12 }}>
+                    Page {memberPage + 1} / {memberTotalPages}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={memberPage >= memberTotalPages - 1}
+                    onClick={() => setMemberPage(p => Math.min(memberTotalPages - 1, p + 1))}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      background: memberPage >= memberTotalPages - 1 ? "#f9fafb" : "#ffffff",
+                      color: memberPage >= memberTotalPages - 1 ? "#9ca3af" : "#111827",
+                      cursor: memberPage >= memberTotalPages - 1 ? "default" : "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    Next →
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </section>

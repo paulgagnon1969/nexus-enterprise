@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Post,
   Patch,
   Param,
   Body,
@@ -17,6 +18,9 @@ import { JwtAuthGuard, getEffectiveRoleLevel } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { SupplierCatalogService } from "./supplier-catalog.service";
 import { BigBoxProvider } from "./bigbox.provider";
+import { VendorRegistryService } from "./vendor-registry.service";
+import { ShopService } from "./shop.service";
+import { PrismaService } from "../../infra/prisma/prisma.service";
 
 function getUser(req: FastifyRequest): AuthenticatedUser {
   const user = (req as any).user as AuthenticatedUser | undefined;
@@ -35,12 +39,21 @@ function assertPmOrAbove(user: AuthenticatedUser) {
   }
 }
 
+function assertSuperAdmin(user: AuthenticatedUser) {
+  if (user.globalRole !== "SUPER_ADMIN") {
+    throw new ForbiddenException("SUPER_ADMIN access required");
+  }
+}
+
 @Controller("supplier-catalog")
 @UseGuards(JwtAuthGuard)
 export class SupplierCatalogController {
   constructor(
     private readonly catalog: SupplierCatalogService,
     private readonly bigBox: BigBoxProvider,
+    private readonly vendorRegistry: VendorRegistryService,
+    private readonly shop: ShopService,
+    private readonly prisma: PrismaService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -420,5 +433,172 @@ export class SupplierCatalogController {
     if (!user.companyId) throw new BadRequestException("Company context required");
 
     return this.catalog.compareWithCostBook(provider, id, user.companyId, zip);
+  }
+
+  // =========================================================================
+  // Procurement Intelligence — Vendor Registry
+  // =========================================================================
+
+  /** List all vendors in the registry. ?enabledOnly=true */
+  @Get("vendors")
+  async listVendors(
+    @Req() req: FastifyRequest,
+    @Query("enabledOnly") enabledOnly?: string,
+  ) {
+    const user = getUser(req);
+    assertPmOrAbove(user);
+    const onlyEnabled = enabledOnly === "true" || enabledOnly === "1";
+    const vendors = await this.vendorRegistry.listVendors(onlyEnabled);
+    return { vendors };
+  }
+
+  /** Get a single vendor by code. */
+  @Get("vendors/:code")
+  async getVendor(
+    @Req() req: FastifyRequest,
+    @Param("code") code: string,
+  ) {
+    const user = getUser(req);
+    assertPmOrAbove(user);
+    const vendor = await this.vendorRegistry.getByCode(code.toUpperCase());
+    if (!vendor) throw new NotFoundException(`Vendor ${code} not found`);
+    return vendor;
+  }
+
+  /** Seed default vendors (idempotent). SUPER_ADMIN only. */
+  @Post("vendors/seed")
+  async seedVendors(@Req() req: FastifyRequest) {
+    const user = getUser(req);
+    assertSuperAdmin(user);
+    return this.vendorRegistry.seedVendors();
+  }
+
+  /** Create a new vendor. SUPER_ADMIN only. */
+  @Post("vendors")
+  async createVendor(
+    @Req() req: FastifyRequest,
+    @Body() body: {
+      code: string;
+      name: string;
+      websiteUrl?: string;
+      providerType: string;
+      isEnabled?: boolean;
+      scrapeConfig?: Record<string, any>;
+      apiConfig?: Record<string, any>;
+      rateLimit?: Record<string, any>;
+      skuPrefix?: string;
+      prefixMap?: Record<string, string[]>;
+    },
+  ) {
+    const user = getUser(req);
+    assertSuperAdmin(user);
+    if (!body.code || !body.name || !body.providerType) {
+      throw new BadRequestException("code, name, and providerType are required");
+    }
+    return this.vendorRegistry.createVendor({
+      ...body,
+      providerType: body.providerType as any,
+      isEnabled: body.isEnabled ?? true,
+    });
+  }
+
+  /** Update vendor config. SUPER_ADMIN only. */
+  @Patch("vendors/:code")
+  async updateVendor(
+    @Req() req: FastifyRequest,
+    @Param("code") code: string,
+    @Body() body: Record<string, any>,
+  ) {
+    const user = getUser(req);
+    assertSuperAdmin(user);
+    const existing = await this.vendorRegistry.getByCode(code.toUpperCase());
+    if (!existing) throw new NotFoundException(`Vendor ${code} not found`);
+    return this.vendorRegistry.updateVendor(code.toUpperCase(), body);
+  }
+
+  // =========================================================================
+  // Procurement Intelligence — Catalog & Comparison Grid
+  // =========================================================================
+
+  /** Browse catalog items. ?category=CABINET&search=shaker&limit=50&offset=0 */
+  @Get("catalog")
+  async listCatalogItems(
+    @Req() req: FastifyRequest,
+    @Query("category") category?: string,
+    @Query("search") search?: string,
+    @Query("limit") limit?: string,
+    @Query("offset") offset?: string,
+  ) {
+    const user = getUser(req);
+    assertPmOrAbove(user);
+
+    const where: Record<string, any> = {};
+    if (category) where.category = category.toUpperCase();
+    if (search) {
+      where.description = { contains: search, mode: "insensitive" };
+    }
+
+    const take = Math.min(Number(limit) || 50, 200);
+    const skip = Number(offset) || 0;
+
+    const [items, total] = await Promise.all([
+      this.prisma.catalogItem.findMany({ where, take, skip, orderBy: { description: "asc" } }),
+      this.prisma.catalogItem.count({ where }),
+    ]);
+
+    return { items, total, limit: take, offset: skip };
+  }
+
+  /** Comparison grid — POST array of catalogItemIds, returns vendor quote matrix. */
+  @Post("catalog/compare")
+  async comparisonGrid(
+    @Req() req: FastifyRequest,
+    @Body() body: { catalogItemIds: string[] },
+  ) {
+    const user = getUser(req);
+    assertPmOrAbove(user);
+
+    if (!body.catalogItemIds?.length) {
+      throw new BadRequestException("catalogItemIds[] is required");
+    }
+    return this.shop.getComparisonGrid(body.catalogItemIds);
+  }
+
+  // =========================================================================
+  // Procurement Intelligence — Shop (live scrape / quote refresh)
+  // =========================================================================
+
+  /** Shop for a single catalog item across all enabled vendors. */
+  @Post("catalog/:id/shop")
+  async shopForItem(
+    @Req() req: FastifyRequest,
+    @Param("id") id: string,
+    @Body() body: { zipCode?: string },
+  ) {
+    const user = getUser(req);
+    assertPmOrAbove(user);
+    return this.shop.shopForItem(id, { zipCode: body.zipCode });
+  }
+
+  /** Shop for a BOM — finds linked CatalogItems and refreshes quotes. */
+  @Post("catalog/shop-bom")
+  async shopForBom(
+    @Req() req: FastifyRequest,
+    @Body() body: {
+      projectId: string;
+      estimateVersionId: string;
+      zipCode?: string;
+      catalogItemIds?: string[];
+    },
+  ) {
+    const user = getUser(req);
+    assertPmOrAbove(user);
+    if (!body.projectId || !body.estimateVersionId) {
+      throw new BadRequestException("projectId and estimateVersionId are required");
+    }
+    return this.shop.shopForBom(body.projectId, body.estimateVersionId, {
+      zipCode: body.zipCode,
+      catalogItemIds: body.catalogItemIds,
+    });
   }
 }

@@ -55,6 +55,7 @@ export class CompanyService {
           select: {
             userId: true,
             role: true,
+            isActive: true,
             createdAt: true,
             user: {
               select: {
@@ -251,6 +252,7 @@ export class CompanyService {
       { id: null, code: "MANAGER", label: "Manager", description: null, sortOrder: 10 },
       { id: null, code: "COLLABORATOR", label: "Collaborator", description: null, sortOrder: 20 },
       { id: null, code: "VIEWER", label: "Viewer", description: null, sortOrder: 30 },
+      { id: null, code: "ROSTER", label: "Roster — Non User", description: "Tracked for attendance, payroll, and accountability but does not use the software.", sortOrder: 35 },
     ];
   }
 
@@ -259,6 +261,11 @@ export class CompanyService {
       throw new Error("Cannot list members for a different company context");
     }
 
+    // Classified fields are only visible to OWNER / SUPER_ADMIN.
+    const canSeeClassified =
+      actor.role === Role.OWNER ||
+      actor.globalRole === GlobalRole.SUPPORT;
+
     const memberships = await this.prisma.companyMembership.findMany({
       where: { companyId },
       select: {
@@ -266,6 +273,10 @@ export class CompanyService {
         role: true,
         isActive: true,
         createdAt: true,
+        deactivatedAt: true,
+        blackFlagged: true,
+        blackFlaggedAt: true,
+        blackFlagReason: true,
         user: {
           select: {
             id: true,
@@ -304,11 +315,12 @@ export class CompanyService {
         }
       }
 
-      return {
+      const base: Record<string, any> = {
         userId: m.userId,
         role: m.role,
         isActive: m.isActive,
         createdAt: m.createdAt,
+        deactivatedAt: m.deactivatedAt,
         user: {
           id: m.user.id,
           email: m.user.email,
@@ -319,6 +331,15 @@ export class CompanyService {
           phone,
         },
       };
+
+      // Append classified fields only for OWNER / SUPER_ADMIN.
+      if (canSeeClassified) {
+        base.blackFlagged = m.blackFlagged ?? false;
+        base.blackFlaggedAt = m.blackFlaggedAt ?? null;
+        base.blackFlagReason = m.blackFlagReason ?? null;
+      }
+
+      return base;
     });
   }
 
@@ -907,12 +928,19 @@ export class CompanyService {
 
     const updated = await this.prisma.companyMembership.update({
       where: { userId_companyId: { userId, companyId } },
-      data: { isActive },
+      data: {
+        isActive,
+        // Track when and by whom the member was removed from the tenant.
+        // Cleared on reactivation so the membership reflects current state.
+        deactivatedAt: isActive ? null : new Date(),
+        deactivatedByUserId: isActive ? null : (actor.userId ?? null),
+      },
       select: {
         userId: true,
         role: true,
         isActive: true,
         createdAt: true,
+        deactivatedAt: true,
         user: {
           select: {
             id: true,
@@ -964,6 +992,78 @@ export class CompanyService {
         userId,
         previousIsActive: membership.isActive,
         newIsActive: isActive,
+      },
+    });
+
+    return updated;
+  }
+
+  // =========================================================================
+  // Black Flag (classified per-tenant risk marker — OWNER / SUPER_ADMIN only)
+  // =========================================================================
+
+  async setBlackFlag(
+    companyId: string,
+    userId: string,
+    flagged: boolean,
+    reason: string | null,
+    actor: AuthenticatedUser,
+  ) {
+    if (actor.companyId !== companyId) {
+      throw new Error("Cannot modify members for a different company context");
+    }
+
+    // Only OWNER or SUPPORT may set/clear a black flag.
+    if (
+      actor.role !== Role.OWNER &&
+      actor.globalRole !== GlobalRole.SUPPORT
+    ) {
+      throw new Error(
+        "Only OWNER or SUPER_ADMIN can manage black flags",
+      );
+    }
+
+    const membership = await this.prisma.companyMembership.findUnique({
+      where: { userId_companyId: { userId, companyId } },
+    });
+
+    if (!membership) {
+      throw new Error("Membership not found");
+    }
+
+    const updated = await this.prisma.companyMembership.update({
+      where: { userId_companyId: { userId, companyId } },
+      data: {
+        blackFlagged: flagged,
+        blackFlaggedAt: flagged ? new Date() : null,
+        blackFlaggedByUserId: flagged ? (actor.userId ?? null) : null,
+        blackFlagReason: flagged ? (reason || null) : null,
+      },
+      select: {
+        userId: true,
+        role: true,
+        isActive: true,
+        blackFlagged: true,
+        blackFlaggedAt: true,
+        blackFlagReason: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
+
+    await this.audit.log(actor, "COMPANY_MEMBER_BLACK_FLAG_UPDATED", {
+      companyId,
+      metadata: {
+        userId,
+        previousBlackFlagged: membership.blackFlagged,
+        newBlackFlagged: flagged,
+        reason: reason || null,
       },
     });
 

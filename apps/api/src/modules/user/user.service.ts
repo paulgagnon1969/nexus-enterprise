@@ -723,6 +723,10 @@ export class UserService {
         select: {
           role: true,
           isActive: true,
+          deactivatedAt: true,
+          blackFlagged: true,
+          blackFlaggedAt: true,
+          blackFlagReason: true,
           company: {
             select: { id: true, name: true },
           },
@@ -1023,6 +1027,10 @@ export class UserService {
           }
         : null;
 
+      // Classified fields visible only to OWNER or SUPPORT.
+      const canSeeClassified =
+        actor.role === Role.OWNER || actor.globalRole === GlobalRole.SUPPORT;
+
       return {
         id: user.id,
         email: user.email,
@@ -1033,8 +1041,16 @@ export class UserService {
         company: membership.company,
         companyRole: membership.role,
         companyMembershipActive: membership.isActive,
+        deactivatedAt: membership.deactivatedAt ?? null,
         companyProfileCode: (membership as any).profile?.code ?? null,
         companyProfileLabel: (membership as any).profile?.label ?? null,
+        ...(canSeeClassified
+          ? {
+              blackFlagged: membership.blackFlagged ?? false,
+              blackFlaggedAt: membership.blackFlaggedAt ?? null,
+              blackFlagReason: membership.blackFlagReason ?? null,
+            }
+          : {}),
         reputation: {
           avg: user.reputationOverallAvg,
           count: user.reputationOverallCount,
