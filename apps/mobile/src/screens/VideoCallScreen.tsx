@@ -7,10 +7,6 @@ import {
   FlatList,
   Dimensions,
   SafeAreaView,
-  Modal,
-  TextInput,
-  Pressable,
-  ActivityIndicator,
   Alert,
 } from "react-native";
 import {
@@ -25,8 +21,7 @@ import {
 import { Track } from "livekit-client";
 import type { TrackReferenceOrPlaceholder } from "@livekit/react-native";
 import { apiFetch, apiJson } from "../api/client";
-import { fetchContacts } from "../api/contacts";
-import type { Contact } from "../types/api";
+import { CallContactPicker, type CallPickerResult } from "../components/CallContactPicker";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 
@@ -103,11 +98,7 @@ function CallUI({
 
   // Invite state
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [inviteSearch, setInviteSearch] = useState("");
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [inviting, setInviting] = useState(false);
-  const [contactsLoading, setContactsLoading] = useState(false);
 
   // Timer
   useEffect(() => {
@@ -149,69 +140,69 @@ function CallUI({
     }
   }, [room]);
 
-  // ── Invite helpers ──────────────────────────────────────────────────
+  // ── Invite via shared picker + smart-invite ─────────────────────────
 
-  const openInvite = useCallback(async () => {
+  const openInvite = useCallback(() => {
     setInviteOpen(true);
-    setContactsLoading(true);
-    try {
-      const list = await fetchContacts({ category: "internal" });
-      setContacts(list);
-    } catch {
-      // Fallback: fetch without category filter
-      try {
-        const list = await fetchContacts();
-        setContacts(list);
-      } catch {
-        setContacts([]);
-      }
-    } finally {
-      setContactsLoading(false);
-    }
   }, []);
 
-  const toggleContact = useCallback((id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
-
-  const sendInvites = useCallback(async () => {
-    if (selectedIds.size === 0) return;
+  const handleInvite = useCallback(async (result: CallPickerResult) => {
     setInviting(true);
     try {
-      // Contact IDs are prefixed (e.g. "ncc-member-abc123") — strip to raw userId.
-      const rawUserIds = Array.from(selectedIds).map((id) =>
-        id.replace(/^ncc-member-/, "").replace(/^ncc-sub-/, "").replace(/^ncc-client-/, "").replace(/^personal-/, ""),
-      );
-      await apiJson(`/video/rooms/${roomId}/invite`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userIds: rawUserIds }),
-      });
-      Alert.alert("Invited", `Sent ${selectedIds.size} invite${selectedIds.size > 1 ? "s" : ""}`);
+      const invitees: { userId?: string; phone?: string; email?: string; name?: string }[] = [];
+
+      for (const c of result.apiContacts) {
+        const rawUserId = c.id
+          .replace(/^ncc-member-/, "")
+          .replace(/^ncc-sub-/, "")
+          .replace(/^ncc-client-/, "")
+          .replace(/^personal-/, "");
+        invitees.push({
+          userId: rawUserId,
+          phone: c.phone ?? undefined,
+          email: c.email ?? undefined,
+          name: c.displayName || [c.firstName, c.lastName].filter(Boolean).join(" ") || undefined,
+        });
+      }
+
+      for (const dc of result.deviceContacts) {
+        invitees.push({
+          phone: dc.phone ?? undefined,
+          email: dc.email ?? undefined,
+          name: dc.displayName || undefined,
+        });
+      }
+
+      if (result.manualEntry) {
+        const val = result.manualEntry.trim();
+        const isEmail = val.includes("@");
+        invitees.push({
+          phone: isEmail ? undefined : val,
+          email: isEmail ? val : undefined,
+          name: val,
+        });
+      }
+
+      if (invitees.length > 0) {
+        const res = await apiJson<{ results: { name: string; channel: string; status: string }[] }>(
+          `/video/rooms/${roomId}/smart-invite`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ invitees }),
+          },
+        );
+        const sent = (res.results || []).filter((r) => r.status === "sent").length;
+        Alert.alert("Invited", `Sent ${sent} invite${sent !== 1 ? "s" : ""}`);
+      }
+
       setInviteOpen(false);
-      setSelectedIds(new Set());
-      setInviteSearch("");
     } catch {
       Alert.alert("Error", "Failed to send invites");
     } finally {
       setInviting(false);
     }
-  }, [roomId, selectedIds]);
-
-  const filteredContacts = inviteSearch.trim()
-    ? contacts.filter((c) => {
-        const name = [c.firstName, c.lastName, c.displayName, c.email]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        return name.includes(inviteSearch.toLowerCase());
-      })
-    : contacts;
+  }, [roomId]);
 
   // Calculate tile size based on participant count
   const count = Math.max(tracks.length, 1);
@@ -298,78 +289,14 @@ function CallUI({
         </TouchableOpacity>
       </View>
 
-      {/* Invite modal */}
-      <Modal visible={inviteOpen} animationType="slide" transparent>
-        <View style={styles.inviteOverlay}>
-          <View style={styles.inviteSheet}>
-            <View style={styles.inviteHeader}>
-              <Text style={styles.inviteTitle}>Invite to Call</Text>
-              <Pressable onPress={() => { setInviteOpen(false); setInviteSearch(""); }}>
-                <Text style={styles.inviteClose}>✕</Text>
-              </Pressable>
-            </View>
-
-            <TextInput
-              style={styles.inviteSearchInput}
-              placeholder="Search contacts…"
-              placeholderTextColor="#888"
-              value={inviteSearch}
-              onChangeText={setInviteSearch}
-              autoCorrect={false}
-            />
-
-            {contactsLoading ? (
-              <ActivityIndicator size="large" color="#3b82f6" style={{ marginTop: 32 }} />
-            ) : (
-              <FlatList
-                data={filteredContacts}
-                keyExtractor={(c) => c.id}
-                style={styles.inviteList}
-                renderItem={({ item }) => {
-                  const name = item.displayName
-                    || [item.firstName, item.lastName].filter(Boolean).join(" ")
-                    || item.email
-                    || "Unknown";
-                  const selected = selectedIds.has(item.id);
-                  return (
-                    <Pressable
-                      style={[styles.inviteRow, selected && styles.inviteRowSelected]}
-                      onPress={() => toggleContact(item.id)}
-                    >
-                      <View style={[styles.inviteAvatar, selected && styles.inviteAvatarSelected]}>
-                        <Text style={styles.inviteAvatarText}>
-                          {selected ? "✓" : (name.charAt(0).toUpperCase())}
-                        </Text>
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.inviteName} numberOfLines={1}>{name}</Text>
-                        {item.role && (
-                          <Text style={styles.inviteRole} numberOfLines={1}>{item.role}</Text>
-                        )}
-                      </View>
-                    </Pressable>
-                  );
-                }}
-                ListEmptyComponent={
-                  <Text style={styles.inviteEmpty}>No contacts found</Text>
-                }
-              />
-            )}
-
-            {selectedIds.size > 0 && (
-              <Pressable
-                style={[styles.inviteSendBtn, inviting && { opacity: 0.6 }]}
-                onPress={sendInvites}
-                disabled={inviting}
-              >
-                <Text style={styles.inviteSendText}>
-                  {inviting ? "Sending…" : `Invite ${selectedIds.size} person${selectedIds.size > 1 ? "s" : ""}`}
-                </Text>
-              </Pressable>
-            )}
-          </View>
-        </View>
-      </Modal>
+      {/* Invite picker (shared component) */}
+      <CallContactPicker
+        visible={inviteOpen}
+        onClose={() => setInviteOpen(false)}
+        onStartCall={handleInvite}
+        calling={inviting}
+        existingRoomId={roomId}
+      />
     </SafeAreaView>
   );
 }
@@ -475,106 +402,5 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     minWidth: 64,
     backgroundColor: "#1d4ed8",
-  },
-
-  // Invite modal
-  inviteOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "flex-end",
-  },
-  inviteSheet: {
-    backgroundColor: "#1e1e2e",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: "75%",
-    paddingBottom: 32,
-  },
-  inviteHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 12,
-  },
-  inviteTitle: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  inviteClose: {
-    color: "#aaa",
-    fontSize: 22,
-    padding: 4,
-  },
-  inviteSearchInput: {
-    backgroundColor: "#2a2a3e",
-    color: "#fff",
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    fontSize: 15,
-    marginHorizontal: 20,
-    marginBottom: 12,
-  },
-  inviteList: {
-    paddingHorizontal: 20,
-  },
-  inviteRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#333",
-  },
-  inviteRowSelected: {
-    backgroundColor: "rgba(59,130,246,0.1)",
-  },
-  inviteAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#334155",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
-  inviteAvatarSelected: {
-    backgroundColor: "#2563eb",
-  },
-  inviteAvatarText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  inviteName: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "500",
-  },
-  inviteRole: {
-    color: "#888",
-    fontSize: 12,
-    marginTop: 1,
-  },
-  inviteEmpty: {
-    color: "#666",
-    fontSize: 14,
-    textAlign: "center",
-    paddingVertical: 24,
-  },
-  inviteSendBtn: {
-    backgroundColor: "#2563eb",
-    marginHorizontal: 20,
-    marginTop: 12,
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  inviteSendText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "700",
   },
 });

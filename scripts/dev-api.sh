@@ -1,7 +1,7 @@
 #!/bin/bash
 # Safe API dev server starter - won't kill existing instances
 
-PORT=${API_PORT:-8000}
+PORT=${API_PORT:-8001}
 
 # Check if something is already running on the port
 if lsof -ti:$PORT > /dev/null 2>&1; then

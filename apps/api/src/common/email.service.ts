@@ -469,6 +469,52 @@ export class EmailService {
     return this.sendMail({ to: params.toEmail, subject, html, text });
   }
   /**
+   * Send a video call invitation email with a "Join Call" button.
+   */
+  async sendCallInvite(params: {
+    toEmail: string;
+    callerName: string;
+    projectName?: string;
+    joinUrl: string;
+  }) {
+    const projectLabel = params.projectName
+      ? ` for <strong>${escapeHtml(params.projectName)}</strong>`
+      : "";
+
+    const subject = `📹 ${params.callerName} is inviting you to a video call`;
+
+    const html = `
+      <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height: 1.5; max-width: 600px;">
+        <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: #fff; padding: 24px; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 20px;">📹 Video Call Invitation</h1>
+          <p style="margin: 8px 0 0; opacity: 0.9; font-size: 14px;">from ${escapeHtml(params.callerName)}</p>
+        </div>
+        <div style="background: #fff; border: 1px solid #e5e7eb; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+          <p style="margin: 0 0 16px;">${escapeHtml(params.callerName)} is inviting you to a video call${projectLabel}.</p>
+          <p style="margin: 0 0 24px;">Click the button below to join directly from your browser — no account or app required.</p>
+
+          <p style="margin: 0 0 24px; text-align: center;">
+            <a href="${params.joinUrl}" style="display: inline-block; background: linear-gradient(135deg, #16a34a 0%, #22c55e 100%); color: #fff; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">
+              Join Call
+            </a>
+          </p>
+
+          <p style="margin: 0 0 8px; color: #6b7280; font-size: 12px;">Or copy this link:</p>
+          <p style="margin: 0 0 20px; word-break: break-all; font-size: 12px; color: #2563eb;">
+            <a href="${params.joinUrl}" style="color: #2563eb;">${params.joinUrl}</a>
+          </p>
+
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">This link expires in 1 hour. If the call has already ended, this link will no longer work.</p>
+        </div>
+      </div>
+    `.trim();
+
+    const text = `${params.callerName} is inviting you to a video call${params.projectName ? " for " + params.projectName : ""}.\n\nJoin here: ${params.joinUrl}\n\nThis link expires in 1 hour.`;
+
+    return this.sendMail({ to: params.toEmail, subject, html, text });
+  }
+
+  /**
    * Send document share access link (Email 1 of 2).
    * Contains the share URL and instructions to use their email as login.
    * Password is sent separately in Email 2.

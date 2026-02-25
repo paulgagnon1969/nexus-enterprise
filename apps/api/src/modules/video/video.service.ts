@@ -1,9 +1,25 @@
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException, BadRequestException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { PushService, PushPayload } from "../notifications/push.service";
+import { EmailService } from "../../common/email.service";
+import { MessageBirdSmsClient } from "../../common/messagebird-sms.client";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { AccessToken, RoomServiceClient } from "livekit-server-sdk";
+
+export interface SmartInvitee {
+  userId?: string;
+  phone?: string;
+  email?: string;
+  name?: string;
+}
+
+export interface InviteResult {
+  name: string;
+  channel: "push" | "sms" | "email" | "none";
+  status: "sent" | "failed";
+  error?: string;
+}
 
 @Injectable()
 export class VideoService {
@@ -12,12 +28,15 @@ export class VideoService {
   private readonly apiKey: string | undefined;
   private readonly apiSecret: string | undefined;
   private readonly livekitUrl: string | undefined;
+  private readonly webBaseUrl: string;
   private readonly enabled: boolean;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly push: PushService,
+    private readonly email: EmailService,
+    private readonly sms: MessageBirdSmsClient,
   ) {
     this.apiKey = this.config.get<string>("LIVEKIT_API_KEY");
     this.apiSecret = this.config.get<string>("LIVEKIT_API_SECRET");
@@ -32,6 +51,7 @@ export class VideoService {
     }
 
     this.enabled = true;
+    this.webBaseUrl = this.config.get<string>("WEB_BASE_URL") || "https://ncc.nfsgrp.com";
     // RoomServiceClient uses the HTTP endpoint (replace wss:// with https://)
     const httpUrl = this.livekitUrl.replace("wss://", "https://");
     this.roomService = new RoomServiceClient(httpUrl, this.apiKey, this.apiSecret);
@@ -206,7 +226,230 @@ export class VideoService {
     return { invited: userIds.length, ...result };
   }
 
+  // ── Guest token (Phase 3) ──────────────────────────────────────
+
+  /**
+   * Generate a short-lived LiveKit token for a non-Nexus guest.
+   * Records a VideoRoomParticipant with userId = null.
+   */
+  async createGuestToken(
+    roomId: string,
+    guestName: string,
+    actor: AuthenticatedUser,
+  ) {
+    this.assertEnabled();
+    if (!guestName?.trim()) {
+      throw new BadRequestException("guestName is required");
+    }
+
+    const room = await this.prisma.videoRoom.findUnique({ where: { id: roomId } });
+    if (!room || room.status !== "ACTIVE") {
+      throw new NotFoundException("Room not found or already ended");
+    }
+    // Only members of the same company can generate guest links
+    if (room.companyId !== actor.companyId) {
+      throw new NotFoundException("Room not found or already ended");
+    }
+
+    const identity = `guest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const token = new AccessToken(this.apiKey, this.apiSecret, {
+      identity,
+      name: guestName.trim(),
+      ttl: "1h",
+    });
+    token.addGrant({
+      room: room.livekitRoomName,
+      roomJoin: true,
+      canPublish: true,
+      canSubscribe: true,
+    });
+    const jwt = await token.toJwt();
+
+    // Record guest participant
+    await this.prisma.videoRoomParticipant.create({
+      data: {
+        roomId: room.id,
+        userId: null,
+        guestName: guestName.trim(),
+      },
+    });
+
+    await this.prisma.videoRoom.update({
+      where: { id: room.id },
+      data: { participantCount: { increment: 1 } },
+    });
+
+    const joinUrl = `${this.webBaseUrl}/call/join?token=${encodeURIComponent(jwt)}&wsUrl=${encodeURIComponent(this.livekitUrl!)}` ;
+
+    this.logger.log(`Guest token created for "${guestName}" in room ${room.id}`);
+
+    return { token: jwt, joinUrl, expiresIn: 3600 };
+  }
+
+  // ── Smart invite routing (Phase 4) ────────────────────────────
+
+  /**
+   * For each invitee, determine the best delivery channel and send an invite.
+   * Returns per-invitee delivery status.
+   */
+  async smartInvite(
+    roomId: string,
+    invitees: SmartInvitee[],
+    actor: AuthenticatedUser,
+  ): Promise<InviteResult[]> {
+    this.assertEnabled();
+    const room = await this.prisma.videoRoom.findUnique({
+      where: { id: roomId },
+      include: { project: { select: { name: true } } },
+    });
+    if (!room || room.status !== "ACTIVE") {
+      throw new NotFoundException("Room not found or already ended");
+    }
+    if (room.companyId !== actor.companyId) {
+      throw new NotFoundException("Room not found or already ended");
+    }
+
+    // Caller display name
+    const caller = await this.prisma.user.findUnique({
+      where: { id: actor.userId },
+      select: { firstName: true, lastName: true, email: true },
+    });
+    const callerName =
+      [caller?.firstName, caller?.lastName].filter(Boolean).join(" ") ||
+      caller?.email ||
+      "Someone";
+
+    const results: InviteResult[] = [];
+
+    for (const invitee of invitees) {
+      const displayName = invitee.name || invitee.email || invitee.phone || "Unknown";
+
+      try {
+        // ── Has userId → try push first ──
+        if (invitee.userId) {
+          const pushResult = await this.tryPushInvite(
+            room,
+            invitee.userId,
+            callerName,
+          );
+          if (pushResult) {
+            results.push({ name: displayName, channel: "push", status: "sent" });
+            continue;
+          }
+
+          // No active push token → fall back to email
+          const user = await this.prisma.user.findUnique({
+            where: { id: invitee.userId },
+            select: { email: true, firstName: true, lastName: true },
+          });
+          if (user?.email) {
+            const guestLink = await this.createGuestToken(
+              roomId,
+              [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email,
+              actor,
+            );
+            await this.email.sendCallInvite({
+              toEmail: user.email,
+              callerName,
+              projectName: room.project?.name,
+              joinUrl: guestLink.joinUrl,
+            });
+            results.push({ name: displayName, channel: "email", status: "sent" });
+            continue;
+          }
+        }
+
+        // ── Has phone → send SMS ──
+        if (invitee.phone) {
+          const guestLink = await this.createGuestToken(
+            roomId,
+            invitee.name || invitee.phone,
+            actor,
+          );
+          const projectSuffix = room.project?.name
+            ? ` for ${room.project.name}`
+            : "";
+          await this.sms.sendSms(
+            invitee.phone,
+            `📹 ${callerName} is inviting you to a video call${projectSuffix}. Join here: ${guestLink.joinUrl}`,
+          );
+          results.push({ name: displayName, channel: "sms", status: "sent" });
+          continue;
+        }
+
+        // ── Has email → send email ──
+        if (invitee.email) {
+          const guestLink = await this.createGuestToken(
+            roomId,
+            invitee.name || invitee.email,
+            actor,
+          );
+          await this.email.sendCallInvite({
+            toEmail: invitee.email,
+            callerName,
+            projectName: room.project?.name,
+            joinUrl: guestLink.joinUrl,
+          });
+          results.push({ name: displayName, channel: "email", status: "sent" });
+          continue;
+        }
+
+        // No delivery channel available
+        results.push({
+          name: displayName,
+          channel: "none",
+          status: "failed",
+          error: "No phone, email, or userId provided",
+        });
+      } catch (err: any) {
+        this.logger.error(`Smart invite failed for ${displayName}: ${err?.message}`);
+        results.push({
+          name: displayName,
+          channel: "none",
+          status: "failed",
+          error: err?.message || "Unknown error",
+        });
+      }
+    }
+
+    return results;
+  }
+
   // ── Private helpers ──────────────────────────────────────────────
+
+  /**
+   * Attempt to send a push notification to a user.
+   * Returns true if the user had an active push token and the send succeeded.
+   */
+  private async tryPushInvite(
+    room: { id: string; projectId: string | null; project?: { name: string } | null; livekitRoomName: string },
+    userId: string,
+    callerName: string,
+  ): Promise<boolean> {
+    // Check if user has an active push token
+    const activeToken = await this.prisma.devicePushToken.findFirst({
+      where: { userId, active: true },
+    });
+    if (!activeToken) return false;
+
+    const payload: PushPayload = {
+      title: `📹 Video Call — ${room.project?.name ?? "Nexus"}`,
+      body: `${callerName} is calling you`,
+      data: {
+        type: "video_call",
+        roomId: room.id,
+        projectId: room.projectId,
+      },
+      sound: "default",
+    };
+
+    try {
+      await this.push.sendToUsers([userId], payload);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 
   private async createParticipantToken(
     roomName: string,

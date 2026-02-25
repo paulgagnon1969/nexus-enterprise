@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -8,17 +8,13 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
-  TextInput,
-  FlatList,
-  ScrollView,
 } from "react-native";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { colors } from "../theme/colors";
 import { apiJson } from "../api/client";
-import { fetchContacts } from "../api/contacts";
-import type { Contact } from "../types/api";
 import * as Haptics from "expo-haptics";
 import { UserMenuButton } from "./UserMenuButton";
+import { CallContactPicker, type CallPickerResult } from "./CallContactPicker";
 
 /** Module metadata (everything except Home) */
 const MODULES: { key: string; icon: string; label: string }[] = [
@@ -55,13 +51,7 @@ export function ScrollableTabBar({
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [calling, setCalling] = useState(false);
-
-  // Pre-call contact picker state
   const [callPickerOpen, setCallPickerOpen] = useState(false);
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [contactsLoading, setContactsLoading] = useState(false);
-  const [callSearch, setCallSearch] = useState("");
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const currentRoute = state.routes[state.index]?.name ?? "HomeTab";
   const isHome = currentRoute === "HomeTab";
@@ -96,49 +86,13 @@ export function ScrollableTabBar({
     }
   };
 
-  // Open the pre-call contact picker
-  const openCallPicker = useCallback(async () => {
+  const openCallPicker = useCallback(() => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setCallPickerOpen(true);
-    setCallSearch("");
-    setSelectedIds(new Set());
-    setContactsLoading(true);
-    try {
-      const list = await fetchContacts({ category: "internal" });
-      setContacts(list);
-    } catch {
-      try {
-        const list = await fetchContacts();
-        setContacts(list);
-      } catch {
-        setContacts([]);
-      }
-    } finally {
-      setContactsLoading(false);
-    }
   }, []);
 
-  const toggleContact = useCallback((id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
-
-  const filteredContacts = callSearch.trim()
-    ? contacts.filter((c) => {
-        const name = [c.firstName, c.lastName, c.displayName, c.email]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        return name.includes(callSearch.toLowerCase());
-      })
-    : contacts;
-
-  // Create room, invite selected contacts, then navigate to the call
-  const startCall = async () => {
+  // Handle call from the unified picker
+  const handleStartCall = useCallback(async (result: CallPickerResult) => {
     if (calling) return;
     setCalling(true);
     try {
@@ -148,17 +102,62 @@ export function ScrollableTabBar({
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) },
       );
 
-      // 2. Invite selected contacts (fire-and-forget)
-      //    Contact IDs are prefixed (e.g. "ncc-member-abc123") — strip to raw userId.
-      if (selectedIds.size > 0) {
-        const rawUserIds = Array.from(selectedIds).map((id) =>
-          id.replace(/^ncc-member-/, "").replace(/^ncc-sub-/, "").replace(/^ncc-client-/, "").replace(/^personal-/, ""),
-        );
-        apiJson(`/video/rooms/${res.room.id}/invite`, {
+      // 2. Build smart-invite invitees from all selected contacts
+      const invitees: { userId?: string; phone?: string; email?: string; name?: string }[] = [];
+
+      // API contacts → extract userId from prefixed id
+      for (const c of result.apiContacts) {
+        const rawUserId = c.id
+          .replace(/^ncc-member-/, "")
+          .replace(/^ncc-sub-/, "")
+          .replace(/^ncc-client-/, "")
+          .replace(/^personal-/, "");
+        invitees.push({
+          userId: rawUserId,
+          phone: c.phone ?? undefined,
+          email: c.email ?? undefined,
+          name: c.displayName || [c.firstName, c.lastName].filter(Boolean).join(" ") || undefined,
+        });
+      }
+
+      // Device contacts → phone/email only (no userId)
+      for (const dc of result.deviceContacts) {
+        invitees.push({
+          phone: dc.phone ?? undefined,
+          email: dc.email ?? undefined,
+          name: dc.displayName || undefined,
+        });
+      }
+
+      // Manual entry → detect phone vs email
+      if (result.manualEntry) {
+        const val = result.manualEntry.trim();
+        const isEmail = val.includes("@");
+        invitees.push({
+          phone: isEmail ? undefined : val,
+          email: isEmail ? val : undefined,
+          name: val,
+        });
+      }
+
+      // Fire smart-invite (fire-and-forget but log result)
+      if (invitees.length > 0) {
+        apiJson(`/video/rooms/${res.room.id}/smart-invite`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userIds: rawUserIds }),
-        }).catch(() => {});
+          body: JSON.stringify({ invitees }),
+        })
+          .then((r: any) => {
+            const results = r?.results ?? [];
+            const sent = results.filter((x: any) => x.status === "sent");
+            if (sent.length > 0) {
+              const summary = sent
+                .map((x: any) => `${x.channel === "push" ? "📲" : x.channel === "sms" ? "💬" : "📧"} ${x.name}`)
+                .join(", ");
+              console.log(`[smart-invite] Sent: ${summary}`);
+            }
+          })
+          .catch((err: any) => console.warn("[smart-invite]", err));
       }
 
       // 3. Close picker and navigate
@@ -177,7 +176,7 @@ export function ScrollableTabBar({
     } finally {
       setCalling(false);
     }
-  };
+  }, [calling, navigation]);
 
   return (
     <>
@@ -273,94 +272,13 @@ export function ScrollableTabBar({
         </Pressable>
       </Modal>
 
-      {/* Pre-call contact picker */}
-      <Modal
+      {/* Unified call contact picker */}
+      <CallContactPicker
         visible={callPickerOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setCallPickerOpen(false)}
-      >
-        <View style={styles.callPickerOverlay}>
-          <View style={styles.callPickerSheet}>
-            {/* Header */}
-            <View style={styles.callPickerHeader}>
-              <Text style={styles.callPickerTitle}>Start a Call</Text>
-              <Pressable onPress={() => setCallPickerOpen(false)}>
-                <Text style={styles.callPickerClose}>✕</Text>
-              </Pressable>
-            </View>
-
-            {/* Search */}
-            <TextInput
-              style={styles.callPickerSearch}
-              placeholder="Search contacts…"
-              placeholderTextColor="#9ca3af"
-              value={callSearch}
-              onChangeText={setCallSearch}
-              autoCorrect={false}
-            />
-
-            {/* Contact list */}
-            {contactsLoading ? (
-              <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 32 }} />
-            ) : (
-              <FlatList
-                data={filteredContacts}
-                keyExtractor={(c) => c.id}
-                style={styles.callPickerList}
-                keyboardShouldPersistTaps="handled"
-                renderItem={({ item }) => {
-                  const name = item.displayName
-                    || [item.firstName, item.lastName].filter(Boolean).join(" ")
-                    || item.email
-                    || "Unknown";
-                  const selected = selectedIds.has(item.id);
-                  return (
-                    <Pressable
-                      style={[styles.callPickerRow, selected && styles.callPickerRowSelected]}
-                      onPress={() => toggleContact(item.id)}
-                    >
-                      <View style={[styles.callPickerAvatar, selected && styles.callPickerAvatarSelected]}>
-                        <Text style={styles.callPickerAvatarText}>
-                          {selected ? "✓" : name.charAt(0).toUpperCase()}
-                        </Text>
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.callPickerName} numberOfLines={1}>{name}</Text>
-                        {item.role && (
-                          <Text style={styles.callPickerRole} numberOfLines={1}>{item.role}</Text>
-                        )}
-                      </View>
-                    </Pressable>
-                  );
-                }}
-                ListEmptyComponent={
-                  <Text style={styles.callPickerEmpty}>No contacts found</Text>
-                }
-              />
-            )}
-
-            {/* Action buttons */}
-            <View style={styles.callPickerActions}>
-              <Pressable
-                style={[styles.callPickerStartBtn, calling && { opacity: 0.6 }]}
-                onPress={startCall}
-                disabled={calling}
-              >
-                {calling ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.callPickerStartText}>
-                    {selectedIds.size > 0
-                      ? `📞 Call ${selectedIds.size} person${selectedIds.size > 1 ? "s" : ""}`
-                      : "📞 Start Call"}
-                  </Text>
-                )}
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        onClose={() => setCallPickerOpen(false)}
+        onStartCall={handleStartCall}
+        calling={calling}
+      />
     </>
   );
 }
@@ -549,111 +467,5 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: colors.primary,
     marginTop: 4,
-  },
-
-  // ---- Pre-call contact picker ----
-  callPickerOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "flex-end",
-  },
-  callPickerSheet: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: "80%",
-    paddingBottom: Platform.OS === "ios" ? 36 : 20,
-  },
-  callPickerHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e5e7eb",
-  },
-  callPickerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1f2937",
-  },
-  callPickerClose: {
-    fontSize: 22,
-    color: "#6b7280",
-    padding: 4,
-  },
-  callPickerSearch: {
-    backgroundColor: "#f3f4f6",
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    fontSize: 15,
-    marginHorizontal: 20,
-    marginTop: 12,
-    marginBottom: 8,
-    color: "#1f2937",
-  },
-  callPickerList: {
-    paddingHorizontal: 20,
-  },
-  callPickerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#e5e7eb",
-  },
-  callPickerRowSelected: {
-    backgroundColor: "#eff6ff",
-  },
-  callPickerAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#e5e7eb",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
-  callPickerAvatarSelected: {
-    backgroundColor: "#2563eb",
-  },
-  callPickerAvatarText: {
-    color: "#374151",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  callPickerName: {
-    fontSize: 15,
-    fontWeight: "500",
-    color: "#1f2937",
-  },
-  callPickerRole: {
-    fontSize: 12,
-    color: "#6b7280",
-    marginTop: 1,
-  },
-  callPickerEmpty: {
-    textAlign: "center",
-    color: "#9ca3af",
-    fontSize: 14,
-    paddingVertical: 32,
-  },
-  callPickerActions: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
-  },
-  callPickerStartBtn: {
-    backgroundColor: "#16a34a",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  callPickerStartText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "700",
   },
 });

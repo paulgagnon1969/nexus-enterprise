@@ -6364,7 +6364,7 @@ ${htmlBody}
     return () => { cancelled = true; };
   }, [project, activeTab, bomView]);
 
-  // Load drawings BOM upload detail (with source filter) when selection or filter changes
+  // Load drawings BOM upload detail (with source filter) + poll while pipeline is running
   useEffect(() => {
     if (!drawingsBomSelectedUploadId) return;
 
@@ -6372,10 +6372,17 @@ ${htmlBody}
     if (!token) return;
 
     let cancelled = false;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const load = async () => {
-      setDrawingsBomLoading(true);
-      setDrawingsBomError(null);
+    const PIPELINE_IN_PROGRESS = new Set([
+      "UPLOADING", "EXTRACTING_TEXT", "EXTRACTING_BOM", "MATCHING", "GENERATING",
+    ]);
+
+    const load = async (isInitial: boolean) => {
+      if (isInitial) {
+        setDrawingsBomLoading(true);
+        setDrawingsBomError(null);
+      }
       try {
         const url = `${API_BASE}/projects/${project!.id}/drawings-bom/${drawingsBomSelectedUploadId}?source=${drawingsBomSourceFilter}`;
         const res = await fetch(url, {
@@ -6390,16 +6397,33 @@ ${htmlBody}
         const json = await res.json();
         if (cancelled) return;
         setDrawingsBomUploadDetail(json);
+
+        // Also update the upload list entry so the sidebar reflects current status
+        setDrawingsBomUploads((prev) =>
+          prev.map((u: any) =>
+            u.id === json.id
+              ? { ...u, status: json.status, totalBomLines: json.totalBomLines, matchedBomLines: json.matchedBomLines }
+              : u,
+          ),
+        );
+
+        // Schedule next poll if pipeline is still running
+        if (PIPELINE_IN_PROGRESS.has(json.status)) {
+          pollTimer = setTimeout(() => { if (!cancelled) void load(false); }, 2500);
+        }
       } catch (err: any) {
         if (cancelled) return;
         setDrawingsBomError(err?.message ?? "Failed to load BOM detail");
       } finally {
-        if (!cancelled) setDrawingsBomLoading(false);
+        if (!cancelled && isInitial) setDrawingsBomLoading(false);
       }
     };
 
-    void load();
-    return () => { cancelled = true; };
+    void load(true);
+    return () => {
+      cancelled = true;
+      if (pollTimer) clearTimeout(pollTimer);
+    };
   }, [drawingsBomSelectedUploadId, drawingsBomSourceFilter]);
 
   // Upload a PDF drawing set for BOM extraction

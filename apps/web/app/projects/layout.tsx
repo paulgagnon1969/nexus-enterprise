@@ -800,6 +800,8 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
             >
               {sortedProjects.map((p) => {
                 const active = isActiveProject(p.id);
+                // When on overview page (/projects), highlight all projects in blue
+                const highlighted = isOverview || active;
                 return (
                   <li key={p.id}>
                     <Link
@@ -812,8 +814,9 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
                         borderRadius: 0,
                         textDecoration: "none",
                         fontSize: 12,
-                        color: active ? "#0f172a" : "#111827",
-                        backgroundColor: active ? "#bfdbfe" : "transparent",
+                        color: highlighted ? "#0f172a" : "#111827",
+                        backgroundColor: highlighted ? "#bfdbfe" : "transparent",
+                        fontWeight: highlighted ? 500 : 400,
                       }}
                     >
                       <div

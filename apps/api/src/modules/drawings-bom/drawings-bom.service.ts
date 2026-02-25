@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../../infra/prisma/prisma.service";
+import { GcsService } from "../../infra/storage/gcs.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { DrawingUploadStatus } from "@prisma/client";
 import OpenAI from "openai";
@@ -159,7 +160,17 @@ export class DrawingsBomService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly gcsService: GcsService,
   ) {}
+
+  /** Returns the GCS bucket name if configured, or null for local-only dev. */
+  private getGcsBucket(): string | null {
+    return (
+      this.configService.get<string>("GCS_UPLOADS_BUCKET") ??
+      this.configService.get<string>("XACT_UPLOADS_BUCKET") ??
+      null
+    );
+  }
 
   // ── AI Provider clients (lazy, cached per provider) ──────────────────
 
@@ -215,13 +226,29 @@ export class DrawingsBomService {
     });
     if (!project) throw new NotFoundException("Project not found");
 
-    // Store the file locally (in prod this would go to GCS)
-    const uploadsDir = path.join(process.cwd(), "uploads", "drawings");
-    await fs.promises.mkdir(uploadsDir, { recursive: true });
     const safeName = file.fileName.replace(/[^a-zA-Z0-9_.-]/g, "_");
     const storedName = `${Date.now()}-${safeName}`;
-    const storedPath = path.join(uploadsDir, storedName);
-    await fs.promises.writeFile(storedPath, file.buffer);
+    let storedPath: string;
+
+    const gcsBucket = this.getGcsBucket();
+    if (gcsBucket) {
+      // Production: upload to GCS
+      const gcsKey = `drawings/${projectId}/${storedName}`;
+      storedPath = await this.gcsService.uploadBuffer({
+        bucket: gcsBucket,
+        key: gcsKey,
+        buffer: file.buffer,
+        contentType: "application/pdf",
+      });
+      this.logger.log(`Uploaded drawing PDF to GCS: ${storedPath}`);
+    } else {
+      // Dev fallback: store locally
+      const uploadsDir = path.join(process.cwd(), "uploads", "drawings");
+      await fs.promises.mkdir(uploadsDir, { recursive: true });
+      storedPath = path.join(uploadsDir, storedName);
+      await fs.promises.writeFile(storedPath, file.buffer);
+      this.logger.log(`Stored drawing PDF locally: ${storedPath}`);
+    }
 
     const upload = await this.prisma.projectDrawingUpload.create({
       data: {
@@ -279,20 +306,36 @@ export class DrawingsBomService {
 
   // ── 3. PDF Text Extraction ───────────────────────────────────────────
 
+  /** Resolve storedPath to a local file. Downloads from GCS if needed. */
+  private async resolveToLocalPath(storedPath: string): Promise<{ localPath: string; isTemp: boolean }> {
+    if (storedPath.startsWith("gs://")) {
+      const localPath = await this.gcsService.downloadToTmp(storedPath);
+      return { localPath, isTemp: true };
+    }
+    // Local dev path
+    if (!fs.existsSync(storedPath)) {
+      throw new Error(`PDF file not found at ${storedPath}`);
+    }
+    return { localPath: storedPath, isTemp: false };
+  }
+
   private async extractPdfText(uploadId: string): Promise<ExtractedPage[]> {
     const upload = await this.prisma.projectDrawingUpload.findUnique({
       where: { id: uploadId },
     });
     if (!upload) throw new Error(`Upload ${uploadId} not found`);
 
-    if (!fs.existsSync(upload.storedPath)) {
-      throw new Error(`PDF file not found at ${upload.storedPath}`);
-    }
+    const { localPath, isTemp: isGcsTemp } = await this.resolveToLocalPath(upload.storedPath);
 
     // Write to temp path for PDFParse (it works better with file paths)
     const tempPath = `/tmp/drawings-bom-${Date.now()}.pdf`;
-    const buffer = await fs.promises.readFile(upload.storedPath);
+    const buffer = await fs.promises.readFile(localPath);
     await writeFile(tempPath, buffer);
+
+    // Clean up GCS temp file if we downloaded one
+    if (isGcsTemp && localPath !== tempPath) {
+      fs.unlink(localPath, () => {});
+    }
 
     let rawText: string;
     try {

@@ -3534,6 +3534,11 @@ enum NotificationKind {
   DIRECT_MESSAGE
   DAILY_LOG
   INCIDENT
+  DAILY_BRIEF
+  PETL_CHANGE
+  TASK_ASSIGNED
+  TASK_DUE
+  SCHEDULE_ALERT
 }
 
 /// Delivery channel used for a notification. IN_APP is always recorded; EMAIL
@@ -3592,6 +3597,20 @@ model NotificationPreference {
   /// e.g. { "logTypes": ["INCIDENT","JSA"], "projectIds": [...] }
   pollingCriteria   Json?
 
+  /// Daily Brief: preferred delivery time (HH:mm, UTC)
+  dailyBriefTime    String  @default("06:00")
+  /// Daily Brief: content config override (lookbackDays, lookaheadDays)
+  dailyBriefContent Json?
+  /// Last date the daily brief was sent (prevents double-send within a day)
+  dailyBriefSentDate DateTime?
+
+  /// Module toggles for push notifications
+  petlChangeAlerts  Boolean @default(true)
+  taskAlerts        Boolean @default(true)
+  scheduleAlerts    Boolean @default(true)
+  /// Also send the Daily Brief via email
+  emailDigest       Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -3631,15 +3650,17 @@ model VideoRoom {
 }
 
 /// Tracks which users joined a video room and when.
+/// For guest (non-Nexus) participants, userId is null and guestName stores their display name.
 model VideoRoomParticipant {
-  id       String    @id @default(cuid())
-  roomId   String
-  userId   String
-  joinedAt DateTime  @default(now())
-  leftAt   DateTime?
+  id        String    @id @default(cuid())
+  roomId    String
+  userId    String?
+  guestName String?
+  joinedAt  DateTime  @default(now())
+  leftAt    DateTime?
 
   room VideoRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  user User      @relation(fields: [userId], references: [id])
+  user User?     @relation(fields: [userId], references: [id])
 
   @@index([roomId], map: "VideoRoomParticipant_room_idx")
   @@index([userId], map: "VideoRoomParticipant_user_idx")

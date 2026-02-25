@@ -76,6 +76,13 @@ export class NotificationsController {
       incidentImmediate: true,
       progressDigest: "NONE",
       pollingCriteria: null,
+      dailyBriefTime: "06:00",
+      dailyBriefContent: null,
+      dailyBriefSentDate: null,
+      petlChangeAlerts: true,
+      taskAlerts: true,
+      scheduleAlerts: true,
+      emailDigest: false,
     };
   }
 
@@ -87,6 +94,12 @@ export class NotificationsController {
       incidentImmediate?: boolean;
       progressDigest?: "NONE" | "MORNING" | "EVENING" | "BOTH";
       pollingCriteria?: any;
+      dailyBriefTime?: string;
+      dailyBriefContent?: any;
+      petlChangeAlerts?: boolean;
+      taskAlerts?: boolean;
+      scheduleAlerts?: boolean;
+      emailDigest?: boolean;
     },
   ) {
     const actor = req.user as AuthenticatedUser;
@@ -101,6 +114,12 @@ export class NotificationsController {
       ...(body.incidentImmediate !== undefined && { incidentImmediate: body.incidentImmediate }),
       ...(body.progressDigest !== undefined && { progressDigest: body.progressDigest as any }),
       ...(body.pollingCriteria !== undefined && { pollingCriteria: body.pollingCriteria }),
+      ...(body.dailyBriefTime !== undefined && { dailyBriefTime: body.dailyBriefTime }),
+      ...(body.dailyBriefContent !== undefined && { dailyBriefContent: body.dailyBriefContent }),
+      ...(body.petlChangeAlerts !== undefined && { petlChangeAlerts: body.petlChangeAlerts }),
+      ...(body.taskAlerts !== undefined && { taskAlerts: body.taskAlerts }),
+      ...(body.scheduleAlerts !== undefined && { scheduleAlerts: body.scheduleAlerts }),
+      ...(body.emailDigest !== undefined && { emailDigest: body.emailDigest }),
     };
 
     const pref = existing
@@ -112,6 +131,12 @@ export class NotificationsController {
             incidentImmediate: body.incidentImmediate ?? true,
             progressDigest: (body.progressDigest as any) ?? "NONE",
             pollingCriteria: body.pollingCriteria ?? undefined,
+            dailyBriefTime: body.dailyBriefTime ?? "06:00",
+            dailyBriefContent: body.dailyBriefContent ?? undefined,
+            petlChangeAlerts: body.petlChangeAlerts ?? true,
+            taskAlerts: body.taskAlerts ?? true,
+            scheduleAlerts: body.scheduleAlerts ?? true,
+            emailDigest: body.emailDigest ?? false,
           },
         });
 
