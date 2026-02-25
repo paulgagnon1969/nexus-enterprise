@@ -91,7 +91,7 @@ export function ScrollableTabBar({
     try {
       const res = await apiJson<{ room: any; token: string; livekitUrl: string }>(
         "/video/rooms",
-        { method: "POST", body: JSON.stringify({}) },
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) },
       );
       // Navigate to VideoCall on the root stack (parent of tab navigator)
       const parent = navigation.getParent();
