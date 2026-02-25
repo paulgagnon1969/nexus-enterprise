@@ -3,10 +3,17 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import dynamic from "next/dynamic";
 import NavDropdown from "./components/nav-dropdown";
 import { LanguageToggle } from "./components/language-toggle";
 import { useLanguage } from "./language-context";
 import { NttBadge } from "./components/ntt-badge";
+
+// Lazy load HelpOverlay - no JS until "?" is clicked
+const HelpOverlay = dynamic(
+  () => import("./components/help-overlay").then((m) => m.HelpOverlay),
+  { ssr: false, loading: () => null }
+);
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -37,6 +44,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [currentCompanyName, setCurrentCompanyName] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
   const [companyRole, setCompanyRole] = useState<string | null>(null); // OWNER, ADMIN, PM, MEMBER
+  const [helpMode, setHelpMode] = useState(false);
 
   const path = pathname ?? "/";
   const isSystemRoute = path.startsWith("/system");
@@ -489,6 +497,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {/* Proj Overview = main project workspace (current /projects section) */}
           <Link
             href="/projects"
+            data-help="nav-projects"
             className={
               "app-nav-link" +
               (isActive("/projects") ? " app-nav-link-active" : "")
@@ -545,6 +554,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
           <Link
             href="/messaging"
+            data-help="nav-messaging"
             className={
               "app-nav-link" +
               (isActive("/messaging") ? " app-nav-link-active" : "")
@@ -554,6 +564,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
           <Link
             href="/financial"
+            data-help="nav-financial"
             className={
               "app-nav-link" +
               (isActive("/financial") || isActive("/tools/supplier-catalog")
@@ -768,7 +779,42 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </main>
 
       {/* Global Nexus Trouble Ticket badge on authenticated, non-public routes */}
-      {!isAuthRoute && !isPublicRoute && <NttBadge />}
+      {!isAuthRoute && !isPublicRoute && (
+        <>
+          {/* Help button - positioned to the left of NttBadge */}
+          <button
+            type="button"
+            onClick={() => setHelpMode(true)}
+            style={{
+              position: "fixed",
+              right: 72,
+              bottom: 16,
+              zIndex: 900,
+              width: 44,
+              height: 44,
+              borderRadius: "50%",
+              border: "1px solid #e5e7eb",
+              backgroundColor: "#ffffff",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: "0 4px 12px rgba(15,23,42,0.2)",
+              cursor: "pointer",
+              fontSize: 20,
+              fontWeight: 700,
+              color: "#3b82f6",
+            }}
+            aria-label="Help"
+            title="Get help with this page"
+          >
+            ?
+          </button>
+          <NttBadge />
+        </>
+      )}
+
+      {/* Help overlay - lazy loaded */}
+      {helpMode && <HelpOverlay onClose={() => setHelpMode(false)} />}
     </div>
   );
 }

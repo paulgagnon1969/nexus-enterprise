@@ -57,6 +57,7 @@ import { VideoModule } from "./modules/video/video.module";
 import { LocationsModule } from "./modules/locations/locations.module";
 import { DrawingsBomModule } from "./modules/drawings-bom/drawings-bom.module";
 import { PlanSheetsModule } from "./modules/plan-sheets/plan-sheets.module";
+import { HelpItemsModule } from "./modules/help-items/help-items.module";
 
 @Module({
   imports: [
@@ -122,6 +123,7 @@ import { PlanSheetsModule } from "./modules/plan-sheets/plan-sheets.module";
     LocationsModule,
     DrawingsBomModule,
     PlanSheetsModule,
+    HelpItemsModule,
   ],
   controllers: [DevController]
 })

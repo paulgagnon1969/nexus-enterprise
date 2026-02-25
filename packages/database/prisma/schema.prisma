@@ -6821,3 +6821,40 @@ model DrawingBomLine {
   @@index([uploadId, csiDivision], map: "DrawingBomLine_upload_division_idx")
   @@index([matchedCostBookItemId], map: "DrawingBomLine_cost_book_match_idx")
 }
+
+// =============================================================================
+// Contextual Help System
+// =============================================================================
+
+/// In-app contextual help items displayed via the "?" overlay.
+/// Each item corresponds to a `data-help="{helpKey}"` attribute in the UI.
+model HelpItem {
+  id        String  @id @default(cuid())
+  
+  /// Unique key matching data-help attribute, e.g. "schedule-gantt-toggle"
+  helpKey   String  @unique
+  
+  /// Display title shown in help popover
+  title     String
+  
+  /// Brief 1-2 sentence description
+  brief     String  @db.Text
+  
+  /// Optional link to full SOP document (stores document ID)
+  sopId     String?
+  
+  /// Optional anchor/section within the SOP
+  sopSection String?
+  
+  /// Optional video tutorial URL (YouTube, Loom, etc.)
+  videoUrl  String?
+  
+  /// Whether this help item is active/visible
+  isActive  Boolean @default(true)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([helpKey], map: "HelpItem_helpKey_idx")
+  @@index([isActive], map: "HelpItem_isActive_idx")
+}
