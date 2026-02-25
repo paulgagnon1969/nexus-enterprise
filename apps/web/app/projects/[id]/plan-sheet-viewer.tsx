@@ -7,6 +7,14 @@ import React, {
   useState,
   useMemo,
 } from "react";
+import {
+  DrawingLayerCanvas,
+  type DrawingLayerCanvasRef,
+  type DrawLayer,
+  type DrawingTool,
+} from "./drawing-layer-canvas";
+import { LayerPanel } from "./layer-panel";
+import { DrawingToolbar } from "./drawing-toolbar";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -34,6 +42,49 @@ interface Props {
   sheets: PlanSheet[];
   initialSheetIndex?: number;
   onClose: () => void;
+  // User info for layer authorship (Phase 1: mock user)
+  currentUserId?: string;
+  currentUserName?: string;
+}
+
+// ---------- localStorage helpers ----------
+
+function getStorageKey(projectId: string, uploadId: string, sheetId: string): string {
+  return `plan-sheet-layers:${projectId}:${uploadId}:${sheetId}`;
+}
+
+function loadLayersFromStorage(projectId: string, uploadId: string, sheetId: string): DrawLayer[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const key = getStorageKey(projectId, uploadId, sheetId);
+    const data = localStorage.getItem(key);
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLayersToStorage(
+  projectId: string,
+  uploadId: string,
+  sheetId: string,
+  layers: DrawLayer[],
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    const key = getStorageKey(projectId, uploadId, sheetId);
+    localStorage.setItem(key, JSON.stringify(layers));
+  } catch {
+    // Storage full or unavailable
+  }
+}
+
+function generateLayerName(existingLayers: DrawLayer[]): string {
+  const maxNum = existingLayers.reduce((max, l) => {
+    const match = l.name.match(/^DL(\d+)$/);
+    return match ? Math.max(max, parseInt(match[1], 10)) : max;
+  }, 0);
+  return `DL${String(maxNum + 1).padStart(2, "0")}`;
 }
 
 type ImageTier = "thumb" | "standard" | "master";
@@ -91,6 +142,9 @@ export function PlanSheetViewer({
   sheets,
   initialSheetIndex = 0,
   onClose,
+  // Default mock user for Phase 1 (localStorage)
+  currentUserId = "user-local",
+  currentUserName = "You",
 }: Props) {
   const [currentIndex, setCurrentIndex] = useState(initialSheetIndex);
   const [scale, setScale] = useState(1);
@@ -99,12 +153,25 @@ export function PlanSheetViewer({
   const [isDragging, setIsDragging] = useState(false);
   const [needsHd, setNeedsHd] = useState(false);
 
+  // Drawing mode state
+  const [isDrawingMode, setIsDrawingMode] = useState(false);
+  const [layers, setLayers] = useState<DrawLayer[]>([]);
+  const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
+  const [tool, setTool] = useState<DrawingTool>("pen");
+  const [brushColor, setBrushColor] = useState("#ef4444");
+  const [brushSize, setBrushSize] = useState(3);
+  const [viewportSize, setViewportSize] = useState({ width: 800, height: 600 });
+  const [imageNaturalSize, setImageNaturalSize] = useState({ width: 1000, height: 800 });
+
   const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+  const canvasRef = useRef<DrawingLayerCanvasRef>(null);
   const dragStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
   const lastPinchDistRef = useRef<number | null>(null);
 
   const sheet = sheets[currentIndex] ?? null;
+  const activeLayer = layers.find((l) => l.id === activeLayerId) ?? null;
+  const canEditActiveLayer = activeLayer?.authorId === currentUserId;
 
   // Fetch standard-tier URL
   const { url: standardUrl } = useSheetImageUrl(
@@ -141,7 +208,54 @@ export function PlanSheetViewer({
     setPanX(0);
     setPanY(0);
     setNeedsHd(false);
+    // Save current layer before switching
+    if (activeLayerId && canvasRef.current && sheet) {
+      const json = canvasRef.current.exportLayerJson();
+      setLayers((prev) => {
+        const updated = prev.map((l) =>
+          l.id === activeLayerId ? { ...l, fabricJson: json } : l,
+        );
+        saveLayersToStorage(projectId, uploadId, sheet.id, updated);
+        return updated;
+      });
+    }
   }, [currentIndex]);
+
+  // Load layers for current sheet
+  useEffect(() => {
+    if (!sheet) return;
+    const loaded = loadLayersFromStorage(projectId, uploadId, sheet.id);
+    setLayers(loaded);
+    setActiveLayerId(null);
+  }, [projectId, uploadId, sheet?.id]);
+
+  // Load active layer content into canvas
+  useEffect(() => {
+    if (!activeLayerId || !canvasRef.current) return;
+    const layer = layers.find((l) => l.id === activeLayerId);
+    if (layer) {
+      canvasRef.current.loadLayerJson(layer.fabricJson);
+    }
+  }, [activeLayerId]);
+
+  // Track viewport size
+  useEffect(() => {
+    const updateSize = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        setViewportSize({ width: rect.width, height: rect.height });
+      }
+    };
+    updateSize();
+    window.addEventListener("resize", updateSize);
+    return () => window.removeEventListener("resize", updateSize);
+  }, []);
+
+  // Track image natural dimensions
+  const handleImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    setImageNaturalSize({ width: img.naturalWidth, height: img.naturalHeight });
+  }, []);
 
   // Keyboard navigation
   useEffect(() => {
@@ -227,6 +341,93 @@ export function PlanSheetViewer({
     lastPinchDistRef.current = null;
   }, []);
 
+  // Layer management callbacks
+  const handleAddLayer = useCallback(
+    (description: string) => {
+      if (!sheet) return;
+      const name = generateLayerName(layers);
+      const newLayer: DrawLayer = {
+        id: crypto.randomUUID(),
+        name,
+        description,
+        visible: true,
+        locked: false,
+        fabricJson: "{}",
+        createdAt: new Date().toISOString(),
+        authorId: currentUserId,
+        authorName: currentUserName,
+      };
+      const updated = [...layers, newLayer];
+      setLayers(updated);
+      setActiveLayerId(newLayer.id);
+      saveLayersToStorage(projectId, uploadId, sheet.id, updated);
+      // Clear canvas for new layer
+      canvasRef.current?.clearCanvas();
+    },
+    [layers, sheet, projectId, uploadId, currentUserId, currentUserName],
+  );
+
+  const handleSelectLayer = useCallback(
+    (layerId: string) => {
+      // Save current layer first
+      if (activeLayerId && canvasRef.current && sheet) {
+        const json = canvasRef.current.exportLayerJson();
+        setLayers((prev) => {
+          const updated = prev.map((l) =>
+            l.id === activeLayerId ? { ...l, fabricJson: json } : l,
+          );
+          saveLayersToStorage(projectId, uploadId, sheet.id, updated);
+          return updated;
+        });
+      }
+      setActiveLayerId(layerId);
+    },
+    [activeLayerId, sheet, projectId, uploadId],
+  );
+
+  const handleToggleVisibility = useCallback(
+    (layerId: string) => {
+      if (!sheet) return;
+      setLayers((prev) => {
+        const updated = prev.map((l) =>
+          l.id === layerId ? { ...l, visible: !l.visible } : l,
+        );
+        saveLayersToStorage(projectId, uploadId, sheet.id, updated);
+        return updated;
+      });
+    },
+    [sheet, projectId, uploadId],
+  );
+
+  const handleDeleteLayer = useCallback(
+    (layerId: string) => {
+      if (!sheet) return;
+      setLayers((prev) => {
+        const updated = prev.filter((l) => l.id !== layerId);
+        saveLayersToStorage(projectId, uploadId, sheet.id, updated);
+        return updated;
+      });
+      if (activeLayerId === layerId) {
+        setActiveLayerId(null);
+        canvasRef.current?.clearCanvas();
+      }
+    },
+    [sheet, projectId, uploadId, activeLayerId],
+  );
+
+  const handleCanvasChange = useCallback(() => {
+    // Auto-save on change (debounced in production)
+    if (!activeLayerId || !canvasRef.current || !sheet) return;
+    const json = canvasRef.current.exportLayerJson();
+    setLayers((prev) => {
+      const updated = prev.map((l) =>
+        l.id === activeLayerId ? { ...l, fabricJson: json } : l,
+      );
+      saveLayersToStorage(projectId, uploadId, sheet.id, updated);
+      return updated;
+    });
+  }, [activeLayerId, sheet, projectId, uploadId]);
+
   const sheetLabel =
     sheet?.sheetId || sheet?.title || `Page ${sheet?.pageNo ?? "?"}`;
 
@@ -276,6 +477,47 @@ export function PlanSheetViewer({
         </div>
 
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {/* View/Draw mode toggle */}
+          <div
+            style={{
+              display: "flex",
+              borderRadius: 4,
+              overflow: "hidden",
+              border: "1px solid #374151",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setIsDrawingMode(false)}
+              style={{
+                padding: "4px 10px",
+                border: "none",
+                background: !isDrawingMode ? "#3b82f6" : "#374151",
+                color: "#f9fafb",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              View
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsDrawingMode(true)}
+              style={{
+                padding: "4px 10px",
+                border: "none",
+                background: isDrawingMode ? "#3b82f6" : "#374151",
+                color: "#f9fafb",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              Draw
+            </button>
+          </div>
+
+          <div style={{ width: 1, height: 20, background: "#374151" }} />
+
           <button
             type="button"
             onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))}
@@ -356,43 +598,110 @@ export function PlanSheetViewer({
         </div>
       </div>
 
-      {/* Image viewport */}
-      <div
-        ref={containerRef}
-        onWheel={onWheel}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-        style={{
-          flex: 1,
-          overflow: "hidden",
-          cursor: isDragging ? "grabbing" : "grab",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          touchAction: "none",
-          userSelect: "none",
-        }}
-      >
-        {imageSrc ? (
-          <img
-            ref={imgRef}
-            src={imageSrc}
-            alt={sheetLabel}
-            draggable={false}
+      {/* Main content area */}
+      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+        {/* Image viewport */}
+        <div
+          ref={containerRef}
+          onWheel={!isDrawingMode ? onWheel : undefined}
+          onPointerDown={!isDrawingMode ? onPointerDown : undefined}
+          onPointerMove={!isDrawingMode ? onPointerMove : undefined}
+          onPointerUp={!isDrawingMode ? onPointerUp : undefined}
+          onTouchMove={!isDrawingMode ? onTouchMove : undefined}
+          onTouchEnd={!isDrawingMode ? onTouchEnd : undefined}
+          style={{
+            flex: 1,
+            overflow: "hidden",
+            cursor: isDrawingMode
+              ? tool === "pen" || tool === "eraser"
+                ? "crosshair"
+                : tool === "text"
+                  ? "text"
+                  : "default"
+              : isDragging
+                ? "grabbing"
+                : "grab",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            touchAction: "none",
+            userSelect: "none",
+            position: "relative",
+          }}
+        >
+          {imageSrc ? (
+            <img
+              ref={imgRef}
+              src={imageSrc}
+              alt={sheetLabel}
+              draggable={false}
+              onLoad={handleImageLoad}
+              style={{
+                transform: `translate(${panX}px, ${panY}px) scale(${scale})`,
+                transformOrigin: "center center",
+                maxWidth: "none",
+                maxHeight: "none",
+                transition: isDragging ? "none" : "transform 0.1s ease-out",
+              }}
+            />
+          ) : (
+            <div style={{ color: "#9ca3af", fontSize: 14 }}>
+              Loading sheet image…
+            </div>
+          )}
+
+          {/* Drawing canvas overlay */}
+          {isDrawingMode && activeLayerId && (
+            <DrawingLayerCanvas
+              ref={canvasRef}
+              width={viewportSize.width}
+              height={viewportSize.height}
+              scale={scale}
+              panX={panX}
+              panY={panY}
+              imageWidth={imageNaturalSize.width}
+              imageHeight={imageNaturalSize.height}
+              tool={tool}
+              brushColor={brushColor}
+              brushSize={brushSize}
+              isDrawingMode={isDrawingMode && canEditActiveLayer}
+              onCanvasChange={handleCanvasChange}
+            />
+          )}
+        </div>
+
+        {/* Right sidebar (Drawing mode only) */}
+        {isDrawingMode && (
+          <div
             style={{
-              transform: `translate(${panX}px, ${panY}px) scale(${scale})`,
-              transformOrigin: "center center",
-              maxWidth: "none",
-              maxHeight: "none",
-              transition: isDragging ? "none" : "transform 0.1s ease-out",
+              display: "flex",
+              flexDirection: "column",
+              background: "#1f2937",
+              borderLeft: "1px solid #374151",
             }}
-          />
-        ) : (
-          <div style={{ color: "#9ca3af", fontSize: 14 }}>
-            Loading sheet image…
+          >
+            <LayerPanel
+              layers={layers}
+              activeLayerId={activeLayerId}
+              currentUserId={currentUserId}
+              currentUserName={currentUserName}
+              onAddLayer={handleAddLayer}
+              onSelectLayer={handleSelectLayer}
+              onToggleVisibility={handleToggleVisibility}
+              onDeleteLayer={handleDeleteLayer}
+            />
+            <DrawingToolbar
+              tool={tool}
+              brushColor={brushColor}
+              brushSize={brushSize}
+              activeLayerName={activeLayer?.name ?? null}
+              canEdit={canEditActiveLayer}
+              onToolChange={setTool}
+              onColorChange={setBrushColor}
+              onSizeChange={setBrushSize}
+              onDeleteSelected={() => canvasRef.current?.deleteSelected()}
+              onUndo={() => canvasRef.current?.undo()}
+            />
           </div>
         )}
       </div>

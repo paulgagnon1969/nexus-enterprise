@@ -68,6 +68,7 @@ export function DailyLogsScreen({
   companyName,
   onBack,
   onOpenPetl,
+  onOpenPlanSheets,
   onNavigateHome,
   petlChanges,
   createLogType,
@@ -76,6 +77,7 @@ export function DailyLogsScreen({
   companyName?: string;
   onBack: () => void;
   onOpenPetl?: () => void;
+  onOpenPlanSheets?: () => void;
   onNavigateHome?: () => void;
   petlChanges?: PetlSessionChanges;
   createLogType?: string;
@@ -578,6 +580,13 @@ export function DailyLogsScreen({
             </Pressable>
           )}
         </View>
+
+        {/* Plans shortcut */}
+        {onOpenPlanSheets && (
+          <Pressable style={styles.plansButton} onPress={onOpenPlanSheets}>
+            <Text style={styles.plansButtonText}>📐 View Plan Sheets</Text>
+          </Pressable>
+        )}
 
         {/* 3. SUBJECT/TITLE - right below date */}
         <View style={styles.section}>
@@ -1126,6 +1135,23 @@ const styles = StyleSheet.create({
     color: colors.textOnPrimary,
     fontSize: 13,
     fontWeight: "700",
+  },
+
+  // Plans button
+  plansButton: {
+    backgroundColor: colors.backgroundSecondary,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 12,
+    alignItems: "center",
+  },
+  plansButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.primaryLight,
   },
 
   // Section styles

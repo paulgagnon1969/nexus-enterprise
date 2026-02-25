@@ -19,10 +19,12 @@ import { InventoryScreen } from "../screens/InventoryScreen";
 import { OutboxScreen } from "../screens/OutboxScreen";
 import { TimecardScreen } from "../screens/TimecardScreen";
 import { TodosScreen } from "../screens/TodosScreen";
+import { PlanSheetsScreen } from "../screens/PlanSheetsScreen";
+import { PlanSheetViewerScreen } from "../screens/PlanSheetViewerScreen";
 import { ScrollableTabBar } from "../components/ScrollableTabBar";
 import { fetchAllTasks } from "../api/tasks";
 import { recordTabUsage, getTopTab } from "../storage/usageTracker";
-import type { ProjectListItem, TaskItem } from "../types/api";
+import type { ProjectListItem, TaskItem, PlanSheetItem } from "../types/api";
 
 // Type definitions for navigation
 export type RootTabParamList = {
@@ -45,6 +47,13 @@ export type ProjectsStackParamList = {
   ProjectsList: undefined;
   DailyLogs: { project: ProjectListItem; companyName?: string; petlChanges?: PetlSessionChanges; createLogType?: string };
   FieldPetl: { project: ProjectListItem; companyName?: string };
+  PlanSheets: { project: ProjectListItem };
+  PlanSheetViewer: {
+    projectId: string;
+    uploadId: string;
+    sheets: PlanSheetItem[];
+    initialIndex: number;
+  };
 };
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
@@ -80,6 +89,7 @@ function DailyLogsWrapper() {
       companyName={companyName}
       onBack={() => navigation.goBack()}
       onOpenPetl={() => navigation.navigate("FieldPetl", { project, companyName })}
+      onOpenPlanSheets={() => navigation.navigate("PlanSheets", { project })}
       onNavigateHome={() => {
         // Navigate to Home tab with sync trigger
         navigation.getParent()?.navigate("HomeTab", { triggerSync: true });
@@ -104,6 +114,33 @@ function FieldPetlWrapper() {
         // Navigate back to DailyLogs with the changes
         navigation.navigate("DailyLogs", { project, companyName, petlChanges: changes });
       }}
+    />
+  );
+}
+
+function PlanSheetsWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
+  const route = useRoute<RouteProp<ProjectsStackParamList, "PlanSheets">>();
+  const project = route.params.project;
+  return (
+    <PlanSheetsScreen
+      project={project}
+      onBack={() => navigation.goBack()}
+      onOpenViewer={(params) => navigation.navigate("PlanSheetViewer", params)}
+    />
+  );
+}
+
+function PlanSheetViewerWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
+  const route = useRoute<RouteProp<ProjectsStackParamList, "PlanSheetViewer">>();
+  return (
+    <PlanSheetViewerScreen
+      projectId={route.params.projectId}
+      uploadId={route.params.uploadId}
+      sheets={route.params.sheets}
+      initialIndex={route.params.initialIndex}
+      onBack={() => navigation.goBack()}
     />
   );
 }
@@ -157,6 +194,8 @@ function ProjectsStackNavigator() {
       <ProjectsStack.Screen name="ProjectsList" component={ProjectsListWrapper} />
       <ProjectsStack.Screen name="DailyLogs" component={DailyLogsWrapper} />
       <ProjectsStack.Screen name="FieldPetl" component={FieldPetlWrapper} />
+      <ProjectsStack.Screen name="PlanSheets" component={PlanSheetsWrapper} />
+      <ProjectsStack.Screen name="PlanSheetViewer" component={PlanSheetViewerWrapper} />
     </ProjectsStack.Navigator>
   );
 }

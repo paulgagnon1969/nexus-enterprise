@@ -272,3 +272,52 @@ export interface CreateTaskRequest {
   relatedEntityType?: string;
   relatedEntityId?: string;
 }
+
+// ── Plan Sheets ──────────────────────────────────────────────────────────
+
+export type ImageTier = "thumb" | "standard" | "master";
+
+/** Summary returned from GET /projects/:id/plan-sheets */
+export interface PlanSetListItem {
+  id: string;
+  fileName: string | null;
+  pageCount: number | null;
+  status: string | null;
+  createdAt: string;
+  sheetCount: number;
+  coverThumbPath: string | null;
+}
+
+/** Individual sheet within a plan set */
+export interface PlanSheetItem {
+  id: string;
+  pageNo: number;
+  sheetId: string | null;
+  title: string | null;
+  section: string | null;
+  status: string;
+  thumbPath: string | null;
+  standardPath: string | null;
+  masterPath: string | null;
+  thumbBytes: number | null;
+  standardBytes: number | null;
+  masterBytes: number | null;
+  sortOrder: number;
+}
+
+/** Full plan set detail from GET /projects/:id/plan-sheets/:uploadId */
+export interface PlanSetDetail {
+  id: string;
+  projectId: string;
+  fileName: string | null;
+  pageCount: number | null;
+  status: string | null;
+  createdAt: string;
+  planSheets: PlanSheetItem[];
+}
+
+/** Image URL response from the sheet image endpoint */
+export interface SheetImageResponse {
+  url: string;
+  tier: ImageTier;
+}
