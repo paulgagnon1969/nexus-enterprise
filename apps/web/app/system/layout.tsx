@@ -132,7 +132,32 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
     void reloadCompanies();
   }, [isSuperAdmin]);
 
-  // If still checking access, show a loading state
+  // Check if we're on a document detail page (should hide sidebar for full-width view)
+  const isDocumentDetailPage = pathname?.match(/^\/system\/documents\/[^/]+$/) && 
+    !pathname?.endsWith("/library") && 
+    pathname !== "/system/documents";
+  const hideSidebar = isDocumentDetailPage;
+
+  const path = pathname ?? "";
+  const selectedCompanyId = path.startsWith("/system/")
+    ? path.split("/")[2] ?? null
+    : null;
+
+  const visibleCompanies = useMemo(() => {
+    const q = search.trim().toLowerCase();
+
+    const base = orgFilterMode === "active"
+      ? companies.filter(c => !c.deletedAt)
+      : companies;
+
+    const filtered = q
+      ? base.filter(c => c.name.toLowerCase().includes(q))
+      : base;
+
+    return [...filtered].sort((a, b) => a.name.localeCompare(b.name));
+  }, [companies, search, orgFilterMode]);
+
+  // Access guard — placed after all hooks to respect React rules of hooks
   if (isAdminPlus === null) {
     return (
       <div style={{ padding: 16, fontSize: 13, color: "#6b7280" }}>
@@ -182,31 +207,6 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
       setSwitchingToCompanyId(null);
     }
   };
-
-  // Check if we're on a document detail page (should hide sidebar for full-width view)
-  const isDocumentDetailPage = pathname?.match(/^\/system\/documents\/[^/]+$/) && 
-    !pathname?.endsWith("/library") && 
-    pathname !== "/system/documents";
-  const hideSidebar = isDocumentDetailPage;
-
-  const path = pathname ?? "";
-  const selectedCompanyId = path.startsWith("/system/")
-    ? path.split("/")[2] ?? null
-    : null;
-
-  const visibleCompanies = useMemo(() => {
-    const q = search.trim().toLowerCase();
-
-    const base = orgFilterMode === "active"
-      ? companies.filter(c => !c.deletedAt)
-      : companies;
-
-    const filtered = q
-      ? base.filter(c => c.name.toLowerCase().includes(q))
-      : base;
-
-    return [...filtered].sort((a, b) => a.name.localeCompare(b.name));
-  }, [companies, search, orgFilterMode]);
 
   const handleCreateOrg = async () => {
     setNewOrgError(null);
