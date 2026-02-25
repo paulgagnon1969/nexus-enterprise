@@ -4,7 +4,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RouteProp } from "@react-navigation/native";
-import { Text, View, StyleSheet, Platform } from "react-native";
+import { Text, View, StyleSheet, Platform, Alert } from "react-native";
 import { colors } from "../theme/colors";
 import appJson from "../../app.json";
 
@@ -23,6 +23,7 @@ import { PlanSheetsScreen } from "../screens/PlanSheetsScreen";
 import { PlanSheetViewerScreen } from "../screens/PlanSheetViewerScreen";
 import { ScrollableTabBar } from "../components/ScrollableTabBar";
 import { fetchAllTasks } from "../api/tasks";
+import { apiJson } from "../api/client";
 import { recordTabUsage, getTopTab } from "../storage/usageTracker";
 import type { ProjectListItem, TaskItem, PlanSheetItem } from "../types/api";
 
@@ -90,6 +91,29 @@ function DailyLogsWrapper() {
       onBack={() => navigation.goBack()}
       onOpenPetl={() => navigation.navigate("FieldPetl", { project, companyName })}
       onOpenPlanSheets={() => navigation.navigate("PlanSheets", { project })}
+      onStartCall={async () => {
+        try {
+          const res = await apiJson<{ room: any; token: string; livekitUrl: string }>(
+            "/video/rooms",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ projectId: project.id }),
+            },
+          );
+          const rootNav = navigation.getParent()?.getParent?.() ?? navigation.getParent();
+          if (rootNav) {
+            rootNav.navigate("VideoCall", {
+              roomId: res.room.id,
+              token: res.token,
+              livekitUrl: res.livekitUrl,
+              projectName: project.name,
+            });
+          }
+        } catch {
+          Alert.alert("Call Failed", "Could not start video call.");
+        }
+      }}
       onNavigateHome={() => {
         // Navigate to Home tab with sync trigger
         navigation.getParent()?.navigate("HomeTab", { triggerSync: true });
@@ -254,6 +278,12 @@ function HomeTabScreen() {
           screen: "DailyLogs",
           params: { project, createLogType: logType },
         });
+      }}
+      onJoinCall={(params) => {
+        const root = navigation.getParent();
+        if (root) {
+          root.navigate("VideoCall", params);
+        }
       }}
     />
   );

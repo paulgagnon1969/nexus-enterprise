@@ -13,10 +13,11 @@ import {
   Image,
 } from "react-native";
 import { logout } from "../auth/auth";
-import { Platform, Linking } from "react-native";
+import { Platform, Linking, Alert } from "react-native";
 import * as Haptics from "expo-haptics";
 import appJson from "../../app.json";
 import { getApiBaseUrl } from "../api/config";
+import { apiJson } from "../api/client";
 import { countPendingOutbox } from "../offline/outbox";
 import { syncOnce } from "../offline/sync";
 import {
@@ -98,6 +99,7 @@ export function HomeScreen({
   triggerSyncOnMount,
   onOpenPetl,
   onOpenDailyLogCreate,
+  onJoinCall,
 }: {
   onLogout: () => void;
   onGoProjects: () => void;
@@ -107,6 +109,7 @@ export function HomeScreen({
   triggerSyncOnMount?: boolean;
   onOpenPetl?: (project: ProjectListItem) => void;
   onOpenDailyLogCreate?: (project: ProjectListItem, logType?: string) => void;
+  onJoinCall?: (params: { roomId: string; token: string; livekitUrl: string; projectName?: string }) => void;
 }) {
   const { width } = useWindowDimensions();
   const isLandscape = width > 600;
@@ -168,6 +171,9 @@ export function HomeScreen({
   // Daily Log type selector
   const [showDailyLogPicker, setShowDailyLogPicker] = useState(false);
 
+  // Active video calls
+  const [activeCalls, setActiveCalls] = useState<any[]>([]);
+
   // Daily log type options — must match DailyLogType enum + production web
   const dailyLogTypes = [
     { id: "PUDL", label: "Daily Log (PUDL)", icon: "📝", description: "Standard daily log entry" },
@@ -181,6 +187,16 @@ export function HomeScreen({
     const p = await countPendingOutbox();
     setPending(p);
   };
+
+  // Fetch active calls
+  const loadActiveCalls = useCallback(async () => {
+    try {
+      const rooms = await apiJson<any[]>("/video/rooms");
+      setActiveCalls(rooms);
+    } catch {
+      // Non-fatal
+    }
+  }, []);
 
   // Load tenant/company context for the current user.
   const loadCompanies = async () => {
@@ -295,7 +311,12 @@ export function HomeScreen({
     void loadCompanies();
     void loadProjectFeed();
     void loadFavoritesAndScores();
-  }, [loadProjectFeed, loadFavoritesAndScores]);
+    void loadActiveCalls();
+
+    // Poll active calls every 15 seconds
+    const callPoll = setInterval(() => void loadActiveCalls(), 15_000);
+    return () => clearInterval(callPoll);
+  }, [loadProjectFeed, loadFavoritesAndScores, loadActiveCalls]);
 
   // Auto-sync when navigating here with triggerSyncOnMount
   useEffect(() => {
@@ -581,6 +602,47 @@ export function HomeScreen({
       </View>
 
       {companyMessage && <Text style={styles.companyMessage}>{companyMessage}</Text>}
+
+      {/* Active calls banner */}
+      {activeCalls.length > 0 && activeCalls.map((room) => {
+        const callerName = room.createdBy
+          ? [room.createdBy.firstName, room.createdBy.lastName].filter(Boolean).join(" ") || room.createdBy.email
+          : "Someone";
+        const participantCount = room.participants?.length ?? room.participantCount ?? 0;
+        return (
+          <Pressable
+            key={room.id}
+            style={styles.activeCallBanner}
+            onPress={async () => {
+              try {
+                const res = await apiJson<{ room: any; token: string; livekitUrl: string }>(
+                  `/video/rooms/${room.id}/join`,
+                  { method: "POST" },
+                );
+                onJoinCall?.({
+                  roomId: room.id,
+                  token: res.token,
+                  livekitUrl: res.livekitUrl,
+                  projectName: room.project?.name,
+                });
+              } catch {
+                Alert.alert("Error", "Could not join call.");
+              }
+            }}
+          >
+            <Text style={styles.activeCallPulse}>🟢</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.activeCallTitle}>
+                {room.project?.name ?? "Video Call"} — Live
+              </Text>
+              <Text style={styles.activeCallSub}>
+                {callerName} · {participantCount} participant{participantCount !== 1 ? "s" : ""}
+              </Text>
+            </View>
+            <Text style={styles.activeCallJoin}>Join ›</Text>
+          </Pressable>
+        );
+      })}
 
       {/* CONDITIONAL: Project Home View OR Project Feed */}
       {selectedProject ? (
@@ -1915,5 +1977,38 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#1e3a8a",
     fontWeight: "600",
+  },
+
+  // Active calls banner
+  activeCallBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 12,
+    marginBottom: 8,
+    padding: 12,
+    backgroundColor: "#ecfdf5",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#6ee7b7",
+  },
+  activeCallPulse: {
+    fontSize: 14,
+    marginRight: 10,
+  },
+  activeCallTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#065f46",
+  },
+  activeCallSub: {
+    fontSize: 12,
+    color: "#6b7280",
+    marginTop: 1,
+  },
+  activeCallJoin: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#059669",
+    marginLeft: 8,
   },
 });

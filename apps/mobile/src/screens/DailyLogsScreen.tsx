@@ -69,6 +69,7 @@ export function DailyLogsScreen({
   onBack,
   onOpenPetl,
   onOpenPlanSheets,
+  onStartCall,
   onNavigateHome,
   petlChanges,
   createLogType,
@@ -78,6 +79,7 @@ export function DailyLogsScreen({
   onBack: () => void;
   onOpenPetl?: () => void;
   onOpenPlanSheets?: () => void;
+  onStartCall?: () => void;
   onNavigateHome?: () => void;
   petlChanges?: PetlSessionChanges;
   createLogType?: string;
@@ -581,12 +583,19 @@ export function DailyLogsScreen({
           )}
         </View>
 
-        {/* Plans shortcut */}
-        {onOpenPlanSheets && (
-          <Pressable style={styles.plansButton} onPress={onOpenPlanSheets}>
-            <Text style={styles.plansButtonText}>📐 View Plan Sheets</Text>
-          </Pressable>
-        )}
+        {/* Project actions row */}
+        <View style={styles.projectActionsRow}>
+          {onOpenPlanSheets && (
+            <Pressable style={styles.projectActionBtn} onPress={onOpenPlanSheets}>
+              <Text style={styles.projectActionText}>📐 Plans</Text>
+            </Pressable>
+          )}
+          {onStartCall && (
+            <Pressable style={styles.projectActionBtn} onPress={onStartCall}>
+              <Text style={styles.projectActionText}>📞 Call</Text>
+            </Pressable>
+          )}
+        </View>
 
         {/* 3. SUBJECT/TITLE - right below date */}
         <View style={styles.section}>
@@ -1137,18 +1146,23 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  // Plans button
-  plansButton: {
+  // Project actions row (Plans, Call, etc.)
+  projectActionsRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 12,
+  },
+  projectActionBtn: {
+    flex: 1,
     backgroundColor: colors.backgroundSecondary,
     borderWidth: 1,
     borderColor: colors.cardBorder,
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 14,
-    marginBottom: 12,
     alignItems: "center",
   },
-  plansButtonText: {
+  projectActionText: {
     fontSize: 14,
     fontWeight: "600",
     color: colors.primaryLight,

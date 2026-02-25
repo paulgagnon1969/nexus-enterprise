@@ -7,6 +7,11 @@ import {
   FlatList,
   Dimensions,
   SafeAreaView,
+  Modal,
+  TextInput,
+  Pressable,
+  ActivityIndicator,
+  Alert,
 } from "react-native";
 import {
   AudioSession,
@@ -19,7 +24,9 @@ import {
 } from "@livekit/react-native";
 import { Track } from "livekit-client";
 import type { TrackReferenceOrPlaceholder } from "@livekit/react-native";
-import { apiFetch } from "../api/client";
+import { apiFetch, apiJson } from "../api/client";
+import { fetchContacts } from "../api/contacts";
+import type { Contact } from "../types/api";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 
@@ -69,6 +76,7 @@ export function VideoCallScreen({
       video={true}
     >
       <CallUI
+        roomId={roomId}
         projectName={projectName}
         onHangUp={handleDisconnect}
       />
@@ -79,9 +87,11 @@ export function VideoCallScreen({
 // ── Inner component (has access to room context) ────────────────────
 
 function CallUI({
+  roomId,
   projectName,
   onHangUp,
 }: {
+  roomId: string;
   projectName?: string;
   onHangUp: () => void;
 }) {
@@ -90,6 +100,14 @@ function CallUI({
   const [audioMuted, setAudioMuted] = useState(false);
   const [videoMuted, setVideoMuted] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+
+  // Invite state
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [inviteSearch, setInviteSearch] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [inviting, setInviting] = useState(false);
+  const [contactsLoading, setContactsLoading] = useState(false);
 
   // Timer
   useEffect(() => {
@@ -130,6 +148,66 @@ function CallUI({
       });
     }
   }, [room]);
+
+  // ── Invite helpers ──────────────────────────────────────────────────
+
+  const openInvite = useCallback(async () => {
+    setInviteOpen(true);
+    setContactsLoading(true);
+    try {
+      const list = await fetchContacts({ category: "internal" });
+      setContacts(list);
+    } catch {
+      // Fallback: fetch without category filter
+      try {
+        const list = await fetchContacts();
+        setContacts(list);
+      } catch {
+        setContacts([]);
+      }
+    } finally {
+      setContactsLoading(false);
+    }
+  }, []);
+
+  const toggleContact = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const sendInvites = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    setInviting(true);
+    try {
+      await apiJson(`/video/rooms/${roomId}/invite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userIds: Array.from(selectedIds) }),
+      });
+      Alert.alert("Invited", `Sent ${selectedIds.size} invite${selectedIds.size > 1 ? "s" : ""}`);
+      setInviteOpen(false);
+      setSelectedIds(new Set());
+      setInviteSearch("");
+    } catch {
+      Alert.alert("Error", "Failed to send invites");
+    } finally {
+      setInviting(false);
+    }
+  }, [roomId, selectedIds]);
+
+  const filteredContacts = inviteSearch.trim()
+    ? contacts.filter((c) => {
+        const name = [c.firstName, c.lastName, c.displayName, c.email]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return name.includes(inviteSearch.toLowerCase());
+      })
+    : contacts;
 
   // Calculate tile size based on participant count
   const count = Math.max(tracks.length, 1);
@@ -205,11 +283,89 @@ function CallUI({
           <Text style={styles.controlLabel}>Flip</Text>
         </TouchableOpacity>
 
+        <TouchableOpacity style={styles.inviteBtn} onPress={openInvite}>
+          <Text style={styles.controlIcon}>➕</Text>
+          <Text style={styles.controlLabel}>Invite</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.hangUpBtn} onPress={onHangUp}>
           <Text style={styles.controlIcon}>📞</Text>
           <Text style={[styles.controlLabel, { color: "#fff" }]}>End</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Invite modal */}
+      <Modal visible={inviteOpen} animationType="slide" transparent>
+        <View style={styles.inviteOverlay}>
+          <View style={styles.inviteSheet}>
+            <View style={styles.inviteHeader}>
+              <Text style={styles.inviteTitle}>Invite to Call</Text>
+              <Pressable onPress={() => { setInviteOpen(false); setInviteSearch(""); }}>
+                <Text style={styles.inviteClose}>✕</Text>
+              </Pressable>
+            </View>
+
+            <TextInput
+              style={styles.inviteSearchInput}
+              placeholder="Search contacts…"
+              placeholderTextColor="#888"
+              value={inviteSearch}
+              onChangeText={setInviteSearch}
+              autoCorrect={false}
+            />
+
+            {contactsLoading ? (
+              <ActivityIndicator size="large" color="#3b82f6" style={{ marginTop: 32 }} />
+            ) : (
+              <FlatList
+                data={filteredContacts}
+                keyExtractor={(c) => c.id}
+                style={styles.inviteList}
+                renderItem={({ item }) => {
+                  const name = item.displayName
+                    || [item.firstName, item.lastName].filter(Boolean).join(" ")
+                    || item.email
+                    || "Unknown";
+                  const selected = selectedIds.has(item.id);
+                  return (
+                    <Pressable
+                      style={[styles.inviteRow, selected && styles.inviteRowSelected]}
+                      onPress={() => toggleContact(item.id)}
+                    >
+                      <View style={[styles.inviteAvatar, selected && styles.inviteAvatarSelected]}>
+                        <Text style={styles.inviteAvatarText}>
+                          {selected ? "✓" : (name.charAt(0).toUpperCase())}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.inviteName} numberOfLines={1}>{name}</Text>
+                        {item.role && (
+                          <Text style={styles.inviteRole} numberOfLines={1}>{item.role}</Text>
+                        )}
+                      </View>
+                    </Pressable>
+                  );
+                }}
+                ListEmptyComponent={
+                  <Text style={styles.inviteEmpty}>No contacts found</Text>
+                }
+              />
+            )}
+
+            {selectedIds.size > 0 && (
+              <Pressable
+                style={[styles.inviteSendBtn, inviting && { opacity: 0.6 }]}
+                onPress={sendInvites}
+                disabled={inviting}
+              >
+                <Text style={styles.inviteSendText}>
+                  {inviting ? "Sending…" : `Invite ${selectedIds.size} person${selectedIds.size > 1 ? "s" : ""}`}
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -308,5 +464,113 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     minWidth: 64,
     backgroundColor: "#dc2626",
+  },
+  inviteBtn: {
+    alignItems: "center",
+    padding: 12,
+    borderRadius: 16,
+    minWidth: 64,
+    backgroundColor: "#1d4ed8",
+  },
+
+  // Invite modal
+  inviteOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
+  },
+  inviteSheet: {
+    backgroundColor: "#1e1e2e",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: "75%",
+    paddingBottom: 32,
+  },
+  inviteHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 12,
+  },
+  inviteTitle: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  inviteClose: {
+    color: "#aaa",
+    fontSize: 22,
+    padding: 4,
+  },
+  inviteSearchInput: {
+    backgroundColor: "#2a2a3e",
+    color: "#fff",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 15,
+    marginHorizontal: 20,
+    marginBottom: 12,
+  },
+  inviteList: {
+    paddingHorizontal: 20,
+  },
+  inviteRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#333",
+  },
+  inviteRowSelected: {
+    backgroundColor: "rgba(59,130,246,0.1)",
+  },
+  inviteAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#334155",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  inviteAvatarSelected: {
+    backgroundColor: "#2563eb",
+  },
+  inviteAvatarText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  inviteName: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "500",
+  },
+  inviteRole: {
+    color: "#888",
+    fontSize: 12,
+    marginTop: 1,
+  },
+  inviteEmpty: {
+    color: "#666",
+    fontSize: 14,
+    textAlign: "center",
+    paddingVertical: 24,
+  },
+  inviteSendBtn: {
+    backgroundColor: "#2563eb",
+    marginHorizontal: 20,
+    marginTop: 12,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  inviteSendText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
   },
 });
