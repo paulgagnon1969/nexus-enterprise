@@ -449,4 +449,33 @@ export class DailyBriefService implements OnModuleInit, OnModuleDestroy {
   <h4 style="margin:8px 0 2px;font-size:13px;color:#374151;">Reconciliation Cases (${brief.lookback.reconCases.count})</h4>
   ${sectionHtml("Recon", lookbackRecon, "No reconciliation activity")}
 
-  <h3 style="margin:20px 0 4px;color:#0f172a;font-size:15px;border-bottom:1px solid #e5
+  <h3 style="margin:20px 0 4px;color:#0f172a;font-size:15px;border-bottom:1px solid #e5e7eb;padding-bottom:4px;">
+    🔮 Next 7 Days
+  </h3>
+
+  <h4 style="margin:8px 0 2px;font-size:13px;color:#374151;">Schedule Tasks (${brief.lookahead.scheduleTasks.count})</h4>
+  ${sectionHtml("Schedule", aheadSchedule, "No scheduled tasks")}
+
+  <h4 style="margin:8px 0 2px;font-size:13px;color:#374151;">Tasks Due (${brief.lookahead.tasksDue.count})</h4>
+  ${sectionHtml("Tasks", aheadTasks, "No tasks due")}
+
+  <h4 style="margin:8px 0 2px;font-size:13px;color:#374151;">Open Items (${brief.lookahead.openItems.count})</h4>
+  ${sectionHtml("Open", aheadOpen, "No open items")}
+
+  <hr style="margin:20px 0;border:none;border-top:1px solid #e5e7eb;" />
+  <p style="color:#6b7280;font-size:12px;margin:0;text-align:center;">
+    NEXUS Daily Brief — Delivered at ${new Date().toLocaleTimeString()}
+  </p>
+</div>
+    `;
+  }
+}
+
+function escapeHtml(input: string) {
+  return input
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}

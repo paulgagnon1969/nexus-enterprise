@@ -28,7 +28,7 @@ export class VideoService {
   private readonly apiKey: string | undefined;
   private readonly apiSecret: string | undefined;
   private readonly livekitUrl: string | undefined;
-  private readonly webBaseUrl: string;
+  private readonly webBaseUrl: string | undefined;
   private readonly enabled: boolean;
 
   constructor(
@@ -269,7 +269,6 @@ export class VideoService {
     await this.prisma.videoRoomParticipant.create({
       data: {
         roomId: room.id,
-        userId: null,
         guestName: guestName.trim(),
       },
     });
