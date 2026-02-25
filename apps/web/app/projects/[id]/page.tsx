@@ -6334,7 +6334,7 @@ ${htmlBody}
       setDrawingsBomLoading(true);
       setDrawingsBomError(null);
       try {
-        const res = await fetch(`${API_BASE}/drawings-bom/${project.id}/uploads`, {
+        const res = await fetch(`${API_BASE}/projects/${project.id}/drawings-bom`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (cancelled) return;
@@ -6375,7 +6375,7 @@ ${htmlBody}
       setDrawingsBomLoading(true);
       setDrawingsBomError(null);
       try {
-        const url = `${API_BASE}/drawings-bom/uploads/${drawingsBomSelectedUploadId}?source=${drawingsBomSourceFilter}`;
+        const url = `${API_BASE}/projects/${project!.id}/drawings-bom/${drawingsBomSelectedUploadId}?source=${drawingsBomSourceFilter}`;
         const res = await fetch(url, {
           headers: { Authorization: `Bearer ${token}` },
         });
