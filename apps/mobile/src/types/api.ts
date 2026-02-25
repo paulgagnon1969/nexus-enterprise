@@ -61,7 +61,7 @@ export interface ProjectListItem {
 }
 
 // Contact categories for the Contacts screen
-export type ContactCategory = "internal" | "external" | "subs" | "clients" | "personal";
+export type ContactCategory = "internal" | "external" | "subs" | "clients" | "personal" | "all";
 export type ContactSource = "ncc" | "personal";
 
 export interface Contact {

@@ -123,7 +123,7 @@ export function CallContactPicker({
     setApiLoading(true);
     setApiError(null);
     try {
-      const list = await fetchContacts({ category: "all" as any });
+      const list = await fetchContacts({ category: "all" });
       setApiContacts(list);
       if (list.length === 0) {
         setApiError("No contacts found. Make sure you're in the correct organization.");
