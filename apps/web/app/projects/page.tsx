@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "../components/AuthProvider";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 interface CreatedByUser {
   id: string;
@@ -69,11 +70,11 @@ const CARD_HEIGHT = 160; // Approximate height of each log card in pixels
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const { user, apiUrl } = useAuth();
   const [logs, setLogs] = useState<DailyLog[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
 
   // Filters
   const [selectedUserId, setSelectedUserId] = useState<string>("");
@@ -94,7 +95,15 @@ export default function ProjectsPage() {
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const [startUiTransition] = useTransition();
+  const [, startUiTransition] = useTransition();
+
+  // Get token from localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const accessToken = localStorage.getItem("accessToken");
+      setToken(accessToken);
+    }
+  }, []);
 
   // Calculate items per page based on container height
   useEffect(() => {
@@ -113,12 +122,12 @@ export default function ProjectsPage() {
 
   // Fetch projects for multi-select filter
   useEffect(() => {
-    if (!user?.token) return;
+    if (!token) return;
 
     const fetchProjects = async () => {
       try {
-        const response = await fetch(`${apiUrl}/projects`, {
-          headers: { Authorization: `Bearer ${user.token}` },
+        const response = await fetch(`${API_BASE}/projects`, {
+          headers: { Authorization: `Bearer ${token}` },
         });
         if (!response.ok) return;
         const data: Project[] = await response.json();
@@ -142,7 +151,7 @@ export default function ProjectsPage() {
     };
 
     fetchProjects();
-  }, [user?.token, apiUrl]);
+  }, [token]);
 
   const fetchLogs = async () => {
     try {
@@ -150,9 +159,9 @@ export default function ProjectsPage() {
       setError(null);
 
       // Fetch more logs to support pagination (fetch all, paginate client-side)
-      const response = await fetch(`${apiUrl}/daily-logs?limit=500`, {
+      const response = await fetch(`${API_BASE}/daily-logs?limit=500`, {
         headers: {
-          Authorization: `Bearer ${user?.token}`,
+          Authorization: `Bearer ${token}`,
         },
       });
 
@@ -178,10 +187,10 @@ export default function ProjectsPage() {
   };
 
   useEffect(() => {
-    if (user?.token) {
+    if (token) {
       fetchLogs();
     }
-  }, [user?.token, apiUrl]);
+  }, [token]);
 
   // Apply all filters
   const filteredLogs = logs.filter((log) => {
@@ -314,7 +323,7 @@ export default function ProjectsPage() {
     );
   };
 
-  if (!user) {
+  if (!token) {
     return (
       <div className="app-card" style={{ textAlign: "center", padding: "40px" }}>
         <p>Please log in to view daily logs.</p>
