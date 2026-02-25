@@ -1,0 +1,33 @@
+# Node
+node_modules
+
+# Build artifacts
+**/dist/
+**/.next/
+**/.turbo/
+.cache/
+
+# Mobile native builds (1.8GB android + 1.1GB ios)
+apps/mobile/android/
+apps/mobile/ios/
+*.ipa
+*.apk
+
+# Data files not needed for web build (487MB)
+docs/data/
+docs/plan-sheets/
+
+# API runtime uploads (286MB)
+apps/api/uploads/
+
+# Infrastructure / scripts not needed for web build
+infra/
+scripts/
+
+# Misc
+.DS_Store
+*.log
+*.mov
+*.rtf
+*.app
+promotion/
