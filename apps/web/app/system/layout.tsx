@@ -546,8 +546,8 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
 
       {/* Right pane */}
       <div style={{ flex: 1, minWidth: 0, position: "relative", width: hideSidebar ? "100%" : undefined }}>
-        {/* Superuser banner inside System frame (SUPER_ADMIN only) - hidden on document detail pages */}
-        {isSuperAdmin === true && !hideSidebar && (
+        {/* System nav bar — visible to all ADMIN+ users, hidden on document detail pages */}
+        {isAdminPlus === true && !hideSidebar && (
           <div
             style={{
               marginBottom: 8,
@@ -562,7 +562,8 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              {visibleCompanies.length > 0 && (
+              {/* Organization picker — SUPER_ADMIN only */}
+              {isSuperAdmin && visibleCompanies.length > 0 && (
                 <label
                   style={{
                     display: "inline-flex",
@@ -598,9 +599,9 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
                 </label>
               )}
               <div style={{ display: "flex", flexDirection: "column" }}>
-                <div style={{ fontWeight: 600 }}>Superuser menu</div>
+                <div style={{ fontWeight: 600 }}>{isSuperAdmin ? "Superuser menu" : "Nexus System"}</div>
                 <div style={{ fontSize: 11, color: "#e5e7eb" }}>
-                  System-level tools for managing all organizations
+                  {isSuperAdmin ? "System-level tools for managing all organizations" : "System administration"}
                 </div>
               </div>
             </div>
