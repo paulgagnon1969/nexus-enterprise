@@ -392,17 +392,38 @@ export class DrawingsBomService {
       };
     }
 
-    // Chunk pages into groups to stay within context limits
-    const PAGES_PER_CHUNK = 12;
+    // Chunk by character count (~20K chars ≈ 5K tokens per chunk) to stay within
+    // context limits and get better extraction quality.
+    const MAX_CHARS_PER_CHUNK = 20_000;
     const chunks: string[] = [];
 
-    for (let i = 0; i < pages.length; i += PAGES_PER_CHUNK) {
-      const slice = pages.slice(i, i + PAGES_PER_CHUNK);
-      const chunkText = slice
-        .map((p) => `--- PAGE ${p.page} (Sheet: ${p.sheetId ?? "unknown"}) ---\n${p.text}`)
-        .join("\n\n");
-      chunks.push(chunkText);
+    // First, build the full text with page markers
+    const allPageTexts: string[] = [];
+    for (const p of pages) {
+      allPageTexts.push(`--- PAGE ${p.page} (Sheet: ${p.sheetId ?? "unknown"}) ---\n${p.text}`);
     }
+    const fullText = allPageTexts.join("\n\n");
+
+    // Split into chunks by character count, breaking at line boundaries
+    if (fullText.length <= MAX_CHARS_PER_CHUNK) {
+      chunks.push(fullText);
+    } else {
+      let offset = 0;
+      while (offset < fullText.length) {
+        let end = Math.min(offset + MAX_CHARS_PER_CHUNK, fullText.length);
+        // Try to break at a newline to avoid splitting mid-sentence
+        if (end < fullText.length) {
+          const lastNewline = fullText.lastIndexOf("\n", end);
+          if (lastNewline > offset + MAX_CHARS_PER_CHUNK * 0.5) {
+            end = lastNewline + 1;
+          }
+        }
+        chunks.push(fullText.substring(offset, end));
+        offset = end;
+      }
+    }
+
+    this.logger.log(`[${config.displayName}] Processing ${fullText.length} chars in ${chunks.length} chunks`);
 
     const allBomLines: AiBomLine[] = [];
     let totalTokens = 0;
@@ -417,7 +438,7 @@ export class DrawingsBomService {
             { role: "user", content: chunk },
           ],
           temperature: 0.1,
-          max_tokens: 8000,
+          max_tokens: 16000,
           response_format: { type: "json_object" },
         });
 
@@ -428,13 +449,30 @@ export class DrawingsBomService {
 
         // Parse JSON — handle both array and {items: [...]} formats
         const parsed = JSON.parse(content);
-        const items: AiBomLine[] = Array.isArray(parsed)
+        const rawItems: any[] = Array.isArray(parsed)
           ? parsed
           : Array.isArray(parsed.items)
             ? parsed.items
             : Array.isArray(parsed.bomLines)
               ? parsed.bomLines
-              : [];
+              : Array.isArray(parsed.bom)
+                ? parsed.bom
+                : Array.isArray(parsed.materials)
+                  ? parsed.materials
+                  : [];
+
+        // Normalize field names — different providers use different keys
+        const items: AiBomLine[] = rawItems.map((raw) => ({
+          csiDivision: raw.csiDivision ?? raw.csi_division ?? raw.division ?? null,
+          csiDivisionName: raw.csiDivisionName ?? raw.csi_division_name ?? raw.divisionName ?? null,
+          description: raw.description ?? raw.item ?? raw.name ?? raw.material ?? "",
+          specification: raw.specification ?? raw.spec ?? raw.model ?? raw.specifications ?? raw.manufacturer ?? null,
+          qty: raw.qty ?? raw.quantity ?? null,
+          unit: raw.unit ?? null,
+          sourcePage: raw.sourcePage ?? raw.source_page ?? raw.page ?? null,
+          sourceSheet: raw.sourceSheet ?? raw.source_sheet ?? raw.sheet ?? null,
+          notes: raw.notes ?? raw.note ?? null,
+        })).filter((item) => item.description);
 
         allBomLines.push(...items);
       } catch (err: any) {

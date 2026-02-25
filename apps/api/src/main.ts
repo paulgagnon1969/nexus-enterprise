@@ -70,8 +70,8 @@ async function bootstrap() {
   const server = app.getHttpAdapter().getInstance();
   await server.register(fastifyMultipart, {
     limits: {
-      // Keep this conservative; bump if needed.
-      fileSize: 10 * 1024 * 1024,
+      // 100 MB to support large architectural drawing sets (PDF)
+      fileSize: 100 * 1024 * 1024,
     },
   });
 
