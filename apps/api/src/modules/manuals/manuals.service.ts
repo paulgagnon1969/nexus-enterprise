@@ -8,6 +8,7 @@ import {
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { ManualVersionChangeType, TenantDocumentStatus, GlobalRole as PrismaGlobalRole } from "@prisma/client";
 import { GlobalRole } from "../auth/auth.guards";
+import { verifySystemAccess as _verifySystemAccess } from "../auth/system-access";
 import {
   CreateManualDto,
   UpdateManualDto,
@@ -25,6 +26,13 @@ import {
 @Injectable()
 export class ManualsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Verify the caller has system-level access.
+   */
+  async verifySystemAccess(user: { userId: string; globalRole?: string }): Promise<void> {
+    return _verifySystemAccess(this.prisma, user);
+  }
 
   // =========================================================================
   // Manual CRUD

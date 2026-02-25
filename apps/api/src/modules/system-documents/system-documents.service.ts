@@ -5,6 +5,7 @@ import { PublicationGroupsService } from "../publication-groups/publication-grou
 import * as crypto from "crypto";
 import * as path from "path";
 import * as fs from "fs";
+import { verifySystemAccess as _verifySystemAccess } from "../auth/system-access";
 import {
   CreateSystemDocumentDto,
   UpdateSystemDocumentDto,
@@ -21,6 +22,8 @@ const STAGING_DIR = path.resolve(__dirname, "../../../../../docs/sops-staging");
 const POLICIES_DIR = path.resolve(__dirname, "../../../../../docs/policies");
 const SOURCE_DIRS = [STAGING_DIR, POLICIES_DIR];
 
+const NEXUS_SYSTEM_COMPANY_ID = "cmjr7o4zs000101s6z1rt1ssz";
+
 @Injectable()
 export class SystemDocumentsService {
   constructor(
@@ -30,6 +33,14 @@ export class SystemDocumentsService {
 
   private hashContent(content: string): string {
     return crypto.createHash("sha256").update(content).digest("hex").slice(0, 16);
+  }
+
+  /**
+   * Verify the caller has system-level access: SUPER_ADMIN, NCC_SYSTEM_DEVELOPER,
+   * or ADMIN/OWNER in the NEXUS SYSTEM company.
+   */
+  async verifySystemAccess(user: { userId: string; globalRole?: string }): Promise<void> {
+    return _verifySystemAccess(this.prisma, user);
   }
 
   // =========================================================================

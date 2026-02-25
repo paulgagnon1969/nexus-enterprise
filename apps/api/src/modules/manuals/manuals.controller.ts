@@ -16,7 +16,7 @@ import {
 } from "@nestjs/common";
 import type { FastifyRequest, FastifyReply } from "fastify";
 import { JwtAuthGuard, GlobalRole } from "../auth/auth.guards";
-import { AuthenticatedUser } from "../auth/jwt.strategy";
+import type { AuthenticatedUser } from "../auth/jwt.strategy";
 import { ManualsService } from "./manuals.service";
 import { ManualRenderService } from "./manual-render.service";
 import { ManualPdfService } from "./manual-pdf.service";
@@ -43,23 +43,6 @@ function getUser(req: FastifyRequest): AuthenticatedUser {
   return user;
 }
 
-/**
- * Check if user has system-level manual management access.
- * Allows SUPER_ADMIN and NCC_SYSTEM_DEVELOPER roles.
- */
-function assertSystemManualAccess(user: AuthenticatedUser) {
-  const allowedRoles = [GlobalRole.SUPER_ADMIN, GlobalRole.NCC_SYSTEM_DEVELOPER];
-  if (!allowedRoles.includes(user.globalRole as GlobalRole)) {
-    throw new ForbiddenException("SUPER_ADMIN or NCC_SYSTEM_DEVELOPER access required");
-  }
-}
-
-/** @deprecated Use assertSystemManualAccess for manual endpoints */
-function assertSuperAdmin(user: AuthenticatedUser) {
-  if (user.globalRole !== GlobalRole.SUPER_ADMIN) {
-    throw new ForbiddenException("SUPER_ADMIN access required");
-  }
-}
 
 @Controller("system/manuals")
 @UseGuards(JwtAuthGuard)
@@ -81,7 +64,7 @@ export class ManualsController {
     @Query("includeArchived") includeArchived?: string
   ) {
     const user = getUser(req);
-    assertSystemManualAccess(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.manualsService.listManuals({
       status,
       includeArchived: includeArchived === "true",
@@ -92,28 +75,28 @@ export class ManualsController {
   @Get(":id")
   async getManual(@Req() req: FastifyRequest, @Param("id") id: string) {
     const user = getUser(req);
-    assertSystemManualAccess(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.manualsService.getManualWithAccessCheck(id, user.globalRole as GlobalRole);
   }
 
   @Post()
   async createManual(@Req() req: FastifyRequest, @Body() dto: CreateManualDto) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.manualsService.createManual(user.userId, dto);
   }
 
   @Put(":id")
   async updateManual(@Req() req: FastifyRequest, @Param("id") id: string, @Body() dto: UpdateManualDto) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.manualsService.updateManual(id, dto);
   }
 
   @Delete(":id")
   async archiveManual(@Req() req: FastifyRequest, @Param("id") id: string) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.manualsService.archiveManual(id);
   }
 
@@ -124,21 +107,21 @@ export class ManualsController {
     @Body() dto: PublishManualDto
   ) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.manualsService.publishManual(id, user.userId, dto);
   }
 
   @Get(":id/versions")
   async getVersionHistory(@Req() req: FastifyRequest, @Param("id") id: string) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.manualsService.getVersionHistory(id);
   }
 
   @Get(":id/available-documents")
   async getAvailableDocuments(@Req() req: FastifyRequest, @Param("id") id: string) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.manualsService.getAvailableDocuments(id);
   }
 
@@ -153,7 +136,7 @@ export class ManualsController {
     @Body() dto: CreateChapterDto
   ) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.manualsService.addChapter(id, user.userId, dto);
   }
 
@@ -165,7 +148,7 @@ export class ManualsController {
     @Body() dto: UpdateChapterDto
   ) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.manualsService.updateChapter(id, chapterId, dto);
   }
 
@@ -176,7 +159,7 @@ export class ManualsController {
     @Param("chapterId") chapterId: string
   ) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.manualsService.removeChapter(id, chapterId, user.userId);
   }
 
@@ -187,7 +170,7 @@ export class ManualsController {
     @Body() dto: ReorderChaptersDto
   ) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.manualsService.reorderChapters(id, user.userId, dto);
   }
 
@@ -202,7 +185,7 @@ export class ManualsController {
     @Body() dto: AddDocumentToManualDto
   ) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.manualsService.addDocument(id, user.userId, dto);
   }
 
@@ -214,7 +197,7 @@ export class ManualsController {
     @Body() dto: UpdateManualDocumentDto
   ) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.manualsService.updateDocument(id, docId, dto);
   }
 
@@ -225,7 +208,7 @@ export class ManualsController {
     @Param("docId") docId: string
   ) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.manualsService.removeDocument(id, docId, user.userId);
   }
 
@@ -237,7 +220,7 @@ export class ManualsController {
     @Body() dto: ReorderDocumentsDto
   ) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.manualsService.reorderDocuments(
       id,
       user.userId,
@@ -254,7 +237,7 @@ export class ManualsController {
     @Body() dto: TogglePrintInclusionDto
   ) {
     const user = getUser(req);
-    assertSystemManualAccess(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.manualsService.toggleDocumentPrintInclusion(id, docId, dto.includeInPrint);
   }
 
@@ -265,7 +248,7 @@ export class ManualsController {
   @Get(":id/views")
   async listViews(@Req() req: FastifyRequest, @Param("id") id: string) {
     const user = getUser(req);
-    assertSystemManualAccess(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.manualsService.listViews(id);
   }
 
@@ -276,7 +259,7 @@ export class ManualsController {
     @Body() dto: CreateManualViewDto
   ) {
     const user = getUser(req);
-    assertSystemManualAccess(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.manualsService.createView(id, user.userId, dto);
   }
 
@@ -288,7 +271,7 @@ export class ManualsController {
     @Body() dto: UpdateManualViewDto
   ) {
     const user = getUser(req);
-    assertSystemManualAccess(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.manualsService.updateView(id, viewId, dto);
   }
 
@@ -299,7 +282,7 @@ export class ManualsController {
     @Param("viewId") viewId: string
   ) {
     const user = getUser(req);
-    assertSystemManualAccess(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.manualsService.deleteView(id, viewId);
   }
 
@@ -310,7 +293,7 @@ export class ManualsController {
   @Get(":id/toc")
   async getTableOfContents(@Req() req: FastifyRequest, @Param("id") id: string) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.manualsService.verifySystemAccess(user);
     return this.renderService.getTableOfContents(id);
   }
 
@@ -328,7 +311,7 @@ export class ManualsController {
     @Query("baseUrl") baseUrl?: string
   ) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.manualsService.verifySystemAccess(user);
 
     const html = await this.renderService.renderManualHtml(id, {
       includeToc: includeToc !== "false",
@@ -355,7 +338,7 @@ export class ManualsController {
     @Query("viewId") viewId?: string
   ) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.manualsService.verifySystemAccess(user);
 
     if (!this.pdfService.isAvailable()) {
       throw new ServiceUnavailableException(

@@ -12,8 +12,8 @@ import {
   ForbiddenException,
 } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
-import { JwtAuthGuard, GlobalRole } from "../auth/auth.guards";
-import { AuthenticatedUser } from "../auth/jwt.strategy";
+import { JwtAuthGuard } from "../auth/auth.guards";
+import type { AuthenticatedUser } from "../auth/jwt.strategy";
 import { SystemDocumentsService } from "./system-documents.service";
 import {
   CreateSystemDocumentDto,
@@ -34,25 +34,19 @@ function getUser(req: FastifyRequest): AuthenticatedUser {
   return user;
 }
 
-function assertSuperAdmin(user: AuthenticatedUser) {
-  if (user.globalRole !== GlobalRole.SUPER_ADMIN) {
-    throw new ForbiddenException("SUPER_ADMIN access required");
-  }
-}
-
 @Controller("system-documents")
 @UseGuards(JwtAuthGuard)
 export class SystemDocumentsController {
   constructor(private readonly service: SystemDocumentsService) {}
 
   // =========================================================================
-  // SUPER_ADMIN: System Document Management
+  // System Document Management (SUPER_ADMIN or NEXUS SYSTEM ADMIN/OWNER)
   // =========================================================================
 
   @Get("dashboard-stats")
   async getDashboardStats(@Req() req: FastifyRequest) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.service.verifySystemAccess(user);
     return this.service.getDashboardStats();
   }
 
@@ -62,7 +56,7 @@ export class SystemDocumentsController {
     @Query("includeInactive") includeInactive?: string,
   ) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.service.verifySystemAccess(user);
     return this.service.listSystemDocuments({
       includeInactive: includeInactive === "true",
     });
@@ -71,7 +65,7 @@ export class SystemDocumentsController {
   @Get(":id")
   async getSystemDocument(@Req() req: FastifyRequest, @Param("id") id: string) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.service.verifySystemAccess(user);
     return this.service.getSystemDocument(id);
   }
 
@@ -81,7 +75,7 @@ export class SystemDocumentsController {
     @Body() dto: CreateSystemDocumentDto,
   ) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.service.verifySystemAccess(user);
     return this.service.createSystemDocument(user.userId, dto);
   }
 
@@ -92,19 +86,19 @@ export class SystemDocumentsController {
     @Body() dto: UpdateSystemDocumentDto,
   ) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.service.verifySystemAccess(user);
     return this.service.updateSystemDocument(id, user.userId, dto);
   }
 
   @Delete(":id")
   async deleteSystemDocument(@Req() req: FastifyRequest, @Param("id") id: string) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.service.verifySystemAccess(user);
     return this.service.deleteSystemDocument(id);
   }
 
   // =========================================================================
-  // SUPER_ADMIN: Publication Management
+  // Publication Management
   // =========================================================================
 
   @Post(":id/publish")
@@ -114,7 +108,7 @@ export class SystemDocumentsController {
     @Body() dto: PublishSystemDocumentDto,
   ) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.service.verifySystemAccess(user);
     return this.service.publishDocument(id, user.userId, dto);
   }
 
@@ -124,14 +118,14 @@ export class SystemDocumentsController {
     @Param("publicationId") publicationId: string,
   ) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.service.verifySystemAccess(user);
     return this.service.retractPublication(publicationId, user.userId);
   }
 
   @Get(":id/publications")
   async getPublications(@Req() req: FastifyRequest, @Param("id") id: string) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.service.verifySystemAccess(user);
     return this.service.getPublications(id);
   }
 
@@ -145,7 +139,7 @@ export class SystemDocumentsController {
     @Body() dto: ImportWithManualDto,
   ) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.service.verifySystemAccess(user);
     return this.service.importWithManual(user.userId, dto);
   }
 
@@ -159,7 +153,7 @@ export class SystemDocumentsController {
     @Body() dto: ImportFromHtmlDto,
   ) {
     const user = getUser(req);
-    assertSuperAdmin(user);
+    await this.service.verifySystemAccess(user);
     return this.service.importFromHtml(user.userId, dto);
   }
 }
