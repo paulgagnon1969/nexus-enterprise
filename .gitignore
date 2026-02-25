@@ -51,10 +51,17 @@ promotion/
 
 # Local uploads / artifacts (do not commit)
 /apps/api/uploads/
-/docs/data/NCC Mobile Dev/
-/docs/data/NEXUS - Application Architecuture and read.me docs/
-/docs/data/PWC Reconciliation data/Old Files/
-/docs/data/PWC Reconciliation data/*.csv
+
+# Data files — reference data, CSVs, Excel, images, PDFs (not source code)
+/docs/data/
+
+# Plan sheet images (large webp files)
+/docs/plan-sheets/
+
+# Build / tool caches (should never be committed)
+.cache/
+
+# Legacy entries
 /remoteLogId.
 /scripts/mport.js
 /{
