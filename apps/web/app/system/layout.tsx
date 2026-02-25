@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const NEXUS_SYSTEM_COMPANY_ID = "cmjr7o4zs000101s6z1rt1ssz";
 
 interface CompanyDto {
   id: string;
@@ -105,10 +106,11 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
         const isSA = me?.globalRole === "SUPER_ADMIN";
         setIsSuperAdmin(isSA);
 
-        // Determine company-level role for ADMIN+ access
-        const currentCompanyId = window.localStorage.getItem("companyId");
+        // Determine company-level role for ADMIN+ access.
+        // Always check against the NEXUS SYSTEM company — the user may have been
+        // auto-switched to a different tenant (e.g. Fortified) after login.
         const membership = Array.isArray(me?.memberships)
-          ? me.memberships.find((m: any) => m.companyId === currentCompanyId)
+          ? me.memberships.find((m: any) => m.companyId === NEXUS_SYSTEM_COMPANY_ID)
           : null;
         const companyRole = membership?.role;
         const adminPlus = isSA || companyRole === "OWNER" || companyRole === "ADMIN";
