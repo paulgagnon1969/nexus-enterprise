@@ -221,15 +221,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return pathname?.startsWith(href);
   };
 
-  // Bootstrap userType/globalRole from localStorage as early as possible to
-  // avoid flicker of nav for APPLICANT users before /users/me returns.
+  // Bootstrap userType/globalRole/companyRole from localStorage as early as
+  // possible to avoid flicker of nav before /users/me returns.
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
       const storedGlobalRole = window.localStorage.getItem("globalRole");
       const storedUserType = window.localStorage.getItem("userType");
+      const storedCompanyRole = window.localStorage.getItem("companyRole");
       if (storedGlobalRole) setGlobalRole(storedGlobalRole);
       if (storedUserType) setUserType(storedUserType);
+      if (storedCompanyRole) setCompanyRole(storedCompanyRole);
     } catch {
       // ignore
     }
@@ -255,14 +257,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         // Determine company-level role for current company
         const currentCompanyId = window.localStorage.getItem("companyId");
+        let nextCompanyRole: string | null = null;
         if (currentCompanyId && Array.isArray(json.memberships)) {
           const membership = json.memberships.find(m => m.companyId === currentCompanyId);
-          setCompanyRole(membership?.role ?? null);
+          nextCompanyRole = membership?.role ?? null;
+          setCompanyRole(nextCompanyRole);
         }
 
         // Post-login sync: keep localStorage in sync so layouts that rely on
-        // cached globalRole/userType (e.g. /system) behave correctly even
-        // after hard reloads or alternate login flows.
+        // cached globalRole/userType/companyRole behave correctly even after
+        // hard reloads or alternate login flows.
         try {
           if (nextGlobalRole) {
             window.localStorage.setItem("globalRole", nextGlobalRole);
@@ -273,6 +277,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             window.localStorage.setItem("userType", nextUserType);
           } else {
             window.localStorage.removeItem("userType");
+          }
+          if (nextCompanyRole) {
+            window.localStorage.setItem("companyRole", nextCompanyRole);
+          } else {
+            window.localStorage.removeItem("companyRole");
           }
         } catch {
           // best-effort only; ignore storage errors
@@ -468,20 +477,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </nav>
   );
 
+  const isAdminPlus =
+    globalRole === "SUPER_ADMIN" ||
+    companyRole === "OWNER" ||
+    companyRole === "ADMIN";
+
   const renderStandardNav = () => (
     <nav className="app-nav">
-      {globalRole === "SUPER_ADMIN" && !isSystemRoute && (
-        <Link
-          href="/system"
-          className={
-            "app-nav-link" +
-            (isActive("/system") ? " app-nav-link-active" : "")
-          }
-        >
-          {h.nexusSystem}
-        </Link>
-      )}
-
       {(!isSystemRoute || globalRole !== "SUPER_ADMIN") && (
         <>
           {/* Proj Overview = main project workspace (current /projects section) */}
@@ -507,6 +509,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             {h.projectManagement}
           </Link>
+
+          {/* Nexus System — visible to ADMIN+ users */}
+          {isAdminPlus && !isSystemRoute && (
+            <Link
+              href="/system"
+              className={
+                "app-nav-link" +
+                (isActive("/system") ? " app-nav-link-active" : "")
+              }
+            >
+              {h.nexusSystem}
+            </Link>
+          )}
           <Link
             href="/files"
             className={

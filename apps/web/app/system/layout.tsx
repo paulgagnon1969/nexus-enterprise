@@ -22,6 +22,7 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   const [isSuperAdmin, setIsSuperAdmin] = useState<boolean | null>(null);
+  const [isAdminPlus, setIsAdminPlus] = useState<boolean | null>(null);
   const [companies, setCompanies] = useState<CompanyDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -100,15 +101,26 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(res => (res.ok ? res.json() : null))
-      .then((me: MeDto | null) => {
-        const ok = me?.globalRole === "SUPER_ADMIN";
-        setIsSuperAdmin(ok);
-        if (!ok) {
+      .then((me: any | null) => {
+        const isSA = me?.globalRole === "SUPER_ADMIN";
+        setIsSuperAdmin(isSA);
+
+        // Determine company-level role for ADMIN+ access
+        const currentCompanyId = window.localStorage.getItem("companyId");
+        const membership = Array.isArray(me?.memberships)
+          ? me.memberships.find((m: any) => m.companyId === currentCompanyId)
+          : null;
+        const companyRole = membership?.role;
+        const adminPlus = isSA || companyRole === "OWNER" || companyRole === "ADMIN";
+        setIsAdminPlus(adminPlus);
+
+        if (!adminPlus) {
           window.location.href = "/projects";
         }
       })
       .catch(() => {
         setIsSuperAdmin(false);
+        setIsAdminPlus(false);
         window.location.href = "/projects";
       });
   }, []);
@@ -119,6 +131,19 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
 
     void reloadCompanies();
   }, [isSuperAdmin]);
+
+  // If still checking access, show a loading state
+  if (isAdminPlus === null) {
+    return (
+      <div style={{ padding: 16, fontSize: 13, color: "#6b7280" }}>
+        Loading system view…
+      </div>
+    );
+  }
+
+  if (isAdminPlus === false) {
+    return null; // Redirect is in progress
+  }
 
   const isActiveCompany = (id: string) => pathname?.startsWith(`/system/${id}`);
   const isOverview = pathname === "/system";
@@ -219,12 +244,12 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
         style={{
           display: "flex",
           alignItems: "stretch",
-          gap: hideSidebar ? 0 : 16,
+          gap: (hideSidebar || !isSuperAdmin) ? 0 : 16,
           minHeight: "calc(100vh - 79px)",
         }}
       >
-      {/* Left sidebar: organizations list (hidden on document detail pages) */}
-      {!hideSidebar && (
+      {/* Left sidebar: organizations list (SUPER_ADMIN only, hidden on document detail pages) */}
+      {isSuperAdmin && !hideSidebar && (
       <aside
         style={{
           width: 260,
@@ -520,7 +545,7 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
       {/* Right pane */}
       <div style={{ flex: 1, minWidth: 0, position: "relative", width: hideSidebar ? "100%" : undefined }}>
         {/* Superuser banner inside System frame (SUPER_ADMIN only) - hidden on document detail pages */}
-        {isSuperAdmin && !hideSidebar && (
+        {isSuperAdmin === true && !hideSidebar && (
           <div
             style={{
               marginBottom: 8,
@@ -704,8 +729,8 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
           </div>
         )}
 
-        {/* Tenant workspace menu under the Superuser frame - hidden on document detail pages */}
-        {!hideSidebar && (
+        {/* Tenant workspace menu under the Superuser frame (SUPER_ADMIN only) - hidden on document detail pages */}
+        {isSuperAdmin === true && !hideSidebar && (
         <div
           style={{
             marginBottom: 12,

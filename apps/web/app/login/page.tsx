@@ -114,12 +114,21 @@ export default function LoginPage() {
             localStorage.setItem("userType", me.userType);
           }
 
-          // For admins and above in the Nexus System tenant, default their
-          // preferred organization to Nexus Fortified Structures on first login.
+          // Persist company-level role so the nav can bootstrap without
+          // waiting for /users/me on subsequent page loads.
           try {
             const memberships = Array.isArray((me as any).memberships)
               ? (me as any).memberships
               : [];
+            const currentMembership = memberships.find(
+              (m: any) => m?.companyId === data.company.id,
+            );
+            if (currentMembership?.role) {
+              localStorage.setItem("companyRole", currentMembership.role);
+            }
+
+            // For admins and above in the Nexus System tenant, default their
+            // preferred organization to Nexus Fortified Structures on first login.
             const isNexusSystemAdminOrAbove = memberships.some(
               (m: any) =>
                 m?.companyId === NEXUS_SYSTEM_COMPANY_ID &&
