@@ -6445,7 +6445,7 @@ ${htmlBody}
     }
   }, [project]);
 
-  const addDaysIso
+  const addDaysIso = (iso: string, deltaDays: number): string => {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return iso;
     d.setDate(d.getDate() + deltaDays);
@@ -24597,9 +24597,9 @@ ${htmlBody}
                         opacity: drawingsBomUploading ? 0.6 : 1,
                       }}
                     >
-                      {drawingsBomUploading ? "Uploading\u2026" : "Upload Drawing PDF"}
+                      {drawingsBomUploading ? "Uploading…" : "Upload Drawing PDF"}
                     </button>
-                    <span style={{ fontSize: 11, color: "#9ca3af" }}>PDF up to 100 MB \u2014 AI will extract materials automatically</span>
+                    <span style={{ fontSize: 11, color: "#9ca3af" }}>PDF up to 100 MB — AI will extract materials automatically</span>
                   </div>
 
                   {drawingsBomUploads.length === 0 && !drawingsBomLoading && !drawingsBomUploading && (
