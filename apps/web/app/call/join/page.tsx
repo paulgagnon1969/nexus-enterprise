@@ -8,7 +8,7 @@ import {
   RoomAudioRenderer,
   useRoomContext,
 } from "@livekit/components-react";
-import "@livekit/components-styles";
+import "@livekit/components-react/styles";
 
 // ─── Main page wrapper (Suspense boundary for useSearchParams) ───────────────
 
