@@ -365,9 +365,16 @@ export function HelpOverlay({ onClose }: Props) {
       })}
 
       {/* Active popover */}
-      {activePopover && helpItems.get(activePopover.key) && (
+      {activePopover && (
         <HelpPopover
-          item={helpItems.get(activePopover.key)!}
+          item={helpItems.get(activePopover.key) || {
+            id: "placeholder",
+            helpKey: activePopover.key,
+            title: activePopover.key.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
+            brief: "No help content has been added for this item yet. An admin can add content via /admin/help.",
+            sopId: null,
+            videoUrl: null,
+          }}
           position={{ x: activePopover.x, y: activePopover.y }}
           onClose={() => setActivePopover(null)}
         />
