@@ -72,6 +72,16 @@ export const DrawingLayerCanvas = forwardRef<DrawingLayerCanvasRef, Props>(
     const fabricRef = useRef<Canvas | null>(null);
     const historyRef = useRef<string[]>([]);
     const historyIndexRef = useRef(-1);
+    
+    // Refs to access current values in event handlers
+    const toolRef = useRef(tool);
+    const brushColorRef = useRef(brushColor);
+    const scaleRef = useRef(scale);
+    
+    // Keep refs in sync
+    useEffect(() => { toolRef.current = tool; }, [tool]);
+    useEffect(() => { brushColorRef.current = brushColor; }, [brushColor]);
+    useEffect(() => { scaleRef.current = scale; }, [scale]);
 
     // Initialize Fabric canvas
     useEffect(() => {
@@ -85,11 +95,19 @@ export const DrawingLayerCanvas = forwardRef<DrawingLayerCanvasRef, Props>(
       });
 
       fabricRef.current = canvas;
+      
+      console.log("[DrawingLayerCanvas] Fabric canvas initialized", { width, height, tool });
 
       // Set up drawing brush
-      canvas.freeDrawingBrush = new PencilBrush(canvas);
-      canvas.freeDrawingBrush.color = brushColor;
-      canvas.freeDrawingBrush.width = brushSize;
+      const brush = new PencilBrush(canvas);
+      brush.color = brushColor;
+      brush.width = brushSize;
+      canvas.freeDrawingBrush = brush;
+      
+      // Enable drawing mode if pen tool is selected
+      if (toolRef.current === "pen" || toolRef.current === "eraser") {
+        canvas.isDrawingMode = true;
+      }
 
       // Track changes for auto-save
       const handleChange = () => {
@@ -105,15 +123,15 @@ export const DrawingLayerCanvas = forwardRef<DrawingLayerCanvasRef, Props>(
       canvas.on("object:modified", handleChange);
       canvas.on("object:removed", handleChange);
 
-      // Handle text tool clicks
+      // Handle text tool clicks (use refs to get current values)
       canvas.on("mouse:down", (e) => {
-        if (tool === "text" && !e.target) {
+        if (toolRef.current === "text" && !e.target) {
           const pointer = canvas.getScenePoint(e.e);
           const text = new IText("Type here", {
             left: pointer.x,
             top: pointer.y,
-            fontSize: 16 / scale, // Scale-adjusted font size
-            fill: brushColor,
+            fontSize: 16 / scaleRef.current, // Scale-adjusted font size
+            fill: brushColorRef.current,
             fontFamily: "Inter, system-ui, sans-serif",
           });
           canvas.add(text);
@@ -242,15 +260,22 @@ export const DrawingLayerCanvas = forwardRef<DrawingLayerCanvasRef, Props>(
     }), [onCanvasChange]);
 
     return (
-      <canvas
-        ref={canvasRef}
+      <div
         style={{
           position: "absolute",
           top: 0,
           left: 0,
+          width: width,
+          height: height,
           pointerEvents: isDrawingMode ? "auto" : "none",
+          zIndex: 10,
+          // Debug border - remove after testing
+          border: isDrawingMode ? "2px solid lime" : "2px solid red",
+          boxSizing: "border-box",
         }}
-      />
+      >
+        <canvas ref={canvasRef} />
+      </div>
     );
   },
 );
