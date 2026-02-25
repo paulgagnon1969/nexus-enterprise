@@ -1440,6 +1440,8 @@ export default function ProjectDetailPage({
   const [drawingsBomLoading, setDrawingsBomLoading] = useState(false);
   const [drawingsBomError, setDrawingsBomError] = useState<string | null>(null);
   const [drawingsBomSourceFilter, setDrawingsBomSourceFilter] = useState<"all" | "xai" | "anthropic" | "consensus">("all");
+  const [drawingsBomUploading, setDrawingsBomUploading] = useState(false);
+  const drawingsBomFileRef = useRef<HTMLInputElement | null>(null);
 
   // BOM Pricing (SerpApi catalog search)
   const [bomPricingData, setBomPricingData] = useState<any | null>(null);
@@ -6400,7 +6402,50 @@ ${htmlBody}
     return () => { cancelled = true; };
   }, [drawingsBomSelectedUploadId, drawingsBomSourceFilter]);
 
-  const addDaysIso = (iso: string, deltaDays: number): string => {
+  // Upload a PDF drawing set for BOM extraction
+  const handleDrawingsBomUpload = useCallback(async (file: File) => {
+    if (!project) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) { setDrawingsBomError("Missing access token."); return; }
+
+    if (file.type !== "application/pdf") {
+      setDrawingsBomError("Only PDF files are supported.");
+      return;
+    }
+    if (file.size > 100 * 1024 * 1024) {
+      setDrawingsBomError("File too large. Maximum size is 100 MB.");
+      return;
+    }
+
+    setDrawingsBomUploading(true);
+    setDrawingsBomError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`${API_BASE}/projects/${project.id}/drawings-bom/upload`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        setDrawingsBomError(`Upload failed (${res.status}). ${text}`.slice(0, 500));
+        return;
+      }
+      const json = await res.json();
+      // Add to uploads list and select it
+      setDrawingsBomUploads((prev) => [json, ...prev]);
+      setDrawingsBomSelectedUploadId(json.id);
+      setDrawingsBomUploadDetail(null);
+    } catch (err: any) {
+      setDrawingsBomError(err?.message ?? "Upload failed");
+    } finally {
+      setDrawingsBomUploading(false);
+      if (drawingsBomFileRef.current) drawingsBomFileRef.current.value = "";
+    }
+  }, [project]);
+
+  const addDaysIso
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return iso;
     d.setDate(d.getDate() + deltaDays);
@@ -24522,8 +24567,43 @@ ${htmlBody}
                     </div>
                   )}
 
-                  {drawingsBomUploads.length === 0 && !drawingsBomLoading && (
-                    <p style={{ fontSize: 12, color: "#6b7280" }}>No drawings uploaded for this project. Use the Drawings BOM API to upload architectural PDFs.</p>
+                  {/* Hidden file input for PDF upload */}
+                  <input
+                    ref={drawingsBomFileRef}
+                    type="file"
+                    accept="application/pdf"
+                    style={{ display: "none" }}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) handleDrawingsBomUpload(f);
+                    }}
+                  />
+
+                  {/* Upload button */}
+                  <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 12 }}>
+                    <button
+                      type="button"
+                      disabled={drawingsBomUploading}
+                      onClick={() => drawingsBomFileRef.current?.click()}
+                      style={{
+                        padding: "8px 16px",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        borderRadius: 6,
+                        border: "1px solid #2563eb",
+                        background: "#2563eb",
+                        color: "#fff",
+                        cursor: drawingsBomUploading ? "not-allowed" : "pointer",
+                        opacity: drawingsBomUploading ? 0.6 : 1,
+                      }}
+                    >
+                      {drawingsBomUploading ? "Uploading\u2026" : "Upload Drawing PDF"}
+                    </button>
+                    <span style={{ fontSize: 11, color: "#9ca3af" }}>PDF up to 100 MB \u2014 AI will extract materials automatically</span>
+                  </div>
+
+                  {drawingsBomUploads.length === 0 && !drawingsBomLoading && !drawingsBomUploading && (
+                    <p style={{ fontSize: 12, color: "#6b7280" }}>No drawings uploaded yet. Upload an architectural PDF to get started.</p>
                   )}
 
                   {drawingsBomUploadDetail && (() => {
