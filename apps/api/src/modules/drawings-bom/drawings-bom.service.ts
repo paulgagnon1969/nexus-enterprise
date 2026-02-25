@@ -666,7 +666,7 @@ export class DrawingsBomService {
     for (const bomLine of upload.bomLines) {
       const match = this.findBestMatch(bomLine, costBookItems, itemsByKeyword);
 
-      if (match && match.confidence >= 0.3) {
+      if (match && match.confidence >= 0.2) {
         await this.prisma.drawingBomLine.update({
           where: { id: bomLine.id },
           data: {
@@ -697,22 +697,156 @@ export class DrawingsBomService {
     );
   }
 
+  // ── Construction abbreviation / synonym map ────────────────────────
+
+  private static readonly SYNONYMS: Record<string, string[]> = {
+    gwb: ["gypsum", "drywall", "wallboard", "sheetrock"],
+    gypsum: ["drywall", "gwb", "wallboard", "sheetrock"],
+    drywall: ["gypsum", "gwb", "wallboard", "sheetrock"],
+    cmu: ["concrete", "masonry", "block"],
+    rebar: ["reinforcing", "reinforcement", "bar"],
+    reinforcing: ["rebar", "reinforcement"],
+    lvt: ["luxury", "vinyl", "tile", "plank"],
+    osb: ["oriented", "strand", "board", "sheathing"],
+    hvac: ["heating", "ventilation", "air", "conditioning"],
+    ahu: ["air", "handler", "handling", "unit"],
+    vav: ["variable", "air", "volume"],
+    gfci: ["ground", "fault", "receptacle", "outlet"],
+    led: ["light", "fixture", "lamp", "luminaire"],
+    pvc: ["pipe", "piping", "plastic"],
+    cpvc: ["pipe", "piping", "plastic"],
+    abs: ["pipe", "piping", "drain"],
+    emt: ["conduit", "electrical", "metallic", "tubing"],
+    romex: ["wire", "cable", "nm"],
+    xps: ["extruded", "polystyrene", "foam", "insulation"],
+    eps: ["expanded", "polystyrene", "foam", "insulation"],
+    tpo: ["roofing", "membrane", "thermoplastic"],
+    epdm: ["roofing", "membrane", "rubber"],
+    wwr: ["welded", "wire", "reinforcement", "mesh"],
+    panelboard: ["panel", "electrical", "breaker", "distribution"],
+    downspout: ["downspout", "leader", "drain", "gutter"],
+    gutter: ["gutter", "downspout", "sheet", "metal"],
+    flashing: ["flash", "flashing", "sheet", "metal"],
+    underlayment: ["underlayment", "felt", "roofing", "paper"],
+    sealant: ["sealant", "caulk", "caulking", "seal"],
+    damper: ["damper", "fire", "smoke", "duct"],
+    diffuser: ["diffuser", "register", "grille", "supply"],
+  };
+
+  // CSI division → likely Xactimate category prefixes
+  private static readonly CSI_TO_XACT_CAT: Record<string, string[]> = {
+    "03": ["CON", "FND"],
+    "04": ["MAS", "STN", "BRK"],
+    "05": ["STL", "MTL"],
+    "06": ["FRM", "WDT", "TRM", "MLD"],
+    "07": ["INS", "RFG", "SDG", "WPR", "FLG"],
+    "08": ["DOR", "WIN", "GLS"],
+    "09": ["DRY", "PNT", "FLR", "CER", "CPT", "TIL", "PLT"],
+    "10": ["FNH", "SPL", "ACE"],
+    "11": ["APP", "EQC"],
+    "12": ["WDT", "FNH", "FRN"],
+    "21": ["PLB", "SPR", "FPS"],
+    "22": ["PLB", "PLM", "FXT"],
+    "23": ["MEC", "HVC", "DUC"],
+    "26": ["ELK", "ELC", "LIT"],
+    "27": ["ELK", "ELC"],
+    "28": ["ELK", "FRA"],
+  };
+
+  // Technical specification tokens to strip (they dilute keyword matching)
+  private static readonly SPEC_NOISE = new Set([
+    "astm", "nfpa", "ansi", "ashrae", "awc", "aci", "asce", "ieee", "nec",
+    "nema", "smacna", "asme", "icc", "aisi", "wfcm",
+    "psi", "ratio", "edition", "section", "specification", "specifications",
+    "listed", "approved", "compliant", "compliance", "manufactured",
+    "manufacture", "domestic", "written", "instructions", "manufacturer",
+    "per", "refer", "specs", "specified", "submitted",
+    "120v", "208v", "240v", "277v", "480v", "120", "208", "240", "277", "480",
+    "120-208v", "120-240v", "208y", "120-208",
+    "1ph", "3ph", "1-phase", "3-phase", "single-phase", "three-phase",
+    "aic", "300a", "200a", "100a", "400a", "600a", "800a",
+    "grade", "corrosion", "resistance", "rating", "greater",
+    "c150", "c1396", "c260", "c1064", "a615", "a1064",
+  ]);
+
   private findBestMatch(
     bomLine: { description: string; specification: string | null; csiDivision: string | null; unit: string | null },
     allItems: { id: string; description: string | null; cat: string | null; sel: string | null; unit: string | null; unitPrice: number | null; divisionCode: string | null; activity: string | null }[],
     itemsByKeyword: Map<string, typeof allItems>,
   ): CostBookMatch | null {
+    // ── Pass 1: Full keyword match (original + synonyms, spec-noise stripped) ──
+    const pass1 = this.scoreCandidates(bomLine, allItems, itemsByKeyword, false);
+    if (pass1 && pass1.score >= 0.3) {
+      return this.toMatch(pass1, "fuzzy_description");
+    }
+
+    // ── Pass 2: Core-material match (description-only, strip ALL spec text) ──
+    const pass2 = this.scoreCandidates(bomLine, allItems, itemsByKeyword, true);
+    if (pass2 && pass2.score >= 0.25) {
+      return this.toMatch(pass2, "core_material");
+    }
+
+    // ── Pass 3: CSI→Xact category fallback (match within likely categories) ──
+    const bomDiv = bomLine.csiDivision ?? null;
+    if (bomDiv) {
+      const xactCats = DrawingsBomService.CSI_TO_XACT_CAT[bomDiv] ?? [];
+      if (xactCats.length) {
+        const catItems = allItems.filter(
+          (i) => i.cat && xactCats.some((c) => i.cat!.startsWith(c)),
+        );
+        if (catItems.length > 0) {
+          const catKeywordIdx = new Map<string, typeof allItems>();
+          for (const item of catItems) {
+            if (!item.description) continue;
+            for (const w of this.extractKeywords(item.description)) {
+              const list = catKeywordIdx.get(w) ?? [];
+              list.push(item);
+              catKeywordIdx.set(w, list);
+            }
+          }
+          const pass3 = this.scoreCandidates(bomLine, catItems, catKeywordIdx, true);
+          if (pass3 && pass3.score >= 0.2) {
+            return this.toMatch(pass3, "csi_category_match");
+          }
+        }
+      }
+    }
+
+    // Return best from any pass if it beats a minimum threshold
+    const best = [pass1, pass2].filter(Boolean).sort((a, b) => b!.score - a!.score)[0];
+    if (best && best.score >= 0.2) {
+      return this.toMatch(best, "low_confidence");
+    }
+
+    return null;
+  }
+
+  private scoreCandidates(
+    bomLine: { description: string; specification: string | null; csiDivision: string | null; unit: string | null },
+    allItems: { id: string; description: string | null; cat: string | null; sel: string | null; unit: string | null; unitPrice: number | null; divisionCode: string | null; activity: string | null }[],
+    itemsByKeyword: Map<string, typeof allItems>,
+    coreOnly: boolean,
+  ): { item: (typeof allItems)[0]; score: number } | null {
     const bomDesc = (bomLine.description ?? "").toLowerCase();
     const bomSpec = (bomLine.specification ?? "").toLowerCase();
-    const bomKeywords = this.extractKeywords(bomDesc + " " + bomSpec);
     const bomDiv = bomLine.csiDivision ?? null;
 
-    // Candidate scoring
-    type Scored = { item: (typeof allItems)[0]; score: number; method: string };
-    const candidates: Scored[] = [];
+    // Build BOM keywords with synonym expansion
+    let rawText = coreOnly ? bomDesc : bomDesc + " " + bomSpec;
+    let bomKeywords = this.extractKeywords(rawText, coreOnly);
 
-    // Gather candidates from keyword overlap
+    // Expand with synonyms
+    const expanded = new Set(bomKeywords);
+    for (const kw of bomKeywords) {
+      const syns = DrawingsBomService.SYNONYMS[kw];
+      if (syns) syns.forEach((s) => expanded.add(s));
+    }
+    bomKeywords = [...expanded];
+
+    type Scored = { item: (typeof allItems)[0]; score: number };
+    const candidates: Scored[] = [];
     const candidateIds = new Set<string>();
+
     for (const kw of bomKeywords) {
       const items = itemsByKeyword.get(kw) ?? [];
       for (const item of items) {
@@ -720,16 +854,19 @@ export class DrawingsBomService {
         candidateIds.add(item.id);
 
         const itemDesc = (item.description ?? "").toLowerCase();
-        const itemKeywords = this.extractKeywords(itemDesc);
+        const itemKeywords = this.extractKeywords(itemDesc, false);
 
         // Jaccard-style keyword overlap
         const overlap = bomKeywords.filter((k) => itemKeywords.includes(k)).length;
         const union = new Set([...bomKeywords, ...itemKeywords]).size;
         let score = union > 0 ? overlap / union : 0;
 
-        // Boost if CSI division matches
-        if (bomDiv && item.divisionCode && bomDiv === item.divisionCode) {
-          score += 0.15;
+        // Boost if Xact category aligns with CSI division
+        if (bomDiv && item.cat) {
+          const xactCats = DrawingsBomService.CSI_TO_XACT_CAT[bomDiv] ?? [];
+          if (xactCats.some((c) => item.cat!.startsWith(c))) {
+            score += 0.12;
+          }
         }
 
         // Boost if unit matches
@@ -742,41 +879,74 @@ export class DrawingsBomService {
           score += 0.2;
         }
 
-        if (score > 0.1) {
-          candidates.push({ item, score: Math.min(score, 1), method: "fuzzy_description" });
+        // Boost if BOM description core words appear in item description
+        const coreWords = this.extractCoreWords(bomDesc);
+        const itemLower = itemDesc;
+        const coreHits = coreWords.filter((w) => itemLower.includes(w)).length;
+        if (coreWords.length > 0 && coreHits >= Math.ceil(coreWords.length * 0.5)) {
+          score += 0.1;
+        }
+
+        if (score > 0.08) {
+          candidates.push({ item, score: Math.min(score, 1) });
         }
       }
     }
 
-    // Sort by score descending
     candidates.sort((a, b) => b.score - a.score);
-    const best = candidates[0];
+    return candidates[0] ?? null;
+  }
 
-    if (!best) return null;
-
+  private toMatch(
+    scored: { item: { id: string; description: string | null; cat: string | null; sel: string | null; unitPrice: number | null; unit: string | null }; score: number },
+    method: string,
+  ): CostBookMatch {
     return {
-      companyPriceListItemId: best.item.id,
-      description: best.item.description ?? "",
-      cat: best.item.cat ?? null,
-      sel: best.item.sel ?? null,
-      unitPrice: best.item.unitPrice ?? null,
-      unit: best.item.unit ?? null,
-      confidence: best.score,
-      method: best.method,
+      companyPriceListItemId: scored.item.id,
+      description: scored.item.description ?? "",
+      cat: scored.item.cat ?? null,
+      sel: scored.item.sel ?? null,
+      unitPrice: scored.item.unitPrice ?? null,
+      unit: scored.item.unit ?? null,
+      confidence: scored.score,
+      method,
     };
   }
 
-  private extractKeywords(text: string): string[] {
+  /** Extract the 1-3 core material words from a BOM description (strip qualifiers). */
+  private extractCoreWords(text: string): string[] {
+    const qualifiers = new Set([
+      "for", "system", "assembly", "automatic", "manual", "standard",
+      "grade", "high", "low", "medium", "heavy", "light", "duty",
+      "commercial", "residential", "interior", "exterior",
+    ]);
+    return text
+      .toLowerCase()
+      .replace(/[^a-z\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 2 && !qualifiers.has(w))
+      .slice(0, 4);
+  }
+
+  private extractKeywords(text: string, stripSpecNoise = false): string[] {
     const stopWords = new Set([
       "the", "a", "an", "and", "or", "of", "for", "in", "on", "at", "to",
       "with", "by", "from", "as", "is", "are", "be", "per", "all", "each",
       "type", "see", "ref", "provide", "install", "shall", "w", "min", "max",
+      "not", "also", "use", "used", "using", "including", "included",
     ]);
     return text
       .toLowerCase()
       .replace(/[^a-z0-9\s-]/g, " ")
       .split(/\s+/)
-      .filter((w) => w.length > 2 && !stopWords.has(w));
+      .filter((w) => {
+        if (w.length < 3) return false;
+        if (stopWords.has(w)) return false;
+        if (stripSpecNoise && DrawingsBomService.SPEC_NOISE.has(w)) return false;
+        // Filter pure numbers (pipe sizes, voltages, etc.)
+        if (stripSpecNoise && /^\d+$/.test(w)) return false;
+        return true;
+      });
   }
 
   // ── 6. PETL Generation ───────────────────────────────────────────────

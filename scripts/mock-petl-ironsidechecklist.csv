@@ -1,0 +1,41 @@
+#	Group Code	Group Description	Desc	Qty	Unit Cost	Unit	Item Amount	RCV	ACV	Activity	Cat	Sel	Source Name
+1	1	Site Prep	Soil Test	1	500.00	EA	500.00	500.00	500.00	Checklist	P01	ST	IRON_SIDE_CHECKLIST
+2	1	Site Prep	Engineering fees (Bid Item)	1	0.00	EA	0.00	0.00	0.00	Replace	FEE	ENG	IRON_SIDE_CHECKLIST
+3	1	Site Prep	Landscaping (Bid Item)	1	0.00	EA	0.00	0.00	0.00	Replace	LND	BIDITM	IRON_SIDE_CHECKLIST
+4	1	Site Prep	Engineered fill (per CY)	1	0.00	CY	0.00	0.00	0.00	Replace	EXC	EFILL	IRON_SIDE_CHECKLIST
+5	1	Site Prep	Rough Plumbing	1	500.00	EA	500.00	500.00	500.00	Checklist	P01	RP	IRON_SIDE_CHECKLIST
+6	1	Site Prep	Concrete slab on grade - 4" - finished in place	1	14.65	SF	14.65	14.65	14.65	Remove and Replace	CNC	SL4	IRON_SIDE_CHECKLIST
+7	1	Site Prep	Slab	1	500.00	EA	500.00	500.00	500.00	Checklist	P01	SLAB	IRON_SIDE_CHECKLIST
+8	1	Site Prep	Landscaping Treatment (Bid Item)	1	0.00	EA	0.00	0.00	0.00	Replace	LND	BIDITM	IRON_SIDE_CHECKLIST
+9	2	Structure	Well pump - 5 HP - 150' deep	1	6126.88	EA	6126.88	6126.88	6126.88	Remove and Replace	PLM	PUMP	IRON_SIDE_CHECKLIST
+10	2	Structure	Block	1	500.00	EA	500.00	500.00	500.00	Checklist	P02	BLCK	IRON_SIDE_CHECKLIST
+11	2	Structure	Concrete pump truck (per hour)	1	296.21	HR	296.21	296.21	296.21	Replace	CNC	PUMP	IRON_SIDE_CHECKLIST
+12	2	Structure	Framing	1	500.00	EA	500.00	500.00	500.00	Checklist	P02	FRMG	IRON_SIDE_CHECKLIST
+13	2	Structure	Window Install	1	500.00	EA	500.00	500.00	500.00	Checklist	P02	WI	IRON_SIDE_CHECKLIST
+14	2	Structure	2nd Rough Plumbing	1	500.00	EA	500.00	500.00	500.00	Checklist	P02	2RP	IRON_SIDE_CHECKLIST
+15	2	Structure	Rough HVAC	1	500.00	EA	500.00	500.00	500.00	Checklist	P02	RHVC	IRON_SIDE_CHECKLIST
+16	2	Structure	Door Installation	1	500.00	EA	500.00	500.00	500.00	Checklist	P02	DI	IRON_SIDE_CHECKLIST
+17	2	Structure	Roof	1	500.00	EA	500.00	500.00	500.00	Checklist	P02	ROOF	IRON_SIDE_CHECKLIST
+18	2	Structure	Soffit Install	1	500.00	EA	500.00	500.00	500.00	Checklist	P02	SI	IRON_SIDE_CHECKLIST
+19	2	Structure	Stucco	1	500.00	EA	500.00	500.00	500.00	Checklist	P02	STCO	IRON_SIDE_CHECKLIST
+20	2	Structure	Stucco & Exterior Plaster (Paid Bill)	1	0.00	EA	0.00	0.00	0.00	Replace	STU	PDB	IRON_SIDE_CHECKLIST
+21	2	Structure	Sewage filtration/septic tank - 2000 gl.	1	9486.88	EA	9486.88	9486.88	9486.88	Remove and Replace	PLM	SEWF>	IRON_SIDE_CHECKLIST
+22	3	Interior Finishes	Drywall	1	500.00	EA	500.00	500.00	500.00	Checklist	P03	DRWL	IRON_SIDE_CHECKLIST
+23	3	Interior Finishes	Cabinet Assembly	1	500.00	EA	500.00	500.00	500.00	Checklist	P03	CA	IRON_SIDE_CHECKLIST
+24	3	Interior Finishes	HVAC Trim	1	500.00	EA	500.00	500.00	500.00	Checklist	P03	HT	IRON_SIDE_CHECKLIST
+25	3	Interior Finishes	Plumbing Trim	1	500.00	EA	500.00	500.00	500.00	Checklist	P03	PT	IRON_SIDE_CHECKLIST
+26	3	Interior Finishes	Well pump - 5 HP - 150' deep	1	6126.88	EA	6126.88	6126.88	6126.88	Remove and Replace	PLM	PUMP	IRON_SIDE_CHECKLIST
+27	3	Interior Finishes	Mirrors - Enter price	1	0.00	EA	0.00	0.00	0.00	Replace	HSW	HSWM	IRON_SIDE_CHECKLIST
+28	3	Interior Finishes	Bathroom Hardware	1	500.00	EA	500.00	500.00	500.00	Checklist	P03	BH	IRON_SIDE_CHECKLIST
+29	3	Interior Finishes	Shelving	1	500.00	EA	500.00	500.00	500.00	Checklist	P03	SHLV	IRON_SIDE_CHECKLIST
+30	3	Interior Finishes	Lighting	1	500.00	EA	500.00	500.00	500.00	Checklist	P03	LTNG	IRON_SIDE_CHECKLIST
+31	4	Site Completion	DriveWay Pour	1	500.00	EA	500.00	500.00	500.00	Checklist	P04	DWP	IRON_SIDE_CHECKLIST
+32	4	Site Completion	Landscaping (Paid Bill)	1	0.00	EA	0.00	0.00	0.00	Replace	LND	PDB	IRON_SIDE_CHECKLIST
+33	4	Site Completion	Engineered fill (per CY)	1	0.00	CY	0.00	0.00	0.00	Replace	EXC	EFILL	IRON_SIDE_CHECKLIST
+34	4	Site Completion	LEED for existing building - recertification review fee	1	1200.00	EA	1200.00	1200.00	1200.00	Replace	FEE	LDEXRC	IRON_SIDE_CHECKLIST
+35	4	Site Completion	Lawn - sod	1	1.08	SF	1.08	1.08	1.08	Replace	LND	LSOD	IRON_SIDE_CHECKLIST
+36	4	Site Completion	Tree replacement - (Bid Item)	1	0.00	EA	0.00	0.00	0.00	Replace	LND	TRBID	IRON_SIDE_CHECKLIST
+37	4	Site Completion	Painting	1	500.00	EA	500.00	500.00	500.00	Checklist	P04	PNTG	IRON_SIDE_CHECKLIST
+38	4	Site Completion	Flooring labor	1	500.00	EA	500.00	500.00	500.00	Checklist	P04	FL	IRON_SIDE_CHECKLIST
+39	4	Site Completion	Trim labor	1	500.00	EA	500.00	500.00	500.00	Checklist	P04	TL	IRON_SIDE_CHECKLIST
+40	4	Site Completion	Electrical	1	500.00	EA	500.00	500.00	500.00	Checklist	P04	ELEC	IRON_SIDE_CHECKLIST
