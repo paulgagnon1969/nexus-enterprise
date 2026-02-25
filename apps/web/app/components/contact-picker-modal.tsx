@@ -4,15 +4,29 @@ import { useEffect, useState } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
-interface PersonalContactRow {
+type ContactCategory = "all" | "internal" | "clients" | "subs" | "personal";
+
+interface DirectoryContact {
   id: string;
   displayName: string | null;
   firstName: string | null;
   lastName: string | null;
   email: string | null;
   phone: string | null;
+  role: string | null;
+  title: string | null;
+  company: string | null;
+  category: string;
   source: string;
 }
+
+const CATEGORY_TABS: { key: ContactCategory; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "internal", label: "Team" },
+  { key: "clients", label: "Clients" },
+  { key: "subs", label: "Subs" },
+  { key: "personal", label: "Personal" },
+];
 
 interface ReferralRowForFlags {
   prospectEmail: string | null;
@@ -49,7 +63,7 @@ export default function ContactPickerModal({
   modeInitial = "company-invite",
   referralsForFlags,
 }: ContactPickerModalProps) {
-  const [contacts, setContacts] = useState<PersonalContactRow[]>([]);
+  const [contacts, setContacts] = useState<DirectoryContact[]>([]);
   const [contactsLoading, setContactsLoading] = useState(false);
   const [contactsError, setContactsError] = useState<string | null>(null);
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
@@ -60,6 +74,8 @@ export default function ContactPickerModal({
   const [contactFlagsById, setContactFlagsById] = useState<
     Record<string, ContactFlags>
   >({});
+  const [categoryFilter, setCategoryFilter] = useState<ContactCategory>("all");
+  const [includePersonal, setIncludePersonal] = useState(true);
 
   // When the modal is opened, load contacts + flags.
   useEffect(() => {
@@ -81,13 +97,15 @@ export default function ContactPickerModal({
         setInviteConfirmArmed(false);
         setInviteMode(modeInitial);
 
-        const res = await fetch(`${API_BASE}/personal-contacts?limit=200`, {
+        const params = new URLSearchParams({ limit: "200", includePersonal: String(includePersonal) });
+        if (categoryFilter !== "all") params.set("category", categoryFilter);
+        const res = await fetch(`${API_BASE}/contacts/directory?${params}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) {
-          throw new Error(`Failed to load personal contacts (${res.status})`);
+          throw new Error(`Failed to load contacts directory (${res.status})`);
         }
-        const json = (await res.json()) as PersonalContactRow[];
+        const json = (await res.json()) as DirectoryContact[];
         if (cancelled) return;
         setContacts(json);
         setSelectedContactIds([]);
@@ -176,7 +194,7 @@ export default function ContactPickerModal({
     return () => {
       cancelled = true;
     };
-  }, [open, modeInitial, referralsForFlags]);
+  }, [open, modeInitial, referralsForFlags, categoryFilter, includePersonal]);
 
   const toggleContactSelected = (id: string) => {
     setSelectedContactIds(prev =>
@@ -321,10 +339,9 @@ export default function ContactPickerModal({
           }}
         >
           <div>
-            <h2 style={{ margin: 0, fontSize: 16 }}>Invite from your contacts</h2>
+            <h2 style={{ margin: 0, fontSize: 16 }}>Invite from Contacts</h2>
             <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>
-              Your personal contact book is confidential and tied to your profile, not your company. Only you can see
-              these contacts.
+              Browse NCC org contacts and personal contacts. NCC contacts are shown by default.
             </p>
           </div>
           <button
@@ -349,10 +366,42 @@ export default function ContactPickerModal({
           <p style={{ fontSize: 13, color: "#b91c1c" }}>{contactsError}</p>
         )}
 
+        {/* Category tabs + Personal toggle */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", borderRadius: 999, border: "1px solid #e5e7eb", overflow: "hidden" }}>
+            {CATEGORY_TABS.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setCategoryFilter(tab.key)}
+                style={{
+                  padding: "4px 12px",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  border: "none",
+                  borderLeft: tab.key !== "all" ? "1px solid #e5e7eb" : "none",
+                  backgroundColor: categoryFilter === tab.key ? "#1e3a8a" : "#ffffff",
+                  color: categoryFilter === tab.key ? "#f9fafb" : "#4b5563",
+                  cursor: "pointer",
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#6b7280", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={includePersonal}
+              onChange={(e) => setIncludePersonal(e.target.checked)}
+            />
+            Include personal
+          </label>
+        </div>
+
         {!contactsLoading && !contactsError && contacts.length === 0 && (
           <p style={{ fontSize: 13, color: "#6b7280" }}>
-            You don't have any personal contacts yet. You can import contacts from your phone or desktop address book
-            on the Personal Contacts settings page.
+            No contacts found for this category. Try a different filter or import contacts.
           </p>
         )}
 
@@ -501,10 +550,10 @@ export default function ContactPickerModal({
                         c.email ||
                         c.phone ||
                         "(No name)";
-                      const isUpload =
-                        (c.source || "").toString().toUpperCase() === "UPLOAD";
+                      const isNcc = c.source === "ncc";
+                      const isPersonal = c.source === "personal";
                       const flags = contactFlagsById[c.id] || {
-                        inOrg: false,
+                        inOrg: isNcc,
                         hasReferral: false,
                       };
 
@@ -540,19 +589,34 @@ export default function ContactPickerModal({
                                 flexWrap: "wrap",
                               }}
                             >
-                              {isUpload && (
+                              {isNcc && (
                                 <div
                                   style={{
                                     display: "inline-flex",
                                     alignItems: "center",
                                     padding: "1px 6px",
                                     borderRadius: 999,
-                                    backgroundColor: "#eef2ff",
-                                    color: "#4f46e5",
+                                    backgroundColor: "#dbeafe",
+                                    color: "#1e40af",
                                     fontSize: 10,
                                   }}
                                 >
-                                  Imported from CSV
+                                  NCC {c.category === "internal" ? "Team" : c.category === "clients" ? "Client" : c.category === "subs" ? "Sub" : c.category}
+                                </div>
+                              )}
+                              {isPersonal && (
+                                <div
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    padding: "1px 6px",
+                                    borderRadius: 999,
+                                    backgroundColor: "#ede9fe",
+                                    color: "#6d28d9",
+                                    fontSize: 10,
+                                  }}
+                                >
+                                  Personal
                                 </div>
                               )}
                               {flags.hasReferral && (

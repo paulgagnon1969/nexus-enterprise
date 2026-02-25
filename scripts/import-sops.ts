@@ -37,7 +37,7 @@ function getStagingDir(): string {
 }
 
 const STAGING_DIR = getStagingDir();
-const API_URL = process.env.NEXUS_API_URL || "http://localhost:3100";
+const API_URL = process.env.NEXUS_API_URL || "https://nexus-api-979156454944.us-central1.run.app";
 const API_TOKEN = process.env.NEXUS_API_TOKEN;
 
 // --- Types -------------------------------------------------------------------

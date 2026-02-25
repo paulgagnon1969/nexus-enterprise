@@ -18,7 +18,8 @@
         "ITSAppUsesNonExemptEncryption": false,
       "NSCameraUsageDescription": "Nexus Mobile uses the camera for video calls, daily log photos, and document scanning.",
         "NSMicrophoneUsageDescription": "Nexus Mobile uses the microphone for video and audio calls.",
-        "NSPhotoLibraryUsageDescription": "Nexus Mobile accesses your photos to attach images to daily logs and reports.",
+      "NSPhotoLibraryUsageDescription": "Nexus Mobile accesses your photos to attach images to daily logs and reports.",
+        "NSContactsUsageDescription": "Nexus Mobile accesses your contacts to quickly invite people to projects and sync your work contacts.",
         "UIBackgroundModes": ["voip"]
       }
     },
@@ -31,7 +32,8 @@
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.READ_CONTACTS"
       ]
     },
     "web": {
@@ -54,6 +56,12 @@
       "expo-updates",
       "expo-secure-store",
       "expo-sharing",
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Nexus Mobile accesses your contacts to quickly invite people to projects and sync your work contacts."
+        }
+      ],
       "expo-sqlite",
       [
         "expo-notifications",

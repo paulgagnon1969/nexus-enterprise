@@ -126,7 +126,8 @@ export class CompanyService {
     companyId: string,
     email: string,
     role: Role,
-    actor: AuthenticatedUser
+    actor: AuthenticatedUser,
+    options?: { channel?: "email" | "sms" | "share_link" },
   ) {
     if (actor.companyId !== companyId) {
       throw new Error("Cannot invite users to a different company context");
@@ -155,26 +156,30 @@ export class CompanyService {
       metadata: { email, role, inviteId: invite.id }
     });
 
-    // Send invite email (best-effort).
-    try {
-      const company = await this.prisma.company.findUnique({
-        where: { id: companyId },
-        select: { name: true },
-      });
+    // Build the accept URL.
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { name: true },
+    });
+    const webBase = (process.env.WEB_APP_BASE_URL || "").replace(/\/$/, "");
+    const acceptUrl = webBase
+      ? `${webBase}/accept-invite?token=${encodeURIComponent(invite.token)}`
+      : `/accept-invite?token=${encodeURIComponent(invite.token)}`;
+    const companyName = company?.name ?? "your company";
 
-      const webBase = (process.env.WEB_APP_BASE_URL || "").replace(/\/$/, "");
-      const acceptUrl = webBase
-        ? `${webBase}/accept-invite?token=${encodeURIComponent(invite.token)}`
-        : `/accept-invite?token=${encodeURIComponent(invite.token)}`;
-
-      await this.email.sendCompanyInvite({
-        toEmail: invite.email,
-        companyName: company?.name ?? "your company",
-        acceptUrl,
-        roleLabel: String(invite.role),
-      });
-    } catch {
-      // Don't block invite creation if email delivery fails.
+    // Send invite email unless channel is share_link (mobile will handle delivery).
+    const channel = options?.channel ?? "email";
+    if (channel === "email" || channel === "sms") {
+      try {
+        await this.email.sendCompanyInvite({
+          toEmail: invite.email,
+          companyName,
+          acceptUrl,
+          roleLabel: String(invite.role),
+        });
+      } catch {
+        // Don't block invite creation if email delivery fails.
+      }
     }
 
     // Best-effort: notify the inviter themselves that the invite was created,
@@ -203,7 +208,11 @@ export class CompanyService {
       // ignore
     }
 
-    return invite;
+    return {
+      ...invite,
+      acceptUrl,
+      companyName,
+    };
   }
 
   /**

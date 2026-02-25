@@ -49,6 +49,9 @@ RUN apk add --no-cache \
     ttf-freefont \
     font-noto-emoji
 
+# Install poppler-utils (pdftoppm) and libwebp-tools (cwebp) for plan sheet processing
+RUN apk add --no-cache poppler-utils libwebp-tools
+
 # Tell Puppeteer to use system Chromium instead of downloading its own
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser

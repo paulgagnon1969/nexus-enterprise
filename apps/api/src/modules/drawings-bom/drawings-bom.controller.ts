@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from "@nestjs/common";
@@ -89,9 +90,10 @@ export class DrawingsBomController {
   async getUpload(
     @Req() req: FastifyRequest,
     @Param("uploadId") uploadId: string,
+    @Query("source") source?: string,
   ) {
     const user = (req as any).user as AuthenticatedUser;
-    return this.service.getUpload(uploadId, user.companyId);
+    return this.service.getUpload(uploadId, user.companyId, source);
   }
 
   // ── Re-run cost book matching (e.g. after cost book update) ──────────

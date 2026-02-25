@@ -131,6 +131,35 @@ export class GcsService {
   }
 
   /**
+   * Generate a signed read URL for an object in GCS. Used for serving
+   * plan sheet images and other private assets with time-limited access.
+   */
+  async createSignedReadUrl(options: {
+    bucket?: string;
+    key: string;
+    expiresInSeconds?: number;
+  }): Promise<string> {
+    const { key, expiresInSeconds = 15 * 60 } = options;
+    const bucketName =
+      options.bucket || process.env.XACT_UPLOADS_BUCKET || process.env.GCS_UPLOADS_BUCKET;
+
+    if (!bucketName) {
+      throw new Error("XACT_UPLOADS_BUCKET (or GCS_UPLOADS_BUCKET) is not configured");
+    }
+
+    const bucket = this.storage.bucket(bucketName);
+    const file = bucket.file(key);
+
+    const [url] = await file.getSignedUrl({
+      version: "v4",
+      action: "read",
+      expires: Date.now() + expiresInSeconds * 1000,
+    });
+
+    return url;
+  }
+
+  /**
    * Download a gs:// URI to a temporary file and return the local path.
    */
   async downloadToTmp(uri: string): Promise<string> {

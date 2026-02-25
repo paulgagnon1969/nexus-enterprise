@@ -1,4 +1,4 @@
-import { IsEmail, IsEnum } from "class-validator";
+import { IsEmail, IsEnum, IsOptional, IsIn } from "class-validator";
 import { Role } from "../../auth/auth.guards";
 
 export class CreateInviteDto {
@@ -7,4 +7,8 @@ export class CreateInviteDto {
 
   @IsEnum(Role)
   role!: Role;
+
+  @IsOptional()
+  @IsIn(["email", "sms", "share_link"])
+  channel?: "email" | "sms" | "share_link";
 }

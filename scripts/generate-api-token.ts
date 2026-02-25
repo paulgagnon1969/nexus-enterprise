@@ -18,7 +18,7 @@
  * The script will output a token that can be added to .env as NEXUS_API_TOKEN
  */
 
-const API_URL = process.env.NEXUS_API_URL || "https://nexus-api-284653632567.us-central1.run.app";
+const API_URL = process.env.NEXUS_API_URL || "https://nexus-api-979156454944.us-central1.run.app";
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -78,7 +78,7 @@ async function main() {
       process.exit(1);
     }
 
-    const loginData = await loginResponse.json();
+    const loginData: any = await loginResponse.json();
     console.log("✓ Login successful");
 
     // Step 2: Create a long-lived service token
@@ -98,7 +98,7 @@ async function main() {
       process.exit(1);
     }
 
-    const tokenData = await tokenResponse.json();
+    const tokenData: any = await tokenResponse.json();
     console.log("✓ Service token created\n");
 
     console.log("=" .repeat(60));

@@ -4,6 +4,7 @@ import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { DrawingUploadStatus } from "@prisma/client";
 import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { PDFParse } from "pdf-parse";
 import * as fs from "fs";
 import * as path from "path";
@@ -48,7 +49,7 @@ interface CostBookMatch {
 // AI Provider Configuration
 // ---------------------------------------------------------------------------
 
-type AiProviderName = "openai" | "xai";
+type AiProviderName = "openai" | "xai" | "anthropic";
 
 interface AiProviderConfig {
   name: AiProviderName;
@@ -56,6 +57,7 @@ interface AiProviderConfig {
   baseURL?: string;
   model: string;
   envKey: string;
+  sdkType: "openai-compat" | "anthropic-native";
 }
 
 const AI_PROVIDERS: Record<AiProviderName, AiProviderConfig> = {
@@ -64,7 +66,7 @@ const AI_PROVIDERS: Record<AiProviderName, AiProviderConfig> = {
     displayName: "OpenAI GPT-4o",
     model: "gpt-4o",
     envKey: "OPENAI_API_KEY",
-    // baseURL defaults to OpenAI's
+    sdkType: "openai-compat",
   },
   xai: {
     name: "xai",
@@ -72,6 +74,14 @@ const AI_PROVIDERS: Record<AiProviderName, AiProviderConfig> = {
     baseURL: "https://api.x.ai/v1",
     model: "grok-3",
     envKey: "XAI_API_KEY",
+    sdkType: "openai-compat",
+  },
+  anthropic: {
+    name: "anthropic",
+    displayName: "Anthropic Claude 3.5 Sonnet",
+    model: "claude-sonnet-4-20250514",
+    envKey: "ANTHROPIC_API_KEY",
+    sdkType: "anthropic-native",
   },
 };
 
@@ -144,6 +154,7 @@ Rules:
 export class DrawingsBomService {
   private readonly logger = new Logger(DrawingsBomService.name);
   private clients = new Map<AiProviderName, OpenAI>();
+  private anthropicClient: Anthropic | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -170,11 +181,20 @@ export class DrawingsBomService {
     return client;
   }
 
+  private getAnthropicClient(): Anthropic {
+    if (this.anthropicClient) return this.anthropicClient;
+    const apiKey = this.configService.get<string>("ANTHROPIC_API_KEY");
+    if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured");
+    this.anthropicClient = new Anthropic({ apiKey });
+    return this.anthropicClient;
+  }
+
   private getDefaultProvider(): AiProviderName {
     const env = this.configService.get<string>("AI_PROVIDER");
-    if (env === "xai" || env === "openai") return env;
+    if (env === "xai" || env === "openai" || env === "anthropic") return env;
     // Fallback: use whichever key is configured (prefer xai if both present)
     if (this.configService.get<string>("XAI_API_KEY")) return "xai";
+    if (this.configService.get<string>("ANTHROPIC_API_KEY")) return "anthropic";
     return "openai";
   }
 
@@ -231,9 +251,9 @@ export class DrawingsBomService {
       await this.updateStatus(uploadId, DrawingUploadStatus.EXTRACTING_TEXT);
       const pages = await this.extractPdfText(uploadId);
 
-      // Step 2: AI BOM extraction
+      // Step 2: AI BOM extraction (multi-provider merge)
       await this.updateStatus(uploadId, DrawingUploadStatus.EXTRACTING_BOM);
-      const bomLines = await this.extractBomWithAI(uploadId, pages);
+      const bomLines = await this.extractAndMergeBom(uploadId, pages);
 
       // Step 3: Cost book matching
       await this.updateStatus(uploadId, DrawingUploadStatus.MATCHING);
@@ -313,29 +333,60 @@ export class DrawingsBomService {
     return pages;
   }
 
-  // ── 4. AI BOM Extraction ─────────────────────────────────────────────
+  // ── 4. AI BOM Extraction (Multi-Provider Merge) ────────────────────
 
-  private async extractBomWithAI(
+  private getAvailableProviders(): AiProviderName[] {
+    const available: AiProviderName[] = [];
+    for (const [name, config] of Object.entries(AI_PROVIDERS)) {
+      if (this.configService.get<string>(config.envKey)) {
+        available.push(name as AiProviderName);
+      }
+    }
+    return available;
+  }
+
+  private async extractAndMergeBom(
     uploadId: string,
     pages: ExtractedPage[],
   ): Promise<AiBomLine[]> {
-    const provider = this.getDefaultProvider();
-    const result = await this.extractBomWithProvider(pages, provider);
+    const providers = this.getAvailableProviders();
+    if (providers.length === 0) {
+      throw new Error("No AI providers configured. Set XAI_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY.");
+    }
+
+    this.logger.log(`Running BOM extraction with ${providers.length} provider(s): ${providers.join(", ")}`);
+
+    // Run all configured providers in parallel
+    const startMs = Date.now();
+    const results = await Promise.all(
+      providers.map((p) => this.extractBomWithProvider(pages, p)),
+    );
+    const totalElapsedMs = Date.now() - startMs;
+    const totalTokens = results.reduce((sum, r) => sum + r.totalTokens, 0);
+
+    // Log per-provider results
+    for (const r of results) {
+      if (r.error) {
+        this.logger.warn(`[${r.displayName}] failed: ${r.error}`);
+      } else {
+        this.logger.log(`[${r.displayName}] extracted ${r.items.length} items (${r.totalTokens} tokens, ${r.elapsedMs}ms)`);
+      }
+    }
+
+    // Merge across providers with fuzzy deduplication
+    const merged = this.mergeProviderResults(results.filter((r) => !r.error));
 
     // Persist BOM lines
-    const upload = await this.prisma.projectDrawingUpload.findUnique({
-      where: { id: uploadId },
-    });
+    await this.prisma.drawingBomLine.deleteMany({ where: { uploadId } });
 
-    if (upload) {
-      // Clear any prior BOM lines for re-runs
-      await this.prisma.drawingBomLine.deleteMany({ where: { uploadId } });
-
-      if (result.items.length > 0) {
+    if (merged.length > 0) {
+      // Prisma createMany has a limit; batch in chunks of 500
+      for (let i = 0; i < merged.length; i += 500) {
+        const batch = merged.slice(i, i + 500);
         await this.prisma.drawingBomLine.createMany({
-          data: result.items.map((line, idx) => ({
+          data: batch.map((line, idx) => ({
             uploadId,
-            lineNo: idx + 1,
+            lineNo: i + idx + 1,
             csiDivision: line.csiDivision ?? null,
             csiDivisionName: line.csiDivisionName ?? null,
             description: line.description,
@@ -345,27 +396,100 @@ export class DrawingsBomService {
             sourcePage: line.sourcePage ?? null,
             sourceSheet: line.sourceSheet ?? null,
             notes: line.notes ?? null,
+            aiSource: line.aiSource ?? null,
+            consensusCount: line.consensusCount ?? 1,
             needsReview: true,
             isMatched: false,
           })),
         });
       }
-
-      await this.prisma.projectDrawingUpload.update({
-        where: { id: uploadId },
-        data: {
-          totalBomLines: result.items.length,
-          aiModelUsed: `${provider}:${result.model}`,
-          aiTokensUsed: result.totalTokens,
-          aiExtractionMs: result.elapsedMs,
-        },
-      });
     }
 
+    // Store per-provider raw results alongside extracted text
+    const providerSummary: Record<string, { items: number; tokens: number; ms: number }> = {};
+    for (const r of results) {
+      providerSummary[r.provider] = { items: r.items.length, tokens: r.totalTokens, ms: r.elapsedMs };
+    }
+
+    const modelNames = results.filter((r) => !r.error).map((r) => `${r.provider}:${r.model}`).join(", ");
+
+    await this.prisma.projectDrawingUpload.update({
+      where: { id: uploadId },
+      data: {
+        totalBomLines: merged.length,
+        aiModelUsed: modelNames,
+        aiTokensUsed: totalTokens,
+        aiExtractionMs: totalElapsedMs,
+      },
+    });
+
+    const consensusCount = merged.filter((l) => l.aiSource === "consensus").length;
     this.logger.log(
-      `AI extracted ${result.items.length} BOM lines via ${result.displayName} (${result.totalTokens} tokens, ${result.elapsedMs}ms) for upload ${uploadId}`,
+      `Merged BOM for ${uploadId}: ${merged.length} items (${consensusCount} consensus, ${merged.length - consensusCount} unique) from ${providers.length} providers (${totalTokens} tokens, ${totalElapsedMs}ms)`,
     );
-    return result.items;
+    return merged;
+  }
+
+  /** Merge BOM lines from multiple providers with fuzzy deduplication. */
+  private mergeProviderResults(
+    results: ProviderExtractionResult[],
+  ): (AiBomLine & { aiSource: string; consensusCount: number })[] {
+    if (results.length === 0) return [];
+    if (results.length === 1) {
+      return results[0].items.map((item) => ({
+        ...item,
+        aiSource: results[0].provider,
+        consensusCount: 1,
+      }));
+    }
+
+    // Normalize for fuzzy matching
+    const normalize = (s: string) =>
+      s.toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
+
+    // Build a map from the first provider
+    const mergedMap = new Map<
+      string,
+      { item: AiBomLine; sources: Set<string>; count: number }
+    >();
+
+    for (const result of results) {
+      for (const item of result.items) {
+        const key = normalize(item.description);
+
+        const existing = mergedMap.get(key);
+        if (existing) {
+          existing.sources.add(result.provider);
+          existing.count++;
+          // Keep the richer version (more fields populated)
+          if (
+            (item.specification && !existing.item.specification) ||
+            (item.qty != null && existing.item.qty == null)
+          ) {
+            existing.item = { ...item };
+          }
+        } else {
+          mergedMap.set(key, {
+            item: { ...item },
+            sources: new Set([result.provider]),
+            count: 1,
+          });
+        }
+      }
+    }
+
+    // Convert to tagged BOM lines
+    return Array.from(mergedMap.values()).map((entry) => {
+      const aiSource =
+        entry.sources.size >= 2
+          ? "consensus"
+          : [...entry.sources][0];
+      return {
+        ...entry.item,
+        aiSource,
+        consensusCount: entry.count,
+      };
+    });
   }
 
   // ── Core extraction (provider-agnostic) ──────────────────────────────
@@ -375,43 +499,23 @@ export class DrawingsBomService {
     providerName: AiProviderName,
   ): Promise<ProviderExtractionResult> {
     const config = AI_PROVIDERS[providerName];
-    let client: OpenAI;
 
-    try {
-      client = this.getClient(providerName);
-    } catch (err: any) {
-      return {
-        provider: providerName,
-        displayName: config.displayName,
-        model: config.model,
-        items: [],
-        totalTokens: 0,
-        elapsedMs: 0,
-        csiDivisions: [],
-        error: err?.message ?? String(err),
-      };
-    }
-
-    // Chunk by character count (~20K chars ≈ 5K tokens per chunk) to stay within
-    // context limits and get better extraction quality.
+    // Build chunks (shared by all providers)
     const MAX_CHARS_PER_CHUNK = 20_000;
     const chunks: string[] = [];
 
-    // First, build the full text with page markers
     const allPageTexts: string[] = [];
     for (const p of pages) {
       allPageTexts.push(`--- PAGE ${p.page} (Sheet: ${p.sheetId ?? "unknown"}) ---\n${p.text}`);
     }
     const fullText = allPageTexts.join("\n\n");
 
-    // Split into chunks by character count, breaking at line boundaries
     if (fullText.length <= MAX_CHARS_PER_CHUNK) {
       chunks.push(fullText);
     } else {
       let offset = 0;
       while (offset < fullText.length) {
         let end = Math.min(offset + MAX_CHARS_PER_CHUNK, fullText.length);
-        // Try to break at a newline to avoid splitting mid-sentence
         if (end < fullText.length) {
           const lastNewline = fullText.lastIndexOf("\n", end);
           if (lastNewline > offset + MAX_CHARS_PER_CHUNK * 0.5) {
@@ -424,6 +528,30 @@ export class DrawingsBomService {
     }
 
     this.logger.log(`[${config.displayName}] Processing ${fullText.length} chars in ${chunks.length} chunks`);
+
+    // Dispatch to the right SDK
+    if (config.sdkType === "anthropic-native") {
+      return this.extractBomWithAnthropic(chunks, config);
+    }
+    return this.extractBomWithOpenAICompat(chunks, providerName, config);
+  }
+
+  /** OpenAI-compatible extraction (OpenAI, xAI/Grok) */
+  private async extractBomWithOpenAICompat(
+    chunks: string[],
+    providerName: AiProviderName,
+    config: AiProviderConfig,
+  ): Promise<ProviderExtractionResult> {
+    let client: OpenAI;
+    try {
+      client = this.getClient(providerName);
+    } catch (err: any) {
+      return {
+        provider: providerName, displayName: config.displayName, model: config.model,
+        items: [], totalTokens: 0, elapsedMs: 0, csiDivisions: [],
+        error: err?.message ?? String(err),
+      };
+    }
 
     const allBomLines: AiBomLine[] = [];
     let totalTokens = 0;
@@ -443,46 +571,109 @@ export class DrawingsBomService {
         });
 
         totalTokens += response.usage?.total_tokens ?? 0;
-
         const content = response.choices[0]?.message?.content;
-        if (!content) continue;
-
-        // Parse JSON — handle both array and {items: [...]} formats
-        const parsed = JSON.parse(content);
-        const rawItems: any[] = Array.isArray(parsed)
-          ? parsed
-          : Array.isArray(parsed.items)
-            ? parsed.items
-            : Array.isArray(parsed.bomLines)
-              ? parsed.bomLines
-              : Array.isArray(parsed.bom)
-                ? parsed.bom
-                : Array.isArray(parsed.materials)
-                  ? parsed.materials
-                  : [];
-
-        // Normalize field names — different providers use different keys
-        const items: AiBomLine[] = rawItems.map((raw) => ({
-          csiDivision: raw.csiDivision ?? raw.csi_division ?? raw.division ?? null,
-          csiDivisionName: raw.csiDivisionName ?? raw.csi_division_name ?? raw.divisionName ?? null,
-          description: raw.description ?? raw.item ?? raw.name ?? raw.material ?? "",
-          specification: raw.specification ?? raw.spec ?? raw.model ?? raw.specifications ?? raw.manufacturer ?? null,
-          qty: raw.qty ?? raw.quantity ?? null,
-          unit: raw.unit ?? null,
-          sourcePage: raw.sourcePage ?? raw.source_page ?? raw.page ?? null,
-          sourceSheet: raw.sourceSheet ?? raw.source_sheet ?? raw.sheet ?? null,
-          notes: raw.notes ?? raw.note ?? null,
-        })).filter((item) => item.description);
-
-        allBomLines.push(...items);
+        if (content) allBomLines.push(...this.parseAiBomResponse(content, config.displayName));
       } catch (err: any) {
         this.logger.warn(`[${config.displayName}] AI extraction failed for chunk: ${err?.message}`);
       }
     }
 
-    const elapsedMs = Date.now() - startMs;
+    return this.finalizeProviderResult(providerName, config, allBomLines, totalTokens, Date.now() - startMs);
+  }
 
-    // Deduplicate by description + specification
+  /** Anthropic-native extraction (Claude) */
+  private async extractBomWithAnthropic(
+    chunks: string[],
+    config: AiProviderConfig,
+  ): Promise<ProviderExtractionResult> {
+    let client: Anthropic;
+    try {
+      client = this.getAnthropicClient();
+    } catch (err: any) {
+      return {
+        provider: "anthropic", displayName: config.displayName, model: config.model,
+        items: [], totalTokens: 0, elapsedMs: 0, csiDivisions: [],
+        error: err?.message ?? String(err),
+      };
+    }
+
+    const allBomLines: AiBomLine[] = [];
+    let totalTokens = 0;
+    const startMs = Date.now();
+
+    for (const chunk of chunks) {
+      try {
+        const response = await client.messages.create({
+          model: config.model,
+          max_tokens: 16000,
+          temperature: 0.1,
+          system: BOM_EXTRACTION_PROMPT,
+          messages: [
+            { role: "user", content: chunk },
+          ],
+        });
+
+        totalTokens += (response.usage?.input_tokens ?? 0) + (response.usage?.output_tokens ?? 0);
+
+        // Claude returns content as an array of blocks
+        const textBlock = response.content.find((b: any) => b.type === "text");
+        const content = (textBlock as any)?.text ?? "";
+        if (content) allBomLines.push(...this.parseAiBomResponse(content, config.displayName));
+      } catch (err: any) {
+        this.logger.warn(`[${config.displayName}] AI extraction failed for chunk: ${err?.message}`);
+      }
+    }
+
+    return this.finalizeProviderResult("anthropic", config, allBomLines, totalTokens, Date.now() - startMs);
+  }
+
+  /** Parse AI response JSON into normalized BOM lines (shared across all providers) */
+  private parseAiBomResponse(content: string, displayName: string): AiBomLine[] {
+    try {
+      // Strip markdown code fences if present (Claude sometimes wraps JSON)
+      let cleaned = content.trim();
+      if (cleaned.startsWith("```")) {
+        cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+      }
+
+      const parsed = JSON.parse(cleaned);
+      const rawItems: any[] = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray(parsed.items)
+          ? parsed.items
+          : Array.isArray(parsed.bomLines)
+            ? parsed.bomLines
+            : Array.isArray(parsed.bom)
+              ? parsed.bom
+              : Array.isArray(parsed.materials)
+                ? parsed.materials
+                : [];
+
+      return rawItems.map((raw) => ({
+        csiDivision: raw.csiDivision ?? raw.csi_division ?? raw.division ?? null,
+        csiDivisionName: raw.csiDivisionName ?? raw.csi_division_name ?? raw.divisionName ?? null,
+        description: raw.description ?? raw.item ?? raw.name ?? raw.material ?? "",
+        specification: raw.specification ?? raw.spec ?? raw.model ?? raw.specifications ?? raw.manufacturer ?? null,
+        qty: raw.qty ?? raw.quantity ?? null,
+        unit: raw.unit ?? null,
+        sourcePage: raw.sourcePage ?? raw.source_page ?? raw.page ?? null,
+        sourceSheet: raw.sourceSheet ?? raw.source_sheet ?? raw.sheet ?? null,
+        notes: raw.notes ?? raw.note ?? null,
+      })).filter((item) => item.description);
+    } catch (err: any) {
+      this.logger.warn(`[${displayName}] Failed to parse AI response JSON: ${err?.message}`);
+      return [];
+    }
+  }
+
+  /** Deduplicate and build final result (shared across all providers) */
+  private finalizeProviderResult(
+    providerName: AiProviderName,
+    config: AiProviderConfig,
+    allBomLines: AiBomLine[],
+    totalTokens: number,
+    elapsedMs: number,
+  ): ProviderExtractionResult {
     const seen = new Map<string, AiBomLine>();
     for (const line of allBomLines) {
       const key = `${line.description}||${line.specification ?? ""}`.toLowerCase();
@@ -492,7 +683,6 @@ export class DrawingsBomService {
       }
     }
     const deduped = Array.from(seen.values());
-
     const csiDivisions = [...new Set(deduped.map((l) => l.csiDivision).filter(Boolean) as string[])].sort();
 
     return {
@@ -524,11 +714,24 @@ export class DrawingsBomService {
 
     this.logger.log(`Starting side-by-side comparison for upload ${uploadId}`);
 
-    // Run both providers in parallel
-    const [resultA, resultB] = await Promise.all([
-      this.extractBomWithProvider(pages, "openai"),
-      this.extractBomWithProvider(pages, "xai"),
-    ]);
+    // Determine which providers are available
+    const availableProviders: AiProviderName[] = [];
+    for (const [name, config] of Object.entries(AI_PROVIDERS)) {
+      if (this.configService.get<string>(config.envKey)) {
+        availableProviders.push(name as AiProviderName);
+      }
+    }
+    if (availableProviders.length < 2) {
+      throw new BadRequestException(
+        `Need at least 2 AI providers configured for comparison. Available: ${availableProviders.join(", ") || "none"}`,
+      );
+    }
+
+    // Run all available providers in parallel
+    const allResults = await Promise.all(
+      availableProviders.map((p) => this.extractBomWithProvider(pages, p)),
+    );
+    const [resultA, resultB] = allResults;
 
     // Analyze differences
     const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
@@ -596,7 +799,7 @@ export class DrawingsBomService {
       uploadId,
       fileName: upload.fileName,
       pageCount: pages.length,
-      results: [resultA, resultB],
+      results: allResults,
       analysis: {
         itemCountDiff: Math.abs(aCount - bCount),
         onlyInA,
@@ -1172,11 +1375,15 @@ export class DrawingsBomService {
 
   // ── Query endpoints ──────────────────────────────────────────────────
 
-  async getUpload(uploadId: string, companyId: string) {
+  async getUpload(uploadId: string, companyId: string, source?: string) {
+    const validSources = ["xai", "anthropic", "consensus", "all"];
+    const filterSource = source && validSources.includes(source) && source !== "all" ? source : undefined;
+
     const upload = await this.prisma.projectDrawingUpload.findFirst({
       where: { id: uploadId, companyId },
       include: {
         bomLines: {
+          where: filterSource ? { aiSource: filterSource } : undefined,
           orderBy: { lineNo: "asc" },
         },
         _count: { select: { bomLines: true } },
@@ -1184,9 +1391,20 @@ export class DrawingsBomService {
     });
     if (!upload) throw new NotFoundException("Drawing upload not found");
 
+    // Compute per-source counts for the toggle UI
+    const sourceCounts = await this.prisma.drawingBomLine.groupBy({
+      by: ["aiSource"],
+      where: { uploadId },
+      _count: true,
+    });
+
     return {
       ...upload,
       fileSizeBytes: upload.fileSizeBytes != null ? Number(upload.fileSizeBytes) : null,
+      sourceCounts: sourceCounts.reduce(
+        (acc, row) => ({ ...acc, [row.aiSource ?? "unknown"]: row._count }),
+        {} as Record<string, number>,
+      ),
     };
   }
 

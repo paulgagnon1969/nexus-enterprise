@@ -1,0 +1,114 @@
+CATEGORY,LINE_ITEM,PRODUCT_DESCRIPTION,PRODUCT_APPLICATION,QUANTITY,UNIT
+FOUNDATION - CONCRETE & STEEL,1,(2'-0" x 2'-0" x 0'-8") Concrete Pad Footing - 3 Ea,Concrete,0.3,Cy
+FOUNDATION - CONCRETE & STEEL,2,(4) #5 Rebar Cont.,Steel,26,Lft
+FOUNDATION - CONCRETE & STEEL,3,#4 Rebar @8" O.C,Steel,26,Lft
+FOUNDATION - CONCRETE & STEEL,4,(18" Dia x 48" ) Concrete Sono tube - 11 Ea,Concrete,2.9,Cy
+FOUNDATION - CONCRETE & STEEL,5,(4) #5 Vertical Rebar,Steel,194,Lft
+FOUNDATION - CONCRETE & STEEL,6,#3 Stirrups @8" O.C,Steel,340,Lft
+FOUNDATION - CONCRETE & STEEL,7,(16" x 8") Concrete Cont. Footing,Concrete,5.2,Cy
+FOUNDATION - CONCRETE & STEEL,8,(3) #5 Cont. Steel,Steel,519,Lft
+FOUNDATION - CONCRETE & STEEL,9,#4 Rebars @12" O.C,Steel,259,Lft
+FOUNDATION - CONCRETE & STEEL,10,(12"x 20") Slab Thickened Edge,Concrete,4.5,Cy
+FOUNDATION - CONCRETE & STEEL,11,(4) #4 Cont. Steel,Steel,323,Lft
+FOUNDATION - CONCRETE & STEEL,12,8" Thk 3'-0" High IFC Concrete Stem Wall,Concrete,11.7,Cy
+FOUNDATION - CONCRETE & STEEL,13,#4 Vertical Rebars @24" O.C,Steel,259,Lft
+FOUNDATION - CONCRETE & STEEL,14,Waterproofing Membrane,Waterproofing,990,Sft
+FOUNDATION - SLAB,15,4" Thick Slab - (628 Sft),Concrete,7.7,Cy
+FOUNDATION - SLAB,16,6x6x10/10 Welded Wire Mesh,Mesh,628,Sft
+FOUNDATION - SLAB,17,4" Compacted Granular Fill,Granular Fill,874,Cft
+FOUNDATION - SLAB,18,6 Mil Polythene Vapour Barrier,Vapour Barrier,2914,Sft
+FOUNDATION - SLAB,19,Termite Protection Soil Poison,Termite Protection,2223,Sft
+FOUNDATION - MISC,20,1/2"x10" Anchor Bolts @72" O.C,Bolts,42,Ea
+FOUNDATION - MISC,21,2"x6"x16' P.T Mud Sill,Sill Plate,11,Ea
+FOUNDATION - MISC,22,24"x36" Crawl Access,Crawl Access,1,Ea
+FOUNDATION - MISC,23,4" Dia Perforated Drainage Pipe,Foundation Drain,157,Lft
+MAIN FLOOR - BEAMS,24,3.5"x10.5"x8' GLB Beam,Floor Beam,1,Ea
+MAIN FLOOR - BEAMS,25,3.5"x12"x22' GLB Beam,Floor Beam,1,Ea
+MAIN FLOOR - BEAMS,26,3.5"x12"x23' GLB Beam,Floor Beam,1,Ea
+MAIN FLOOR - BEAMS,27,3.5"x14"x22' GLB Beam,Floor Beam,2,Ea
+MAIN FLOOR - BEAMS,28,3.5"x14"x23' GLB Beam,Floor Beam,2,Ea
+MAIN FLOOR - JOISTS,29,2"x12"x5' Floor Joists,Floor Joists,1,Ea
+MAIN FLOOR - JOISTS,30,2"x12"x10' Floor Joists,Floor Joists,1,Ea
+MAIN FLOOR - JOISTS,31,2"x12"x12' Floor Joists,Floor Joists,1,Ea
+MAIN FLOOR - JOISTS,32,2"x12"x16' Rim Board,Rim Board,10,Ea
+MAIN FLOOR - POSTS,33,6"x6"x3' SPF#2 Deck Post,Post,1,Ea
+MAIN FLOOR - POSTS,34,6"x6"x3' SPF#2 Floor Post,Post,1,Ea
+MAIN FLOOR - POSTS,35,4"x4"x3' SPF#2 Floor Post,Post,3,Ea
+MAIN FLOOR - SHEATHING,36,3/4"x4'x8' T&G Plywood Sheathing,Sheathing,69,Ea
+WALL - EXTERIOR STUDS,37,2x6x104 5/8" Exterior Wall Studs (9' Wall Height),Exterior Stud,124,Ea
+WALL - EXTERIOR STUDS,38,2x6x189 5/8" Exterior Wall Studs (16'-1" Wall Height),Exterior Stud,47,Ea
+WALL - EXTERIOR STUDS,39,2x6x16' SYP#2 STD & BTR,Exterior Bottom Plate,13,Ea
+WALL - EXTERIOR STUDS,40,2x6x16' SYP#2 STD & BTR,Exterior Top Plate,26,Ea
+WALL - EXTERIOR STUDS,41,2x6x16' SYP#2 STD & BTR,Exterior Blocking,13,Ea
+WALL - GABLE STUDS,42,2x6x4' Gable Wall Stud,Gable Stud,30,Ea
+WALL - GABLE STUDS,43,2x6x6' Gable Wall Stud,Gable Stud,14,Ea
+WALL - GABLE STUDS,44,2x6x16' SYP#2 STD & BTR,Gable Plate,5,Ea
+WALL - INTERIOR STUDS (2x4),45,2x4x104 5/8" Interior Wall Studs (9' Wall Height),Interior Stud,139,Ea
+WALL - INTERIOR STUDS (2x4),46,2x4x16' SYP#2 STD & BTR,Interior Bottom Plate,11,Ea
+WALL - INTERIOR STUDS (2x4),47,2x4x16' SYP#2 STD & BTR,Interior Top Plate,22,Ea
+WALL - INTERIOR STUDS (2x6),48,2x6x104 5/8" Interior Wall Studs (9' Wall Height),Interior Stud,20,Ea
+WALL - INTERIOR STUDS (2x6),49,2x6x16' SYP#2 STD & BTR,Interior Bottom Plate,2,Ea
+WALL - INTERIOR STUDS (2x6),50,2x6x16' SYP#2 STD & BTR,Interior Top Plate,4,Ea
+WALL - SHEATHING,51,1/2"x4'x8' Exterior Sheathing,Exterior Sheathing,80,Ea
+WALL - SHEATHING,52,Tyvek Housewrap or Building Paper,House Wrap,2685,Sft
+WALL - HEADERS,53,(2) 2"x6" Exterior Header - (As Per General Notes),Exterior Header,90,Lft
+WALL - HEADERS,54,(2) 2"x6" Interior Header - (As Per General Notes),Interior Header,34,Lft
+WALL - POSTS,55,6"x6"x9' SPF#2 Post,Post,2,Ea
+DRYWALL - WALLS,56,1/2"x4'x12' Exterior wall Inner side,Gypsum Board,53,Ea
+DRYWALL - WALLS,57,1/2"x4'x12' Interior wall Double side,Gypsum Board,76,Ea
+DRYWALL - CEILING,58,1/2"x4'x8' Main Level Ceiling Gypsum Board,Gypsum Board,47,Ea
+DRYWALL - CEILING,59,5/8"x4'x8' Garage Ceiling Gypsum Board,Gypsum Board,19,Ea
+DRYWALL - CEILING,60,Outdoor Ceiling Finish Per Code,Ceiling Finish,42,Sft
+DRYWALL - MISC,61,Joint Tape,Drywall Tape,2849,Lft
+INSULATION - EXTERIOR WALL,62,(5 1/2") R-19 Batt Insulation,Insulation,2441,Sft
+INSULATION - FLOOR,63,R-30 Batt Insulation,Insulation,1537,Sft
+INSULATION - CEILING,64,R-38 Spray Foam Insulation,Insulation,2013,Sft
+ROOF - STRUCTURE,65,2"x10"x14' SPF#2 Ridge Board,Ridge Board,1,Ea
+ROOF - STRUCTURE,66,2"x10"x16' SPF#2 Valley Board,Valley Board,2,Ea
+ROOF - BEAMS,67,3.5"x16"x24' GLB Beam,Roof Beam,1,Ea
+ROOF - BEAMS,68,3.5"x16"x26' GLB Beam,Roof Beam,1,Ea
+ROOF - RAFTERS (2x8),69,2"x8"x2' Roof Rafter,Rafter,4,Ea
+ROOF - RAFTERS (2x8),70,2"x8"x3' Roof Rafter,Rafter,2,Ea
+ROOF - RAFTERS (2x8),71,2"x8"x4' Roof Rafter,Rafter,2,Ea
+ROOF - RAFTERS (2x8),72,2"x8"x5' Roof Rafter,Rafter,2,Ea
+ROOF - RAFTERS (2x8),73,2"x8"x6' Roof Rafter,Rafter,8,Ea
+ROOF - RAFTERS (2x14),74,2"x14"x10' Roof Rafter,Rafter,1,Ea
+ROOF - RAFTERS (2x14),75,2"x14"x11' Roof Rafter,Rafter,1,Ea
+ROOF - RAFTERS (2x14),76,2"x14"x12' Roof Rafter,Rafter,1,Ea
+ROOF - RAFTERS (2x14),77,2"x14"x13' Roof Rafter,Rafter,1,Ea
+ROOF - RAFTERS (2x14),78,2"x14"x14' Roof Rafter,Rafter,1,Ea
+ROOF - RAFTERS (2x14),79,2"x14"x15' Roof Rafter,Rafter,1,Ea
+ROOF - RAFTERS (2x14),80,2"x14"x17' Roof Rafter,Rafter,2,Ea
+ROOF - RAFTERS (2x14),81,2"x14"x18' Roof Rafter,Rafter,29,Ea
+ROOF - RAFTERS (2x14),82,2"x14"x23' Roof Rafter,Rafter,37,Ea
+ROOF - RAFTERS (2x14),83,2"x14"x29' Roof Rafter,Rafter,18,Ea
+ROOF - MISC,84,1"x3" Strapping @16" O.C,Strapping,2154,Lft
+ROOF - DECKING,85,1/2"x4'x8' APA Rated Plywood Sheathing,Roof Decking,90,Ea
+ROOF - FINISH,86,Roofing Paper (30lb Felt or Equal),Roof Membrane,2865,Sft
+ROOF - FINISH,87,Standing Seam Metal Roofing,Roof Finish,2865,Sft
+ROOF - FINISH,88,Ridge Vent,Ridge Vent,13,Lft
+EXTERIOR - SIDING,89,Board & Batten Metal Siding,Siding,1694,Sft
+EXTERIOR - SIDING,90,Horizontal Lap Matal Siding,Siding,72,Sft
+EXTERIOR - SIDING,91,Stone Veneer,Stone Veneer,30,Sft
+EXTERIOR - SIDING,92,Vented Soffit,Soffit,488,Sft
+EXTERIOR - TRIM,93,1"x6" Fascia Trim,Fascia Trim,261,Lft
+EXTERIOR - TRIM,94,2"x6" Sub Fascia,Sub Fascia,261,Lft
+EXTERIOR - TRIM,95,4" Corner Trims,Corner Trim,166,Lft
+EXTERIOR - TRIM,96,3 1/2" Exterior Trim,Exterior Trim,13,Lft
+EXTERIOR - TRIM,97,3 1/2" Baseboard Trim,Base Trim,170,Lft
+EXTERIOR - TRIM,98,2 1/2" Door Trims,Door Trims,38,Lft
+DOORS - EXTERIOR,99,20'-0"x7'-0" Garage Overhead Door,Overhead Door,1,Ea
+DOORS - EXTERIOR,100,6'-0"x8'-0" Double Panel Door,Exterior Door,1,Ea
+DOORS - EXTERIOR,101,11'-6"x8'-0" 4 Panel Sliding Door,Exterior Door,1,Ea
+DOORS - EXTERIOR,102,7'-0"x8'-0" Sliding Door,Exterior Door,2,Ea
+DOORS - INTERIOR,103,3'-0"x6'-8" Single Panel Door,Interior Door,3,Ea
+DOORS - INTERIOR,104,4'-0"x6'-8" Double Panel Door,Interior Door,1,Ea
+DOORS - INTERIOR,105,2'-6"x6'-8" Single Panel Door,Interior Door,7,Ea
+DOORS - INTERIOR,106,3'-0"x8'-0" Single Panel Door,Interior Door,1,Ea
+WINDOWS,107,3'-0"x8'-0" Fixed Picture Window,Exterior Window,5,Ea
+WINDOWS,108,7'-0"x8'-0" Sliding Window,Exterior Window,1,Ea
+WINDOWS,109,6'-0"x5'-0" Sliding Window,Exterior Window,2,Ea
+WINDOWS,110,3'-0"x2'-0" Fixed Picture Window,Exterior Window,2,Ea
+DRAINAGE,111,LF of Gutter,Gutter,146,Lft
+DRAINAGE,112,Downspout (9'),Downspout,5,Ea
+DRAINAGE,113,Downspout w/(16'),Downspout,2,Ea

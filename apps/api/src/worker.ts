@@ -24,6 +24,11 @@ import { Storage } from "@google-cloud/storage";
 import { parse } from "csv-parse/sync";
 import argon2 from "argon2";
 import { decryptPortfolioHrJson, encryptPortfolioHrJson } from "./common/crypto/portfolio-hr.crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { PlanSheetStatus } from "@prisma/client";
+
+const execFileAsync = promisify(execFile);
 
 const DEFAULT_PASSWORD = "Nexus2026.01";
 
@@ -1651,6 +1656,23 @@ async function processImportJob(
     return;
   }
 
+  if (job.type === ImportJobType.PLAN_SHEETS) {
+    console.log("[worker] PLAN_SHEETS start", {
+      importJobId,
+      companyId: job.companyId,
+      projectId: job.projectId,
+    });
+
+    const meta = job.metaJson as Record<string, any> | null;
+    const uploadId = meta?.uploadId as string;
+    if (!uploadId) {
+      throw new Error("PLAN_SHEETS job is missing uploadId in metaJson");
+    }
+
+    await processPlanSheetsJob(prisma, importJobId, uploadId, job.fileUri ?? null);
+    return;
+  }
+
   if (job.type === ImportJobType.PRICE_LIST_COMPONENTS) {
     await prisma.importJob.update({
       where: { id: importJobId },
@@ -1705,6 +1727,245 @@ async function processImportJob(
   }
 
 throw new Error(`Unhandled ImportJobType: ${job.type}`);
+}
+
+// ---------------------------------------------------------------------------
+// Plan Sheet Processing (PDF → multi-resolution WebP images → GCS)
+// ---------------------------------------------------------------------------
+
+interface TierConfig {
+  name: string;
+  dpi: number;
+  quality: number;
+}
+
+const PLAN_SHEET_TIERS: TierConfig[] = [
+  { name: "thumb", dpi: 72, quality: 60 },
+  { name: "standard", dpi: 150, quality: 85 },
+  { name: "master", dpi: 400, quality: 92 },
+];
+
+async function processPlanSheetsJob(
+  prisma: PrismaService,
+  importJobId: string,
+  uploadId: string,
+  fileUri: string | null,
+) {
+  await prisma.importJob.update({
+    where: { id: importJobId },
+    data: { progress: 5, message: "Downloading PDF..." },
+  });
+
+  // Mark all PENDING sheets as PROCESSING
+  await prisma.planSheet.updateMany({
+    where: { uploadId, status: PlanSheetStatus.PENDING },
+    data: { status: PlanSheetStatus.PROCESSING },
+  });
+
+  // Download the PDF from GCS (or use local path for dev)
+  let pdfPath: string;
+  if (fileUri && fileUri.startsWith("gs://")) {
+    pdfPath = await downloadGcsToTmp(fileUri);
+  } else if (fileUri && fs.existsSync(fileUri)) {
+    pdfPath = fileUri;
+  } else {
+    throw new Error(`PLAN_SHEETS: cannot resolve PDF path (fileUri=${fileUri})`);
+  }
+
+  // Create a working directory for image output
+  const baseTmpDir = process.env.NCC_UPLOAD_TMP_DIR || os.tmpdir();
+  const workDir = path.join(baseTmpDir, "ncc_uploads", "plan_sheets", uploadId);
+  await fs.promises.mkdir(workDir, { recursive: true });
+
+  // Get the page count from the upload record
+  const upload = await prisma.projectDrawingUpload.findUnique({
+    where: { id: uploadId },
+    select: { pageCount: true },
+  });
+  const pageCount = upload?.pageCount ?? 0;
+  if (pageCount === 0) {
+    throw new Error("PLAN_SHEETS: upload has 0 pages");
+  }
+
+  const gcsBucket = process.env.GCS_UPLOADS_BUCKET || process.env.XACT_UPLOADS_BUCKET;
+  // In local dev (no GCS), store WebP files under uploads/plan-sheets/ and
+  // save the relative path in the DB. The API serves them via a static route.
+  const useLocalStorage = !gcsBucket;
+  const localUploadsDir = path.resolve(__dirname, "..", "uploads", "plan-sheets");
+
+  const sheets = await prisma.planSheet.findMany({
+    where: { uploadId, status: PlanSheetStatus.PROCESSING },
+    orderBy: { sortOrder: "asc" },
+  });
+
+  const totalSteps = sheets.length * PLAN_SHEET_TIERS.length;
+  let completedSteps = 0;
+
+  for (const sheet of sheets) {
+    const pageNo = sheet.pageNo;
+    const tierPaths: Record<string, { gcsKey: string; localPath: string }> = {};
+
+    try {
+      for (const tier of PLAN_SHEET_TIERS) {
+        const tierDir = path.join(workDir, tier.name);
+        await fs.promises.mkdir(tierDir, { recursive: true });
+
+        const ppmPrefix = path.join(tierDir, `page-${pageNo}`);
+        const ppmOutput = `${ppmPrefix}-${String(pageNo).padStart(6, "0")}.ppm`;
+
+        // pdftoppm: extract single page as PPM at the target DPI
+        // -f and -l specify first/last page (1-indexed)
+        await execFileAsync("pdftoppm", [
+          "-r", String(tier.dpi),
+          "-f", String(pageNo),
+          "-l", String(pageNo),
+          pdfPath,
+          ppmPrefix,
+        ]);
+
+        // Find the actual output file (pdftoppm appends page number)
+        const tierFiles = await fs.promises.readdir(tierDir);
+        const ppmFile = tierFiles.find(
+          (f) => f.startsWith(`page-${pageNo}`) && f.endsWith(".ppm"),
+        );
+        if (!ppmFile) {
+          throw new Error(
+            `pdftoppm produced no output for page ${pageNo} tier ${tier.name}`,
+          );
+        }
+        const ppmPath = path.join(tierDir, ppmFile);
+
+        // cwebp: convert PPM to WebP
+        const webpPath = path.join(tierDir, `${pageNo}.webp`);
+        await execFileAsync("cwebp", [
+          "-q", String(tier.quality),
+          ppmPath,
+          "-o", webpPath,
+        ]);
+
+        // Clean up PPM (save disk)
+        await fs.promises.unlink(ppmPath).catch(() => {});
+
+        const gcsKey = `plan-sheets/${uploadId}/${tier.name}/${pageNo}.webp`;
+        tierPaths[tier.name] = { gcsKey, localPath: webpPath };
+
+        completedSteps++;
+        const progress = Math.min(
+          95,
+          5 + Math.floor(90 * (completedSteps / totalSteps)),
+        );
+        await prisma.importJob.update({
+          where: { id: importJobId },
+          data: {
+            progress,
+            message: `Processing page ${pageNo}/${pageCount} (${tier.name})`,
+          },
+        });
+      }
+
+      // Upload all tiers for this page to GCS (or store locally in dev)
+      const sizes: Record<string, number> = {};
+      for (const [tierName, { gcsKey, localPath }] of Object.entries(tierPaths)) {
+        const buffer = await fs.promises.readFile(localPath);
+        sizes[tierName] = buffer.length;
+
+        if (useLocalStorage) {
+          // Dev: copy to uploads/plan-sheets/{uploadId}/{tier}/{pageNo}.webp
+          const destDir = path.join(localUploadsDir, uploadId, tierName);
+          await fs.promises.mkdir(destDir, { recursive: true });
+          const destPath = path.join(destDir, `${pageNo}.webp`);
+          await fs.promises.copyFile(localPath, destPath);
+        } else {
+          const bucket = gcsStorage.bucket(gcsBucket!);
+          const file = bucket.file(gcsKey);
+          await file.save(buffer, { contentType: "image/webp" });
+        }
+
+        // Clean up working copy
+        await fs.promises.unlink(localPath).catch(() => {});
+      }
+
+      // Update PlanSheet record with GCS paths + sizes
+      await prisma.planSheet.update({
+        where: { id: sheet.id },
+        data: {
+          status: PlanSheetStatus.READY,
+          thumbPath: tierPaths.thumb?.gcsKey ?? null,
+          standardPath: tierPaths.standard?.gcsKey ?? null,
+          masterPath: tierPaths.master?.gcsKey ?? null,
+          thumbBytes: sizes.thumb ?? 0,
+          standardBytes: sizes.standard ?? 0,
+          masterBytes: sizes.master ?? 0,
+        },
+      });
+
+      console.log(
+        "[worker] PLAN_SHEETS page %d/%d done (thumb=%sKB standard=%sKB master=%sKB)",
+        pageNo,
+        pageCount,
+        Math.round((sizes.thumb ?? 0) / 1024),
+        Math.round((sizes.standard ?? 0) / 1024),
+        Math.round((sizes.master ?? 0) / 1024),
+      );
+    } catch (pageErr: any) {
+      console.error(
+        "[worker] PLAN_SHEETS page %d failed: %s",
+        pageNo,
+        pageErr?.message ?? String(pageErr),
+      );
+      await prisma.planSheet.update({
+        where: { id: sheet.id },
+        data: { status: PlanSheetStatus.FAILED },
+      });
+    }
+  }
+
+  // Clean up working directory
+  await fs.promises.rm(workDir, { recursive: true, force: true }).catch(() => {});
+  // Clean up downloaded PDF (if it was a temp file)
+  if (fileUri && fileUri.startsWith("gs://")) {
+    await fs.promises.unlink(pdfPath).catch(() => {});
+  }
+
+  // Summarize results
+  const readyCount = await prisma.planSheet.count({
+    where: { uploadId, status: PlanSheetStatus.READY },
+  });
+  const failedCount = await prisma.planSheet.count({
+    where: { uploadId, status: PlanSheetStatus.FAILED },
+  });
+
+  const allSucceeded = failedCount === 0 && readyCount === pageCount;
+
+  await prisma.importJob.update({
+    where: { id: importJobId },
+    data: {
+      status: allSucceeded
+        ? ImportJobStatus.SUCCEEDED
+        : failedCount === pageCount
+          ? ImportJobStatus.FAILED
+          : ImportJobStatus.SUCCEEDED,
+      finishedAt: new Date(),
+      progress: 100,
+      message: allSucceeded
+        ? `Plan sheets processed: ${readyCount}/${pageCount} pages`
+        : `Plan sheets: ${readyCount} ready, ${failedCount} failed out of ${pageCount}`,
+      resultJson: {
+        uploadId,
+        pageCount,
+        readyCount,
+        failedCount,
+      } as any,
+    },
+  });
+
+  console.log("[worker] PLAN_SHEETS complete", {
+    importJobId,
+    uploadId,
+    pageCount,
+    readyCount,
+    failedCount,
+  });
 }
 
 async function processImportChunk(prisma: PrismaService, payload: ChunkJobPayload) {

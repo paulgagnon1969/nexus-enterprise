@@ -61,7 +61,8 @@ export interface ProjectListItem {
 }
 
 // Contact categories for the Contacts screen
-export type ContactCategory = "internal" | "external" | "subs" | "clients";
+export type ContactCategory = "internal" | "external" | "subs" | "clients" | "personal";
+export type ContactSource = "ncc" | "personal";
 
 export interface Contact {
   id: string;
@@ -74,6 +75,7 @@ export interface Contact {
   title?: string | null;
   company?: string | null;
   category: ContactCategory;
+  source: ContactSource;
 }
 
 export type DailyLogType = "PUDL" | "RECEIPT_EXPENSE" | "JSA" | "INCIDENT" | "QUALITY";

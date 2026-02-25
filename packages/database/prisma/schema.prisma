@@ -3680,6 +3680,7 @@ enum ImportJobType {
   FORTIFIED_PAYROLL_ADMIN
   PROJECT_PETL_PERCENT
   MASTER_COSTBOOK
+  PLAN_SHEETS
 }
 
 enum ImportJobStatus {
@@ -6721,12 +6722,52 @@ model ProjectDrawingUpload {
   project  Project  @relation(fields: [projectId], references: [id])
   company  Company  @relation(fields: [companyId], references: [id])
   bomLines DrawingBomLine[]
+  planSheets PlanSheet[]
 
   /// Link to the EstimateVersion created when PETL is generated
   generatedEstimateVersionId String?
 
   @@index([projectId, createdAt], map: "ProjectDrawingUpload_project_created_idx")
   @@index([companyId], map: "ProjectDrawingUpload_company_idx")
+}
+
+// =============================================================================
+// Plan Sheet Viewer (multi-resolution page images)
+// =============================================================================
+
+enum PlanSheetStatus {
+  PENDING     // Placeholder created, waiting for worker to process
+  PROCESSING  // Worker is actively generating images
+  READY       // All tiers generated and uploaded to GCS
+  FAILED      // Processing failed
+}
+
+/// A single page extracted from a construction drawing PDF, stored as
+/// multi-resolution WebP images (thumb / standard / master) in GCS.
+model PlanSheet {
+  id        String @id @default(cuid())
+  uploadId  String
+  pageNo    Int              // 1-indexed PDF page
+  sheetId   String?          // Detected sheet ID: "A2", "S1", "E1"
+  title     String?          // "Floor Plan", "Foundation Plan"
+  section   String?          // "Architectural", "Structural"
+
+  status      PlanSheetStatus @default(PENDING)
+
+  thumbPath     String?      // GCS path: plan-sheets/{uploadId}/thumb/{pageNo}.webp
+  standardPath  String?      // GCS path: plan-sheets/{uploadId}/standard/{pageNo}.webp
+  masterPath    String?      // GCS path: plan-sheets/{uploadId}/master/{pageNo}.webp
+  thumbBytes    Int @default(0)
+  standardBytes Int @default(0)
+  masterBytes   Int @default(0)
+
+  sortOrder  Int @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  upload ProjectDrawingUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  @@index([uploadId, sortOrder], map: "PlanSheet_upload_sort_idx")
 }
 
 /// A single line item extracted from architectural drawings by AI.
@@ -6758,6 +6799,10 @@ model DrawingBomLine {
   /// Pricing (from matched cost book item or manual entry)
   unitPrice  Float?
   totalPrice Float?
+
+  /// AI source tracking
+  aiSource       String?              // "xai", "anthropic", "openai", "consensus"
+  consensusCount Int     @default(1)  // How many providers found this item (2+ = consensus)
 
   /// Status flags
   isMatched       Boolean @default(false)

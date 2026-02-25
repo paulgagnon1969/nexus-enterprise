@@ -31,6 +31,7 @@ import { ScheduleSection, makeMermaidSafeId, scheduleExtractGroupCode, MermaidGa
 import { DescriptionPicker } from "../../components/DescriptionPicker";
 import PersonnelPicker, { type PersonnelEntry } from "./personnel-picker";
 import { ProcurementPanel } from "./procurement-panel";
+import { PlanSheetsTab } from "./plan-sheets-tab";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -865,6 +866,7 @@ type TabKey =
   | "SCHEDULE"
   | "PETL"
   | "BOM"
+  | "PLANS"
   | "STRUCTURE"
   | "DAILY_LOGS"
   | "FILES"
@@ -1429,7 +1431,15 @@ export default function ProjectDetailPage({
   const [bomData, setBomData] = useState<any | null>(null);
   const [bomLoading, setBomLoading] = useState(false);
   const [bomError, setBomError] = useState<string | null>(null);
-  const [bomView, setBomView] = useState<"petl" | "components" | "raw" | "pricing" | "procure">("petl");
+  const [bomView, setBomView] = useState<"petl" | "components" | "raw" | "pricing" | "procure" | "drawings">("petl");
+
+  // Drawings BOM state (multi-provider AI extraction)
+  const [drawingsBomUploads, setDrawingsBomUploads] = useState<any[]>([]);
+  const [drawingsBomSelectedUploadId, setDrawingsBomSelectedUploadId] = useState<string | null>(null);
+  const [drawingsBomUploadDetail, setDrawingsBomUploadDetail] = useState<any | null>(null);
+  const [drawingsBomLoading, setDrawingsBomLoading] = useState(false);
+  const [drawingsBomError, setDrawingsBomError] = useState<string | null>(null);
+  const [drawingsBomSourceFilter, setDrawingsBomSourceFilter] = useState<"all" | "xai" | "anthropic" | "consensus">("all");
 
   // BOM Pricing (SerpApi catalog search)
   const [bomPricingData, setBomPricingData] = useState<any | null>(null);
@@ -5413,7 +5423,8 @@ ${htmlBody}
       tab === "STRUCTURE" ||
       tab === "DAILY_LOGS" ||
       tab === "FILES" ||
-      tab === "FINANCIAL"
+      tab === "FINANCIAL" ||
+      tab === "PLANS"
     ) {
       setTab(tab as TabKey);
     } else if (tab.toUpperCase() === "PETL") {
@@ -6307,6 +6318,87 @@ ${htmlBody}
       cancelled = true;
     };
   }, [project, activeTab, bomView, componentsRawData]);
+
+  // Load drawings BOM uploads list when drawings view is selected
+  useEffect(() => {
+    if (!project) return;
+    if (activeTab !== "BOM") return;
+    if (bomView !== "drawings") return;
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+
+    let cancelled = false;
+
+    const load = async () => {
+      setDrawingsBomLoading(true);
+      setDrawingsBomError(null);
+      try {
+        const res = await fetch(`${API_BASE}/drawings-bom/${project.id}/uploads`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (cancelled) return;
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          setDrawingsBomError(`Failed to load drawings (${res.status}). ${text}`.slice(0, 500));
+          return;
+        }
+        const json = await res.json();
+        if (cancelled) return;
+        setDrawingsBomUploads(Array.isArray(json) ? json : []);
+        // Auto-select first upload if none selected
+        if (!drawingsBomSelectedUploadId && json.length > 0) {
+          setDrawingsBomSelectedUploadId(json[0].id);
+        }
+      } catch (err: any) {
+        if (cancelled) return;
+        setDrawingsBomError(err?.message ?? "Failed to load drawings BOM uploads");
+      } finally {
+        if (!cancelled) setDrawingsBomLoading(false);
+      }
+    };
+
+    void load();
+    return () => { cancelled = true; };
+  }, [project, activeTab, bomView]);
+
+  // Load drawings BOM upload detail (with source filter) when selection or filter changes
+  useEffect(() => {
+    if (!drawingsBomSelectedUploadId) return;
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+
+    let cancelled = false;
+
+    const load = async () => {
+      setDrawingsBomLoading(true);
+      setDrawingsBomError(null);
+      try {
+        const url = `${API_BASE}/drawings-bom/uploads/${drawingsBomSelectedUploadId}?source=${drawingsBomSourceFilter}`;
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (cancelled) return;
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          setDrawingsBomError(`Failed to load upload detail (${res.status}). ${text}`.slice(0, 500));
+          return;
+        }
+        const json = await res.json();
+        if (cancelled) return;
+        setDrawingsBomUploadDetail(json);
+      } catch (err: any) {
+        if (cancelled) return;
+        setDrawingsBomError(err?.message ?? "Failed to load BOM detail");
+      } finally {
+        if (!cancelled) setDrawingsBomLoading(false);
+      }
+    };
+
+    void load();
+    return () => { cancelled = true; };
+  }, [drawingsBomSelectedUploadId, drawingsBomSourceFilter]);
 
   const addDaysIso = (iso: string, deltaDays: number): string => {
     const d = new Date(iso);
@@ -13895,6 +13987,7 @@ ${htmlBody}
             { key: "SCHEDULE", label: "Schedule" },
             ...(isPmOrAbove ? [{ key: "PETL" as TabKey, label: "PETL" }] : []),
             ...(isPmOrAbove ? [{ key: "BOM" as TabKey, label: "BOM & Procure" }] : []),
+            ...(isPmOrAbove ? [{ key: "PLANS" as TabKey, label: "Plans" }] : []),
             ...(isPmOrAbove ? [{ key: "STRUCTURE" as TabKey, label: "Project Organization" }] : []),
             { key: "FILES", label: "Files" },
             ...(isAdminOrAbove ? [{ key: "JOURNAL" as TabKey, label: "Journal" }] : []),
@@ -23406,6 +23499,26 @@ ${htmlBody}
                   Procure
                 </button>
 
+                {/* Drawings BOM — AI-extracted from PDFs */}
+                <button
+                  type="button"
+                  onClick={() => startUiTransition(() => setBomView("drawings"))}
+                  style={{
+                    padding: "6px 12px",
+                    fontSize: 12,
+                    border: bomView === "drawings" ? "1px solid #7c3aed" : "1px solid #e5e7eb",
+                    borderRadius: 4,
+                    background: bomView === "drawings"
+                      ? "linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%)"
+                      : "#fff",
+                    color: bomView === "drawings" ? "#fff" : "#374151",
+                    cursor: "pointer",
+                    fontWeight: bomView === "drawings" ? 600 : 400,
+                  }}
+                >
+                  Drawings BOM
+                </button>
+
                 {/* Spacer to push action buttons to right */}
                 <div style={{ flex: 1 }} />
 
@@ -24376,6 +24489,231 @@ ${htmlBody}
               {/* Procurement Intelligence View */}
               {bomView === "procure" && (
                 <ProcurementPanel projectId={id} />
+              )}
+
+              {/* Drawings BOM View — AI-extracted with source tagging */}
+              {bomView === "drawings" && (
+                <div>
+                  {drawingsBomLoading && (
+                    <p style={{ fontSize: 12, color: "#6b7280" }}>Loading drawings BOM…</p>
+                  )}
+                  {drawingsBomError && (
+                    <p style={{ fontSize: 12, color: "#b91c1c" }}>{drawingsBomError}</p>
+                  )}
+
+                  {/* Upload selector (if multiple uploads exist) */}
+                  {drawingsBomUploads.length > 1 && (
+                    <div style={{ marginBottom: 12 }}>
+                      <label style={{ fontSize: 11, color: "#6b7280", marginRight: 8 }}>Drawing:</label>
+                      <select
+                        value={drawingsBomSelectedUploadId ?? ""}
+                        onChange={(e) => {
+                          setDrawingsBomSelectedUploadId(e.target.value);
+                          setDrawingsBomUploadDetail(null);
+                        }}
+                        style={{ fontSize: 12, padding: "4px 8px", borderRadius: 4, border: "1px solid #d1d5db" }}
+                      >
+                        {drawingsBomUploads.map((u: any) => (
+                          <option key={u.id} value={u.id}>
+                            {u.fileName} ({u.totalBomLines ?? 0} lines, {u.matchedBomLines ?? 0} matched)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {drawingsBomUploads.length === 0 && !drawingsBomLoading && (
+                    <p style={{ fontSize: 12, color: "#6b7280" }}>No drawings uploaded for this project. Use the Drawings BOM API to upload architectural PDFs.</p>
+                  )}
+
+                  {drawingsBomUploadDetail && (() => {
+                    const detail = drawingsBomUploadDetail;
+                    const lines: any[] = detail.bomLines ?? [];
+                    const counts: Record<string, number> = detail.sourceCounts ?? {};
+                    const totalLines = detail._count?.bomLines ?? 0;
+
+                    // Source colors
+                    const sourceColor: Record<string, { border: string; bg: string; label: string; text: string }> = {
+                      consensus: { border: "#16a34a", bg: "#f0fdf4", label: "Consensus (Both AIs)", text: "#166534" },
+                      xai: { border: "#2563eb", bg: "#eff6ff", label: "Grok Only", text: "#1e40af" },
+                      anthropic: { border: "#7c3aed", bg: "#f5f3ff", label: "Claude Only", text: "#5b21b6" },
+                    };
+
+                    return (
+                      <div>
+                        {/* Upload info header */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 12, padding: 12, background: "#f9fafb", borderRadius: 8, fontSize: 12 }}>
+                          <div>
+                            <span style={{ color: "#6b7280" }}>File:</span>{" "}
+                            <span style={{ fontWeight: 600 }}>{detail.fileName}</span>
+                          </div>
+                          <div>
+                            <span style={{ color: "#6b7280" }}>Pages:</span> {detail.pageCount ?? "?"}
+                          </div>
+                          <div>
+                            <span style={{ color: "#6b7280" }}>Total Lines:</span> {totalLines}
+                          </div>
+                          <div>
+                            <span style={{ color: "#6b7280" }}>Matched:</span>{" "}
+                            <span style={{ color: "#16a34a", fontWeight: 600 }}>{detail.matchedBomLines ?? 0}</span>
+                            {" / "}
+                            {detail.unmatchedBomLines != null && detail.unmatchedBomLines > 0 && (
+                              <span style={{ color: "#dc2626" }}>{detail.unmatchedBomLines} unmatched</span>
+                            )}
+                          </div>
+                          <div>
+                            <span style={{ color: "#6b7280" }}>Status:</span>{" "}
+                            <span style={{
+                              padding: "2px 6px",
+                              borderRadius: 3,
+                              fontSize: 10,
+                              fontWeight: 600,
+                              background: detail.status === "COMPLETED" ? "#dcfce7" : detail.status === "FAILED" ? "#fef2f2" : "#fef9c3",
+                              color: detail.status === "COMPLETED" ? "#166534" : detail.status === "FAILED" ? "#991b1b" : "#854d0e",
+                            }}>
+                              {detail.status}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Source toggle buttons + legend */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 11, color: "#6b7280", marginRight: 4 }}>Source:</span>
+                          {(["all", "consensus", "xai", "anthropic"] as const).map((src) => {
+                            const isActive = drawingsBomSourceFilter === src;
+                            const sc = src === "all" ? null : sourceColor[src];
+                            const count = src === "all" ? totalLines : (counts[src] ?? 0);
+                            return (
+                              <button
+                                key={src}
+                                type="button"
+                                onClick={() => setDrawingsBomSourceFilter(src)}
+                                style={{
+                                  padding: "4px 10px",
+                                  fontSize: 11,
+                                  borderRadius: 4,
+                                  border: isActive
+                                    ? `2px solid ${sc?.border ?? "#374151"}`
+                                    : "1px solid #d1d5db",
+                                  background: isActive ? (sc?.bg ?? "#f3f4f6") : "#fff",
+                                  color: isActive ? (sc?.text ?? "#374151") : "#6b7280",
+                                  cursor: "pointer",
+                                  fontWeight: isActive ? 600 : 400,
+                                }}
+                              >
+                                {src === "all" ? "Merged (All)" : sc?.label ?? src} ({count})
+                              </button>
+                            );
+                          })}
+
+                          {/* Color legend */}
+                          <div style={{ marginLeft: "auto", display: "flex", gap: 12, fontSize: 10, color: "#6b7280" }}>
+                            <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#16a34a", marginRight: 3, verticalAlign: "middle" }} />Consensus</span>
+                            <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#2563eb", marginRight: 3, verticalAlign: "middle" }} />Grok</span>
+                            <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#7c3aed", marginRight: 3, verticalAlign: "middle" }} />Claude</span>
+                          </div>
+                        </div>
+
+                        {/* BOM lines table */}
+                        {lines.length === 0 ? (
+                          <p style={{ fontSize: 12, color: "#6b7280" }}>No BOM lines{drawingsBomSourceFilter !== "all" ? ` from ${drawingsBomSourceFilter}` : ""}.</p>
+                        ) : (
+                          <div style={{ overflowX: "auto", border: "1px solid #e5e7eb", borderRadius: 6 }}>
+                            <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
+                              <thead>
+                                <tr style={{ background: "#f9fafb", textAlign: "left" }}>
+                                  <th style={{ padding: "8px", borderBottom: "1px solid #e5e7eb", width: 40 }}>#</th>
+                                  <th style={{ padding: "8px", borderBottom: "1px solid #e5e7eb" }}>Description</th>
+                                  <th style={{ padding: "8px", borderBottom: "1px solid #e5e7eb" }}>Spec</th>
+                                  <th style={{ padding: "8px", borderBottom: "1px solid #e5e7eb", textAlign: "right" }}>Qty</th>
+                                  <th style={{ padding: "8px", borderBottom: "1px solid #e5e7eb" }}>Unit</th>
+                                  <th style={{ padding: "8px", borderBottom: "1px solid #e5e7eb" }}>CSI</th>
+                                  <th style={{ padding: "8px", borderBottom: "1px solid #e5e7eb" }}>Match</th>
+                                  <th style={{ padding: "8px", borderBottom: "1px solid #e5e7eb", textAlign: "right" }}>Unit $</th>
+                                  <th style={{ padding: "8px", borderBottom: "1px solid #e5e7eb", textAlign: "right" }}>Total $</th>
+                                  <th style={{ padding: "8px", borderBottom: "1px solid #e5e7eb", width: 70 }}>Source</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {lines.map((line: any) => {
+                                  const src = line.aiSource ?? "unknown";
+                                  const sc = sourceColor[src];
+                                  return (
+                                    <tr
+                                      key={line.id}
+                                      style={{
+                                        borderBottom: "1px solid #f3f4f6",
+                                        borderLeft: sc ? `3px solid ${sc.border}` : "3px solid #d1d5db",
+                                        background: sc?.bg ?? "#fff",
+                                      }}
+                                    >
+                                      <td style={{ padding: "6px 8px", color: "#9ca3af" }}>{line.lineNo}</td>
+                                      <td style={{ padding: "6px 8px", maxWidth: 300 }} title={line.description}>
+                                        {line.description}
+                                      </td>
+                                      <td style={{ padding: "6px 8px", color: "#6b7280", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }} title={line.specification ?? ""}>
+                                        {line.specification ?? "—"}
+                                      </td>
+                                      <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                                        {line.qty?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? "—"}
+                                      </td>
+                                      <td style={{ padding: "6px 8px", color: "#6b7280" }}>{line.unit ?? "—"}</td>
+                                      <td style={{ padding: "6px 8px", color: "#6b7280", fontSize: 10 }} title={line.csiDivisionName ?? ""}>
+                                        {line.csiDivision ?? "—"}
+                                      </td>
+                                      <td style={{ padding: "6px 8px" }}>
+                                        {line.isMatched ? (
+                                          <span style={{ color: "#16a34a", fontWeight: 600, fontSize: 10 }}>
+                                            ✓ {(line.matchConfidence != null ? `${(line.matchConfidence * 100).toFixed(0)}%` : "")}
+                                          </span>
+                                        ) : (
+                                          <span style={{ color: "#dc2626", fontSize: 10 }}>✗</span>
+                                        )}
+                                      </td>
+                                      <td style={{ padding: "6px 8px", textAlign: "right" }}>
+                                        {line.unitPrice != null ? `$${line.unitPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—"}
+                                      </td>
+                                      <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: 500 }}>
+                                        {line.totalPrice != null ? `$${line.totalPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—"}
+                                      </td>
+                                      <td style={{ padding: "6px 8px", textAlign: "center" }}>
+                                        <span style={{
+                                          display: "inline-block",
+                                          padding: "2px 6px",
+                                          borderRadius: 3,
+                                          fontSize: 9,
+                                          fontWeight: 600,
+                                          background: sc?.bg ?? "#f3f4f6",
+                                          color: sc?.text ?? "#374151",
+                                          border: `1px solid ${sc?.border ?? "#d1d5db"}`,
+                                        }}>
+                                          {src === "consensus" ? "Both" : src === "xai" ? "Grok" : src === "anthropic" ? "Claude" : src}
+                                        </span>
+                                        {line.consensusCount > 1 && (
+                                          <span style={{ fontSize: 9, color: "#16a34a", marginLeft: 2 }}>×{line.consensusCount}</span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+
+                        {/* Summary stats */}
+                        {lines.length > 0 && (
+                          <div style={{ marginTop: 12, display: "flex", gap: 24, fontSize: 11, color: "#6b7280" }}>
+                            <span>Showing: <strong>{lines.length}</strong> lines</span>
+                            <span>Matched: <strong style={{ color: "#16a34a" }}>{lines.filter((l: any) => l.isMatched).length}</strong></span>
+                            <span>Unmatched: <strong style={{ color: "#dc2626" }}>{lines.filter((l: any) => !l.isMatched).length}</strong></span>
+                            <span>Total Value: <strong>${lines.reduce((sum: number, l: any) => sum + (l.totalPrice ?? 0), 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
               )}
 
               {/* Raw Components View (Debug) */}
@@ -25938,6 +26276,11 @@ onClick={() => setManageTemplatesOpen(true)}
             </div>
           </div>
         </div>
+      )}
+
+      {/* PLANS tab content (PM+ only) */}
+      {activeTab === "PLANS" && isPmOrAbove && (
+        <PlanSheetsTab projectId={id} />
       )}
 
       {/* JOURNAL tab content (Admin+ only) */}

@@ -68,7 +68,19 @@ export class CompanyController {
     @Body() dto: CreateInviteDto
   ) {
     const actor = req.user as AuthenticatedUser;
-    return this.companies.createInvite(companyId, dto.email, dto.role, actor);
+    return this.companies.createInvite(companyId, dto.email, dto.role, actor, {
+      channel: dto.channel,
+    });
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Post("me/invites")
+  createMyInvite(@Req() req: any, @Body() dto: CreateInviteDto) {
+    const actor = req.user as AuthenticatedUser;
+    return this.companies.createInvite(actor.companyId, dto.email, dto.role, actor, {
+      channel: dto.channel,
+    });
   }
 
   // Update a member's role within the company (OWNER/ADMIN only)

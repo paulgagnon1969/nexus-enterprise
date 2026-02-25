@@ -14,6 +14,7 @@
     "lint": "echo 'lint disabled'"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "@fastify/multipart": "^9.0.0",
     "@fastify/static": "^8.3.0",
     "@google-cloud/storage": "^7.18.0",

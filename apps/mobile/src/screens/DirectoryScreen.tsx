@@ -10,29 +10,54 @@ import {
   ActivityIndicator,
   Linking,
   Alert,
+  Switch,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { fetchContacts } from "../api/contacts";
 import type { Contact, ContactCategory } from "../types/api";
+
+const PERSONAL_TOGGLE_KEY = "directory_includePersonal";
 
 const CATEGORIES: { key: ContactCategory | "all"; label: string }[] = [
   { key: "all", label: "All" },
   { key: "internal", label: "Team" },
   { key: "clients", label: "Clients" },
   { key: "subs", label: "Subs" },
+  { key: "personal", label: "Personal" },
 ];
 
-export function DirectoryScreen() {
+interface DirectoryScreenProps {
+  onImportFromPhone?: () => void;
+  onInvite?: () => void;
+}
+
+export function DirectoryScreen({ onImportFromPhone, onInvite }: DirectoryScreenProps = {}) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<ContactCategory | "all">("all");
+  const [includePersonal, setIncludePersonal] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Load persisted personal toggle preference
+  useEffect(() => {
+    AsyncStorage.getItem(PERSONAL_TOGGLE_KEY).then((val) => {
+      if (val === "true") setIncludePersonal(true);
+    });
+  }, []);
+
+  const togglePersonal = useCallback((value: boolean) => {
+    setIncludePersonal(value);
+    AsyncStorage.setItem(PERSONAL_TOGGLE_KEY, String(value));
+  }, []);
 
   const loadContacts = useCallback(async () => {
     try {
       setError(null);
-      const opts: { category?: ContactCategory; search?: string } = {};
+      const opts: { category?: ContactCategory; search?: string; includePersonal?: boolean } = {
+        includePersonal,
+      };
       if (category !== "all") {
         opts.category = category;
       }
@@ -45,7 +70,7 @@ export function DirectoryScreen() {
     } finally {
       setLoading(false);
     }
-  }, [category]);
+  }, [category, includePersonal]);
 
   useEffect(() => {
     setLoading(true);
@@ -127,6 +152,18 @@ export function DirectoryScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>Directory</Text>
+        <View style={styles.headerActions}>
+          {onImportFromPhone && (
+            <Pressable style={styles.headerBtn} onPress={onImportFromPhone}>
+              <Text style={styles.headerBtnText}>📱 Import</Text>
+            </Pressable>
+          )}
+          {onInvite && (
+            <Pressable style={[styles.headerBtn, styles.headerBtnPrimary]} onPress={onInvite}>
+              <Text style={styles.headerBtnTextPrimary}>+ Invite</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
 
       {/* Search bar */}
@@ -147,30 +184,41 @@ export function DirectoryScreen() {
         )}
       </View>
 
-      {/* Category tabs */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.categoryScroll}
-        contentContainerStyle={styles.categoryContainer}
-      >
-        {CATEGORIES.map((cat) => (
-          <Pressable
-            key={cat.key}
-            style={[styles.categoryTab, category === cat.key && styles.categoryTabActive]}
-            onPress={() => setCategory(cat.key)}
-          >
-            <Text
-              style={[
-                styles.categoryTabText,
-                category === cat.key && styles.categoryTabTextActive,
-              ]}
+      {/* Personal toggle + Category tabs */}
+      <View style={styles.toggleRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.categoryScroll}
+          contentContainerStyle={styles.categoryContainer}
+        >
+          {CATEGORIES.map((cat) => (
+            <Pressable
+              key={cat.key}
+              style={[styles.categoryTab, category === cat.key && styles.categoryTabActive]}
+              onPress={() => setCategory(cat.key)}
             >
-              {cat.label}
-            </Text>
-          </Pressable>
-        ))}
-      </ScrollView>
+              <Text
+                style={[
+                  styles.categoryTabText,
+                  category === cat.key && styles.categoryTabTextActive,
+                ]}
+              >
+                {cat.label}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+        <View style={styles.personalToggle}>
+          <Text style={styles.personalToggleLabel}>Personal</Text>
+          <Switch
+            value={includePersonal}
+            onValueChange={togglePersonal}
+            trackColor={{ false: "#d1d5db", true: "#93c5fd" }}
+            thumbColor={includePersonal ? "#1e3a8a" : "#f4f3f4"}
+          />
+        </View>
+      </View>
 
       {/* Contact list */}
       <ScrollView
@@ -218,6 +266,7 @@ export function DirectoryScreen() {
                       contact.category === "internal" && styles.categoryBadgeInternal,
                       contact.category === "clients" && styles.categoryBadgeClients,
                       contact.category === "subs" && styles.categoryBadgeSubs,
+                      contact.category === "personal" && styles.categoryBadgePersonal,
                     ]}
                   >
                     <Text style={styles.categoryBadgeText}>
@@ -227,9 +276,16 @@ export function DirectoryScreen() {
                         ? "Client"
                         : contact.category === "subs"
                         ? "Sub"
+                        : contact.category === "personal"
+                        ? "Personal"
                         : contact.category}
                     </Text>
                   </View>
+                  {contact.source === "personal" && (
+                    <View style={[styles.categoryBadge, styles.sourceBadgePersonal]}>
+                      <Text style={styles.categoryBadgeText}>My Contacts</Text>
+                    </View>
+                  )}
                 </View>
               </View>
 
@@ -289,11 +345,37 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffffff",
     borderBottomWidth: 1,
     borderBottomColor: "#f3f4f6",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   title: {
     fontSize: 24,
     fontWeight: "700",
     color: "#1f2937",
+  },
+  headerActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  headerBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: "#f3f4f6",
+  },
+  headerBtnPrimary: {
+    backgroundColor: "#1e3a8a",
+  },
+  headerBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  headerBtnTextPrimary: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#ffffff",
   },
 
   // Search
@@ -439,6 +521,13 @@ const styles = StyleSheet.create({
   categoryBadgeSubs: {
     backgroundColor: "#fef3c7",
   },
+  categoryBadgePersonal: {
+    backgroundColor: "#ede9fe",
+  },
+  sourceBadgePersonal: {
+    backgroundColor: "#f3e8ff",
+    marginLeft: 4,
+  },
   categoryBadgeText: {
     fontSize: 11,
     fontWeight: "600",
@@ -460,5 +549,22 @@ const styles = StyleSheet.create({
   },
   actionIcon: {
     fontSize: 18,
+  },
+
+  // Personal toggle row
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  personalToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: 16,
+    gap: 6,
+  },
+  personalToggleLabel: {
+    fontSize: 12,
+    color: "#6b7280",
+    fontWeight: "500",
   },
 });

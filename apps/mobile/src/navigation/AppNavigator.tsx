@@ -13,6 +13,8 @@ import { ProjectsScreen } from "../screens/ProjectsScreen";
 import { DailyLogsScreen } from "../screens/DailyLogsScreen";
 import { FieldPetlScreen, type PetlSessionChanges } from "../screens/FieldPetlScreen";
 import { DirectoryScreen } from "../screens/DirectoryScreen";
+import { PhoneContactsScreen } from "../screens/PhoneContactsScreen";
+import { InviteScreen } from "../screens/InviteScreen";
 import { InventoryScreen } from "../screens/InventoryScreen";
 import { OutboxScreen } from "../screens/OutboxScreen";
 import { TimecardScreen } from "../screens/TimecardScreen";
@@ -33,6 +35,12 @@ export type RootTabParamList = {
   OutboxTab: undefined;
 };
 
+export type DirectoryStackParamList = {
+  DirectoryList: undefined;
+  PhoneContacts: undefined;
+  Invite: { preselectedIds?: string[] } | undefined;
+};
+
 export type ProjectsStackParamList = {
   ProjectsList: undefined;
   DailyLogs: { project: ProjectListItem; companyName?: string; petlChanges?: PetlSessionChanges; createLogType?: string };
@@ -40,6 +48,7 @@ export type ProjectsStackParamList = {
 };
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
+const DirectoryStack = createNativeStackNavigator<DirectoryStackParamList>();
 const ProjectsStack = createNativeStackNavigator<ProjectsStackParamList>();
 
 // Projects stack wrappers
@@ -95,6 +104,48 @@ function FieldPetlWrapper() {
         // Navigate back to DailyLogs with the changes
         navigation.navigate("DailyLogs", { project, companyName, petlChanges: changes });
       }}
+    />
+  );
+}
+
+// Directory stack with drill-down to PhoneContacts and Invite
+function DirectoryStackNavigator() {
+  return (
+    <DirectoryStack.Navigator screenOptions={{ headerShown: false }}>
+      <DirectoryStack.Screen name="DirectoryList" component={DirectoryListWrapper} />
+      <DirectoryStack.Screen name="PhoneContacts" component={PhoneContactsWrapper} />
+      <DirectoryStack.Screen name="Invite" component={InviteWrapper} />
+    </DirectoryStack.Navigator>
+  );
+}
+
+function DirectoryListWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<DirectoryStackParamList>>();
+  return (
+    <DirectoryScreen
+      onImportFromPhone={() => navigation.navigate("PhoneContacts")}
+      onInvite={() => navigation.navigate("Invite")}
+    />
+  );
+}
+
+function PhoneContactsWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<DirectoryStackParamList>>();
+  return (
+    <PhoneContactsScreen
+      onBack={() => navigation.goBack()}
+      onSynced={() => {}}
+    />
+  );
+}
+
+function InviteWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<DirectoryStackParamList>>();
+  const route = useRoute<RouteProp<DirectoryStackParamList, "Invite">>();
+  return (
+    <InviteScreen
+      onBack={() => navigation.goBack()}
+      preselectedIds={route.params?.preselectedIds}
     />
   );
 }
@@ -251,7 +302,7 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
         <Tab.Screen name="HomeTab" component={HomeTabScreen} />
         <Tab.Screen name="TodosTab" component={TodosScreen} />
         <Tab.Screen name="TimecardTab" component={TimecardScreen} />
-        <Tab.Screen name="DirectoryTab" component={DirectoryScreen} />
+        <Tab.Screen name="DirectoryTab" component={DirectoryStackNavigator} />
         <Tab.Screen name="ProjectsTab" component={ProjectsStackNavigator} />
         <Tab.Screen name="InventoryTab" component={InventoryTabScreen} />
         <Tab.Screen name="OutboxTab" component={OutboxTabScreen} />
