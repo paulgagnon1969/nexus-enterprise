@@ -149,11 +149,15 @@ export function ScrollableTabBar({
       );
 
       // 2. Invite selected contacts (fire-and-forget)
+      //    Contact IDs are prefixed (e.g. "ncc-member-abc123") — strip to raw userId.
       if (selectedIds.size > 0) {
+        const rawUserIds = Array.from(selectedIds).map((id) =>
+          id.replace(/^ncc-member-/, "").replace(/^ncc-sub-/, "").replace(/^ncc-client-/, "").replace(/^personal-/, ""),
+        );
         apiJson(`/video/rooms/${res.room.id}/invite`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userIds: Array.from(selectedIds) }),
+          body: JSON.stringify({ userIds: rawUserIds }),
         }).catch(() => {});
       }
 

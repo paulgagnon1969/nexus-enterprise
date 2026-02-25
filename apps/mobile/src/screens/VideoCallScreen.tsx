@@ -183,10 +183,14 @@ function CallUI({
     if (selectedIds.size === 0) return;
     setInviting(true);
     try {
+      // Contact IDs are prefixed (e.g. "ncc-member-abc123") — strip to raw userId.
+      const rawUserIds = Array.from(selectedIds).map((id) =>
+        id.replace(/^ncc-member-/, "").replace(/^ncc-sub-/, "").replace(/^ncc-client-/, "").replace(/^personal-/, ""),
+      );
       await apiJson(`/video/rooms/${roomId}/invite`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userIds: Array.from(selectedIds) }),
+        body: JSON.stringify({ userIds: rawUserIds }),
       });
       Alert.alert("Invited", `Sent ${selectedIds.size} invite${selectedIds.size > 1 ? "s" : ""}`);
       setInviteOpen(false);
