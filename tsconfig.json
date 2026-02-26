@@ -17,10 +17,10 @@
         "packages/types/src/*"
       ],
       "@repo/icc-client": [
-        "packages/icc-client/src/index.ts"
+        "packages/icc-client/dist/index.d.ts"
       ],
       "@repo/icc-client/*": [
-        "packages/icc-client/src/*"
+        "packages/icc-client/dist/*"
       ]
     }
   }

@@ -209,12 +209,12 @@ model Company {
   // Supplier Bidding System
   bidPackages BidPackage[]
 
-  // Living Membership — billing & subscriptions
-  stripeCustomerId         String?                  @unique
-  tenantSubscriptions      TenantSubscription[]
-  tenantPaymentMethods     TenantPaymentMethod[]
+  // Living Membership — Billing
+  stripeCustomerId       String?               @unique
+  tenantSubscriptions    TenantSubscription[]
+  tenantPaymentMethods   TenantPaymentMethod[]
   tenantModuleSubscriptions TenantModuleSubscription[]
-  billingEvents            BillingEvent[]
+  billingEvents          BillingEvent[]
 }
 
 model OrganizationTemplate {

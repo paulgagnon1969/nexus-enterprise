@@ -13,7 +13,7 @@ export const StripeProvider: Provider = {
       console.warn("[billing] STRIPE_SECRET_KEY not set – Stripe calls will fail");
     }
     return new Stripe(secretKey || "", {
-      apiVersion: "2024-12-18.acacia",
+      apiVersion: "2026-02-25.clover",
       typescript: true,
     });
   },
