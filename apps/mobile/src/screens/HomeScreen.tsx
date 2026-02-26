@@ -586,7 +586,7 @@ export function HomeScreen({
             <ActivityIndicator size="small" color="#1e3a8a" />
           ) : (
             <Text style={styles.syncBarText}>
-              {lastSyncMsg || "Sync"}
+              {lastSyncMsg || `NCC v${appJson.expo.version} • Sync`}
             </Text>
           )}
         </Pressable>
