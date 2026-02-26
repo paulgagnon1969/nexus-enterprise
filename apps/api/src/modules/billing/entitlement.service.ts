@@ -148,6 +148,15 @@ export class EntitlementService {
       company.trialEndsAt &&
       company.trialEndsAt > new Date();
 
+    // Legacy tenant bypass: if the company has no subscription AND is not
+    // trialing, they pre-date the billing system — grant all modules until
+    // they are migrated to a proper subscription.
+    const hasAnySubscription = await this.prisma.tenantSubscription.findFirst({
+      where: { companyId },
+      select: { id: true },
+    });
+    const isLegacyTenant = !hasAnySubscription && !isActiveTrial;
+
     return catalog.map(mod => {
       // 1. SUPER_ADMIN override takes precedence
       if (overrideMap.has(mod.code)) {
@@ -176,7 +185,16 @@ export class EntitlementService {
         };
       }
 
-      // 4. CORE modules are always enabled
+      // 4. Legacy tenant (pre-billing) → all modules available
+      if (isLegacyTenant) {
+        return {
+          moduleCode: mod.code,
+          enabled: true,
+          reason: "subscription" as const,
+        };
+      }
+
+      // 5. CORE modules are always enabled
       if (mod.isCore) {
         return {
           moduleCode: mod.code,
