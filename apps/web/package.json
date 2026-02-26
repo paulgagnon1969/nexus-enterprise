@@ -27,6 +27,7 @@
     "next-intl": "^4.7.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-plaid-link": "^4.1.1",
     "react-virtualized": "^9.22.5",
     "react-window": "^2.2.6"
   },

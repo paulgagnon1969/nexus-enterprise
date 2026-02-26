@@ -1,4 +1,5 @@
 import { Inject, Injectable, ForbiddenException, BadRequestException, NotFoundException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import Stripe from "stripe";
 import { PlaidApi, Products, CountryCode } from "plaid";
 import { STRIPE_CLIENT } from "./stripe.provider";
@@ -13,6 +14,7 @@ export class BillingService {
     @Inject(STRIPE_CLIENT) private readonly stripe: Stripe,
     @Inject(PLAID_CLIENT) private readonly plaid: PlaidApi,
     private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
   ) {}
 
   // ───────────────────────────────────────────────
@@ -121,12 +123,15 @@ export class BillingService {
   async createPlaidLinkToken(actor: AuthenticatedUser) {
     this.ensureBillingPermission(actor);
 
+    const redirectUri = this.config.get<string>("PLAID_REDIRECT_URI");
+
     const response = await this.plaid.linkTokenCreate({
       user: { client_user_id: actor.userId },
       client_name: "Nexus Connect",
       products: [Products.Auth],
       country_codes: [CountryCode.Us],
       language: "en",
+      ...(redirectUri ? { redirect_uri: redirectUri } : {}),
     });
 
     return { linkToken: response.data.link_token };

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
+import { usePlaidLink } from "react-plaid-link";
 import { PageCard } from "../../ui-shell";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -32,6 +33,9 @@ export default function CompanySettingsPage() {
         <LoginBrandingCard />
         <ApplyBrandingCard />
       </div>
+
+      {/* Billing & payment methods */}
+      <BillingCard />
 
       <div
         style={{
@@ -1684,6 +1688,292 @@ function CompanyProfileCard() {
     </div>
   );
 }
+
+// ─── Billing Card ────────────────────────────────────────────────────────────
+
+type PaymentMethodRow = {
+  id: string;
+  type: string;
+  last4: string | null;
+  brand: string | null;
+  isDefault: boolean;
+};
+
+function BillingCard() {
+  const [methods, setMethods] = useState<PaymentMethodRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [linking, setLinking] = useState(false);
+
+  // Fetch existing payment methods on mount
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+
+    fetch(`${API_BASE}/billing/payment-methods`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => (res.ok ? res.json() : []))
+      .then((data: PaymentMethodRow[]) => {
+        setMethods(Array.isArray(data) ? data : []);
+        setLoading(false);
+      })
+      .catch(() => {
+        setLoading(false);
+      });
+  }, []);
+
+  // Request a Plaid link token from the API
+  const startBankLink = useCallback(async () => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) {
+      setError("You must be logged in.");
+      return;
+    }
+
+    setLinking(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`${API_BASE}/billing/plaid/link-token`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.message || `Failed to create link token (${res.status})`);
+      }
+
+      const { linkToken: lt } = await res.json();
+      // Store for OAuth redirect page
+      window.sessionStorage.setItem("plaid_link_token", lt);
+      setLinkToken(lt);
+    } catch (err: any) {
+      setError(err?.message ?? "Failed to start bank linking.");
+      setLinking(false);
+    }
+  }, []);
+
+  const onSuccess = useCallback(
+    async (publicToken: string, metadata: any) => {
+      try {
+        const token = window.localStorage.getItem("accessToken");
+        const accountId = metadata?.accounts?.[0]?.id;
+
+        if (!accountId) {
+          setError("No account was selected. Please try again.");
+          setLinking(false);
+          return;
+        }
+
+        const res = await fetch(`${API_BASE}/billing/plaid/exchange`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ publicToken, accountId }),
+        });
+
+        if (!res.ok) {
+          throw new Error("Exchange failed");
+        }
+
+        const pm: PaymentMethodRow = await res.json();
+        setMethods(prev => [...prev, pm]);
+        window.sessionStorage.removeItem("plaid_link_token");
+        setLinkToken(null);
+        setLinking(false);
+      } catch {
+        setError("Failed to link bank account. Please try again.");
+        setLinking(false);
+      }
+    },
+    [],
+  );
+
+  const onExit = useCallback(() => {
+    window.sessionStorage.removeItem("plaid_link_token");
+    setLinkToken(null);
+    setLinking(false);
+  }, []);
+
+  const { open, ready } = usePlaidLink({
+    token: linkToken,
+    onSuccess,
+    onExit,
+  });
+
+  // Auto-open Plaid Link once the token is ready
+  useEffect(() => {
+    if (ready && linkToken) {
+      open();
+    }
+  }, [ready, linkToken, open]);
+
+  const setDefault = async (id: string) => {
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+    await fetch(`${API_BASE}/billing/payment-methods/${id}/default`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    setMethods(prev =>
+      prev.map(m => ({ ...m, isDefault: m.id === id })),
+    );
+  };
+
+  const removeMethod = async (id: string) => {
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+    await fetch(`${API_BASE}/billing/payment-methods/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    setMethods(prev => prev.filter(m => m.id !== id));
+  };
+
+  return (
+    <div
+      style={{
+        borderRadius: 8,
+        border: "1px solid #e5e7eb",
+        background: "#ffffff",
+        padding: 16,
+        marginTop: 16,
+        fontSize: 13,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 8,
+        }}
+      >
+        <div>
+          <h3 style={{ margin: 0, fontSize: 14 }}>Billing & payment methods</h3>
+          <p style={{ margin: "2px 0 0", fontSize: 12, color: "#6b7280" }}>
+            Manage payment methods used for subscriptions and invoices.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={startBankLink}
+          disabled={linking}
+          style={{
+            padding: "6px 12px",
+            borderRadius: 999,
+            border: "1px solid #0f172a",
+            background: "#0f172a",
+            color: "#f9fafb",
+            fontSize: 12,
+            cursor: linking ? "not-allowed" : "pointer",
+            opacity: linking ? 0.7 : 1,
+          }}
+        >
+          {linking ? "Connecting…" : "Link bank account"}
+        </button>
+      </div>
+
+      {error && (
+        <p style={{ margin: "0 0 8px", fontSize: 11, color: "#b91c1c" }}>{error}</p>
+      )}
+
+      {loading ? (
+        <p style={{ fontSize: 12, color: "#6b7280" }}>Loading payment methods…</p>
+      ) : methods.length === 0 ? (
+        <p style={{ fontSize: 12, color: "#6b7280" }}>
+          No payment methods on file. Link a bank account to get started.
+        </p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {methods.map(pm => (
+            <div
+              key={pm.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "8px 10px",
+                borderRadius: 6,
+                border: pm.isDefault ? "1px solid #0f172a" : "1px solid #e5e7eb",
+                background: pm.isDefault ? "#f8fafc" : "#ffffff",
+                fontSize: 12,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontWeight: 600 }}>
+                  {pm.brand || pm.type}
+                </span>
+                <span style={{ color: "#6b7280" }}>••••{pm.last4 || "????"}</span>
+                {pm.isDefault && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      padding: "1px 6px",
+                      borderRadius: 999,
+                      background: "#0f172a",
+                      color: "#f9fafb",
+                    }}
+                  >
+                    Default
+                  </span>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {!pm.isDefault && (
+                  <button
+                    type="button"
+                    onClick={() => setDefault(pm.id)}
+                    style={{
+                      padding: "2px 8px",
+                      borderRadius: 999,
+                      border: "1px solid #d1d5db",
+                      background: "#ffffff",
+                      fontSize: 11,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Set default
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => removeMethod(pm.id)}
+                  style={{
+                    padding: "2px 8px",
+                    borderRadius: 999,
+                    border: "1px solid #fecaca",
+                    background: "#fef2f2",
+                    color: "#b91c1c",
+                    fontSize: 11,
+                    cursor: "pointer",
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Login & Apply Branding ──────────────────────────────────────────────────
 
 function LoginBrandingCard() {
   const [headline, setHeadline] = useState("Welcome back to Nexus");
