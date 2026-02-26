@@ -7,11 +7,13 @@ import {
   Headers,
 } from "@nestjs/common";
 import { BidPortalService } from "./bid-portal.service";
+import { Public } from "../auth/auth.guards";
 
 /**
  * Public controller for supplier bid portal access.
  * Does NOT use JWT auth - uses token/PIN authentication instead.
  */
+@Public()
 @Controller("bid-portal")
 export class BidPortalController {
   constructor(private bidPortalService: BidPortalService) {}

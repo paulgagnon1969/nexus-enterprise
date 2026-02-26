@@ -2,7 +2,9 @@ import { Controller, Get, Post, Patch, Body, Param, Res, BadRequestException } f
 import { Response } from "express";
 import { BidPackageService, SubmitBidDto } from "./bid-package.service";
 import { createObjectCsvStringifier } from "csv-writer";
+import { Public } from "../auth/auth.guards";
 
+@Public()
 @Controller("supplier-portal")
 export class SupplierPortalController {
   constructor(private readonly bidPackageService: BidPackageService) {}

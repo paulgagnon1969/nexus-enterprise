@@ -11,7 +11,7 @@ import {
   Query,
   Headers,
 } from "@nestjs/common";
-import { JwtAuthGuard, GlobalRoles, GlobalRolesGuard, GlobalRole } from "../auth/auth.guards";
+import { JwtAuthGuard, GlobalRoles, GlobalRolesGuard, GlobalRole, Public } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { PublicDocsService } from "./public-docs.service";
 import {
@@ -34,6 +34,7 @@ function getUser(req: { user: AuthenticatedUser }): AuthenticatedUser {
  * Public Portal Controller
  * Landing page listing all public content (no auth required)
  */
+@Public()
 @Controller("portal")
 export class PublicPortalController {
   constructor(private readonly service: PublicDocsService) {}
@@ -52,6 +53,7 @@ export class PublicPortalController {
  * Public Documents Controller
  * Endpoints for accessing public documents and share links (no auth required)
  */
+@Public()
 @Controller("docs")
 export class PublicDocsController {
   constructor(private readonly service: PublicDocsService) {}
@@ -70,6 +72,7 @@ export class PublicDocsController {
  * Public Manuals Controller
  * Endpoints for accessing public manuals (no auth required)
  */
+@Public()
 @Controller("manuals/public")
 export class PublicManualsController {
   constructor(private readonly service: PublicDocsService) {}
@@ -88,6 +91,7 @@ export class PublicManualsController {
  * Share Links Controller
  * Endpoints for accessing content via share tokens (no auth required)
  */
+@Public()
 @Controller("share")
 export class ShareLinksController {
   constructor(private readonly service: PublicDocsService) {}

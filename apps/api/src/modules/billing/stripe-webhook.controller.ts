@@ -5,6 +5,7 @@ import Stripe from "stripe";
 import { STRIPE_CLIENT } from "./stripe.provider";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { EntitlementService } from "./entitlement.service";
+import { Public } from "../auth/auth.guards";
 
 /**
  * Stripe webhook endpoint. This controller does NOT use JwtAuthGuard because
@@ -14,6 +15,7 @@ import { EntitlementService } from "./entitlement.service";
  * IMPORTANT: Fastify must be configured to provide the raw body for this
  * route (see billing.module.ts or main.ts setup).
  */
+@Public()
 @Controller("webhooks")
 export class StripeWebhookController {
   private readonly webhookSecret: string;

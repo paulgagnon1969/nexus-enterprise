@@ -1,3 +1,4 @@
+import { Public } from "../auth/auth.guards";
 import {
   Body,
   Controller,
@@ -15,6 +16,7 @@ import { MessagingService } from "./messaging.service";
  * replies from Gmail (via IMAP/Gmail API) and posts them here. It is secured
  * via a shared secret header rather than JWT.
  */
+@Public()
 @Controller("email-inbound")
 export class InboundEmailController {
   constructor(private readonly messaging: MessagingService) {}

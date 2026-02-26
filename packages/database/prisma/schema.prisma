@@ -68,6 +68,10 @@ model Company {
   trialEndsAt DateTime?
   trialStatus CompanyTrialStatus?
 
+  /// NEXUS-owned or internal test tenant — permanently bypasses all module
+  /// entitlement checks. Set by SUPER_ADMIN only.
+  isInternal  Boolean             @default(false)
+
   templateId            String?
   templateVersionId     String?
   template              OrganizationTemplate?        @relation("CompanyTemplate", fields: [templateId], references: [id])

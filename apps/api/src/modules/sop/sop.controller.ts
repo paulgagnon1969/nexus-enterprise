@@ -1,6 +1,8 @@
 import { Controller, Get, Param } from "@nestjs/common";
 import { SopService } from "./sop.service";
+import { Public } from "../auth/auth.guards";
 
+@Public()
 @Controller("sops")
 export class SopController {
   constructor(private readonly sopService: SopService) {}

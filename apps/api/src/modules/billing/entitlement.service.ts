@@ -77,8 +77,15 @@ export class EntitlementService {
     // Check active trial first — trial tenants get everything
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
-      select: { isTrial: true, trialEndsAt: true, trialStatus: true },
+      select: { isTrial: true, trialEndsAt: true, trialStatus: true, isInternal: true },
     });
+
+    // Internal tenants permanently bypass all feature checks.
+    if (company?.isInternal) {
+      await this.redis.setJson(cacheKey, true, ENTITLEMENT_TTL);
+      return true;
+    }
+
     const isActiveTrial =
       company?.isTrial &&
       company.trialStatus === "ACTIVE" &&
@@ -134,12 +141,21 @@ export class EntitlementService {
       }),
       this.prisma.company.findUnique({
         where: { id: companyId },
-        select: { isTrial: true, trialEndsAt: true, trialStatus: true },
+        select: { isTrial: true, trialEndsAt: true, trialStatus: true, isInternal: true },
       }),
     ]);
 
     const overrideMap = new Map(overrides.map(o => [o.moduleCode, o.enabled]));
     const subscribedCodes = new Set(subscriptions.map(s => s.moduleCode));
+
+    // Internal (NEXUS-owned) tenants permanently bypass all module checks.
+    if (company?.isInternal) {
+      return catalog.map(mod => ({
+        moduleCode: mod.code,
+        enabled: true,
+        reason: "override" as const,
+      }));
+    }
 
     // Check if company is in an active trial
     const isActiveTrial =
@@ -147,15 +163,6 @@ export class EntitlementService {
       company.trialStatus === "ACTIVE" &&
       company.trialEndsAt &&
       company.trialEndsAt > new Date();
-
-    // Legacy tenant bypass: if the company has no subscription AND is not
-    // trialing, they pre-date the billing system — grant all modules until
-    // they are migrated to a proper subscription.
-    const hasAnySubscription = await this.prisma.tenantSubscription.findFirst({
-      where: { companyId },
-      select: { id: true },
-    });
-    const isLegacyTenant = !hasAnySubscription && !isActiveTrial;
 
     return catalog.map(mod => {
       // 1. SUPER_ADMIN override takes precedence
@@ -185,16 +192,7 @@ export class EntitlementService {
         };
       }
 
-      // 4. Legacy tenant (pre-billing) → all modules available
-      if (isLegacyTenant) {
-        return {
-          moduleCode: mod.code,
-          enabled: true,
-          reason: "subscription" as const,
-        };
-      }
-
-      // 5. CORE modules are always enabled
+      // 4. CORE modules are always enabled
       if (mod.isCore) {
         return {
           moduleCode: mod.code,

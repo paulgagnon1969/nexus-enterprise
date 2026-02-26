@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Post, Req, UseGuards, Query } from "@nestjs/common";
 import { AuthService } from "./auth.service";
 import { RegisterDto, LoginDto, ChangePasswordDto } from "./dto/auth.dto";
-import { JwtAuthGuard, GlobalRolesGuard, GlobalRoles, GlobalRole } from "./auth.guards";
+import { JwtAuthGuard, GlobalRolesGuard, GlobalRoles, GlobalRole, Public } from "./auth.guards";
 import { AuthenticatedUser } from "./jwt.strategy";
 import { AcceptInviteDto } from "./dto/accept-invite.dto";
 
@@ -9,6 +9,7 @@ import { AcceptInviteDto } from "./dto/accept-invite.dto";
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
+  @Public()
   @Post("register")
   register(@Body() dto: RegisterDto) {
     return this.auth.register(dto);
@@ -28,6 +29,7 @@ export class AuthController {
 
   // Public: validate an organization invite token and return basic metadata
   // (email + expiry) so the web wizard can display it.
+  @Public()
   @Get("org-onboarding")
   getOrgInvite(@Query("token") token: string) {
     return this.auth.getOrgInvite(token);
@@ -35,6 +37,7 @@ export class AuthController {
 
   // Public: complete org onboarding (create owner user, company, first office)
   // and return login tokens.
+  @Public()
   @Post("org-onboarding")
   completeOrgOnboarding(
     @Body()
@@ -56,11 +59,13 @@ export class AuthController {
 
   // One-time bootstrap: create or promote a user to SUPER_ADMIN when none exist yet.
   // This route has no auth guards by design but will refuse to run once a SUPER_ADMIN exists.
+  @Public()
   @Post("bootstrap-superadmin")
   bootstrapSuperAdmin(@Body("email") email: string, @Body("password") password: string) {
     return this.auth.bootstrapSuperAdmin(email, password);
   }
 
+  @Public()
   @Post("login")
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto);
@@ -68,12 +73,14 @@ export class AuthController {
 
   // Public: request a password reset link by email.
   // Always returns ok=true to avoid user enumeration.
+  @Public()
   @Post("request-password-reset")
   requestPasswordReset(@Body("email") email: string) {
     return this.auth.requestPasswordReset(email);
   }
 
   // Public: reset password using a one-time token sent to email.
+  @Public()
   @Post("reset-password")
   resetPassword(@Body("token") token: string, @Body("password") password: string) {
     return this.auth.resetPasswordWithToken(token, password);
@@ -82,12 +89,14 @@ export class AuthController {
   // --- Client Portal Registration ---
 
   // Public: validate a client invite token and return metadata for the registration form.
+  @Public()
   @Get("client-register")
   getClientInvite(@Query("token") token: string) {
     return this.auth.getClientInviteInfo(token);
   }
 
   // Public: complete client registration (set password) using invite token.
+  @Public()
   @Post("client-register")
   completeClientRegistration(
     @Body() body: { token: string; password: string },
@@ -95,11 +104,13 @@ export class AuthController {
     return this.auth.completeClientRegistration(body.token, body.password);
   }
 
+  @Public()
   @Post("refresh")
   refresh(@Body("refreshToken") refreshToken: string) {
     return this.auth.refresh(refreshToken);
   }
 
+  @Public()
   @Post("accept-invite")
   acceptInvite(@Body() dto: AcceptInviteDto) {
     return this.auth.acceptInvite(dto.token, dto.password);
