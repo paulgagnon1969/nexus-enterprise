@@ -1,0 +1,41 @@
+name: Mobile iOS Build
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/mobile/**'
+      - '!apps/mobile/android/**'
+      - 'apps/mobile/app.json'
+
+jobs:
+  build-ios:
+    name: Build iOS with EAS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for relevant changes
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        working-directory: apps/mobile
+        run: npm ci
+
+      - name: Build and Submit to TestFlight
+        working-directory: apps/mobile
+        run: |
+          eas build --platform ios --profile production --non-interactive
+          eas submit --platform ios --latest --non-interactive
