@@ -108,12 +108,16 @@ export class PushService {
             sent++;
           } else {
             failed++;
+            const failedToken = (chunk[i] as any).to as string;
+            const errorDetail = ticket.status === "error"
+              ? `${ticket.details?.error ?? "unknown"}: ${ticket.message ?? ""}`
+              : "unknown status";
+            this.logger.warn(`Push failed for token ${failedToken.slice(0, 25)}...: ${errorDetail}`);
             // If device is not registered, mark token as inactive
             if (
               ticket.status === "error" &&
               ticket.details?.error === "DeviceNotRegistered"
             ) {
-              const failedToken = (chunk[i] as any).to as string;
               invalidTokens.push(failedToken);
             }
           }
