@@ -1,0 +1,104 @@
+### 1. Create Bid Package
+POST http://localhost:8001/bid-packages
+Authorization: Bearer {{jwt_token}}
+Content-Type: application/json
+
+{
+  "projectId": "{{project_id}}",
+  "title": "Cabinet and Flooring Bid Request",
+  "description": "Seeking competitive bids for cabinet installation and flooring",
+  "dueDate": "2026-03-15T23:59:59.000Z",
+  "attachmentUrls": ["https://storage.googleapis.com/nexus-uploads/plans-123.pdf"],
+  "lineItems": [
+    {
+      "category": "CABINETS",
+      "description": "Kitchen base cabinets, white shaker, 36\"Wx24\"Dx34.5\"H",
+      "unit": "EA",
+      "qty": 12,
+      "specHash": "abc123"
+    },
+    {
+      "category": "FLOORING",
+      "description": "Luxury vinyl plank, 7\" x 48\", gray oak",
+      "unit": "SF",
+      "qty": 850
+    }
+  ]
+}
+
+### 2. List Bid Packages
+GET http://localhost:8001/bid-packages?projectId={{project_id}}
+Authorization: Bearer {{jwt_token}}
+
+### 3. Get Bid Package Details
+GET http://localhost:8001/bid-packages/{{package_id}}
+Authorization: Bearer {{jwt_token}}
+
+### 4. Invite Suppliers
+POST http://localhost:8001/bid-packages/{{package_id}}/invite
+Authorization: Bearer {{jwt_token}}
+Content-Type: application/json
+
+{
+  "suppliers": [
+    {
+      "supplierName": "ABC Cabinets",
+      "contactName": "John Smith",
+      "contactEmail": "john@abccabinets.com",
+      "contactPhone": "+15551234567"
+    },
+    {
+      "supplierName": "XYZ Flooring",
+      "contactName": "Jane Doe",
+      "contactEmail": "jane@xyzflooring.com"
+    }
+  ]
+}
+
+### 5. Supplier Portal - Get Bid Package (no auth)
+GET http://localhost:8001/supplier-portal/{{access_token}}
+
+### 6. Supplier Portal - Submit Bid
+POST http://localhost:8001/supplier-portal/{{access_token}}/bid
+Content-Type: application/json
+
+{
+  "status": "SUBMITTED",
+  "notes": "We can complete this within 2 weeks",
+  "lineItems": [
+    {
+      "bidPackageLineItemId": "{{line_item_1_id}}",
+      "unitPrice": 450.00,
+      "leadTimeDays": 10
+    },
+    {
+      "bidPackageLineItemId": "{{line_item_2_id}}",
+      "unitPrice": 5.25,
+      "leadTimeDays": 7,
+      "notes": "Premium grade LVP"
+    }
+  ],
+  "subtotal": 9862.50,
+  "total": 9862.50
+}
+
+### 7. Download CSV Template
+GET http://localhost:8001/supplier-portal/{{access_token}}/csv-template
+
+### 8. Compare Bids
+GET http://localhost:8001/bid-packages/{{package_id}}/compare
+Authorization: Bearer {{jwt_token}}
+
+### 9. Award Bid
+POST http://localhost:8001/bid-packages/{{package_id}}/award
+Authorization: Bearer {{jwt_token}}
+Content-Type: application/json
+
+{
+  "bidId": "{{winning_bid_id}}",
+  "notes": "Best value and timeline"
+}
+
+### 10. Close Bidding
+POST http://localhost:8001/bid-packages/{{package_id}}/close
+Authorization: Bearer {{jwt_token}}

@@ -31,6 +31,7 @@
     "bullmq": "^5.58.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "csv-writer": "^1.6.0",
     "expo-server-sdk": "^6.0.0",
     "fast-xml-parser": "^5.3.7",
     "fastify": "^5.0.0",
@@ -46,9 +47,11 @@
     "passport-custom": "^1.1.1",
     "passport-jwt": "^4.0.1",
     "pdf-parse": "^2.4.5",
+    "plaid": "^41.3.0",
     "puppeteer": "^24.37.3",
     "reflect-metadata": "^0.2.0",
-    "rxjs": "^7.8.0"
+    "rxjs": "^7.8.0",
+    "stripe": "^20.4.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

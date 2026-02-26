@@ -14,11 +14,15 @@ import type { FastifyRequest } from "fastify";
 import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { DrawingsBomService } from "./drawings-bom.service";
+import { BomCabinetMatcherService } from "./bom-cabinet-matcher.service";
 
 @UseGuards(JwtAuthGuard)
 @Controller("projects/:projectId/drawings-bom")
 export class DrawingsBomController {
-  constructor(private readonly service: DrawingsBomService) {}
+  constructor(
+    private readonly service: DrawingsBomService,
+    private readonly cabinetMatcher: BomCabinetMatcherService,
+  ) {}
 
   // ── Upload a PDF drawing set ─────────────────────────────────────────
 
@@ -157,5 +161,19 @@ export class DrawingsBomController {
     // Verify access
     await this.service.getUpload(uploadId, user.companyId);
     return this.service.generatePetl(uploadId, user);
+  }
+
+  // ── Enhanced cabinet matching using specHash ─────────────────────────
+
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Post(":uploadId/match-cabinets")
+  async matchCabinets(
+    @Req() req: FastifyRequest,
+    @Param("uploadId") uploadId: string,
+  ) {
+    const user = (req as any).user as AuthenticatedUser;
+    // Verify access
+    await this.service.getUpload(uploadId, user.companyId);
+    return this.cabinetMatcher.matchCabinetBomLines(uploadId);
   }
 }

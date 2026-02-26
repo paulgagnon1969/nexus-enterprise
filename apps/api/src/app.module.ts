@@ -61,6 +61,7 @@ import { HelpItemsModule } from "./modules/help-items/help-items.module";
 import { IccModule } from "./modules/icc/icc.module";
 import { TranscriptionModule } from "./modules/transcription/transcription.module";
 import { VjnModule } from "./modules/vjn/vjn.module";
+import { SupplierBiddingModule } from "./modules/supplier-bidding/supplier-bidding.module";
 
 @Module({
   imports: [
@@ -130,6 +131,7 @@ import { VjnModule } from "./modules/vjn/vjn.module";
     IccModule,
     TranscriptionModule,
     VjnModule,
+    SupplierBiddingModule,
   ],
   controllers: [DevController]
 })
