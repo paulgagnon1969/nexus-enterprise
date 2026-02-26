@@ -9,7 +9,12 @@ import {
   Alert,
   ScrollView,
 } from "react-native";
-import { Audio } from "expo-av";
+import {
+  useAudioRecorder,
+  RecordingPresets,
+  setAudioModeAsync,
+  requestRecordingPermissionsAsync,
+} from "expo-audio";
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
@@ -17,7 +22,6 @@ import {
 import * as Haptics from "expo-haptics";
 import * as FileSystem from "expo-file-system/legacy";
 import { colors } from "../theme/colors";
-import { apiFetch } from "../api/client";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -63,16 +67,13 @@ export function VoiceRecorder({
 }: Props) {
   const [language, setLanguage] = useState(initialLanguage);
   const [isRecording, setIsRecording] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [partialResult, setPartialResult] = useState("");
   const [elapsedSecs, setElapsedSecs] = useState(0);
-  const [uploading, setUploading] = useState(false);
 
-  const recordingRef = useRef<Audio.Recording | null>(null);
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
-  const pausedTimeRef = useRef<number>(0);
 
   // ── Speech recognition events ──────────────────────────────────
 
@@ -94,12 +95,9 @@ export function VoiceRecorder({
   // ── Timer ──────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (isRecording && !isPaused) {
+    if (isRecording) {
       timerRef.current = setInterval(() => {
-        const now = Date.now();
-        const elapsed = Math.floor(
-          (now - startTimeRef.current - pausedTimeRef.current) / 1000,
-        );
+        const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
         setElapsedSecs(elapsed);
       }, 500);
     } else if (timerRef.current) {
@@ -109,14 +107,14 @@ export function VoiceRecorder({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isRecording, isPaused]);
+  }, [isRecording]);
 
   // ── Start recording ────────────────────────────────────────────
 
   const startRecording = useCallback(async () => {
     try {
       // Request audio permission
-      const audioPerm = await Audio.requestPermissionsAsync();
+      const audioPerm = await requestRecordingPermissionsAsync();
       if (!audioPerm.granted) {
         Alert.alert("Permission Required", "Microphone access is needed to record voice notes.");
         return;
@@ -133,19 +131,16 @@ export function VoiceRecorder({
 
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-      // Configure audio mode
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
+      // Configure audio mode for recording
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+        interruptionMode: "doNotMix",
       });
 
-      // Start audio recording
-      const recording = new Audio.Recording();
-      await recording.prepareToRecordAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY,
-      );
-      await recording.startAsync();
-      recordingRef.current = recording;
+      // Start audio recording via hook-managed recorder
+      await recorder.prepareToRecordAsync();
+      recorder.record();
 
       // Start speech recognition (parallel)
       if (speechPerm.granted) {
@@ -157,17 +152,15 @@ export function VoiceRecorder({
       }
 
       startTimeRef.current = Date.now();
-      pausedTimeRef.current = 0;
       setTranscript("");
       setPartialResult("");
       setIsRecording(true);
-      setIsPaused(false);
       setElapsedSecs(0);
     } catch (err) {
       console.error("[VoiceRecorder] Start failed:", err);
       Alert.alert("Recording Error", `Could not start recording: ${err instanceof Error ? err.message : String(err)}`);
     }
-  }, [language]);
+  }, [language, recorder]);
 
   // ── Stop recording ─────────────────────────────────────────────
 
@@ -179,16 +172,13 @@ export function VoiceRecorder({
       ExpoSpeechRecognitionModule.stop();
 
       // Stop audio recording
-      const recording = recordingRef.current;
-      if (!recording) return;
-
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      recordingRef.current = null;
+      recorder.stop();
+      const uri = recorder.uri;
 
       // Reset audio mode
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
+      await setAudioModeAsync({
+        allowsRecording: false,
+        interruptionMode: "mixWithOthers",
       });
 
       if (!uri) {
@@ -199,7 +189,6 @@ export function VoiceRecorder({
       const finalTranscript = transcript + (partialResult ? " " + partialResult : "");
 
       setIsRecording(false);
-      setIsPaused(false);
 
       onRecordingComplete({
         localUri: uri,
@@ -211,7 +200,7 @@ export function VoiceRecorder({
       console.error("[VoiceRecorder] Stop failed:", err);
       Alert.alert("Error", "Failed to stop recording.");
     }
-  }, [transcript, partialResult, elapsedSecs, language, onRecordingComplete]);
+  }, [transcript, partialResult, elapsedSecs, language, onRecordingComplete, recorder]);
 
   // ── Cancel recording ───────────────────────────────────────────
 
@@ -219,22 +208,17 @@ export function VoiceRecorder({
     try {
       ExpoSpeechRecognitionModule.stop();
 
-      const recording = recordingRef.current;
-      if (recording) {
-        await recording.stopAndUnloadAsync();
-        const uri = recording.getURI();
-        recordingRef.current = null;
+      recorder.stop();
+      const uri = recorder.uri;
 
-        // Clean up the file
-        if (uri) {
-          await FileSystem.deleteAsync(uri, { idempotent: true });
-        }
+      // Clean up the file
+      if (uri) {
+        await FileSystem.deleteAsync(uri, { idempotent: true });
       }
 
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+      await setAudioModeAsync({ allowsRecording: false, interruptionMode: "mixWithOthers" });
 
       setIsRecording(false);
-      setIsPaused(false);
       setTranscript("");
       setPartialResult("");
       setElapsedSecs(0);
@@ -244,7 +228,7 @@ export function VoiceRecorder({
       console.error("[VoiceRecorder] Cancel failed:", err);
       onCancel();
     }
-  }, [onCancel]);
+  }, [onCancel, recorder]);
 
   // ── Format elapsed time ────────────────────────────────────────
 

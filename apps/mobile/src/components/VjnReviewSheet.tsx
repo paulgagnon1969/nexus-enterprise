@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -11,7 +11,11 @@ import {
   ScrollView,
   Alert,
 } from "react-native";
-import { Audio, type AVPlaybackStatus } from "expo-av";
+import {
+  useAudioPlayer,
+  useAudioPlayerStatus,
+  setAudioModeAsync,
+} from "expo-audio";
 import * as Haptics from "expo-haptics";
 import { colors } from "../theme/colors";
 import { apiJson } from "../api/client";
@@ -56,8 +60,6 @@ export function VjnReviewSheet({
   onShared,
   projectId,
 }: Props) {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [playbackPosition, setPlaybackPosition] = useState(0);
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState("");
   const [saving, setSaving] = useState(false);
@@ -65,7 +67,11 @@ export function VjnReviewSheet({
   const [processing, setProcessing] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
 
-  const soundRef = useRef<Audio.Sound | null>(null);
+  // Audio player via expo-audio hooks
+  const player = useAudioPlayer(
+    vjn?.voiceRecordingUrl ? { uri: vjn.voiceRecordingUrl } : null,
+  );
+  const playerStatus = useAudioPlayerStatus(player);
 
   // Reset state when VJN changes
   useEffect(() => {
@@ -74,57 +80,34 @@ export function VjnReviewSheet({
       setIsEditing(false);
       setShowTranslation(false);
     }
-    return () => {
-      // Cleanup audio on unmount
-      soundRef.current?.unloadAsync().catch(() => {});
-    };
   }, [vjn?.id]);
 
-  // ── Audio playback ─────────────────────────────────────────────
+  // Configure audio mode for playback
+  useEffect(() => {
+    if (visible) {
+      setAudioModeAsync({
+        allowsRecording: false,
+        playsInSilentMode: true,
+        interruptionMode: "mixWithOthers",
+      }).catch(() => {});
+    }
+  }, [visible]);
 
-  const togglePlayback = useCallback(async () => {
+  // ── Audio playback ─────────────────────────────────────────
+
+  const togglePlayback = useCallback(() => {
     if (!vjn) return;
-
     try {
-      if (isPlaying && soundRef.current) {
-        await soundRef.current.pauseAsync();
-        setIsPlaying(false);
-        return;
+      if (playerStatus.playing) {
+        player.pause();
+      } else {
+        player.play();
       }
-
-      if (soundRef.current) {
-        await soundRef.current.playAsync();
-        setIsPlaying(true);
-        return;
-      }
-
-      // Load and play
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-      });
-
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: vjn.voiceRecordingUrl },
-        { shouldPlay: true },
-        (status: AVPlaybackStatus) => {
-          if (status.isLoaded) {
-            setPlaybackPosition(status.positionMillis / 1000);
-            if (status.didJustFinish) {
-              setIsPlaying(false);
-              setPlaybackPosition(0);
-            }
-          }
-        },
-      );
-
-      soundRef.current = sound;
-      setIsPlaying(true);
     } catch (err) {
       console.error("[VjnReview] Playback error:", err);
       Alert.alert("Playback Error", "Could not play audio.");
     }
-  }, [vjn, isPlaying]);
+  }, [vjn, player, playerStatus.playing]);
 
   // ── Trigger Tier 2 processing ──────────────────────────────────
 
@@ -226,6 +209,9 @@ export function VjnReviewSheet({
     ? vjn.aiTextTranslated ?? vjn.aiText ?? vjn.deviceTranscript ?? ""
     : vjn.aiText ?? vjn.deviceTranscript ?? "";
 
+  const isPlaying = playerStatus.playing;
+  const playbackPosition = playerStatus.currentTime;
+
   return (
     <Modal
       visible={visible}
@@ -238,7 +224,7 @@ export function VjnReviewSheet({
           {/* Header */}
           <View style={styles.header}>
             <View>
-              <Text style={styles.title}>🎙️ Voice Journal Note</Text>
+              <Text style={styles.title}>🎤️ Voice Journal Note</Text>
               {vjn.project && (
                 <Text style={styles.projectLabel}>{vjn.project.name}</Text>
               )}
