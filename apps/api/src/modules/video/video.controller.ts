@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Param, Body, Req, UseGuards } from "@nestjs/common";
+import { Controller, Get, Post, Delete, Param, Body, Query, Req, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import type { AuthenticatedUser } from "../auth/jwt.strategy";
 import { VideoService, SmartInvitee } from "./video.service";
@@ -102,5 +102,19 @@ export class VideoController {
     const actor = req.user as AuthenticatedUser;
     const results = await this.video.smartInvite(roomId, body.invitees, actor);
     return { results };
+  }
+
+  /**
+   * Get the user's most frequently called contacts.
+   * GET /video/frequent-contacts?limit=10
+   */
+  @Get("frequent-contacts")
+  async frequentContacts(
+    @Req() req: any,
+    @Query("limit") limit?: string,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    const parsedLimit = limit ? Math.min(parseInt(limit, 10), 50) : 10;
+    return this.video.getFrequentContacts(actor, parsedLimit);
   }
 }

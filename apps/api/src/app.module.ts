@@ -59,6 +59,8 @@ import { DrawingsBomModule } from "./modules/drawings-bom/drawings-bom.module";
 import { PlanSheetsModule } from "./modules/plan-sheets/plan-sheets.module";
 import { HelpItemsModule } from "./modules/help-items/help-items.module";
 import { IccModule } from "./modules/icc/icc.module";
+import { TranscriptionModule } from "./modules/transcription/transcription.module";
+import { VjnModule } from "./modules/vjn/vjn.module";
 
 @Module({
   imports: [
@@ -126,6 +128,8 @@ import { IccModule } from "./modules/icc/icc.module";
     PlanSheetsModule,
     HelpItemsModule,
     IccModule,
+    TranscriptionModule,
+    VjnModule,
   ],
   controllers: [DevController]
 })

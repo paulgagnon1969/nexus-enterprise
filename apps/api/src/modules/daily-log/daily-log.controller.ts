@@ -6,6 +6,7 @@ import { CreateDailyLogDto } from "./dto/create-daily-log.dto";
 import { UpdateDailyLogDto } from "./dto/update-daily-log.dto";
 import { OcrFileDto } from "./dto/ocr-file.dto";
 import { ReassignDailyLogDto } from "./dto/reassign-daily-log.dto";
+import { TranscriptionService } from "../transcription/transcription.service";
 
 /**
  * Cross-project daily logs endpoint.
@@ -95,7 +96,10 @@ export class DailyLogFeedController {
 
 @Controller("projects/:projectId/daily-logs")
 export class DailyLogController {
-  constructor(private readonly dailyLogs: DailyLogService) {}
+  constructor(
+    private readonly dailyLogs: DailyLogService,
+    private readonly transcription: TranscriptionService,
+  ) {}
 
   /**
    * Immediate OCR for a project file - call before saving to preview extracted data.
@@ -163,5 +167,50 @@ export class DailyLogController {
   ) {
     const user = req.user as AuthenticatedUser;
     return this.dailyLogs.deleteLog(logId, user.companyId, user);
+  }
+
+  /**
+   * Tier 1 — GPT-only summarization from raw on-device text.
+   * POST projects/:projectId/daily-logs/voice/summarize
+   */
+  @UseGuards(CombinedAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
+  @Post("voice/summarize")
+  async voiceSummarize(
+    @Req() req: any,
+    @Param("projectId") projectId: string,
+    @Body() body: { rawText: string },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    // Look up project name for context-aware prompt
+    const project = await this.dailyLogs.getProjectName(projectId, user.companyId);
+    const result = await this.transcription.summarizeText({
+      rawText: body.rawText,
+      context: "daily_log",
+      projectName: project?.name,
+    });
+    return result;
+  }
+
+  /**
+   * Tier 2 — Whisper + GPT transcription from audio file.
+   * POST projects/:projectId/daily-logs/voice/transcribe
+   */
+  @UseGuards(CombinedAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
+  @Post("voice/transcribe")
+  async voiceTranscribe(
+    @Req() req: any,
+    @Param("projectId") projectId: string,
+    @Body() body: { audioFileUrl: string },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    const project = await this.dailyLogs.getProjectName(projectId, user.companyId);
+    const result = await this.transcription.transcribeAudio({
+      audioFileUrl: body.audioFileUrl,
+      context: "daily_log",
+      projectName: project?.name,
+    });
+    return result;
   }
 }

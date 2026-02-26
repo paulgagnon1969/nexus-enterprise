@@ -456,6 +456,95 @@ export class VideoService {
     }
   }
 
+  /**
+   * Get the user's most frequently called contacts.
+   * Aggregates VideoRoomParticipant data to find co-participants sorted by call volume.
+   */
+  async getFrequentContacts(actor: AuthenticatedUser, limit = 10) {
+    // Find all rooms the user participated in
+    const myParticipations = await this.prisma.videoRoomParticipant.findMany({
+      where: { userId: actor.userId },
+      select: { roomId: true },
+    });
+
+    const roomIds = myParticipations.map(p => p.roomId);
+    if (!roomIds.length) return [];
+
+    // Find all other participants in those rooms
+    const coParticipants = await this.prisma.videoRoomParticipant.findMany({
+      where: {
+        roomId: { in: roomIds },
+        userId: { not: actor.userId },
+      },
+      select: {
+        userId: true,
+        guestName: true,
+      },
+    });
+
+    // Count occurrences per userId
+    const countMap = new Map<string, number>();
+    const guestMap = new Map<string, { count: number; name: string }>();
+
+    for (const p of coParticipants) {
+      if (p.userId) {
+        countMap.set(p.userId, (countMap.get(p.userId) ?? 0) + 1);
+      } else if (p.guestName) {
+        const key = `guest:${p.guestName}`;
+        const existing = guestMap.get(key);
+        guestMap.set(key, {
+          count: (existing?.count ?? 0) + 1,
+          name: p.guestName,
+        });
+      }
+    }
+
+    // Resolve user details
+    const userIds = Array.from(countMap.keys());
+    const users = userIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, email: true, firstName: true, lastName: true, avatarUrl: true },
+        })
+      : [];
+
+    const userMap = new Map(users.map(u => [u.id, u]));
+
+    // Build result list
+    const contacts: {
+      userId?: string;
+      guestName?: string;
+      email?: string;
+      firstName?: string;
+      lastName?: string;
+      avatarUrl?: string | null;
+      callCount: number;
+    }[] = [];
+
+    for (const [userId, count] of countMap) {
+      const user = userMap.get(userId);
+      contacts.push({
+        userId,
+        email: user?.email,
+        firstName: user?.firstName ?? undefined,
+        lastName: user?.lastName ?? undefined,
+        avatarUrl: user?.avatarUrl ?? null,
+        callCount: count,
+      });
+    }
+
+    for (const [, entry] of guestMap) {
+      contacts.push({
+        guestName: entry.name,
+        callCount: entry.count,
+      });
+    }
+
+    // Sort by call count descending, take top N
+    contacts.sort((a, b) => b.callCount - a.callCount);
+    return contacts.slice(0, limit);
+  }
+
   private async createParticipantToken(
     roomName: string,
     actor: AuthenticatedUser,

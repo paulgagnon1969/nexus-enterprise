@@ -125,6 +125,24 @@ export class CreateDailyLogDto {
   @IsOptional()
   jsaSafetyJson?: any;
 
+  // Voice/AI fields (used when creating from voice recording or VJN share)
+  @IsOptional()
+  @IsBoolean()
+  aiGenerated?: boolean;
+
+  @IsOptional()
+  @IsString()
+  voiceRecordingUrl?: string | null;
+
+  @IsOptional()
+  @IsNumber()
+  voiceDurationSecs?: number | null;
+
+  /** ISO 639-1 language code (default "en"). Triggers auto-translation. */
+  @IsOptional()
+  @IsString()
+  language?: string;
+
   // Optional: project file IDs to attach (triggers OCR if receipt type)
   @IsOptional()
   @IsArray()

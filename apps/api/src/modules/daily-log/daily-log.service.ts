@@ -15,6 +15,7 @@ import { TaskPriorityEnum } from "../task/dto/task.dto";
 import { ReceiptOcrService } from "../ocr/receipt-ocr.service";
 import { OpenAiOcrProvider } from "../ocr/openai-ocr.provider";
 import { WeatherService } from "../weather/weather.service";
+import { TranscriptionService } from "../transcription/transcription.service";
 
 // Profile codes that are considered PM+ level (can edit logs, see delayed logs, publish)
 const PM_PLUS_PROFILES = new Set(["PM", "EXECUTIVE"]);
@@ -37,6 +38,7 @@ export class DailyLogService {
     private readonly receiptOcr: ReceiptOcrService,
     private readonly openAiOcr: OpenAiOcrProvider,
     private readonly weather: WeatherService,
+    private readonly transcription: TranscriptionService,
   ) {}
 
   private async assertProjectAccess(
@@ -840,6 +842,16 @@ export class DailyLogService {
     return { success: true, attachmentId };
   }
 
+  /**
+   * Look up project name by ID — used by controller for voice transcription context.
+   */
+  async getProjectName(projectId: string, companyId: string) {
+    return this.prisma.project.findFirst({
+      where: { id: projectId, companyId },
+      select: { name: true },
+    });
+  }
+
   async createForProject(
     projectId: string,
     companyId: string,
@@ -913,6 +925,12 @@ export class DailyLogService {
         status: DailyLogStatus.SUBMITTED,
         effectiveShareClient: false,
         notifyUserIdsJson,
+        // Voice/AI fields
+        aiGenerated: dto.aiGenerated ?? false,
+        voiceRecordingUrl: dto.voiceRecordingUrl ?? null,
+        voiceDurationSecs: dto.voiceDurationSecs ?? null,
+        // Multi-language support
+        language: dto.language ?? "en",
         // Receipt/expense fields
         expenseVendor: isReceiptExpense ? (dto.expenseVendor ?? null) : null,
         expenseAmount: isReceiptExpense && dto.expenseAmount != null ? dto.expenseAmount : null,
@@ -1049,12 +1067,24 @@ export class DailyLogService {
       }
     }
 
-    // ── Push notification hook ──────────────────────────────────────
+    // ── Push notification hook ──────────────────────────────────────────────
     await this.sendDailyLogPush(created, projectId, companyId, actor).catch((err) =>
       this.logger.warn(`Push notification failed for log ${created.id}: ${err?.message ?? err}`),
     );
 
-    // Re-fetch the log with attachments included (attachments were added after initial create)
+    // ── Auto-translation hook (async — fire-and-forget) ─────────────────
+    this.autoTranslateDailyLog(created.id, dto.language ?? "en", {
+      title: dto.title,
+      workPerformed: dto.workPerformed,
+      issues: dto.issues,
+      safetyIncidents: dto.safetyIncidents,
+      confidentialNotes: dto.confidentialNotes,
+      crewOnSite: dto.crewOnSite,
+    }).catch((err) =>
+      this.logger.warn(`Auto-translation failed for log ${created.id}: ${err?.message ?? err}`),
+    );
+
+    // Re-fetch the log with attachments included
     const finalLog = await this.prisma.dailyLog.findUnique({
       where: { id: created.id },
       include: {
@@ -1111,6 +1141,60 @@ export class DailyLogService {
       ...restFinal,
       createdByUser: cb,
     };
+  }
+
+  /**
+   * Auto-translate daily log text fields to the "other" language.
+   * If source is English → translate to Spanish (and vice versa).
+   * Always produces translations for both en and es (or whatever pair is relevant).
+   * Runs async after log creation so user doesn't wait.
+   */
+  private async autoTranslateDailyLog(
+    logId: string,
+    sourceLang: string,
+    fields: {
+      title?: string | null;
+      workPerformed?: string | null;
+      issues?: string | null;
+      safetyIncidents?: string | null;
+      confidentialNotes?: string | null;
+      crewOnSite?: string | null;
+    },
+  ) {
+    // Only translate if there's actual text content
+    const hasContent = Object.values(fields).some(v => v?.trim());
+    if (!hasContent) return;
+
+    // Determine translation target: en↔es bidirectional
+    const targetLang = sourceLang === "en" ? "es" : "en";
+
+    try {
+      const result = await this.transcription.translateFields({
+        fields: {
+          title: fields.title,
+          workPerformed: fields.workPerformed,
+          issues: fields.issues,
+          safetyIncidents: fields.safetyIncidents,
+          confidentialNotes: fields.confidentialNotes,
+          crewOnSite: fields.crewOnSite,
+        },
+        fromLang: sourceLang,
+        toLang: targetLang,
+        context: "daily_log",
+      });
+
+      if (Object.keys(result.fields).length > 0) {
+        await this.prisma.dailyLog.update({
+          where: { id: logId },
+          data: {
+            translationsJson: { [targetLang]: result.fields },
+          },
+        });
+        this.logger.log(`Auto-translated log ${logId}: ${sourceLang} → ${targetLang} (${Object.keys(result.fields).length} fields)`);
+      }
+    } catch (err: any) {
+      this.logger.warn(`Auto-translation failed for log ${logId}: ${err?.message ?? err}`);
+    }
   }
 
   private async createPersonOnsiteTaskIfNeeded(

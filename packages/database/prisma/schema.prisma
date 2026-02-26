@@ -202,6 +202,12 @@ model Company {
 
   // Project Org Templates
   orgTemplates OrgTemplate[]
+
+  // Voice Journal Notes
+  voiceJournalNotes VoiceJournalNote[]
+
+  // Supplier Bidding System
+  bidPackages BidPackage[]
 }
 
 model OrganizationTemplate {
@@ -544,6 +550,13 @@ model User {
 
   // BOM Pricing snapshots created by this user
   bomPricingSnapshotsCreated BomPricingSnapshot[]
+
+  // Voice Journal Notes
+  voiceJournalNotesCreated VoiceJournalNote[]      @relation("VoiceJournalNoteCreatedBy")
+  voiceJournalNoteShares   VoiceJournalNoteShare[] @relation("VoiceJournalNoteShareSharedBy")
+
+  // Supplier Bidding System
+  bidPackagesCreated BidPackage[] @relation("BidPackageCreatedBy")
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -666,6 +679,12 @@ model Message {
   /// user can see this entry on their own journal board; otherwise it is
   /// internal-only for HR/admins.
   sharedWithSubject Boolean  @default(false)
+
+  /// Voice message fields
+  voiceRecordingUrl String?  // GCS URL to audio
+  voiceDurationSecs Int?     // duration for display
+  aiTranscribed     Boolean  @default(false) // body was AI-generated from audio
+  vjnId             String?  // back-link to source VoiceJournalNote
 
   thread      MessageThread        @relation(fields: [threadId], references: [id])
   sender      User?                @relation(fields: [senderId], references: [id])
@@ -1216,8 +1235,14 @@ model Project {
   // BOM Pricing snapshots
   bomPricingSnapshots BomPricingSnapshot[]
 
+  // Voice Journal Notes
+  voiceJournalNotes VoiceJournalNote[]
+
   // Drawings → BOM pipeline
   drawingUploads ProjectDrawingUpload[]
+
+  // Supplier Bidding System
+  bidPackages BidPackage[]
 
   /// Building model type (e.g. "A Model", "G Model", "F Model")
   buildingModelType String?
@@ -2855,6 +2880,18 @@ model DailyLog {
 
   /// Daily log type classification
   type DailyLogType @default(PUDL)
+
+  /// Voice-to-text / AI summarization fields
+  aiGenerated       Boolean  @default(false) // worker accepted AI-generated text
+  aiTranscriptRaw   String?  @db.Text // raw Whisper transcript (verbatim)
+  aiSummary         String?  @db.Text // GPT-cleaned/summarized version
+  voiceRecordingUrl String?  // GCS URL to the audio attachment
+  voiceDurationSecs Int?     // recording duration for display
+  vjnId             String?  // back-link to source VoiceJournalNote (if shared from VJN)
+
+  /// Multi-language support
+  language         String  @default("en") // ISO 639-1: "en", "es", etc.
+  translationsJson Json?   // { "es": { "title": "...", "workPerformed": "...", ... }, "en": { ... } }
 
   /// Receipt/expense fields (used when type = RECEIPT_EXPENSE)
   expenseVendor String?
@@ -5529,6 +5566,83 @@ model ClaimJournalAttachment {
 }
 
 // =============================================================================
+// Voice Journal Notes (VJN) — Personal Voice Notes with AI Transcription
+// =============================================================================
+
+enum VoiceJournalNoteStatus {
+  DRAFT    // Private — only the author can see
+  SHARED   // At least one share exists
+  ARCHIVED // Author archived it
+}
+
+/// Personal voice note with AI transcription. Tagged to a source module/entity
+/// but private until explicitly shared.
+model VoiceJournalNote {
+  id          String @id @default(cuid())
+  companyId   String
+  projectId   String?
+  createdById String
+
+  // Audio (primary artifact — always present)
+  voiceRecordingUrl String             // GCS URL
+  voiceDurationSecs Int                // duration for display
+
+  // Language support
+  language          String  @default("en")  // ISO 639-1: "en", "es", etc.
+  deviceTranscript  String? @db.Text        // Raw on-device speech recognition output
+
+  // AI-derived text
+  aiTranscriptRaw   String? @db.Text     // Whisper verbatim (source language)
+  aiText            String? @db.Text     // GPT-cleaned text (source language)
+  aiSummary         String? @db.Text     // GPT-cleaned summary (source language)
+  aiTextTranslated  String? @db.Text     // English translation (populated when language != "en")
+  aiDetails         String? @db.Text     // GPT-structured details (for journal context)
+  aiGenerated       Boolean @default(true)
+
+  // Source context: where was this VJN recorded?
+  sourceModule   String?               // 'daily_log' | 'journal' | 'messaging' | null (standalone)
+  sourceEntityId String?               // ID of the daily log, journal entry, thread, etc.
+  sourceLabel    String?               // human-readable: "Daily Log #47 — Johnson Roof"
+
+  // Publishing
+  status    VoiceJournalNoteStatus @default(DRAFT)
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project   Project? @relation(fields: [projectId], references: [id])
+  createdBy User     @relation("VoiceJournalNoteCreatedBy", fields: [createdById], references: [id])
+  shares    VoiceJournalNoteShare[]
+
+  @@index([createdById, status, createdAt], map: "VoiceJournalNote_creator_status_idx")
+  @@index([companyId, projectId, createdAt], map: "VoiceJournalNote_company_project_idx")
+  @@index([sourceModule, sourceEntityId], map: "VoiceJournalNote_source_idx")
+}
+
+/// Tracks where a VJN was shared to (a single VJN can be shared to multiple targets)
+model VoiceJournalNoteShare {
+  id    String @id @default(cuid())
+  vjnId String
+
+  // Where was it shared TO?
+  targetModule   String           // 'daily_log' | 'journal' | 'messaging'
+  targetEntityId String?          // ID of the target entity
+
+  // What was shared? (author may have edited the AI text before sharing)
+  sharedSummary String? @db.Text
+  sharedDetails String? @db.Text
+
+  sharedAt   DateTime @default(now())
+  sharedById String
+
+  vjn      VoiceJournalNote @relation(fields: [vjnId], references: [id], onDelete: Cascade)
+  sharedBy User             @relation("VoiceJournalNoteShareSharedBy", fields: [sharedById], references: [id])
+
+  @@index([vjnId], map: "VoiceJournalNoteShare_vjn_idx")
+  @@index([targetModule, targetEntityId], map: "VoiceJournalNoteShare_target_idx")
+}
+
+// =============================================================================
 // Field-Level Security System
 // =============================================================================
 
@@ -6878,4 +6992,175 @@ model HelpItem {
   
   @@index([helpKey], map: "HelpItem_helpKey_idx")
   @@index([isActive], map: "HelpItem_isActive_idx")
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Supplier Bidding System
+// ════════════════════════════════════════════════════════════════════
+
+enum BidPackageStatus {
+  DRAFT          // PM is building the package
+  OPEN           // Suppliers can submit bids
+  CLOSED         // Bidding closed, no more submissions
+  AWARDED        // Bid(s) awarded to supplier(s)
+  CANCELED       // Package canceled
+}
+
+enum InvitationStatus {
+  PENDING     // Invite sent, not opened
+  OPENED      // Supplier opened the link
+  SUBMITTED   // Bid submitted
+  DECLINED    // Supplier declined to bid
+}
+
+enum BidStatus {
+  DRAFT       // Supplier is working on it
+  SUBMITTED   // Final submission
+  AMENDED     // Supplier amended after initial submission
+  WITHDRAWN   // Supplier withdrew bid
+  AWARDED     // Bid was awarded (winner)
+  DECLINED    // PM declined this bid
+}
+
+model BidPackage {
+  id              String            @id @default(cuid())
+  companyId       String
+  projectId       String
+  estimateId      String?           // Optional: link to specific estimate version
+  createdByUserId String
+  
+  title           String            // "Phase 1 Cabinets Bid"
+  description     String?           @db.Text // Instructions, scope notes
+  status          BidPackageStatus  @default(DRAFT)
+  
+  dueDate         DateTime?         // Submission deadline
+  openedAt        DateTime?         // When bidding opened
+  closedAt        DateTime?         // When bidding closed
+  awardedAt       DateTime?         // When bid was awarded
+  
+  // Attachments (plans, SOW, specs)
+  attachmentUrls  Json?             // Array of GCS/S3 URLs
+  
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  
+  company         Company           @relation(fields: [companyId], references: [id])
+  project         Project           @relation(fields: [projectId], references: [id])
+  createdBy       User              @relation("BidPackageCreatedBy", fields: [createdByUserId], references: [id])
+  
+  lineItems       BidPackageLineItem[]
+  invitations     SupplierInvitation[]
+  bids            SupplierBid[]
+  
+  @@index([companyId, projectId], map: "BidPackage_company_project_idx")
+  @@index([status, dueDate], map: "BidPackage_status_due_idx")
+}
+
+model BidPackageLineItem {
+  id            String  @id @default(cuid())
+  bidPackageId  String
+  lineNo        Int     // Display order (1, 2, 3...)
+  
+  // Link to estimate line item (optional)
+  estimateLineItemId String?
+  
+  // Line item details
+  category      String? // "CAB", "DRY", "PLM" (Xactimate cat)
+  description   String  @db.Text // "White Shaker Base Cabinet 24x34.5x24"
+  unit          String  // "EA", "SF", "LF"
+  qty           Float   // 12.0
+  
+  // Optional: reference specs
+  specHash      String? // Link to CatalogItem if cabinet/material
+  notes         String? @db.Text // Special instructions per line
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  bidPackage    BidPackage           @relation(fields: [bidPackageId], references: [id], onDelete: Cascade)
+  bidLineItems  SupplierBidLineItem[]
+  
+  @@index([bidPackageId, lineNo], map: "BidPackageLineItem_package_line_idx")
+}
+
+model SupplierInvitation {
+  id            String            @id @default(cuid())
+  bidPackageId  String
+  
+  // Supplier contact info (external, not Nexus users)
+  supplierName  String            // "ABC Supply Co."
+  contactName   String?           // "John Smith"
+  contactEmail  String?           // john@abcsupply.com
+  contactPhone  String?           // +1-555-123-4567
+  
+  // Access token (embedded in link)
+  accessToken   String            @unique // cuid or JWT
+  
+  status        InvitationStatus  @default(PENDING)
+  
+  invitedAt     DateTime          @default(now())
+  openedAt      DateTime?         // When supplier first clicked link
+  submittedAt   DateTime?         // When bid submitted
+  declinedAt    DateTime?
+  
+  bidPackage    BidPackage        @relation(fields: [bidPackageId], references: [id], onDelete: Cascade)
+  bids          SupplierBid[]
+  
+  @@index([bidPackageId], map: "SupplierInvitation_package_idx")
+  @@index([accessToken], map: "SupplierInvitation_token_idx")
+  @@index([contactEmail], map: "SupplierInvitation_email_idx")
+}
+
+model SupplierBid {
+  id            String      @id @default(cuid())
+  bidPackageId  String
+  invitationId  String
+  
+  status        BidStatus   @default(DRAFT)
+  revisionNo    Int         @default(1) // Increments on amend
+  
+  // Supplier notes
+  notes         String?     @db.Text // "Lead time 4-6 weeks"
+  
+  // Totals (computed from line items)
+  subtotal      Float?
+  tax           Float?
+  shipping      Float?
+  total         Float?
+  
+  submittedAt   DateTime?   // Initial submission
+  amendedAt     DateTime?   // Last amendment
+  awardedAt     DateTime?   // When PM awarded
+  
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  
+  bidPackage    BidPackage         @relation(fields: [bidPackageId], references: [id], onDelete: Cascade)
+  invitation    SupplierInvitation @relation(fields: [invitationId], references: [id])
+  lineItems     SupplierBidLineItem[]
+  
+  @@index([bidPackageId, status], map: "SupplierBid_package_status_idx")
+  @@index([invitationId], map: "SupplierBid_invitation_idx")
+}
+
+model SupplierBidLineItem {
+  id                    String  @id @default(cuid())
+  bidId                 String
+  bidPackageLineItemId  String  // Links to BidPackageLineItem
+  
+  unitPrice             Float?  // Supplier's unit price
+  totalPrice            Float?  // unitPrice * qty
+  
+  // Supplier notes per line
+  notes                 String? @db.Text // "Substituting with equivalent model XYZ"
+  leadTimeDays          Int?    // Delivery timeline
+  
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  bid                   SupplierBid         @relation(fields: [bidId], references: [id], onDelete: Cascade)
+  packageLineItem       BidPackageLineItem  @relation(fields: [bidPackageLineItemId], references: [id])
+  
+  @@unique([bidId, bidPackageLineItemId], map: "SupplierBidLineItem_bid_line_key")
+  @@index([bidId], map: "SupplierBidLineItem_bid_idx")
 }
