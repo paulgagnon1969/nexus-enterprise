@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
 import { BillingService } from "./billing.service";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
@@ -60,5 +60,37 @@ export class MembershipController {
   @Post("reactivate")
   reactivateMembership(@Req() req: any) {
     return this.billing.reactivateMembership(req.user as AuthenticatedUser);
+  }
+
+  // ───────────────────────────────────────────────
+  // Per-Project Feature Unlocks
+  // ───────────────────────────────────────────────
+
+  /** Unlock a per-project feature (one-time charge). */
+  @UseGuards(JwtAuthGuard)
+  @Post("project-features/unlock")
+  unlockProjectFeature(
+    @Req() req: any,
+    @Body("projectId") projectId: string,
+    @Body("featureCode") featureCode: string,
+  ) {
+    return this.billing.unlockProjectFeature(
+      req.user as AuthenticatedUser,
+      projectId,
+      featureCode,
+    );
+  }
+
+  /** List feature unlocks for a specific project. */
+  @UseGuards(JwtAuthGuard)
+  @Get("project-features/:projectId")
+  getProjectFeatureUnlocks(
+    @Req() req: any,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.billing.getProjectFeatureUnlocks(
+      user.companyId,
+      req.params.projectId,
+    );
   }
 }

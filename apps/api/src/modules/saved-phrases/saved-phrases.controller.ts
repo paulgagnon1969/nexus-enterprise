@@ -15,7 +15,9 @@ import { JwtAuthGuard, Role, GlobalRole } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { SavedPhrasesService, CreateSavedPhraseDto, UpdateSavedPhraseDto } from "./saved-phrases.service";
 import { SavedPhraseCategory } from "@prisma/client";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('DOCUMENTS')
 @Controller("saved-phrases")
 @UseGuards(JwtAuthGuard)
 export class SavedPhrasesController {

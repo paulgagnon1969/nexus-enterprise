@@ -29,6 +29,7 @@ import {
   CreateManualViewDto,
   UpdateManualViewDto,
 } from "./dto/manual.dto";
+import { RequiresModule } from "../billing/module.guard";
 
 function getUser(req: FastifyRequest): AuthenticatedUser {
   const user = (req as any).user as AuthenticatedUser | undefined;
@@ -43,6 +44,7 @@ function getUser(req: FastifyRequest): AuthenticatedUser {
  * Handles CRUD for tenant-owned manuals (ownerCompanyId set to current company).
  * Regular users can view, ADMIN/OWNER can create/edit.
  */
+@RequiresModule('DOCUMENTS')
 @Controller("manuals")
 @UseGuards(JwtAuthGuard)
 export class TenantOwnedManualsController {

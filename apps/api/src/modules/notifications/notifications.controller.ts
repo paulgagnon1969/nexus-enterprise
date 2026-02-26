@@ -4,7 +4,9 @@ import type { AuthenticatedUser } from "../auth/jwt.strategy";
 import { NotificationsService } from "./notifications.service";
 import { PushService } from "./push.service";
 import { PrismaService } from "../../infra/prisma/prisma.service";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('MESSAGING')
 @Controller("notifications")
 @UseGuards(JwtAuthGuard)
 export class NotificationsController {

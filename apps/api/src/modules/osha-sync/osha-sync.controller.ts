@@ -12,6 +12,7 @@ import type { FastifyRequest } from "fastify";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { OshaSyncService } from "./osha-sync.service";
+import { RequiresModule } from "../billing/module.guard";
 
 function getUser(req: FastifyRequest): AuthenticatedUser {
   const user = (req as any).user as AuthenticatedUser | undefined;
@@ -25,6 +26,7 @@ function assertSuperAdmin(user: AuthenticatedUser) {
   }
 }
 
+@RequiresModule('COMPLIANCE')
 @Controller("system/osha")
 @UseGuards(JwtAuthGuard)
 export class OshaSyncController {
@@ -65,6 +67,7 @@ export class OshaSyncController {
 // Unified CFR Sync Controller (Phase 2 — multi-title support)
 // =============================================================================
 
+@RequiresModule('COMPLIANCE')
 @Controller("system/cfr")
 @UseGuards(JwtAuthGuard)
 export class CfrSyncController {

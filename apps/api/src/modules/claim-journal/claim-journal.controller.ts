@@ -20,11 +20,13 @@ import {
   JournalListFilters,
 } from "./claim-journal.service";
 import { ClaimJournalEntryType, ClaimJournalDirection } from "@prisma/client";
+import { RequiresModule } from "../billing/module.guard";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Carrier Contacts Controller (Company-wide)
 // ─────────────────────────────────────────────────────────────────────────────
 
+@RequiresModule('CLAIM_JOURNAL')
 @Controller("company/carrier-contacts")
 export class CarrierContactsController {
   constructor(private readonly service: ClaimJournalService) {}
@@ -73,6 +75,7 @@ export class CarrierContactsController {
 // Journal Entries Controller (Project-scoped)
 // ─────────────────────────────────────────────────────────────────────────────
 
+@RequiresModule('CLAIM_JOURNAL')
 @Controller("projects/:projectId/journal")
 export class JournalEntriesController {
   constructor(private readonly service: ClaimJournalService) {}

@@ -7,11 +7,13 @@ import { UpdateDailyLogDto } from "./dto/update-daily-log.dto";
 import { OcrFileDto } from "./dto/ocr-file.dto";
 import { ReassignDailyLogDto } from "./dto/reassign-daily-log.dto";
 import { TranscriptionService } from "../transcription/transcription.service";
+import { RequiresModule } from "../billing/module.guard";
 
 /**
  * Cross-project daily logs endpoint.
  * Returns logs across all projects the user has access to.
  */
+@RequiresModule('SCHEDULING')
 @Controller("daily-logs")
 export class DailyLogFeedController {
   constructor(private readonly dailyLogs: DailyLogService) {}
@@ -94,6 +96,7 @@ export class DailyLogFeedController {
   }
 }
 
+@RequiresModule('SCHEDULING')
 @Controller("projects/:projectId/daily-logs")
 export class DailyLogController {
   constructor(

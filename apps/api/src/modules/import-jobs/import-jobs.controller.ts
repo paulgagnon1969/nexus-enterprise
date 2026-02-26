@@ -22,7 +22,9 @@ import { GcsService } from "../../infra/storage/gcs.service";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { RequiresProjectFeature } from "../billing/project-feature.guard";
 
+@RequiresProjectFeature('XACT_IMPORT')
 @UseGuards(JwtAuthGuard)
 @Controller("projects/:projectId/import-jobs")
 export class ProjectImportJobsController {
@@ -186,6 +188,7 @@ export class ProjectImportJobsController {
   }
 }
 
+@RequiresProjectFeature('XACT_IMPORT')
 @UseGuards(JwtAuthGuard)
 @Controller("import-jobs")
 export class ImportJobsController {

@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Post, Req, UseGuards } from "@nes
 import { JwtAuthGuard } from "../auth/auth.guards";
 import type { AuthenticatedUser } from "../auth/jwt.strategy";
 import { PrismaService } from "../../infra/prisma/prisma.service";
+import { RequiresModule } from "../billing/module.guard";
 
 interface UpsertGroupDto {
   name: string;
@@ -13,6 +14,7 @@ interface UpsertGroupDto {
   }[];
 }
 
+@RequiresModule('MESSAGING')
 @Controller("messages/recipient-groups")
 @UseGuards(JwtAuthGuard)
 export class RecipientGroupsController {

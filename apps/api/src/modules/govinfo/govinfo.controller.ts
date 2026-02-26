@@ -19,6 +19,7 @@ import { FrMonitorService } from "./fr-monitor.service";
 import { GovInfoService } from "./govinfo.service";
 import { McpClientService } from "./mcp-client.service";
 import { CfrHistoryService } from "./cfr-history.service";
+import { RequiresModule } from "../billing/module.guard";
 
 function getUser(req: FastifyRequest): AuthenticatedUser {
   const user = (req as any).user as AuthenticatedUser | undefined;
@@ -44,6 +45,7 @@ function assertAdminOrPm(user: AuthenticatedUser) {
   }
 }
 
+@RequiresModule('COMPLIANCE')
 @Controller("system/govinfo")
 @UseGuards(JwtAuthGuard)
 export class GovInfoController {

@@ -33,17 +33,21 @@ interface ModuleDef {
   label: string;
   description: string;
   monthlyPrice: number; // cents (e.g. 4900 = $49)
+  pricingModel: "MONTHLY" | "PER_PROJECT" | "PER_USE";
+  projectUnlockPrice?: number; // cents — PER_PROJECT only
   isCore: boolean;
   sortOrder: number;
 }
 
 const MODULES: ModuleDef[] = [
+  // ── Monthly subscription modules ──────────────────────────────────
   {
     code: "CORE",
     label: "Core Platform",
     description:
       "Company settings, user management, dashboard, basic project views. Always included.",
-    monthlyPrice: 0, // Included in base — no charge
+    monthlyPrice: 0,
+    pricingModel: "MONTHLY",
     isCore: true,
     sortOrder: 0,
   },
@@ -51,8 +55,9 @@ const MODULES: ModuleDef[] = [
     code: "ESTIMATING",
     label: "Estimating & Cost Books",
     description:
-      "Xactimate import, PETL (Price Extrapolation & Tax Localization), cost books, line-item management.",
-    monthlyPrice: 7900, // $79/mo
+      "PETL (Price Extrapolation & Tax Localization), cost books, line-item management.",
+    monthlyPrice: 7900,
+    pricingModel: "MONTHLY",
     isCore: false,
     sortOrder: 1,
   },
@@ -61,7 +66,8 @@ const MODULES: ModuleDef[] = [
     label: "Scheduling & Daily Logs",
     description:
       "Project scheduling, Gantt views, daily log entries, weather integration.",
-    monthlyPrice: 4900, // $49/mo
+    monthlyPrice: 4900,
+    pricingModel: "MONTHLY",
     isCore: false,
     sortOrder: 2,
   },
@@ -70,7 +76,8 @@ const MODULES: ModuleDef[] = [
     label: "Financial Management",
     description:
       "Invoicing, payment tracking, project billing, financial reporting, payment applications.",
-    monthlyPrice: 6900, // $69/mo
+    monthlyPrice: 6900,
+    pricingModel: "MONTHLY",
     isCore: false,
     sortOrder: 3,
   },
@@ -79,7 +86,8 @@ const MODULES: ModuleDef[] = [
     label: "Document Management",
     description:
       "Document import, OCR scanning, templates, tenant/system document library, plan sheets.",
-    monthlyPrice: 3900, // $39/mo
+    monthlyPrice: 3900,
+    pricingModel: "MONTHLY",
     isCore: false,
     sortOrder: 4,
   },
@@ -88,7 +96,8 @@ const MODULES: ModuleDef[] = [
     label: "Timekeeping & Payroll",
     description:
       "Daily timecards, crew time tracking, payroll export, overtime rules.",
-    monthlyPrice: 4900, // $49/mo
+    monthlyPrice: 4900,
+    pricingModel: "MONTHLY",
     isCore: false,
     sortOrder: 5,
   },
@@ -97,7 +106,8 @@ const MODULES: ModuleDef[] = [
     label: "Messaging & Notifications",
     description:
       "Internal messaging, push notifications, email notifications, SMS alerts.",
-    monthlyPrice: 2900, // $29/mo
+    monthlyPrice: 2900,
+    pricingModel: "MONTHLY",
     isCore: false,
     sortOrder: 6,
   },
@@ -106,7 +116,8 @@ const MODULES: ModuleDef[] = [
     label: "Supplier Bidding",
     description:
       "Bid packages, supplier invitations, bid comparison, award management.",
-    monthlyPrice: 3900, // $39/mo
+    monthlyPrice: 3900,
+    pricingModel: "MONTHLY",
     isCore: false,
     sortOrder: 7,
   },
@@ -115,7 +126,8 @@ const MODULES: ModuleDef[] = [
     label: "Workforce Management",
     description:
       "Candidate pipeline, skills tracking, reputation scoring, referrals, onboarding.",
-    monthlyPrice: 5900, // $59/mo
+    monthlyPrice: 5900,
+    pricingModel: "MONTHLY",
     isCore: false,
     sortOrder: 8,
   },
@@ -124,9 +136,45 @@ const MODULES: ModuleDef[] = [
     label: "Compliance & Safety",
     description:
       "OSHA sync, safety certifications, ICC code lookup, regulatory monitoring.",
-    monthlyPrice: 3900, // $39/mo
+    monthlyPrice: 3900,
+    pricingModel: "MONTHLY",
     isCore: false,
     sortOrder: 9,
+  },
+
+  // ── Per-project unlock features ───────────────────────────────────
+  {
+    code: "XACT_IMPORT",
+    label: "Xactimate CSV Import",
+    description:
+      "Import Xactimate CSV estimates into a project. One-time unlock per project.",
+    monthlyPrice: 0,
+    pricingModel: "PER_PROJECT",
+    projectUnlockPrice: 4900, // $49 per project
+    isCore: false,
+    sortOrder: 20,
+  },
+  {
+    code: "DOCUMENT_AI",
+    label: "Document AI Processing",
+    description:
+      "AI-powered document scanning, OCR, and data extraction. One-time unlock per project.",
+    monthlyPrice: 0,
+    pricingModel: "PER_PROJECT",
+    projectUnlockPrice: 2900, // $29 per project
+    isCore: false,
+    sortOrder: 21,
+  },
+  {
+    code: "DRAWINGS_BOM",
+    label: "Drawings → BOM Pipeline",
+    description:
+      "Upload architectural drawings and generate a bill of materials. One-time unlock per project.",
+    monthlyPrice: 0,
+    pricingModel: "PER_PROJECT",
+    projectUnlockPrice: 3900, // $39 per project
+    isCore: false,
+    sortOrder: 22,
   },
 ];
 
@@ -141,8 +189,10 @@ async function main() {
     let stripeProductId: string | null = null;
     let stripePriceId: string | null = null;
 
-    // Only create Stripe resources for paid modules
-    if (mod.monthlyPrice > 0) {
+    // Create Stripe resources for paid modules (monthly or per-project)
+    const needsStripe = mod.monthlyPrice > 0 || (mod.projectUnlockPrice && mod.projectUnlockPrice > 0);
+
+    if (needsStripe) {
       // Check if product already exists (by metadata lookup)
       const existing = await stripe.products.search({
         query: `metadata["nexus_module_code"]:"${mod.code}"`,
@@ -164,27 +214,31 @@ async function main() {
 
       stripeProductId = product.id;
 
-      // Check if a monthly price already exists
-      const prices = await stripe.prices.list({
-        product: product.id,
-        active: true,
-        type: "recurring",
-        limit: 1,
-      });
-
-      if (prices.data.length > 0) {
-        stripePriceId = prices.data[0].id;
-        console.log(`    ↳ Stripe Price exists: ${stripePriceId}`);
-      } else {
-        const price = await stripe.prices.create({
+      // Create recurring price for MONTHLY modules only
+      if (mod.pricingModel === "MONTHLY" && mod.monthlyPrice > 0) {
+        const prices = await stripe.prices.list({
           product: product.id,
-          unit_amount: mod.monthlyPrice,
-          currency: "usd",
-          recurring: { interval: "month" },
-          metadata: { nexus_module_code: mod.code },
+          active: true,
+          type: "recurring",
+          limit: 1,
         });
-        stripePriceId = price.id;
-        console.log(`    ↳ Created Stripe Price: ${price.id} ($${(mod.monthlyPrice / 100).toFixed(2)}/mo)`);
+
+        if (prices.data.length > 0) {
+          stripePriceId = prices.data[0].id;
+          console.log(`    ↳ Stripe Price exists: ${stripePriceId}`);
+        } else {
+          const price = await stripe.prices.create({
+            product: product.id,
+            unit_amount: mod.monthlyPrice,
+            currency: "usd",
+            recurring: { interval: "month" },
+            metadata: { nexus_module_code: mod.code },
+          });
+          stripePriceId = price.id;
+          console.log(`    ↳ Created Stripe Price: ${price.id} ($${(mod.monthlyPrice / 100).toFixed(2)}/mo)`);
+        }
+      } else {
+        console.log(`    ↳ PER_PROJECT feature — one-time charges via PaymentIntent ($${((mod.projectUnlockPrice || 0) / 100).toFixed(2)}/project)`);
       }
     } else {
       console.log(`    ↳ Core module — no Stripe billing`);
@@ -199,6 +253,8 @@ async function main() {
         stripeProductId,
         stripePriceId,
         monthlyPrice: mod.monthlyPrice,
+        pricingModel: mod.pricingModel,
+        projectUnlockPrice: mod.projectUnlockPrice ?? null,
         isCore: mod.isCore,
         sortOrder: mod.sortOrder,
         active: true,
@@ -210,6 +266,8 @@ async function main() {
         stripeProductId,
         stripePriceId,
         monthlyPrice: mod.monthlyPrice,
+        pricingModel: mod.pricingModel,
+        projectUnlockPrice: mod.projectUnlockPrice ?? null,
         isCore: mod.isCore,
         sortOrder: mod.sortOrder,
         active: true,

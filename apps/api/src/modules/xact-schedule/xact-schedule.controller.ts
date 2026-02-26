@@ -3,7 +3,9 @@ import type { FastifyRequest } from "fastify";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { XactScheduleService } from "./xact-schedule.service";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('SCHEDULING')
 @UseGuards(JwtAuthGuard)
 @Controller("projects/:projectId/xact-schedule")
 export class XactScheduleController {

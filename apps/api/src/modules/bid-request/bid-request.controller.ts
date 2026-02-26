@@ -12,7 +12,9 @@ import {
 } from "@nestjs/common";
 import { BidRequestService } from "./bid-request.service";
 import { JwtAuthGuard } from "../auth/auth.guards";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('BIDDING')
 @Controller("projects/:projectId/bid-requests")
 @UseGuards(JwtAuthGuard)
 export class BidRequestController {

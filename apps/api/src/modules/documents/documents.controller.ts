@@ -3,7 +3,9 @@ import { JwtAuthGuard, RolesGuard, Roles, Role } from "../auth/auth.guards";
 import { DocumentsService } from "./documents.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateDocumentTemplateDto, UpdateDocumentTemplateDto } from "./dto/document-template.dto";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('DOCUMENTS')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller("documents")
 export class DocumentsController {

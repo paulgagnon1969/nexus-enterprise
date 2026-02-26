@@ -8,6 +8,10 @@ const ENTITLEMENT_TTL = 60;
 /** Cache key for a company's entitlements. */
 const entitlementKey = (companyId: string) => `entitlements:${companyId}`;
 
+/** Cache key for a per-project feature unlock. */
+const projectFeatureKey = (companyId: string, projectId: string, featureCode: string) =>
+  `project-feature:${companyId}:${projectId}:${featureCode}`;
+
 export interface EntitlementResult {
   moduleCode: string;
   enabled: boolean;
@@ -54,6 +58,63 @@ export class EntitlementService {
    */
   async invalidate(companyId: string): Promise<void> {
     await this.redis.del(entitlementKey(companyId));
+  }
+
+  /**
+   * Check if a PER_PROJECT feature is unlocked on a specific project.
+   * Returns true if a ProjectFeatureUnlock record exists, or if the
+   * company is on an active trial.
+   */
+  async isProjectFeatureUnlocked(
+    companyId: string,
+    projectId: string,
+    featureCode: string,
+  ): Promise<boolean> {
+    const cacheKey = projectFeatureKey(companyId, projectId, featureCode);
+    const cached = await this.redis.getJson<boolean>(cacheKey);
+    if (cached !== null && cached !== undefined) return cached;
+
+    // Check active trial first — trial tenants get everything
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { isTrial: true, trialEndsAt: true, trialStatus: true },
+    });
+    const isActiveTrial =
+      company?.isTrial &&
+      company.trialStatus === "ACTIVE" &&
+      company.trialEndsAt &&
+      company.trialEndsAt > new Date();
+
+    if (isActiveTrial) {
+      await this.redis.setJson(cacheKey, true, ENTITLEMENT_TTL);
+      return true;
+    }
+
+    // Check for unlock record
+    const unlock = await this.prisma.projectFeatureUnlock.findUnique({
+      where: {
+        ProjectFeatureUnlock_company_project_feature_key: {
+          companyId,
+          projectId,
+          featureCode,
+        },
+      },
+    });
+
+    const unlocked = !!unlock;
+    await this.redis.setJson(cacheKey, unlocked, ENTITLEMENT_TTL);
+    return unlocked;
+  }
+
+  /**
+   * Invalidate the project feature unlock cache for a specific project+feature.
+   */
+  async invalidateProjectFeature(
+    companyId: string,
+    projectId: string,
+    featureCode: string,
+  ): Promise<void> {
+    await this.redis.del(projectFeatureKey(companyId, projectId, featureCode));
   }
 
   /**

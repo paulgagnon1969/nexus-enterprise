@@ -2,7 +2,9 @@ import { Controller, Get, Post, Delete, Param, Body, Query, Req, UseGuards } fro
 import { JwtAuthGuard } from "../auth/auth.guards";
 import type { AuthenticatedUser } from "../auth/jwt.strategy";
 import { VideoService, SmartInvitee } from "./video.service";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('VIDEO')
 @Controller("video")
 @UseGuards(JwtAuthGuard)
 export class VideoController {

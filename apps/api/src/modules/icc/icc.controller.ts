@@ -12,7 +12,9 @@ import {
 import { IccService } from './icc.service';
 import { JwtAuthGuard } from '../auth/auth.guards';
 import { ICCSearchParams } from '@repo/icc-client';
+import { RequiresModule } from '../billing/module.guard';
 
+@RequiresModule('COMPLIANCE')
 @Controller('icc')
 @UseGuards(JwtAuthGuard)
 export class IccController {

@@ -12,7 +12,9 @@ import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { SopSyncService } from "./sop-sync.service";
 import { SystemDocumentsService } from "./system-documents.service";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('DOCUMENTS')
 @Controller("admin/sops")
 @UseGuards(JwtAuthGuard)
 @Roles(Role.OWNER, Role.ADMIN)

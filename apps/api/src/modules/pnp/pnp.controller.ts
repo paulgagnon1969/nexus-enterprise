@@ -2,7 +2,9 @@ import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from
 import { JwtAuthGuard } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { PnpService } from "./pnp.service";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('DOCUMENTS')
 @UseGuards(JwtAuthGuard)
 @Controller("pnp")
 export class PnpController {

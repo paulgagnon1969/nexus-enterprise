@@ -28,7 +28,9 @@ import {
 import { StagedDocumentStatus, DocumentScanJobStatus } from "@prisma/client";
 import * as fs from "fs";
 import { readSingleFileFromMultipart } from "../../infra/uploads/multipart";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('DOCUMENTS')
 @Controller("document-import")
 export class DocumentImportController {
   constructor(private readonly documentImport: DocumentImportService) {}

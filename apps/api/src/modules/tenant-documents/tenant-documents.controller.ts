@@ -17,6 +17,7 @@ import {
   UpdateTenantDocumentDto,
   PublishManualDto,
 } from "./dto/tenant-document.dto";
+import { RequiresModule } from "../billing/module.guard";
 
 // Helper to extract user from request
 function getUser(req: { user: AuthenticatedUser }): AuthenticatedUser {
@@ -28,6 +29,7 @@ function getUser(req: { user: AuthenticatedUser }): AuthenticatedUser {
  * Handles document inbox management for tenant companies.
  * Requires ADMIN or OWNER role (tenant-level admin).
  */
+@RequiresModule('DOCUMENTS')
 @Controller("tenant/documents")
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.ADMIN, Role.OWNER)
@@ -118,6 +120,7 @@ export class TenantDocumentsController {
  * Handles manual inbox management for tenant companies.
  * Requires ADMIN or OWNER role (tenant-level admin).
  */
+@RequiresModule('DOCUMENTS')
 @Controller("tenant/manuals")
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.ADMIN, Role.OWNER)

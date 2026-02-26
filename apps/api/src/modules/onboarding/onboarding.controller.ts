@@ -16,7 +16,9 @@ import type { FastifyRequest } from "fastify";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { readSingleFileFromMultipart } from "../../infra/uploads/multipart";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('WORKFORCE')
 @Controller("onboarding")
 export class OnboardingController {
   constructor(private readonly onboarding: OnboardingService) {}

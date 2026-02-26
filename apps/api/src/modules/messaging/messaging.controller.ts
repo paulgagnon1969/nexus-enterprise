@@ -3,7 +3,9 @@ import { JwtAuthGuard } from "../auth/auth.guards";
 import type { AuthenticatedUser } from "../auth/jwt.strategy";
 import { MessagingService } from "./messaging.service";
 import { $Enums } from "@prisma/client";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('MESSAGING')
 @Controller("messages")
 @UseGuards(JwtAuthGuard)
 export class MessagingController {

@@ -2,7 +2,9 @@ import { Body, Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/comm
 import { CombinedAuthGuard } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { LocationsService } from "./locations.service";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('ASSETS')
 @UseGuards(CombinedAuthGuard)
 @Controller("inventory/holdings")
 export class InventoryHoldingsController {

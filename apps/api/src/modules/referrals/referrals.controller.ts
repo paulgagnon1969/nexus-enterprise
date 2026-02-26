@@ -2,7 +2,9 @@ import { BadRequestException, Body, Controller, Get, NotFoundException, Param, P
 import { ReferralsService } from "./referrals.service";
 import { JwtAuthGuard, GlobalRoles, GlobalRole } from "../auth/auth.guards";
 import type { AuthenticatedUser } from "../auth/jwt.strategy";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('WORKFORCE')
 @Controller("referrals")
 export class ReferralsController {
   constructor(private readonly referrals: ReferralsService) {}

@@ -15,6 +15,7 @@ import { FastifyRequest } from "fastify";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import { SupplierService } from "./supplier.service";
 import { Role, SupplierTagCategory } from "@prisma/client";
+import { RequiresModule } from "../billing/module.guard";
 
 interface AuthenticatedUser {
   userId: string;
@@ -23,6 +24,7 @@ interface AuthenticatedUser {
   globalRole?: string;
 }
 
+@RequiresModule('BIDDING')
 @Controller("suppliers")
 @UseGuards(JwtAuthGuard)
 export class SupplierController {

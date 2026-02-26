@@ -5,6 +5,7 @@ import { PlaidProvider } from "./plaid.provider";
 import { BillingService } from "./billing.service";
 import { EntitlementService } from "./entitlement.service";
 import { ModuleGuard } from "./module.guard";
+import { ProjectFeatureGuard } from "./project-feature.guard";
 import { BillingController } from "./billing.controller";
 import { MembershipController } from "./membership.controller";
 import { StripeWebhookController } from "./stripe-webhook.controller";
@@ -17,15 +18,17 @@ import { StripeWebhookController } from "./stripe-webhook.controller";
     BillingService,
     EntitlementService,
     ModuleGuard,
-    // Register as a global guard so @RequiresModule works on any controller
-    // without needing @UseGuards(ModuleGuard) everywhere.
+    ProjectFeatureGuard,
+    // Register as global guards so @RequiresModule / @RequiresProjectFeature
+    // work on any controller without needing @UseGuards() everywhere.
     { provide: APP_GUARD, useExisting: ModuleGuard },
+    { provide: APP_GUARD, useExisting: ProjectFeatureGuard },
   ],
   controllers: [
     BillingController,
     MembershipController,
     StripeWebhookController,
   ],
-  exports: [BillingService, EntitlementService, ModuleGuard],
+  exports: [BillingService, EntitlementService, ModuleGuard, ProjectFeatureGuard],
 })
 export class BillingModule {}

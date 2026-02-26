@@ -20,8 +20,9 @@ import {
   getEffectiveRoleLevel,
 } from "../auth/auth.guards";
 import { Role } from "@prisma/client";
+import { RequiresModule } from "../billing/module.guard";
 
-// Minimum authority level to access crew timecards (FOREMAN = 50).
+// Minimum authority level
 const MIN_CREW_LEVEL = PROFILE_LEVELS["FOREMAN"]; // 50
 // Minimum level for superintendent approval.
 const MIN_SUPER_LEVEL = PROFILE_LEVELS["SUPERINTENDENT"]; // 58
@@ -44,6 +45,7 @@ interface ApproveDto {
  * Crew timecard endpoints — Foreman+ can view, edit, and approve
  * crew timecards for a project/date.
  */
+@RequiresModule('TIMEKEEPING')
 @Controller("timecard/crew")
 export class TimecardCrewController {
   constructor(private readonly prisma: PrismaService) {}

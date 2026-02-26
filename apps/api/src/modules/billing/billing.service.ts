@@ -7,6 +7,7 @@ import { PLAID_CLIENT } from "./plaid.provider";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { Role } from "../auth/auth.guards";
+import { EntitlementService } from "./entitlement.service";
 
 @Injectable()
 export class BillingService {
@@ -15,6 +16,7 @@ export class BillingService {
     @Inject(PLAID_CLIENT) private readonly plaid: PlaidApi,
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly entitlements: EntitlementService,
   ) {}
 
   // ───────────────────────────────────────────────
@@ -468,6 +470,120 @@ export class BillingService {
 
     return sub;
   }
+
+  // ───────────────────────────────────────────────
+  // Per-Project Feature Unlocks
+  // ───────────────────────────────────────────────
+
+  /**
+   * Unlock a PER_PROJECT feature on a specific project.
+   * Charges a one-time Stripe PaymentIntent and creates a ProjectFeatureUnlock record.
+   */
+  async unlockProjectFeature(
+    actor: AuthenticatedUser,
+    projectId: string,
+    featureCode: string,
+  ) {
+    this.ensureBillingPermission(actor);
+
+    // Validate the feature exists and is PER_PROJECT
+    const catalogEntry = await this.prisma.moduleCatalog.findUnique({
+      where: { code: featureCode },
+    });
+    if (!catalogEntry || !catalogEntry.active) {
+      throw new NotFoundException(`Feature '${featureCode}' not found`);
+    }
+    if (catalogEntry.pricingModel !== "PER_PROJECT") {
+      throw new BadRequestException(
+        `Feature '${featureCode}' is not a per-project feature. Use module subscription instead.`,
+      );
+    }
+    if (!catalogEntry.projectUnlockPrice) {
+      throw new BadRequestException(`Feature '${featureCode}' has no unlock price configured`);
+    }
+
+    // Validate project belongs to this company
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, companyId: actor.companyId },
+    });
+    if (!project) {
+      throw new NotFoundException("Project not found");
+    }
+
+    // Check not already unlocked
+    const existing = await this.prisma.projectFeatureUnlock.findUnique({
+      where: {
+        ProjectFeatureUnlock_company_project_feature_key: {
+          companyId: actor.companyId,
+          projectId,
+          featureCode,
+        },
+      },
+    });
+    if (existing) {
+      throw new BadRequestException(
+        `Feature '${featureCode}' is already unlocked on this project`,
+      );
+    }
+
+    // Charge via Stripe PaymentIntent (one-time)
+    const customerId = await this.ensureStripeCustomer(actor.companyId);
+    const paymentIntent = await this.stripe.paymentIntents.create({
+      amount: catalogEntry.projectUnlockPrice,
+      currency: "usd",
+      customer: customerId,
+      description: `${catalogEntry.label} — ${project.name}`,
+      metadata: {
+        nexusCompanyId: actor.companyId,
+        projectId,
+        featureCode,
+        type: "project_feature_unlock",
+      },
+      // Auto-confirm using default payment method
+      confirm: true,
+      off_session: true,
+    });
+
+    // Create unlock record
+    const unlock = await this.prisma.projectFeatureUnlock.create({
+      data: {
+        companyId: actor.companyId,
+        projectId,
+        featureCode,
+        stripePaymentIntentId: paymentIntent.id,
+        amountCents: catalogEntry.projectUnlockPrice,
+        unlockedByUserId: actor.userId,
+      },
+    });
+
+    // Invalidate cache so guard picks it up immediately
+    await this.entitlements.invalidateProjectFeature(
+      actor.companyId,
+      projectId,
+      featureCode,
+    );
+
+    return {
+      ok: true,
+      unlock,
+      charged: catalogEntry.projectUnlockPrice,
+      paymentIntentId: paymentIntent.id,
+    };
+  }
+
+  /**
+   * List all feature unlocks for a specific project.
+   */
+  async getProjectFeatureUnlocks(companyId: string, projectId: string) {
+    return this.prisma.projectFeatureUnlock.findMany({
+      where: { companyId, projectId },
+      orderBy: { unlockedAt: "desc" },
+    });
+  }
+
+  // ───────────────────────────────────────────────
+  // Helpers
+  // ───────────────────────────────────────────────
 
   /** Only OWNER or ADMIN can manage billing. */
   private ensureBillingPermission(actor: AuthenticatedUser) {

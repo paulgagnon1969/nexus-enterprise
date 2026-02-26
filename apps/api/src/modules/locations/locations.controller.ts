@@ -3,7 +3,9 @@ import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { LocationsService } from "./locations.service";
 import { SeedProjectLocationsDto } from "./dto/seed-project-locations.dto";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('ASSETS')
 @UseGuards(JwtAuthGuard)
 @Controller("locations")
 export class LocationsController {

@@ -3,7 +3,9 @@ import { JwtAuthGuard } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { AssetRepository } from "../../infra/prisma-v1/asset.repository";
 import { AssetType } from "@prisma/client";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('ASSETS')
 @UseGuards(JwtAuthGuard)
 @Controller("assets")
 export class AssetController {

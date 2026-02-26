@@ -17,6 +17,7 @@ import { PrismaService } from "../../infra/prisma/prisma.service";
 import { CombinedAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { Prisma } from "@prisma/client";
+import { RequiresModule } from "../billing/module.guard";
 
 type Decimal = Prisma.Decimal;
 const Decimal = Prisma.Decimal;
@@ -55,6 +56,7 @@ function computeHoursWorked(
   return new Decimal(netHours.toFixed(2));
 }
 
+@RequiresModule('SCHEDULING')
 @Controller("projects/:projectId")
 export class TimeEntryController {
   constructor(private readonly prisma: PrismaService) {}

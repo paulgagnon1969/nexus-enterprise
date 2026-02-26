@@ -2,6 +2,7 @@ import { Controller, Get, Post, Body, UseGuards, Req, NotFoundException } from "
 import { CombinedAuthGuard } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { PrismaService } from "../../infra/prisma/prisma.service";
+import { RequiresModule } from "../billing/module.guard";
 
 interface ClockInDto {
   projectId: string;
@@ -37,6 +38,7 @@ interface RecentEntry {
   totalHours: number;
 }
 
+@RequiresModule('TIMEKEEPING')
 @Controller("timecard/me")
 export class TimecardMobileController {
   constructor(private readonly prisma: PrismaService) {}

@@ -28,7 +28,9 @@ import { readSingleFileFromMultipart } from "../../infra/uploads/multipart";
 import { getImportQueue, isRedisAvailable } from "../../infra/queue/import-queue";
 import { GcsService } from "../../infra/storage/gcs.service";
 import { RedisService, CACHE_KEY, CACHE_TTL } from "../../infra/redis/redis.service";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('ESTIMATING')
 @Controller("pricing")
 export class PricingController {
   constructor(

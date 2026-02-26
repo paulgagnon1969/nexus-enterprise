@@ -1,7 +1,9 @@
 import { Controller, Post, Get, Patch, Body, Param, Query, UseGuards, Request } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import { BidPackageService, CreateBidPackageDto, InviteSupplierDto } from "./bid-package.service";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('BIDDING')
 @Controller("bid-packages")
 @UseGuards(JwtAuthGuard)
 export class BidPackageController {

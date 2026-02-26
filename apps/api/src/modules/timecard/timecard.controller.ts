@@ -3,7 +3,9 @@ import { TimecardService, UpsertTimecardDto, ImportWeeklyCsvDto } from "./timeca
 import { JwtAuthGuard } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { UseGuards, Req } from "@nestjs/common";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('TIMEKEEPING')
 @Controller("projects/:projectId/timecards")
 export class TimecardController {
   constructor(private readonly timecardService: TimecardService) {}

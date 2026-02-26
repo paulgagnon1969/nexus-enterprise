@@ -21,6 +21,7 @@ import { BigBoxProvider } from "./bigbox.provider";
 import { VendorRegistryService } from "./vendor-registry.service";
 import { ShopService } from "./shop.service";
 import { PrismaService } from "../../infra/prisma/prisma.service";
+import { RequiresModule } from "../billing/module.guard";
 
 function getUser(req: FastifyRequest): AuthenticatedUser {
   const user = (req as any).user as AuthenticatedUser | undefined;
@@ -45,6 +46,7 @@ function assertSuperAdmin(user: AuthenticatedUser) {
   }
 }
 
+@RequiresModule('BIDDING')
 @Controller("supplier-catalog")
 @UseGuards(JwtAuthGuard)
 export class SupplierCatalogController {

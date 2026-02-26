@@ -2,7 +2,9 @@ import { Controller, Get, Param, Query, Req, UseGuards } from "@nestjs/common";
 import { WeatherService } from "./weather.service";
 import { CombinedAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('SCHEDULING')
 @Controller("projects/:projectId/weather")
 export class WeatherController {
   constructor(private readonly weather: WeatherService) {}

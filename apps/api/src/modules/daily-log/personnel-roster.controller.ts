@@ -15,6 +15,7 @@ import { PrismaService } from "../../infra/prisma/prisma.service";
 import { CombinedAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { DailyLogType } from "@prisma/client";
+import { RequiresModule } from "../billing/module.guard";
 
 interface PersonnelEntry {
   type: "user" | "external";
@@ -23,6 +24,7 @@ interface PersonnelEntry {
   note?: string | null;
 }
 
+@RequiresModule('SCHEDULING')
 @Controller("projects/:projectId")
 export class PersonnelRosterController {
   constructor(private readonly prisma: PrismaService) {}

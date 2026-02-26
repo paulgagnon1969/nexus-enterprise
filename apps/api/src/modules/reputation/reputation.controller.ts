@@ -2,7 +2,9 @@ import { Body, Controller, Param, Post, Req, UseGuards } from "@nestjs/common";
 import { ReputationService } from "./reputation.service";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('WORKFORCE')
 @Controller("reputation")
 export class ReputationController {
   constructor(private readonly reputation: ReputationService) {}

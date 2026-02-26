@@ -4,7 +4,9 @@ import type { AuthenticatedUser } from "../auth/jwt.strategy";
 import { VjnService } from "./vjn.service";
 import { CreateVjnDto, ShareVjnDto, UpdateVjnDto } from "./dto/create-vjn.dto";
 import { VoiceJournalNoteStatus } from "@prisma/client";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('VIDEO')
 @Controller("vjn")
 @UseGuards(JwtAuthGuard)
 export class VjnController {

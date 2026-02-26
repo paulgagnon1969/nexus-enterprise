@@ -3,7 +3,9 @@ import { CombinedAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { DailyLogService } from "./daily-log.service";
 import type { FastifyRequest } from "fastify";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('SCHEDULING')
 @Controller("daily-logs/:logId/attachments")
 export class DailyLogAttachmentsController {
   constructor(private readonly dailyLogs: DailyLogService) {}

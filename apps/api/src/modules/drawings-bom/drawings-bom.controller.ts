@@ -15,7 +15,9 @@ import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { DrawingsBomService } from "./drawings-bom.service";
 import { BomCabinetMatcherService } from "./bom-cabinet-matcher.service";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('ASSETS')
 @UseGuards(JwtAuthGuard)
 @Controller("projects/:projectId/drawings-bom")
 export class DrawingsBomController {

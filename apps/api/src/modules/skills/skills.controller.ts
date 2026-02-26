@@ -2,7 +2,9 @@ import { Body, Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/comm
 import { SkillsService } from "./skills.service";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
+import { RequiresModule } from "../billing/module.guard";
 
+@RequiresModule('WORKFORCE')
 @Controller("skills")
 export class SkillsController {
   constructor(private readonly skills: SkillsService) {}
