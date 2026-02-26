@@ -1,0 +1,215 @@
+// Supplier Bidding System Schema
+// Add to packages/database/prisma/schema.prisma
+
+// ── Bid Packages ────────────────────────────────────────────────────
+
+enum BidPackageStatus {
+  DRAFT          // PM is building the package
+  OPEN           // Suppliers can submit bids
+  CLOSED         // Bidding closed, no more submissions
+  AWARDED        // Bid(s) awarded to supplier(s)
+  CANCELED       // Package canceled
+}
+
+model BidPackage {
+  id              String            @id @default(cuid())
+  companyId       String
+  projectId       String
+  estimateId      String?           // Optional: link to specific estimate version
+  createdByUserId String
+  
+  title           String            // "Phase 1 Cabinets Bid"
+  description     String?           // Instructions, scope notes
+  status          BidPackageStatus  @default(DRAFT)
+  
+  dueDate         DateTime?         // Submission deadline
+  openedAt        DateTime?         // When bidding opened
+  closedAt        DateTime?         // When bidding closed
+  awardedAt       DateTime?         // When bid was awarded
+  
+  // Attachments (plans, SOW, specs)
+  attachmentUrls  Json?             // Array of GCS/S3 URLs
+  
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  
+  company         Company           @relation(fields: [companyId], references: [id])
+  project         Project           @relation(fields: [projectId], references: [id])
+  createdBy       User              @relation("BidPackageCreatedBy", fields: [createdByUserId], references: [id])
+  
+  lineItems       BidPackageLineItem[]
+  invitations     SupplierInvitation[]
+  bids            SupplierBid[]
+  
+  @@index([companyId, projectId], map: "BidPackage_company_project_idx")
+  @@index([status, dueDate], map: "BidPackage_status_due_idx")
+}
+
+// ── Bid Line Items (what suppliers are pricing) ────────────────────
+
+model BidPackageLineItem {
+  id            String  @id @default(cuid())
+  bidPackageId  String
+  lineNo        Int     // Display order (1, 2, 3...)
+  
+  // Link to estimate line item (optional)
+  estimateLineItemId String?
+  
+  // Line item details
+  category      String? // "CAB", "DRY", "PLM" (Xactimate cat)
+  description   String  // "White Shaker Base Cabinet 24x34.5x24"
+  unit          String  // "EA", "SF", "LF"
+  qty           Float   // 12.0
+  
+  // Optional: reference specs
+  specHash      String? // Link to CatalogItem if cabinet/material
+  notes         String? // Special instructions per line
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  bidPackage    BidPackage           @relation(fields: [bidPackageId], references: [id], onDelete: Cascade)
+  bidLineItems  SupplierBidLineItem[]
+  
+  @@index([bidPackageId, lineNo], map: "BidPackageLineItem_package_line_idx")
+}
+
+// ── Supplier Invitations ────────────────────────────────────────────
+
+enum InvitationStatus {
+  PENDING     // Invite sent, not opened
+  OPENED      // Supplier opened the link
+  SUBMITTED   // Bid submitted
+  DECLINED    // Supplier declined to bid
+}
+
+model SupplierInvitation {
+  id            String            @id @default(cuid())
+  bidPackageId  String
+  
+  // Supplier contact info (external, not Nexus users)
+  supplierName  String            // "ABC Supply Co."
+  contactName   String?           // "John Smith"
+  contactEmail  String?           // john@abcsupply.com
+  contactPhone  String?           // +1-555-123-4567
+  
+  // Access token (embedded in link)
+  accessToken   String            @unique // cuid or JWT
+  
+  status        InvitationStatus  @default(PENDING)
+  
+  invitedAt     DateTime          @default(now())
+  openedAt      DateTime?         // When supplier first clicked link
+  submittedAt   DateTime?         // When bid submitted
+  declinedAt    DateTime?
+  
+  // Optional: link to existing Contact record
+  contactId     String?
+  
+  bidPackage    BidPackage        @relation(fields: [bidPackageId], references: [id], onDelete: Cascade)
+  contact       Contact?          @relation(fields: [contactId], references: [id])
+  bids          SupplierBid[]
+  
+  @@index([bidPackageId], map: "SupplierInvitation_package_idx")
+  @@index([accessToken], map: "SupplierInvitation_token_idx")
+  @@index([contactEmail], map: "SupplierInvitation_email_idx")
+}
+
+// ── Supplier Bids (submissions) ─────────────────────────────────────
+
+enum BidStatus {
+  DRAFT       // Supplier is working on it
+  SUBMITTED   // Final submission
+  AMENDED     // Supplier amended after initial submission
+  WITHDRAWN   // Supplier withdrew bid
+  AWARDED     // Bid was awarded (winner)
+  DECLINED    // PM declined this bid
+}
+
+model SupplierBid {
+  id            String      @id @default(cuid())
+  bidPackageId  String
+  invitationId  String
+  
+  status        BidStatus   @default(DRAFT)
+  revisionNo    Int         @default(1) // Increments on amend
+  
+  // Supplier notes
+  notes         String?     // "Lead time 4-6 weeks"
+  
+  // Totals (computed from line items)
+  subtotal      Float?
+  tax           Float?
+  shipping      Float?
+  total         Float?
+  
+  submittedAt   DateTime?   // Initial submission
+  amendedAt     DateTime?   // Last amendment
+  awardedAt     DateTime?   // When PM awarded
+  
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  
+  bidPackage    BidPackage         @relation(fields: [bidPackageId], references: [id], onDelete: Cascade)
+  invitation    SupplierInvitation @relation(fields: [invitationId], references: [id])
+  lineItems     SupplierBidLineItem[]
+  
+  @@index([bidPackageId, status], map: "SupplierBid_package_status_idx")
+  @@index([invitationId], map: "SupplierBid_invitation_idx")
+}
+
+// ── Supplier Bid Line Items (pricing per line) ─────────────────────
+
+model SupplierBidLineItem {
+  id                    String  @id @default(cuid())
+  bidId                 String
+  bidPackageLineItemId  String  // Links to BidPackageLineItem
+  
+  unitPrice             Float?  // Supplier's unit price
+  totalPrice            Float?  // unitPrice * qty
+  
+  // Supplier notes per line
+  notes                 String? // "Substituting with equivalent model XYZ"
+  leadTimeDays          Int?    // Delivery timeline
+  
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  bid                   SupplierBid         @relation(fields: [bidId], references: [id], onDelete: Cascade)
+  packageLineItem       BidPackageLineItem  @relation(fields: [bidPackageLineItemId], references: [id])
+  
+  @@unique([bidId, bidPackageLineItemId], map: "SupplierBidLineItem_bid_line_key")
+  @@index([bidId], map: "SupplierBidLineItem_bid_idx")
+}
+
+// ── Add to existing Contact model ───────────────────────────────────
+
+// Add this relation to the Contact model:
+// model Contact {
+//   ...
+//   supplierInvitations  SupplierInvitation[]
+// }
+
+// ── Add to existing Company model ───────────────────────────────────
+
+// Add this relation to the Company model:
+// model Company {
+//   ...
+//   bidPackages  BidPackage[]
+// }
+
+// ── Add to existing Project model ───────────────────────────────────
+
+// Add this relation to the Project model:
+// model Project {
+//   ...
+//   bidPackages  BidPackage[]
+// }
+
+// ── Add to existing User model ──────────────────────────────────────
+
+// Add this relation to the User model:
+// model User {
+//   ...
+//   bidPackagesCreated  BidPackage[]  @relation("BidPackageCreatedBy")
+// }

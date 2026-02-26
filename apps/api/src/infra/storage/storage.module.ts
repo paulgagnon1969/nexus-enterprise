@@ -1,11 +1,8 @@
 import { Module } from "@nestjs/common";
+import { GcsService } from "./gcs.service";
 
-/**
- * StorageModule — provides file-storage helpers (GCS, local, etc.)
- * TODO: Add StorageService with upload / signed-URL logic.
- */
 @Module({
-  providers: [],
-  exports: [],
+  providers: [GcsService],
+  exports: [GcsService],
 })
 export class StorageModule {}
