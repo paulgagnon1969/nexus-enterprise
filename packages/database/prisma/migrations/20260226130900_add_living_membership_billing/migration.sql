@@ -1,0 +1,1 @@
+-- Living Membership: billing tables already exist in DB (baseline migration)

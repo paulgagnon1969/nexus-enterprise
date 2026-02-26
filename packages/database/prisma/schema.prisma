@@ -208,6 +208,13 @@ model Company {
 
   // Supplier Bidding System
   bidPackages BidPackage[]
+
+  // Living Membership — Billing
+  stripeCustomerId       String?               @unique
+  tenantSubscriptions    TenantSubscription[]
+  tenantPaymentMethods   TenantPaymentMethod[]
+  tenantModuleSubscriptions TenantModuleSubscription[]
+  billingEvents          BillingEvent[]
 }
 
 model OrganizationTemplate {
@@ -7163,4 +7170,102 @@ model SupplierBidLineItem {
   
   @@unique([bidId, bidPackageLineItemId], map: "SupplierBidLineItem_bid_line_key")
   @@index([bidId], map: "SupplierBidLineItem_bid_idx")
+}
+
+// ===================================================================
+// Living Membership — Billing, Subscriptions & Module Licensing
+// ===================================================================
+
+/// The tenant's Stripe subscription (one per company). Contains multiple
+/// subscription items — one for each active module.
+model TenantSubscription {
+  id                String             @id @default(cuid())
+  companyId         String
+  stripeSubId       String             @unique
+  status            SubscriptionStatus @default(ACTIVE)
+  currentPeriodEnd  DateTime?
+  cancelAtPeriodEnd Boolean            @default(false)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId], map: "TenantSubscription_company_idx")
+}
+
+/// Payment methods attached to a tenant's Stripe customer. Cards go through
+/// Stripe Elements; bank accounts go through Plaid Link → Stripe processor token.
+model TenantPaymentMethod {
+  id                    String            @id @default(cuid())
+  companyId             String
+  stripePaymentMethodId String            @unique
+  type                  PaymentMethodType
+  last4                 String?
+  brand                 String?           // visa, mastercard, etc.
+  plaidItemId           String?           // set when linked via Plaid
+  isDefault             Boolean           @default(false)
+  createdAt             DateTime          @default(now())
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId], map: "TenantPaymentMethod_company_idx")
+}
+
+/// Tracks which NCC modules a tenant currently has active. Each record maps
+/// to a Stripe subscription item on the tenant's subscription.
+model TenantModuleSubscription {
+  id                       String    @id @default(cuid())
+  companyId                String
+  moduleCode               String
+  stripeSubscriptionItemId String?   @unique
+  enabledAt                DateTime  @default(now())
+  disabledAt               DateTime?
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, moduleCode], name: "TenantModuleSub_company_module_key")
+  @@index([companyId], map: "TenantModuleSub_company_idx")
+}
+
+/// Canonical catalog of all NCC modules available for purchase. Each module
+/// maps to a Stripe Product + Price. Seeded by migration / admin script.
+model ModuleCatalog {
+  id              String  @id @default(cuid())
+  code            String  @unique
+  label           String
+  description     String?
+  stripeProductId String? // Stripe Product ID
+  stripePriceId   String? // Default monthly Price ID
+  monthlyPrice    Int?    // Display price in cents (e.g. 4900 = $49.00)
+  isCore          Boolean @default(false) // CORE modules can't be toggled off
+  sortOrder       Int     @default(0)
+  active          Boolean @default(true)
+}
+
+/// Stripe webhook events stored for idempotency and audit. Every processed
+/// webhook is recorded here so duplicates are safely ignored.
+model BillingEvent {
+  id            String   @id @default(cuid())
+  companyId     String?
+  stripeEventId String   @unique
+  eventType     String   // e.g. invoice.paid, customer.subscription.updated
+  payload       Json
+  processedAt   DateTime @default(now())
+
+  company Company? @relation(fields: [companyId], references: [id])
+
+  @@index([companyId], map: "BillingEvent_company_idx")
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  UNPAID
+}
+
+enum PaymentMethodType {
+  CARD
+  US_BANK_ACCOUNT
 }
