@@ -69,16 +69,20 @@ export class VideoService {
    */
   async createRoom(
     actor: AuthenticatedUser,
-    opts: { projectId?: string; companyId: string },
+    opts: { projectId?: string; companyId: string; callMode?: "video" | "voice" | "radio" },
   ) {
     this.assertEnabled();
     const roomName = `nexus-${opts.companyId.slice(-6)}-${Date.now()}`;
+    const callMode = opts.callMode ?? "video";
+
+    // Scale max participants based on call mode
+    const maxParticipants = callMode === "radio" ? 100 : callMode === "voice" ? 50 : 20;
 
     // Create the room on LiveKit
     await this.roomService!.createRoom({
       name: roomName,
       emptyTimeout: 300, // auto-close after 5 min if empty
-      maxParticipants: 20,
+      maxParticipants,
     });
 
     // Persist in our DB

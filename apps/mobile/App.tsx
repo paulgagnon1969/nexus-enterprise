@@ -15,13 +15,13 @@ import { apiJson, setOnAuthExhausted } from "./src/api/client";
 import { getBackgroundAuth, getGeofenceConfig, setupGeofencing } from "./src/services/geofencing";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { AppNavigator } from "./src/navigation/AppNavigator";
-import { VideoCallScreen, type VideoCallParams } from "./src/screens/VideoCallScreen";
+import { CallScreen, type CallParams } from "./src/screens/CallScreen";
 import { IncomingCallScreen, type IncomingCallData } from "./src/screens/IncomingCallScreen";
 import { callRingConfig } from "./src/config/callRingConfig";
 
 type RootStackParamList = {
   Main: undefined;
-  VideoCall: VideoCallParams;
+  Call: CallParams;
 };
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
@@ -160,11 +160,12 @@ export default function App() {
               `/video/rooms/${data.roomId}/join`,
               { method: "POST" },
             );
-            navigationRef.current.navigate("VideoCall" as any, {
+            navigationRef.current.navigate("Call" as any, {
               roomId: data.roomId,
               token: res.token,
               livekitUrl: res.livekitUrl,
               projectName: undefined,
+              callMode: (data as any).callMode || "video",
             });
           } catch (err) {
             console.warn("[push] Failed to join video call:", err);
@@ -211,11 +212,12 @@ export default function App() {
     setIsLoggedIn(false);
   };
 
-  // ── Accept incoming call: join room → navigate to VideoCallScreen ──
+  // ── Accept incoming call: join room → navigate to CallScreen ──
   const handleAcceptCall = async () => {
     if (!incomingCall || !navigationRef.current) return;
     const roomId = incomingCall.roomId;
     const projName = incomingCall.projectName;
+    const callMode = incomingCall.callMode || "video";
     setIncomingCall(null);
     if (incomingCallTimeout.current) clearTimeout(incomingCallTimeout.current);
 
@@ -224,11 +226,12 @@ export default function App() {
         `/video/rooms/${roomId}/join`,
         { method: "POST" },
       );
-      navigationRef.current.navigate("VideoCall" as any, {
+      navigationRef.current.navigate("Call" as any, {
         roomId,
         token: res.token,
         livekitUrl: res.livekitUrl,
         projectName: projName,
+        callMode,
       });
     } catch (err) {
       console.warn("[IncomingCall] Failed to join:", err);
@@ -253,8 +256,8 @@ export default function App() {
             )}
           </RootStack.Screen>
           <RootStack.Screen
-            name="VideoCall"
-            component={VideoCallScreen as any}
+            name="Call"
+            component={CallScreen as any}
             options={{
               presentation: "fullScreenModal",
               animation: "slide_from_bottom",

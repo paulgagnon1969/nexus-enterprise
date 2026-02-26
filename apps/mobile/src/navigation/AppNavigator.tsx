@@ -103,11 +103,12 @@ function DailyLogsWrapper() {
           );
           const rootNav = navigation.getParent()?.getParent?.() ?? navigation.getParent();
           if (rootNav) {
-            rootNav.navigate("VideoCall", {
+            rootNav.navigate("Call", {
               roomId: res.room.id,
               token: res.token,
               livekitUrl: res.livekitUrl,
               projectName: project.name,
+              callMode: "video",
             });
           }
         } catch {
@@ -282,7 +283,7 @@ function HomeTabScreen() {
       onJoinCall={(params) => {
         const root = navigation.getParent();
         if (root) {
-          root.navigate("VideoCall", params);
+          root.navigate("Call", params);
         }
       }}
     />

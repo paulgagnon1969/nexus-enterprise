@@ -52,6 +52,8 @@ export function ScrollableTabBar({
   const [menuOpen, setMenuOpen] = useState(false);
   const [calling, setCalling] = useState(false);
   const [callPickerOpen, setCallPickerOpen] = useState(false);
+  const [callModePickerOpen, setCallModePickerOpen] = useState(false);
+  const [selectedCallMode, setSelectedCallMode] = useState<"video" | "voice" | "radio">("video");
 
   const currentRoute = state.routes[state.index]?.name ?? "HomeTab";
   const isHome = currentRoute === "HomeTab";
@@ -88,6 +90,13 @@ export function ScrollableTabBar({
 
   const openCallPicker = useCallback(() => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setCallModePickerOpen(true);
+  }, []);
+
+  const selectCallMode = useCallback((mode: "video" | "voice" | "radio") => {
+    void Haptics.selectionAsync();
+    setSelectedCallMode(mode);
+    setCallModePickerOpen(false);
     setCallPickerOpen(true);
   }, []);
 
@@ -96,10 +105,10 @@ export function ScrollableTabBar({
     if (calling) return;
     setCalling(true);
     try {
-      // 1. Create the room
+      // 1. Create the room with selected call mode
       const res = await apiJson<{ room: any; token: string; livekitUrl: string }>(
         "/video/rooms",
-        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) },
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ callMode: selectedCallMode }) },
       );
 
       // 2. Build smart-invite invitees from all selected contacts
@@ -164,14 +173,15 @@ export function ScrollableTabBar({
       setCallPickerOpen(false);
       const parent = navigation.getParent();
       if (parent) {
-        parent.navigate("VideoCall", {
+        parent.navigate("Call", {
           roomId: res.room.id,
           token: res.token,
           livekitUrl: res.livekitUrl,
+          callMode: selectedCallMode,
         });
       }
     } catch (err) {
-      Alert.alert("Call Failed", "Could not start video call. Please try again.");
+      Alert.alert("Call Failed", "Could not start call. Please try again.");
       console.warn("[video] Failed to start call:", err);
     } finally {
       setCalling(false);
@@ -267,6 +277,37 @@ export function ScrollableTabBar({
                   </Pressable>
                 );
               })}
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Call mode picker (Video / Voice / Radio) */}
+      <Modal
+        visible={callModePickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCallModePickerOpen(false)}
+      >
+        <Pressable style={styles.overlay} onPress={() => setCallModePickerOpen(false)}>
+          <View style={styles.modePickerContainer}>
+            <Text style={styles.modePickerTitle}>Start a Call</Text>
+            <View style={styles.modePickerRow}>
+              <Pressable style={styles.modePickerBtn} onPress={() => selectCallMode("video")}>
+                <Text style={styles.modePickerIcon}>🎥</Text>
+                <Text style={styles.modePickerLabel}>Video</Text>
+                <Text style={styles.modePickerDesc}>Camera + mic</Text>
+              </Pressable>
+              <Pressable style={styles.modePickerBtn} onPress={() => selectCallMode("voice")}>
+                <Text style={styles.modePickerIcon}>🎙️</Text>
+                <Text style={styles.modePickerLabel}>Voice</Text>
+                <Text style={styles.modePickerDesc}>Audio only</Text>
+              </Pressable>
+              <Pressable style={styles.modePickerBtn} onPress={() => selectCallMode("radio")}>
+                <Text style={styles.modePickerIcon}>📻</Text>
+                <Text style={styles.modePickerLabel}>Radio</Text>
+                <Text style={styles.modePickerDesc}>Push to talk</Text>
+              </Pressable>
             </View>
           </View>
         </Pressable>
@@ -467,5 +508,50 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: colors.primary,
     marginTop: 4,
+  },
+
+  // ---- Call mode picker ----
+  modePickerContainer: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 20,
+    paddingBottom: Platform.OS === "ios" ? 36 : 24,
+    paddingHorizontal: 20,
+  },
+  modePickerTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: colors.textPrimary,
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  modePickerRow: {
+    flexDirection: "row",
+    justifyContent: "space-evenly",
+    gap: 12,
+  },
+  modePickerBtn: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 18,
+    borderRadius: 14,
+    backgroundColor: colors.backgroundSecondary,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+  },
+  modePickerIcon: {
+    fontSize: 32,
+    marginBottom: 8,
+  },
+  modePickerLabel: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: colors.textPrimary,
+  },
+  modePickerDesc: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: 2,
   },
 });

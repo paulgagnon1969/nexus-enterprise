@@ -15,12 +15,13 @@ export class VideoController {
   @Post("rooms")
   async createRoom(
     @Req() req: any,
-    @Body() body: { projectId?: string },
+    @Body() body: { projectId?: string; callMode?: string },
   ) {
     const actor = req.user as AuthenticatedUser;
     return this.video.createRoom(actor, {
       projectId: body.projectId,
       companyId: actor.companyId,
+      callMode: (body.callMode as "video" | "voice" | "radio") || "video",
     });
   }
 

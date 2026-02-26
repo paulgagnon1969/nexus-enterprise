@@ -20,6 +20,7 @@ export type IncomingCallData = {
   projectId?: string | null;
   callerName: string;
   projectName?: string;
+  callMode?: "video" | "voice" | "radio";
 };
 
 type Props = {
@@ -131,9 +132,11 @@ export function IncomingCallScreen({ call, onAccept, onDecline }: Props) {
       {/* Caller info */}
       <Text style={styles.callerName}>{call.callerName}</Text>
       <Text style={styles.callType}>
-        {call.projectName
-          ? `Video Call — ${call.projectName}`
-          : "Incoming Video Call"}
+        {call.callMode === "radio"
+          ? call.projectName ? `Radio Channel — ${call.projectName}` : "Incoming Radio Channel"
+          : call.callMode === "voice"
+          ? call.projectName ? `Voice Call — ${call.projectName}` : "Incoming Voice Call"
+          : call.projectName ? `Video Call — ${call.projectName}` : "Incoming Video Call"}
       </Text>
 
       {/* Ringing indicator */}
