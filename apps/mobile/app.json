@@ -16,11 +16,13 @@
       "bundleIdentifier": "com.pg1969.nexusmobile",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-      "NSCameraUsageDescription": "Nexus Mobile uses the camera for video calls, daily log photos, and document scanning.",
+        "NSCameraUsageDescription": "Nexus Mobile uses the camera for video calls, daily log photos, and document scanning.",
         "NSMicrophoneUsageDescription": "Nexus Mobile uses the microphone for video and audio calls.",
-      "NSPhotoLibraryUsageDescription": "Nexus Mobile accesses your photos to attach images to daily logs and reports.",
+        "NSPhotoLibraryUsageDescription": "Nexus Mobile accesses your photos to attach images to daily logs and reports.",
         "NSContactsUsageDescription": "Nexus Mobile accesses your contacts to quickly invite people to projects and sync your work contacts.",
-        "UIBackgroundModes": ["voip"]
+        "NSLocationWhenInUseUsageDescription": "Nexus Mobile uses your location to show your position on job site maps and enable location-based features.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Nexus Mobile uses your location in the background to automatically clock you in and out when you arrive at or leave job sites. This helps track your work hours accurately without manual entry.",
+        "UIBackgroundModes": ["voip", "location"]
       }
     },
     "android": {
@@ -33,7 +35,10 @@
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.READ_CONTACTS"
+        "android.permission.READ_CONTACTS",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION"
       ]
     },
     "web": {
@@ -71,6 +76,13 @@
           "sounds": []
         }
       ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Nexus Mobile uses your location in the background to automatically clock you in and out when you arrive at or leave job sites."
+        }
+      ],
+      "expo-task-manager",
       "@livekit/react-native-expo-plugin",
       "@config-plugins/react-native-webrtc"
     ],
