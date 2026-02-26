@@ -504,7 +504,7 @@ export class VideoService {
     const users = userIds.length
       ? await this.prisma.user.findMany({
           where: { id: { in: userIds } },
-          select: { id: true, email: true, firstName: true, lastName: true, avatarUrl: true },
+          select: { id: true, email: true, firstName: true, lastName: true },
         })
       : [];
 
@@ -517,7 +517,6 @@ export class VideoService {
       email?: string;
       firstName?: string;
       lastName?: string;
-      avatarUrl?: string | null;
       callCount: number;
     }[] = [];
 
@@ -528,7 +527,6 @@ export class VideoService {
         email: user?.email,
         firstName: user?.firstName ?? undefined,
         lastName: user?.lastName ?? undefined,
-        avatarUrl: user?.avatarUrl ?? null,
         callCount: count,
       });
     }

@@ -10,7 +10,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { IccService } from './icc.service';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { JwtAuthGuard } from '../auth/auth.guards';
 import { ICCSearchParams } from '@repo/icc-client';
 
 @Controller('icc')
@@ -46,16 +46,13 @@ export class IccController {
     try {
       const params: ICCSearchParams = {
         query,
-        jurisdiction,
-        codeType,
-        year: year ? parseInt(year, 10) : undefined,
       };
 
       const codes = await this.iccService.searchCodes(params);
       return { codes };
-    } catch (error) {
+    } catch (error: any) {
       throw new HttpException(
-        error.message || 'Failed to search ICC codes',
+        error?.message || 'Failed to search ICC codes',
         HttpStatus.BAD_REQUEST
       );
     }
@@ -70,9 +67,9 @@ export class IccController {
     try {
       const code = await this.iccService.getCode(id);
       return { code };
-    } catch (error) {
+    } catch (error: any) {
       throw new HttpException(
-        error.message || 'Failed to get ICC code',
+        error?.message || 'Failed to get ICC code',
         HttpStatus.NOT_FOUND
       );
     }
@@ -87,9 +84,9 @@ export class IccController {
     try {
       const codes = await this.iccService.getJurisdictionCodes(jurisdiction);
       return { jurisdiction, codes };
-    } catch (error) {
+    } catch (error: any) {
       throw new HttpException(
-        error.message || 'Failed to get jurisdiction codes',
+        error?.message || 'Failed to get jurisdiction codes',
         HttpStatus.BAD_REQUEST
       );
     }
@@ -113,9 +110,9 @@ export class IccController {
         projectId: body.projectId,
         ...result,
       };
-    } catch (error) {
+    } catch (error: any) {
       throw new HttpException(
-        error.message || 'Failed to validate compliance',
+        error?.message || 'Failed to validate compliance',
         HttpStatus.BAD_REQUEST
       );
     }

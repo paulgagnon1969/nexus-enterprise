@@ -356,9 +356,8 @@ export class VjnService {
     const entry = await this.prisma.claimJournalEntry.create({
       data: {
         projectId,
-        companyId: actor.companyId,
         createdById: actor.userId,
-        entryType: "PHONE_CALL",
+        entryType: "CALL",
         direction: "INTERNAL",
         occurredAt: new Date(),
         summary: vjn.aiSummary ?? text.slice(0, 200),

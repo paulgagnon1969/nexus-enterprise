@@ -17,7 +17,16 @@ export interface SyncCredentials {
 }
 
 export interface LoginResponse extends AuthTokens {
-  user?: { id: string; email: string };
+  user?: {
+    id: string;
+    email: string;
+    projects?: Array<{
+      id: string;
+      name: string;
+      latitude?: number | null;
+      longitude?: number | null;
+    }>;
+  };
   company?: { id: string; name: string };
   syncCredentials?: SyncCredentials;
 }

@@ -66,7 +66,7 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
 
   const { eventType, region } = data as {
     eventType: Location.GeofencingEventType;
-    region: Location.GeofencingRegion;
+    region: Location.LocationRegion;
   };
 
   console.log('[Geofence] Event:', eventType, 'Region:', region.identifier);
@@ -95,6 +95,10 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
     }
 
     const projectId = region.identifier;
+    if (!projectId) {
+      console.warn('[Geofence] Region has no identifier, skipping');
+      return;
+    }
     const project = config.projects.find((p) => p.id === projectId);
     if (!project) {
       console.warn('[Geofence] Unknown project:', projectId);
