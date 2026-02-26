@@ -22,7 +22,10 @@
         "NSContactsUsageDescription": "Nexus Mobile accesses your contacts to quickly invite people to projects and sync your work contacts.",
         "NSLocationWhenInUseUsageDescription": "Nexus Mobile uses your location to show your position on job site maps and enable location-based features.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Nexus Mobile uses your location in the background to automatically clock you in and out when you arrive at or leave job sites. This helps track your work hours accurately without manual entry.",
-        "UIBackgroundModes": ["voip", "location"]
+        "UIBackgroundModes": [
+          "voip",
+          "location"
+        ]
       }
     },
     "android": {
@@ -73,7 +76,9 @@
         {
           "icon": "./assets/icon.png",
           "color": "#0284c7",
-          "sounds": ["./assets/sounds/nexus_ring.wav"]
+          "sounds": [
+            "./assets/sounds/nexus_ring.wav"
+          ]
         }
       ],
       [
@@ -84,7 +89,8 @@
       ],
       "expo-task-manager",
       "@livekit/react-native-expo-plugin",
-      "@config-plugins/react-native-webrtc"
+      "@config-plugins/react-native-webrtc",
+      "expo-audio"
     ],
     "updates": {
       "url": "https://u.expo.dev/28b82c06-3d43-44f0-ba56-110645a13d80"

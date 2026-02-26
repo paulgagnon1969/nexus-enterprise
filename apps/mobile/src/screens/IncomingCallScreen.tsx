@@ -9,9 +9,10 @@ import {
   Dimensions,
   Platform,
 } from "react-native";
-import { Audio } from "expo-av";
+import { useAudioPlayer, setAudioModeAsync } from "expo-audio";
 
 const { width: SCREEN_W } = Dimensions.get("window");
+const ringtoneSource = require("../../assets/sounds/nexus_ring.wav");
 
 export type IncomingCallData = {
   roomId: string;
@@ -32,39 +33,28 @@ type Props = {
  * until the user accepts or declines.
  */
 export function IncomingCallScreen({ call, onAccept, onDecline }: Props) {
-  const soundRef = useRef<Audio.Sound | null>(null);
+  const player = useAudioPlayer(ringtoneSource);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   // ── Start ringing + vibration on mount ────────────────────────────
   useEffect(() => {
-    let mounted = true;
-
     const startRinging = async () => {
       try {
         // Configure audio for loud playback — even in silent mode on iOS
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: false,
-          playsInSilentModeIOS: true,
-          staysActiveInBackground: true,
-          shouldDuckAndroid: false,
-          playThroughEarpieceAndroid: false,
+        await setAudioModeAsync({
+          playsInSilentMode: true,
+          shouldPlayInBackground: true,
+          interruptionMode: "doNotMix",
         });
+      } catch (err) {
+        console.warn("[IncomingCall] Failed to set audio mode:", err);
+      }
 
-        const { sound } = await Audio.Sound.createAsync(
-          require("../../assets/sounds/nexus_ring.wav"),
-          {
-            isLooping: true,
-            volume: 1.0,
-            shouldPlay: true,
-          },
-        );
-
-        if (!mounted) {
-          await sound.unloadAsync();
-          return;
-        }
-
-        soundRef.current = sound;
+      // Play the ringtone on loop at max volume
+      try {
+        player.loop = true;
+        player.volume = 1.0;
+        player.play();
       } catch (err) {
         console.warn("[IncomingCall] Failed to play ringtone:", err);
       }
@@ -72,22 +62,18 @@ export function IncomingCallScreen({ call, onAccept, onDecline }: Props) {
 
     startRinging();
 
-    // Aggressive vibration pattern: 500ms buzz, 300ms pause, repeat
-    // Android: pattern is [wait, vibrate, wait, vibrate, ...]
+    // Aggressive vibration pattern: 800ms buzz, 200ms pause, repeat
     // The `true` flag makes it repeat indefinitely
     const VIBRATION_PATTERN = [0, 800, 200, 800, 200, 600, 400, 800];
     Vibration.vibrate(VIBRATION_PATTERN, true);
 
     return () => {
-      mounted = false;
       Vibration.cancel();
-      if (soundRef.current) {
-        soundRef.current.stopAsync().catch(() => {});
-        soundRef.current.unloadAsync().catch(() => {});
-        soundRef.current = null;
-      }
+      try {
+        player.pause();
+      } catch {}
     };
-  }, []);
+  }, [player]);
 
   // ── Pulsing ring animation ────────────────────────────────────────
   useEffect(() => {
@@ -110,24 +96,20 @@ export function IncomingCallScreen({ call, onAccept, onDecline }: Props) {
   }, [pulseAnim]);
 
   // ── Stop ringing helper ───────────────────────────────────────────
-  const stopRinging = useCallback(async () => {
+  const stopRinging = useCallback(() => {
     Vibration.cancel();
-    if (soundRef.current) {
-      try {
-        await soundRef.current.stopAsync();
-        await soundRef.current.unloadAsync();
-      } catch {}
-      soundRef.current = null;
-    }
-  }, []);
+    try {
+      player.pause();
+    } catch {}
+  }, [player]);
 
-  const handleAccept = useCallback(async () => {
-    await stopRinging();
+  const handleAccept = useCallback(() => {
+    stopRinging();
     onAccept();
   }, [stopRinging, onAccept]);
 
-  const handleDecline = useCallback(async () => {
-    await stopRinging();
+  const handleDecline = useCallback(() => {
+    stopRinging();
     onDecline();
   }, [stopRinging, onDecline]);
 
