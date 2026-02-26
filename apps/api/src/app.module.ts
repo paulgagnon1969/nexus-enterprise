@@ -58,6 +58,7 @@ import { LocationsModule } from "./modules/locations/locations.module";
 import { DrawingsBomModule } from "./modules/drawings-bom/drawings-bom.module";
 import { PlanSheetsModule } from "./modules/plan-sheets/plan-sheets.module";
 import { HelpItemsModule } from "./modules/help-items/help-items.module";
+import { IccModule } from "./modules/icc/icc.module";
 
 @Module({
   imports: [
@@ -124,6 +125,7 @@ import { HelpItemsModule } from "./modules/help-items/help-items.module";
     DrawingsBomModule,
     PlanSheetsModule,
     HelpItemsModule,
+    IccModule,
   ],
   controllers: [DevController]
 })

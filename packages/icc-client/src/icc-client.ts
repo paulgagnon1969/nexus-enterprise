@@ -6,19 +6,46 @@ export interface ICCClientConfig {
   timeout?: number;
 }
 
+// ICC Code Connect API models
+export interface ICCBook {
+  shortCode: string;
+  printing: string;
+  uri: string[];
+  title: string;
+  accessStartDate: string | null;
+  accessEndDate: string | null;
+  childrenCount?: {
+    chapters: number;
+    frontmatter: number;
+    backmatter: number;
+    appendicies: number;
+  };
+}
+
+export interface ICCBooksResponse {
+  collections: ICCBook[];
+}
+
+export interface ICCSearchParams {
+  query?: string;
+  bookId?: string;
+  section?: string;
+}
+
+export interface ICCSearchResult {
+  sectionId: string;
+  title: string;
+  content: string;
+  bookId: string;
+}
+
+// Legacy interface for compatibility
 export interface ICCCode {
   id: string;
   name: string;
   jurisdiction: string;
   effectiveDate: string;
   version: string;
-}
-
-export interface ICCSearchParams {
-  query?: string;
-  jurisdiction?: string;
-  codeType?: string;
-  year?: number;
 }
 
 /**
@@ -74,42 +101,82 @@ export class ICCClient {
   }
 
   /**
-   * Search ICC building codes by jurisdiction, type, or keywords
+   * Get all books (building codes) assigned to client
+   * @param withCount - Include chapter/section counts
    */
+  async getBooks(withCount: boolean = false): Promise<ICCBooksResponse> {
+    const response = await this.axios.get('/v1/books', {
+      params: { with_count: withCount ? 1 : 0 },
+    });
+    return response.data;
+  }
+
+  /**
+   * Get book structure (chapters, sections, etc.)
+   * @param bookId - Short code (e.g., "IBC2021")
+   */
+  async getBookStructure(bookId: string): Promise<any> {
+    const response = await this.axios.get(`/v1/books/${bookId}`);
+    return response.data;
+  }
+
+  /**
+   * Get content for a specific section
+   * @param bookId - Short code (e.g., "IBC2021")
+   * @param sectionId - Section identifier
+   */
+  async getSection(bookId: string, sectionId: string): Promise<any> {
+    const response = await this.axios.get(`/v1/books/${bookId}/content/${sectionId}`);
+    return response.data;
+  }
+
+  /**
+   * Search within books
+   * @param params - Search parameters
+   */
+  async search(params: ICCSearchParams): Promise<any> {
+    const response = await this.axios.post('/v1/search', params);
+    return response.data;
+  }
+
+  // Legacy methods for backward compatibility
   async searchCodes(params: ICCSearchParams): Promise<ICCCode[]> {
-    const response = await this.axios.get('/codes/search', { params });
-    return response.data;
+    const books = await this.getBooks();
+    return books.collections.map(book => ({
+      id: book.shortCode,
+      name: book.title,
+      jurisdiction: 'US', // ICC codes are US-based
+      effectiveDate: book.accessStartDate || '',
+      version: book.printing,
+    }));
   }
 
-  /**
-   * Get a specific code by ID
-   */
   async getCode(codeId: string): Promise<ICCCode> {
-    const response = await this.axios.get(`/codes/${codeId}`);
-    return response.data;
+    const books = await this.getBooks();
+    const book = books.collections.find(b => b.shortCode === codeId);
+    if (!book) throw new Error(`Book ${codeId} not found`);
+    return {
+      id: book.shortCode,
+      name: book.title,
+      jurisdiction: 'US',
+      effectiveDate: book.accessStartDate || '',
+      version: book.printing,
+    };
   }
 
-  /**
-   * Validate if a project complies with ICC standards
-   * @param projectData - Project specifications for compliance check
-   */
+  async getJurisdictionCodes(jurisdiction: string): Promise<ICCCode[]> {
+    // ICC codes apply to all US jurisdictions
+    return this.searchCodes({});
+  }
+
   async validateCompliance(projectData: Record<string, any>): Promise<{
     compliant: boolean;
     violations: Array<{ code: string; description: string; severity: string }>;
     recommendations: string[];
   }> {
-    const response = await this.axios.post('/compliance/validate', projectData);
-    return response.data;
-  }
-
-  /**
-   * Get applicable codes for a specific jurisdiction
-   */
-  async getJurisdictionCodes(jurisdiction: string): Promise<ICCCode[]> {
-    const response = await this.axios.get('/jurisdictions', {
-      params: { jurisdiction },
-    });
-    return response.data;
+    // ICC API doesn't provide compliance validation endpoint
+    // This would need to be implemented as a separate service
+    throw new Error('Compliance validation not implemented by ICC API');
   }
 
   /**

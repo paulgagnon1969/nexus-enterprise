@@ -6,9 +6,7 @@ export type {
   ICCClientConfig,
   ICCCode,
   ICCSearchParams,
+  ICCBook,
+  ICCBooksResponse,
+  ICCSearchResult,
 } from './icc-client';
-
-// Re-export generated types when available
-// Uncomment after running `npm run generate`:
-// export * from './generated/models';
-// export * from './generated/api';

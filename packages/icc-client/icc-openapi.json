@@ -1,0 +1,2703 @@
+{
+  "openapi": "3.0.2",
+  "info": {
+    "title": "ICC Code Connect API",
+    "description": "# Introduction\n  The ICC Code Connect API provides complete book contents returned in JSON format, including the ability to retrieve individual sections up to entire chapters in a single request.\n\n  ICC is currently piloting the API with select partners.  For more information please visit <a href=\"https://solutions.iccsafe.org/codeconnect\">ICC Code Connect</a>. Feedback will be used to further shape the API during the pilot period.\n\n   [Try it out!](/docs/console.html) - Requires registration and valid key. \n\n\n\n # Notifications\n #### Receive push notifications for new title mappings. \n\nIf desired, a client can have notifications pushed to them whenever a new piece of content is mapped to any of their accounts. They are able to specify a `POST` endpoint of their choosing, and should expect to receive a payload as follows: \n\n```\n{\n    \"client_id\": (client_id of the client) \n    \"mapped_titles\": [ \n        { \n            \"book_id\" (Book code goes here, for example \"IBC2021P1\"), \n            \"printing\": (Printing goes here, for example \"Second Printing\"), \n            \"title\": (Title goes here, for example \"2021 International Building Code\"), \n            \"access_start_date\": (Starting date for access to the title in format m-d-Y, could also be null), \n            \"access_end_date\": (End date for access to the title in format m-d-Y, could also be null) \n        }, \n        {...}\n    ] \n}\n```\n # Rate Limiting \n To ensure fair usage and maintain system stability, our API implements a rate-limiting mechanism. This prevents excessive requests from overwhelming the system while allowing consistent access to our services. \n ## Client Rate Limit Policy \n Initially a client has 600 requests and every 2 minutes, an additional 200 requests are added, but they do not accumulate over this limit. Once the quota is exhausted, further requests will be rejected with a `429 Too Many Requests` response until additional requests are replenished. \n ## Rate Limit Headers \n All content requests will return the following rate limiting information in the response headers: \n\n `X-RateLimit-Remaining` - Remaining number of requests at the given time for the authenticated client. \n\n `X-RateLimit-Retry-After` - Amount of seconds it takes for more requests to be available if rate limit is reached. \n\n `X-RateLimit-Limit` - Amount of requests available to the client before reaching the rate limit. \n \n # Support \n ## Resources \n Please find below helpful resources for working with our API. \n\n CSS Stylesheet for XML rendering - <a href=\"/docs/stylesheet.css\" download>Download</a> \n\n OpenAPI JSON file - <a href=\"/docs/open.json\" download>Download</a>  \n\n Postman API Collection - <a href=\"/docs/postman_collection.json\" download>Download</a> \n\n OpenAPI Generator Library - <a href=\"https://github.com/swagger-api/swagger-codegen#overview\" target=\"_blank\">Swagger Codegen Project</a>",
+    "version": "1.0.1",
+    "contact": {
+      "name": "API Support",
+      "email": "api-support@iccsafe.org"
+    },
+    "x-logo": {
+      "url": "https://www.iccsafe.org/wp-content/themes/iccsafe/assets/img/logo-desktop.svg",
+      "altText": "ICC Logo"
+    },
+    "license": {
+      "name": "Proprietary",
+      "url": "https://www.iccsafe.org/electronic-products-license-agreement/"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.iccsafe.org",
+      "description": "API Production Server"
+    },
+    {
+      "url": "https://code-connect-api-dev.iccsafe.org",
+      "description": "API Development Server"
+    }
+  ],
+  "tags" : [
+    {
+      "name": "Titles",
+      "description": "Navigate through the title sectional content using qualified xml ids."
+    },
+    {
+      "name": "Content",
+      "description": "Retrieve title content. Sections, Tables, Figures, Equations."
+    },
+    {
+      "name": "Images",
+      "description": "Retrieve images from the content endpoint."
+    },
+    {
+      "name": "Search",
+      "description": "Search through book content."
+    }
+  ],
+  "paths": {
+    "/v1/books": {
+      "get": {
+        "tags" : [
+          "Titles"
+        ],
+        "operationId": "listTitles",
+        "summary": "Client Title Listing",
+        "description": "Sends a JSON response listing assigned Titles.\n",
+        "security": [
+          {
+            "ClientIDAndSecret": ["content-read"],
+            "EmailAndPassword": ["content-read"]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "with_count",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0
+            },
+            "example" : "1",
+            "description": "Includes count of chapters, frontmatter, backmatter and appendix items in the response for each book. Can have a value of 0 or 1."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Book listing in JSON",
+            "headers": {
+              "X-RateLimit-Remaining": { "$ref": "#/components/headers/X-RateLimit-Client-Remaining" },
+              "X-RateLimit-Retry-After": { "$ref": "#/components/headers/X-RateLimit-Client-Retry-After" },
+              "X-RateLimit-Limit": { "$ref": "#/components/headers/X-RateLimit-Client-Limit" }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Books"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BooksWithCount"
+                    }
+                  ]
+                },
+                "examples": {
+                  "books-response" : {
+                    "value": {
+                      "collections": [
+                        {
+                          "shortCode": "IBC2018",
+                          "printing": "First Printing: August 2017",
+                          "uri": [
+                            "",
+                            "ICC",
+                            "I-Codes",
+                            "2018",
+                            "FirstPrinting",
+                            "IBC2018",
+                            "IBC2018.xml"
+                          ],
+                          "title": "2018 International Building Code",
+                          "accessStartDate": "2010-10-10T00:00:00-05:00",
+                          "accessEndDate": null
+                        },
+                        {
+                          "shortCode": "IEBC2018",
+                          "printing": "First Printing: August 2017",
+                          "uri": [
+                            "",
+                            "ICC",
+                            "I-Codes",
+                            "2018",
+                            "FirstPrinting",
+                            "IEBC2018",
+                            "IEBC2018.xml"
+                          ],
+                          "title": "2018 International Existing Building Code",
+                          "accessStartDate": "2020-10-10T00:00:00-05:00",
+                          "accessEndDate": "2020-10-25T00:00:00-05:00"
+                        }
+                      ]
+                    }
+                  },
+                  "books-with-count-response" : {
+                    "value": {
+                      "collections": [
+                        {
+                          "shortCode": "IBC2018",
+                          "printing": "First Printing: August 2017",
+                          "uri": [
+                            "",
+                            "ICC",
+                            "I-Codes",
+                            "2018",
+                            "FirstPrinting",
+                            "IBC2018",
+                            "IBC2018.xml"
+                          ],
+                          "title": "2018 International Building Code",
+                          "childrenCount": {
+                            "chapters": 16,
+                            "frontmatter": 2,
+                            "backmatter": 4,
+                            "appendicies": 4
+                          },
+                          "accessStartDate": "2010-10-10T00:00:00-05:00",
+                          "accessEndDate": null
+                        },
+                        {
+                          "shortCode": "IEBC2018",
+                          "printing": "First Printing: August 2017",
+                          "uri": [
+                            "",
+                            "ICC",
+                            "I-Codes",
+                            "2018",
+                            "FirstPrinting",
+                            "IEBC2018",
+                            "IEBC2018.xml"
+                          ],
+                          "title": "2018 International Existing Building Code",
+                          "childrenCount": {
+                            "chapters": 56,
+                            "frontmatter": 2,
+                            "backmatter": 1,
+                            "appendicies": 15
+                          },
+                          "accessStartDate": "2020-10-10T00:00:00-05:00",
+                          "accessEndDate": "2020-10-25T00:00:00-05:00"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "CURL",
+            "source": "curl -X GET \"https://api.iccsafe.org/v1/books\" -H \"accept: application/json\" -H \"Authorization: Bearer {OAuth Token}\""
+          },
+          {
+            "lang": "JavaScript",
+            "source": "var request = new XMLHttpRequest();\n//Add header\nrequest.setRequestHeader('Authorization', 'Bearer {OAuth Token}',);\nrequest.open('GET', 'https://api.iccsafe.org/v1/books', true);\nrequest.onload = function () {\n    //Access Response Data\n    var data = JSON.parse(this.response);\n    if (request.status >= 200 && request.status < 400) {\n        data.collections.forEach(book => {\n            console.log(book.title);\n        });\n    } else {\n        //Error\n    }\n}"
+          }
+        ]
+      }
+    },
+    "/v1/book/{bookId}/chapters": {
+      "get": {
+        "tags" : [
+          "Titles"
+        ],
+        "operationId": "listTitleChapters",
+        "summary": "Title Chapter Listing",
+        "description": "Use the Title short code to retrieve a top level listing of chapters.",
+        "security": [
+          {
+            "ClientIDAndSecret": ["content-read"],
+            "EmailAndPassword": ["content-read"]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/bookId"
+          },
+          {
+            "name": "with_count",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0
+            },
+            "example" : "1",
+            "description": "Includes count of sections in the response for each book. Can have a value of 0 or 1."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Chapters listing in JSON",
+            "headers": {
+              "X-RateLimit-Remaining": { "$ref": "#/components/headers/X-RateLimit-Client-Remaining" },
+              "X-RateLimit-Retry-After": { "$ref": "#/components/headers/X-RateLimit-Client-Retry-After" },
+              "X-RateLimit-Limit": { "$ref": "#/components/headers/X-RateLimit-Client-Limit" }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Chapters"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ChaptersWithCount"
+                    }
+                  ]
+                },
+                "examples": {
+                  "chapters-response" : {
+                    "value": {
+                      "bookId": "IBC2018",
+                      "chapters": [
+                        {
+                          "ordinal": "",
+                          "ordinalClean": "",
+                          "title": "",
+                          "id": "IBC2018_Pref",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "",
+                          "ordinalClean": "",
+                          "title": "",
+                          "id": "IBC2018_EffUse",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "1",
+                          "ordinalClean": "1",
+                          "title": "SCOPE AND ADMINISTRATION",
+                          "id": "IBC2018_Ch01",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "2",
+                          "ordinalClean": "2",
+                          "title": "DEFINITIONS",
+                          "id": "IBC2018_Ch02",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "3",
+                          "ordinalClean": "3",
+                          "title": "OCCUPANCY CLASSIFICATION AND USE",
+                          "id": "IBC2018_Ch03",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "4",
+                          "ordinalClean": "4",
+                          "title": "SPECIAL DETAILED REQUIREMENTS BASED ON OCCUPANCY AND USE",
+                          "id": "IBC2018_Ch04",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "5",
+                          "ordinalClean": "5",
+                          "title": "GENERAL BUILDING HEIGHTS AND AREAS",
+                          "id": "IBC2018_Ch05",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "6",
+                          "ordinalClean": "6",
+                          "title": "TYPES OF CONSTRUCTION",
+                          "id": "IBC2018_Ch06",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "7",
+                          "ordinalClean": "7",
+                          "title": "FIRE AND SMOKE PROTECTION FEATURES",
+                          "id": "IBC2018_Ch07",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "8",
+                          "ordinalClean": "8",
+                          "title": "INTERIOR FINISHES",
+                          "id": "IBC2018_Ch08",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "9",
+                          "ordinalClean": "9",
+                          "title": "FIRE PROTECTION AND LIFE SAFETY SYSTEMS",
+                          "id": "IBC2018_Ch09",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "10",
+                          "ordinalClean": "10",
+                          "title": "MEANS OF EGRESS ",
+                          "id": "IBC2018_Ch10",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "11",
+                          "ordinalClean": "11",
+                          "title": "ACCESSIBILITY",
+                          "id": "IBC2018_Ch11",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "12",
+                          "ordinalClean": "12",
+                          "title": "INTERIOR ENVIRONMENT",
+                          "id": "IBC2018_Ch12",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "13",
+                          "ordinalClean": "13",
+                          "title": "ENERGY EFFICIENCY",
+                          "id": "IBC2018_Ch13",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "14",
+                          "ordinalClean": "14",
+                          "title": "EXTERIOR WALLS",
+                          "id": "IBC2018_Ch14",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "15",
+                          "ordinalClean": "15",
+                          "title": "ROOF ASSEMBLIES AND ROOFTOP STRUCTURES",
+                          "id": "IBC2018_Ch15",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "16",
+                          "ordinalClean": "16",
+                          "title": "STRUCTURAL DESIGN",
+                          "id": "IBC2018_Ch16",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "17",
+                          "ordinalClean": "17",
+                          "title": "SPECIAL INSPECTIONS AND TESTS",
+                          "id": "IBC2018_Ch17",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "18",
+                          "ordinalClean": "18",
+                          "title": "SOILS AND FOUNDATIONS",
+                          "id": "IBC2018_Ch18",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "19",
+                          "ordinalClean": "19",
+                          "title": "CONCRETE",
+                          "id": "IBC2018_Ch19",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "20",
+                          "ordinalClean": "20",
+                          "title": "ALUMINUM",
+                          "id": "IBC2018_Ch20",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "21",
+                          "ordinalClean": "21",
+                          "title": "MASONRY",
+                          "id": "IBC2018_Ch21",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "22",
+                          "ordinalClean": "22",
+                          "title": "STEEL",
+                          "id": "IBC2018_Ch22",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "23",
+                          "ordinalClean": "23",
+                          "title": "WOOD",
+                          "id": "IBC2018_Ch23",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "24",
+                          "ordinalClean": "24",
+                          "title": "GLASS AND GLAZING",
+                          "id": "IBC2018_Ch24",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "25",
+                          "ordinalClean": "25",
+                          "title": "GYPSUM BOARD, GYPSUM PANEL PRODUCTS AND PLASTER",
+                          "id": "IBC2018_Ch25",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "26",
+                          "ordinalClean": "26",
+                          "title": "PLASTIC",
+                          "id": "IBC2018_Ch26",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "27",
+                          "ordinalClean": "27",
+                          "title": "ELECTRICAL",
+                          "id": "IBC2018_Ch27",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "28",
+                          "ordinalClean": "28",
+                          "title": "MECHANICAL SYSTEMS",
+                          "id": "IBC2018_Ch28",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "29",
+                          "ordinalClean": "29",
+                          "title": "PLUMBING SYSTEMS",
+                          "id": "IBC2018_Ch29",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "30",
+                          "ordinalClean": "30",
+                          "title": "ELEVATORS AND CONVEYING SYSTEMS",
+                          "id": "IBC2018_Ch30",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "31",
+                          "ordinalClean": "31",
+                          "title": "SPECIAL CONSTRUCTION",
+                          "id": "IBC2018_Ch31",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "32",
+                          "ordinalClean": "32",
+                          "title": "ENCROACHMENTS INTO THE PUBLIC RIGHT-OF-WAY",
+                          "id": "IBC2018_Ch32",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "33",
+                          "ordinalClean": "33",
+                          "title": "SAFEGUARDS DURING CONSTRUCTION",
+                          "id": "IBC2018_Ch33",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "34",
+                          "ordinalClean": "34",
+                          "title": "RESERVED",
+                          "id": "IBC2018_Ch34",
+                          "dtype": "chapter"
+                        },
+                        {
+                          "ordinal": "35",
+                          "ordinalClean": "35",
+                          "title": "REFERENCED STANDARDS",
+                          "id": "IBC2018_Ch35",
+                          "dtype": "chapter"
+                        }
+                      ],
+                      "backmatter": [
+                        {
+                          "ordinal": "A",
+                          "ordinalClean": "A",
+                          "title": "EMPLOYEE QUALIFICATIONS",
+                          "id": "IBC2018_AppxA",
+                          "dtype": "Appendix"
+                        },
+                        {
+                          "ordinal": "B",
+                          "ordinalClean": "B",
+                          "title": "BOARD OF APPEALS",
+                          "id": "IBC2018_AppxB",
+                          "dtype": "Appendix"
+                        },
+                        {
+                          "ordinal": "C",
+                          "ordinalClean": "C",
+                          "title": "GROUP U—AGRICULTURAL BUILDINGS",
+                          "id": "IBC2018_AppxC",
+                          "dtype": "Appendix"
+                        },
+                        {
+                          "ordinal": "D",
+                          "ordinalClean": "D",
+                          "title": "FIRE DISTRICTS",
+                          "id": "IBC2018_AppxD",
+                          "dtype": "Appendix"
+                        },
+                        {
+                          "ordinal": "E",
+                          "ordinalClean": "E",
+                          "title": "SUPPLEMENTARY ACCESSIBILITY REQUIREMENTS",
+                          "id": "IBC2018_AppxE",
+                          "dtype": "Appendix"
+                        },
+                        {
+                          "ordinal": "F",
+                          "ordinalClean": "F",
+                          "title": "RODENTPROOFING",
+                          "id": "IBC2018_AppxF",
+                          "dtype": "Appendix"
+                        },
+                        {
+                          "ordinal": "G",
+                          "ordinalClean": "G",
+                          "title": "FLOOD-RESISTANT CONSTRUCTION",
+                          "id": "IBC2018_AppxG",
+                          "dtype": "Appendix"
+                        },
+                        {
+                          "ordinal": "H",
+                          "ordinalClean": "H",
+                          "title": "SIGNS",
+                          "id": "IBC2018_AppxH",
+                          "dtype": "Appendix"
+                        },
+                        {
+                          "ordinal": "I",
+                          "ordinalClean": "I",
+                          "title": "PATIO COVERS",
+                          "id": "IBC2018_AppxI",
+                          "dtype": "Appendix"
+                        },
+                        {
+                          "ordinal": "J",
+                          "ordinalClean": "J",
+                          "title": "GRADING",
+                          "id": "IBC2018_AppxJ",
+                          "dtype": "Appendix"
+                        },
+                        {
+                          "ordinal": "K",
+                          "ordinalClean": "K",
+                          "title": "ADMINISTRATIVE PROVISIONS",
+                          "id": "IBC2018_AppxK",
+                          "dtype": "Appendix"
+                        },
+                        {
+                          "ordinal": "L",
+                          "ordinalClean": "L",
+                          "title": "EARTHQUAKE RECORDING INSTRUMENTATION",
+                          "id": "IBC2018_AppxL",
+                          "dtype": "Appendix"
+                        },
+                        {
+                          "ordinal": "M",
+                          "ordinalClean": "M",
+                          "title": "TSUNAMI-GENERATED FLOOD HAZARD",
+                          "id": "IBC2018_AppxM",
+                          "dtype": "Appendix"
+                        },
+                        {
+                          "ordinal": "",
+                          "ordinalClean": "",
+                          "title": null,
+                          "id": "IBC2018_AppxN",
+                          "dtype": "Appendix"
+                        },
+                        {
+                          "ordinal": "",
+                          "ordinalClean": "",
+                          "title": "INDEX",
+                          "id": "IBC2018_Index",
+                          "dtype": "Index"
+                        }
+                      ],
+                      "frontmatter": [
+                        {
+                          "title": "PREFACE",
+                          "id": "IBC2018_Pref",
+                          "dtype": "FrontMatter"
+                        },
+                        {
+                          "title": null,
+                          "id": "IBC2018_EffUse",
+                          "dtype": "FrontMatter"
+                        }
+                      ],
+                      "appendices": [
+                        {
+                            "ordinal": "A",
+                            "ordinalClean": "A",
+                            "title": "EMPLOYEE QUALIFICATIONS",
+                            "id": "IBC2018_AppxA",
+                            "dtype": "Appendix"
+                        },
+                        {
+                            "ordinal": "B",
+                            "ordinalClean": "B",
+                            "title": "BOARD OF APPEALS",
+                            "id": "IBC2018_AppxB",
+                            "dtype": "Appendix"
+                        },
+                        {
+                            "ordinal": "C",
+                            "ordinalClean": "C",
+                            "title": "GROUP U—AGRICULTURAL BUILDINGS",
+                            "id": "IBC2018_AppxC",
+                            "dtype": "Appendix"
+                        },
+                        {
+                            "ordinal": "D",
+                            "ordinalClean": "D",
+                            "title": "FIRE DISTRICTS",
+                            "id": "IBC2018_AppxD",
+                            "dtype": "Appendix"
+                        },
+                        {
+                            "ordinal": "E",
+                            "ordinalClean": "E",
+                            "title": "SUPPLEMENTARY ACCESSIBILITY REQUIREMENTS",
+                            "id": "IBC2018_AppxE",
+                            "dtype": "Appendix"
+                        },
+                        {
+                            "ordinal": "F",
+                            "ordinalClean": "F",
+                            "title": "RODENTPROOFING",
+                            "id": "IBC2018_AppxF",
+                            "dtype": "Appendix"
+                        },
+                        {
+                            "ordinal": "G",
+                            "ordinalClean": "G",
+                            "title": "FLOOD-RESISTANT CONSTRUCTION",
+                            "id": "IBC2018_AppxG",
+                            "dtype": "Appendix"
+                        },
+                        {
+                            "ordinal": "H",
+                            "ordinalClean": "H",
+                            "title": "SIGNS",
+                            "id": "IBC2018_AppxH",
+                            "dtype": "Appendix"
+                        },
+                        {
+                            "ordinal": "I",
+                            "ordinalClean": "I",
+                            "title": "PATIO COVERS",
+                            "id": "IBC2018_AppxI",
+                            "dtype": "Appendix"
+                        },
+                        {
+                            "ordinal": "J",
+                            "ordinalClean": "J",
+                            "title": "GRADING",
+                            "id": "IBC2018_AppxJ",
+                            "dtype": "Appendix"
+                        },
+                        {
+                            "ordinal": "K",
+                            "ordinalClean": "K",
+                            "title": "ADMINISTRATIVE PROVISIONS",
+                            "id": "IBC2018_AppxK",
+                            "dtype": "Appendix"
+                        },
+                        {
+                            "ordinal": "L",
+                            "ordinalClean": "L",
+                            "title": "EARTHQUAKE RECORDING INSTRUMENTATION",
+                            "id": "IBC2018_AppxL",
+                            "dtype": "Appendix"
+                        },
+                        {
+                            "ordinal": "M",
+                            "ordinalClean": "M",
+                            "title": "TSUNAMI-GENERATED FLOOD HAZARD",
+                            "id": "IBC2018_AppxM",
+                            "dtype": "Appendix"
+                        },
+                        {
+                            "ordinal": "",
+                            "ordinalClean": "",
+                            "title": null,
+                            "id": "IBC2018_AppxN",
+                            "dtype": "Appendix"
+                        },
+                        {
+                            "ordinal": "",
+                            "ordinalClean": "",
+                            "title": "INDEX",
+                            "id": "IBC2018_Index",
+                            "dtype": "Index"
+                        }
+                      ],
+                      "title": "2018 International Building Code",
+                      "printing": "Second Printing: August 2018",
+                      "responseId": "c0e3035e-b71d-464e-8f88-0504fc29c91a"
+                    }
+                  },
+                  "chapters-with-count-response" : {
+                    "value": {
+                      "bookId": "IBC2018",
+                      "chapters": [
+                        {
+                          "ordinal": "",
+                          "ordinalClean": "",
+                          "title": "",
+                          "id": "IBC2018_Pref",
+                          "dtype": "chapter",
+                          "childrenCount": {
+                            "sections": 8
+                          }
+                        },
+                        {
+                          "ordinal": "",
+                          "ordinalClean": "",
+                          "title": "",
+                          "id": "IBC2018_EffUse",
+                          "dtype": "chapter",
+                          "childrenCount": {
+                            "sections": 7
+                          }
+                        },
+                        {
+                          "ordinal": "1",
+                          "ordinalClean": "1",
+                          "title": "SCOPE AND ADMINISTRATION",
+                          "id": "IBC2018_Ch01",
+                          "dtype": "chapter",
+                          "childrenCount": {
+                            "sections": 11
+                          }
+                        },
+                        {
+                          "ordinal": "2",
+                          "ordinalClean": "2",
+                          "title": "DEFINITIONS",
+                          "id": "IBC2018_Ch02",
+                          "dtype": "chapter",
+                          "childrenCount": {
+                            "sections": 1
+                          }
+                        },
+                        {
+                          "ordinal": "3",
+                          "ordinalClean": "3",
+                          "title": "OCCUPANCY CLASSIFICATION AND USE",
+                          "id": "IBC2018_Ch03",
+                          "dtype": "chapter",
+                          "childrenCount": {
+                            "sections": 15
+                          }
+                        },
+                        {
+                          "ordinal": "4",
+                          "ordinalClean": "4",
+                          "title": "SPECIAL DETAILED REQUIREMENTS BASED ON OCCUPANCY AND USE",
+                          "id": "IBC2018_Ch04",
+                          "dtype": "chapter",
+                          "childrenCount": {
+                            "sections": 6
+                          }
+                        }
+                      ],
+                      "backmatter": [
+                        {
+                          "ordinal": "A",
+                          "ordinalClean": "A",
+                          "title": "EMPLOYEE QUALIFICATIONS",
+                          "id": "IBC2018_AppxA",
+                          "dtype": "Appendix",
+                          "childrenCount": {
+                            "sections": 1
+                          }
+                        },
+                        {
+                          "ordinal": "B",
+                          "ordinalClean": "B",
+                          "title": "BOARD OF APPEALS",
+                          "id": "IBC2018_AppxB",
+                          "dtype": "Appendix",
+                          "childrenCount": {
+                            "sections": 4
+                          }
+                        },
+                        {
+                          "ordinal": "C",
+                          "ordinalClean": "C",
+                          "title": "GROUP U—AGRICULTURAL BUILDINGS",
+                          "id": "IBC2018_AppxC",
+                          "dtype": "Appendix",
+                          "childrenCount": {
+                            "sections": 6
+                          }
+                        }
+                      ],
+                      "frontmatter": [
+                        {
+                          "title": "PREFACE",
+                          "id": "IBC2018_Pref",
+                          "dtype": "FrontMatter",
+                          "childrenCount": {
+                            "sections": 1
+                          }
+                        },
+                        {
+                          "title": null,
+                          "id": "IBC2018_EffUse",
+                          "dtype": "FrontMatter",
+                          "childrenCount": {
+                            "sections": 1
+                          }
+                        }
+                      ],
+                      "appendices": [
+                        {
+                            "ordinal": "A",
+                            "ordinalClean": "A",
+                            "title": "EMPLOYEE QUALIFICATIONS",
+                            "id": "IBC2018_AppxA",
+                            "dtype": "Appendix",
+                            "childrenCount": {
+                              "sections": 9
+                            }
+                        },
+                        {
+                            "ordinal": "B",
+                            "ordinalClean": "B",
+                            "title": "BOARD OF APPEALS",
+                            "id": "IBC2018_AppxB",
+                            "dtype": "Appendix",
+                            "childrenCount": {
+                              "sections": 12
+                            }
+                        }
+                      ],
+                      "title": "2018 International Building Code",
+                      "printing": "Second Printing: August 2018",
+                      "responseId": "c0e3035e-b71d-464e-8f88-0504fc29c91a"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples" : [
+          {
+            "lang": "CURL",
+            "source": "curl -X GET \"https://api.iccsafe.org/v1/book/{bookId}/chapters\" -H \"accept: application/json\" -H \"Authorization: Bearer {OAuth Token}\""
+          },
+          {
+            "lang": "JavaScript",
+            "source": "var request = new XMLHttpRequest();\n//Add X-AUTH-TOKEN header\nrequest.setRequestHeader('Authorization', 'Bearer {OAuth Token}',);\nrequest.open('GET', 'https://api.iccsafe.org/v1/book/{bookId}/chapters', true);\nrequest.onload = function () {\n    //Access Response Data\n    var data = JSON.parse(this.response);\n    if (request.status >= 200 && request.status < 400) {\n        data.chapters.forEach(chapter => {\n            console.log(chapter.ordinal . ' ' . chapter.title);\n        });\n    } else {\n        //Error\n    }\n}"
+          }
+        ]
+      }
+    },
+    "/v1/book/{bookId}/chapter/{chapterId}/sections": {
+      "get": {
+        "tags" : [
+          "Titles"
+        ],
+        "operationId": "listTitleChapterSections",
+        "summary": "Title Chapter Section Listing",
+        "description": "Use the Title short code and chapter id to retrieve a top level listing of sections in a chapter.",
+        "security": [
+          {
+            "ClientIDAndSecret": ["content-read"],
+            "EmailAndPassword": ["content-read"]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/bookId"
+          },
+          {
+            "$ref": "#/components/parameters/chapterId"
+          },
+          {
+            "name": "with_count",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0
+            },
+            "example" : "1",
+            "description": "Includes count of subsections, tables and figures in the response for each section. Can have a value of 0 or 1."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of Chapter Sections in JSON",
+            "headers": {
+              "X-RateLimit-Remaining": { "$ref": "#/components/headers/X-RateLimit-Client-Remaining" },
+              "X-RateLimit-Retry-After": { "$ref": "#/components/headers/X-RateLimit-Client-Retry-After" },
+              "X-RateLimit-Limit": { "$ref": "#/components/headers/X-RateLimit-Client-Limit" }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Sections"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SectionsWithCount"
+                    }
+                  ]
+                },
+                "examples": {
+                  "sections-response" : {
+                    "value": {
+                      "sectionId": "",
+                      "bookId": "IBC2018",
+                      "chapterId": "IBC2018_Ch05",
+                      "sections": [
+                        {
+                          "ordinal": "501",
+                          "ordinalClean": "501",
+                          "title": "GENERAL",
+                          "id": "IBC2018_Ch05_Sec501",
+                          "dtype": "section"
+                        },
+                        {
+                          "ordinal": "502",
+                          "ordinalClean": "502",
+                          "title": "BUILDING ADDRESS",
+                          "id": "IBC2018_Ch05_Sec502",
+                          "dtype": "section"
+                        },
+                        {
+                          "ordinal": "503",
+                          "ordinalClean": "503",
+                          "title": "GENERAL BUILDING HEIGHT ANDAREA LIMITATIONS",
+                          "id": "IBC2018_Ch05_Sec503",
+                          "dtype": "section"
+                        },
+                        {
+                          "ordinal": "504",
+                          "ordinalClean": "504",
+                          "title": "BUILDING HEIGHT AND NUMBER OF STORIES",
+                          "id": "IBC2018_Ch05_Sec504",
+                          "dtype": "section"
+                        },
+                        {
+                          "ordinal": "505",
+                          "ordinalClean": "505",
+                          "title": "MEZZANINES AND EQUIPMENT PLATFORMS ",
+                          "id": "IBC2018_Ch05_Sec505",
+                          "dtype": "section"
+                        },
+                        {
+                          "ordinal": "506",
+                          "ordinalClean": "506",
+                          "title": "BUILDING AREA",
+                          "id": "IBC2018_Ch05_Sec506",
+                          "dtype": "section"
+                        },
+                        {
+                          "ordinal": "507",
+                          "ordinalClean": "507",
+                          "title": "UNLIMITED AREA BUILDINGS",
+                          "id": "IBC2018_Ch05_Sec507",
+                          "dtype": "section"
+                        },
+                        {
+                          "ordinal": "508",
+                          "ordinalClean": "508",
+                          "title": "MIXED USE AND OCCUPANCY",
+                          "id": "IBC2018_Ch05_Sec508",
+                          "dtype": "section"
+                        },
+                        {
+                          "ordinal": "509",
+                          "ordinalClean": "509",
+                          "title": "INCIDENTAL USES",
+                          "id": "IBC2018_Ch05_Sec509",
+                          "dtype": "section"
+                        },
+                        {
+                          "ordinal": "510",
+                          "ordinalClean": "510",
+                          "title": "SPECIAL PROVISIONS",
+                          "id": "IBC2018_Ch05_Sec510",
+                          "dtype": "section"
+                        }
+                      ],
+                      "responseId": "ae16e9aa-8bf4-4ed4-8927-7e646de6b458"
+                    }
+                  },
+                  "sections-with-children-response" : {
+                    "value": {
+                      "sectionId": "",
+                      "bookId": "IBC2018",
+                      "chapterId": "IBC2018_Ch05",
+                      "sections": [
+                        {
+                          "ordinal": "501",
+                          "ordinalClean": "501",
+                          "title": "GENERAL",
+                          "id": "IBC2018_Ch05_Sec501",
+                          "dtype": "section",
+                          "childrenCount": {
+                            "subsections": 12,
+                            "tables": 0,
+                            "figures": 5
+                          }
+                        },
+                        {
+                          "ordinal": "502",
+                          "ordinalClean": "502",
+                          "title": "BUILDING ADDRESS",
+                          "id": "IBC2018_Ch05_Sec502",
+                          "dtype": "section",
+                          "childrenCount": {
+                            "subsections": 12,
+                            "tables": 0,
+                            "figures": 0
+                          }
+                        },
+                        {
+                          "ordinal": "503",
+                          "ordinalClean": "503",
+                          "title": "GENERAL BUILDING HEIGHT ANDAREA LIMITATIONS",
+                          "id": "IBC2018_Ch05_Sec503",
+                          "dtype": "section",
+                          "childrenCount": {
+                            "subsections": 6,
+                            "tables": 0,
+                            "figures": 0
+                          }
+                        },
+                        {
+                          "ordinal": "504",
+                          "ordinalClean": "504",
+                          "title": "BUILDING HEIGHT AND NUMBER OF STORIES",
+                          "id": "IBC2018_Ch05_Sec504",
+                          "dtype": "section",
+                          "childrenCount": {
+                            "subsections": 3,
+                            "tables": 2,
+                            "figures": 0
+                          }
+                        }
+                      ],
+                      "responseId": "ae16e9aa-8bf4-4ed4-8927-7e646de6b458"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples" : [
+          {
+            "lang": "CURL",
+            "source": "curl -X GET \"https://api.iccsafe.org/v1/book/{bookId}/chapter/{chapterId}/sections\" -H \"accept: application/json\" -H \"Authorization: Bearer {OAuth Token}\""
+          },
+          {
+            "lang": "JavaScript",
+            "source": "var request = new XMLHttpRequest();\n//Add X-AUTH-TOKEN header\nrequest.setRequestHeader('Authorization', 'Bearer {OAuth Token}'});\nrequest.open('GET', 'https://api.iccsafe.org/v1/book/{bookId}/chapter/{chapterId}/sections', true);\nrequest.onload = function () {\n    //Access Response Data\n    var data = JSON.parse(this.response);\n    if (request.status >= 200 && request.status < 400) {\n        data.sections.forEach(section => {\n            console.log(section.ordinal . ' ' . section.title);\n        });\n    } else {\n        //Error\n    }\n}"
+          }
+        ]
+      }
+    },
+    "/v1/book/{bookId}/chapter/{chapterId}/list/{sectionId}": {
+      "get": {
+        "tags" : [
+          "Titles"
+        ],
+        "operationId": "listTitleChapterSectionSubsections",
+        "summary": "Title SubSection Listing",
+        "description": "Use the Title short code, chapter id, and section id to retrieve a listing of subsections.",
+        "security": [
+          {
+            "ClientIDAndSecret": ["content-read"],
+            "EmailAndPassword": ["content-read"]
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/bookId"
+          },
+          {
+            "$ref": "#/components/parameters/chapterId"
+          },
+          {
+            "name": "sectionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "IBC2018_Ch05_Sec501"
+          },
+          {
+            "name": "with_count",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0
+            },
+            "example" : "1",
+            "description": "Includes count of subsections, tables and figures in the response for each section. Can have a value of 0 or 1."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of subsections in JSON",
+            "headers": {
+              "X-RateLimit-Remaining": { "$ref": "#/components/headers/X-RateLimit-Client-Remaining" },
+              "X-RateLimit-Retry-After": { "$ref": "#/components/headers/X-RateLimit-Client-Retry-After" },
+              "X-RateLimit-Limit": { "$ref": "#/components/headers/X-RateLimit-Client-Limit" }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Sections"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SectionsWithCount"
+                    }
+                  ]
+                },
+                "examples": {
+                  "sections-response" : {
+                    "value": {
+                      "sectionId": "IBC2018_Ch05_Sec509",
+                      "bookId": "IBC2018",
+                      "chapterId": "IBC2018_Ch05",
+                      "sections": [
+                        {
+                          "ordinal": "[F] TABLE 509",
+                          "ordinalClean": "509",
+                          "title": "INCIDENTAL USES",
+                          "id": "IBC2018_Ch05_Sec509_Tbl509",
+                          "dtype": "table"
+                        },
+                        {
+                          "ordinal": "509.1",
+                          "ordinalClean": "509.1",
+                          "title": "General",
+                          "id": "IBC2018_Ch05_Sec509.1",
+                          "dtype": "section"
+                        },
+                        {
+                          "ordinal": "509.2",
+                          "ordinalClean": "509.2",
+                          "title": "Occupancy classification.",
+                          "id": "IBC2018_Ch05_Sec509.2",
+                          "dtype": "section"
+                        },
+                        {
+                          "ordinal": "509.3",
+                          "ordinalClean": "509.3",
+                          "title": "Area limitations.",
+                          "id": "IBC2018_Ch05_Sec509.3",
+                          "dtype": "section"
+                        },
+                        {
+                          "ordinal": "509.4",
+                          "ordinalClean": "509.4",
+                          "title": "Separation and protection.",
+                          "id": "IBC2018_Ch05_Sec509.4",
+                          "dtype": "section"
+                        },
+                        {
+                          "ordinal": "509.4.1",
+                          "ordinalClean": "509.4.1",
+                          "title": "Separation.",
+                          "id": "IBC2018_Ch05_Sec509.4.1",
+                          "dtype": "section"
+                        },
+                        {
+                          "ordinal": "509.4.2",
+                          "ordinalClean": "509.4.2",
+                          "title": "Protection.",
+                          "id": "IBC2018_Ch05_Sec509.4.2",
+                          "dtype": "section"
+                        },
+                        {
+                          "ordinal": "509.4.2.1",
+                          "ordinalClean": "509.4.2.1",
+                          "title": "Protection limitation.",
+                          "id": "IBC2018_Ch05_Sec509.4.2.1",
+                          "dtype": "section"
+                        }
+                      ],
+                      "responseId": "05a0df5d-4f71-4f4b-b10e-778e75026d70"
+                    }
+                  },
+                  "sections-with-count-response" : {
+                    "value": {
+                      "sectionId": "IBC2018_Ch05_Sec509",
+                      "bookId": "IBC2018",
+                      "chapterId": "IBC2018_Ch05",
+                      "sections": [
+                        {
+                          "ordinal": "509.4",
+                          "ordinalClean": "509.4",
+                          "title": "Separation and protection.",
+                          "id": "IBC2018_Ch05_Sec509.4",
+                          "dtype": "section",
+                          "childrenCount": {
+                            "subsections": 2,
+                            "tables": 1,
+                            "figures": 3
+                          }
+                        },
+                        {
+                          "ordinal": "509.4.1",
+                          "ordinalClean": "509.4.1",
+                          "title": "Separation.",
+                          "id": "IBC2018_Ch05_Sec509.4.1",
+                          "dtype": "section",
+                          "childrenCount": {
+                            "subsections": 0,
+                            "tables": 0,
+                            "figures": 0
+                          }
+                        },
+                        {
+                          "ordinal": "509.4.2",
+                          "ordinalClean": "509.4.2",
+                          "title": "Protection.",
+                          "id": "IBC2018_Ch05_Sec509.4.2",
+                          "dtype": "section",
+                          "childrenCount": {
+                            "subsections": 1,
+                            "tables": 0,
+                            "figures": 0
+                          }
+                        },
+                        {
+                          "ordinal": "509.4.2.1",
+                          "ordinalClean": "509.4.2.1",
+                          "title": "Protection limitation.",
+                          "id": "IBC2018_Ch05_Sec509.4.2.1",
+                          "dtype": "section",
+                          "childrenCount": {
+                            "subsections": 0,
+                            "tables": 0,
+                            "figures": 2
+                          }
+                        }
+                      ],
+                      "responseId": "05a0df5d-4f71-4f4b-b10e-778e75026d70"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples" : [
+          {
+            "lang": "CURL",
+            "source": "curl -X GET \"https://api.iccsafe.org/v1/book/{bookId}/chapter/{chapterId}/list/{sectionId}\" -H \"accept: application/json\" -H \"Authorization: Bearer {OAuth Token}\""
+          },
+          {
+            "lang": "JavaScript",
+            "source": "var request = new XMLHttpRequest();\n//Add X-AUTH-TOKEN header\nrequest.setRequestHeader('Authorization', 'Bearer {OAuth Token}',);\nrequest.open('GET', 'https://api.iccsafe.org/v1/book/{bookId}/chapter/{chapterId}/list/{sectionId}', true);\nrequest.onload = function () {\n    //Access Response Data\n    var data = JSON.parse(this.response);\n    if (request.status >= 200 && request.status < 400) {\n        data.sections.forEach(section => {\n            console.log(section.ordinal . ' ' . section.title);\n        });\n    } else {\n        //Error\n    }\n}"
+          }
+        ]
+      }
+    },
+    "/v1/content/{contentId}": {
+      "get": {
+        "tags" : [
+          "Content"
+        ],
+        "operationId": "getContent",
+        "summary": "Content Part",
+        "description": "Attempts to parse a fully qualified XML ID to retrieve tables, sections, definitions, terms and promulgators.  Includes images embedded as data objects.",
+        "security": [
+          {
+            "ClientIDAndSecret": ["content-read"],
+            "EmailAndPassword": ["content-read"]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "contentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "IBC2018_Ch05_Sec509.4.2"
+            },
+            "examples": {
+              "Section": {
+                "value": "IBC2018_Ch01_SubCh01_Sec101.4",
+                "summary": "Section"
+              },
+              "ReferenceStandard": {
+                "value": "IBC2018_Ch35_PromAA_RefStdADM1_2015",
+                "summary": "Reference standard"
+              },
+              "Definition": {
+                "value": "IBC2018_Ch02_Sec202_DefACCESSIBLE",
+                "summary": "Definition"
+              },
+              "Table": {
+                "value": "OHRC2019P2_Pt03_Ch08_Sec804.2.3_Tbl804.2.3",
+                "summary": "Table"
+              },
+              "AppendixFigure": {
+                "value": "IPSDC2021P1_AppxA_SecA101.1_FigA101.1_1",
+                "summary": "Appendix figure"
+              },
+              "Promulgator": {
+                "value": "IPSDC2021P1_Ch14_PromCSA",
+                "summary": "Promulgator"
+              }
+            }
+          },
+          {
+            "name": "raw",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0
+            },
+            "example" : "1",
+            "description": "Returns the raw content as the response without separating it into children properties. This should be used if you want better context in the case of a piece of content that has child figures/sections between other pieces of root content. Can have a value of 0 or 1."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Content schema responses vary depending on the element being retrieved. JSON.",
+            "headers": {
+              "X-RateLimit-Remaining": { "$ref": "#/components/headers/X-RateLimit-Client-Remaining" },
+              "X-RateLimit-Retry-After": { "$ref": "#/components/headers/X-RateLimit-Client-Retry-After" },
+              "X-RateLimit-Limit": { "$ref": "#/components/headers/X-RateLimit-Client-Limit" }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Content"
+                },
+                "examples": {
+                  "table-response" : {
+                    "value": {
+                      "footnote": "<p xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\" xmlns:m=\"http://www.w3.org/1998/Math/MathML\" class=\"figure_note_SI\" epub:type=\"rearnote\">\n  <span class=\"run_in\">For SI:</span> 1 square foot = 0.0929 m<sup>2</sup>, 1 pound per square inch (psi) = 6.9 kPa, 1 British thermal unit (Btu) per hour = 0.293 watts, 1 horsepower = 746 watts, 1 gallon = 3.785 L, 1 cubic foot = 0.0283 m<sup>3</sup>.</p>",
+                      "ordinal": "TABLE 509",
+                      "ordinalClean": "509",
+                      "xmlId": "IBC2018_Ch05_Sec509_Tbl509",
+                      "label": "[F]",
+                      "title": "INCIDENTAL USES",
+                      "content": "<table class=\"code\" frame=\"box\" rules=\"all\">\n<thead>\n<tr>\n<th align=\"center\" valign=\"middle\">\n        <span class=\"bold\">ROOM OR AREA</span>\n      </th>\n<th align=\"center\" valign=\"middle\">\n        <span class=\"bold\">SEPARATION AND/OR PROTECTION</span>\n      </th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td align=\"left\" valign=\"middle\">Furnace room where any piece of equipment is over 400,000 Btu per<span class=\"content_newline_inside_td\">hour input</span>\n      </td>\n<td align=\"left\" valign=\"middle\">1 hour or provide automatic sprinkler system</td>\n</tr>\n<tr>\n<td align=\"left\" valign=\"middle\">Rooms with boilers where the largest piece of equipment is over 15<span class=\"content_newline_inside_td\">psi and 10 horsepower</span>\n      </td>\n<td align=\"left\" valign=\"middle\">1 hour or provide automatic sprinkler system</td>\n</tr>\n<tr>\n<td align=\"left\" valign=\"middle\">Refrigerant machinery room</td>\n<td align=\"left\" valign=\"middle\">1 hour or provide automatic sprinkler system</td>\n</tr>\n<tr>\n<td align=\"left\" valign=\"middle\">Hydrogen fuel gas rooms, not classified as Group H</td>\n<td align=\"left\" valign=\"middle\">1 hour in Group B, F, M, S and U occupancies; 2 hours in Group A, E,<span class=\"content_newline_inside_td\">I and R occupancies.</span>\n      </td>\n</tr>\n<tr>\n<td align=\"left\" valign=\"middle\">Incinerator rooms</td>\n<td align=\"left\" valign=\"middle\">2 hours and provide automatic sprinkler system</td>\n</tr>\n<tr>\n<td align=\"left\" valign=\"middle\">Paint shops, not classified as Group H, located in occupancies other<span class=\"content_newline_inside_td\">than Group F</span>\n      </td>\n<td align=\"left\" valign=\"middle\">2 hours; or 1 hour and provide automatic sprinkler system</td>\n</tr>\n<tr>\n<td align=\"left\" valign=\"middle\">In Group E occupancies, laboratories and vocational shops not<span class=\"content_newline_inside_td\">classified as Group H</span>\n      </td>\n<td align=\"left\" valign=\"middle\">1 hour or provide automatic sprinkler system</td>\n</tr>\n<tr>\n<td align=\"left\" valign=\"middle\">In Group I-2 occupancies, laboratories not classified as Group H</td>\n<td align=\"left\" valign=\"middle\">1 hour and provide automatic sprinkler system</td>\n</tr>\n<tr>\n<td align=\"left\" valign=\"middle\">In ambulatory care facilities, laboratories not classified as Group H</td>\n<td align=\"left\" valign=\"middle\">1 hour or provide automatic sprinkler system</td>\n</tr>\n<tr>\n<td align=\"left\" valign=\"middle\">Laundry rooms over 100 square feet</td>\n<td align=\"left\" valign=\"middle\">1 hour or provide automatic sprinkler system</td>\n</tr>\n<tr>\n<td align=\"left\" valign=\"middle\">In Group I-2, laundry rooms over 100 square feet</td>\n<td align=\"left\" valign=\"middle\">1 hour</td>\n</tr>\n<tr>\n<td align=\"left\" valign=\"middle\">Group I-3 cells and Group I-2 patient rooms equipped with padded<span class=\"content_newline_inside_td\">surfaces</span>\n      </td>\n<td align=\"left\" valign=\"middle\">1 hour</td>\n</tr>\n<tr>\n<td align=\"left\" valign=\"middle\">In Group I-2, physical plant maintenance shops</td>\n<td align=\"left\" valign=\"middle\">1 hour</td>\n</tr>\n<tr>\n<td align=\"left\" valign=\"middle\">In ambulatory care facilities or Group I-2 occupancies, waste and<span class=\"content_newline_inside_td\">linen collection rooms with containers that have an aggregate volume</span> of 10 cubic feet or greater</td>\n<td align=\"left\" valign=\"middle\">1 hour</td>\n</tr>\n<tr>\n<td align=\"left\" valign=\"middle\">In other than ambulatory care facilities and Group I-2 occupancies, <span class=\"content_newline_inside_td\">waste and linen collection rooms over 100 square feet</span>\n      </td>\n<td align=\"left\" valign=\"middle\">1 hour or provide automatic sprinkler system</td>\n</tr>\n<tr>\n<td align=\"left\" valign=\"middle\">In ambulatory care facilities or Group I-2 occupancies, storage rooms <span class=\"content_newline_inside_td\">greater than 100 square feet</span>\n      </td>\n<td align=\"left\" valign=\"middle\">1 hour</td>\n</tr>\n<tr>\n<td align=\"left\" valign=\"middle\">\n        <span class=\"changed_ICC\">Stationary storage battery systems having an energy capacity greater than the threshold <span class=\"content_newline_inside_td\">quantity specified in <a class=\"table_reference\" href=\"#IFC2018_Pt03_Ch12_Sec1206.2_Tbl1206.2\">Table 1206.2</a> of the <span class=\"iccpub\">International Fire Code</span>\n          </span>\n        </span>\n      </td>\n<td align=\"left\" valign=\"middle\">\n        <span class=\"changed_ICC\">1 hour in Group B, F, M, S and U occupancies; <span class=\"content_newline_inside_td\">2 hours in Group A, E, I and R occupancies.</span>\n        </span>\n      </td>\n</tr>\n<tr>\n<td align=\"left\" valign=\"middle\">\n        <span class=\"changed_ICC\">Electrical installations and transformers</span>\n      </td>\n<td align=\"left\" valign=\"middle\">\n        <span class=\"changed_ICC\">See Sections 110.26 through 110.34 and <span class=\"content_newline_inside_td\">Sections 450.8 through 450.48 of <a class=\"section_reference\" href=\"#IBC2018_Ch35_PromNFPA_RefStd70_17\">NFPA 70</a> for </span>\n          <span class=\"content_newline_inside_td\">protection and separation requirements.</span>\n        </span>\n      </td>\n</tr>\n</tbody>\n</table>",
+                      "type": "table"
+                    }
+                  },
+                  "section-response" : {
+                    "value": {
+                      "ordinal": "509.4.2",
+                      "ordinalClean": "509.4.2",
+                      "xmlId": "IBC2018_Ch05_Sec509.4.2",
+                      "label": "",
+                      "title": "Protection.",
+                      "content": "<p>Where <a class=\"table_reference\" href=\"#IBC2018_Ch05_Sec509_Tbl509\">Table 509</a> permits an <span class=\"formal_usage\">automatic sprinkler system</span> without a <span class=\"formal_usage\">fire barrier</span>, the incidental uses shall be separated from the remainder of the building by construction capable of resisting the passage of smoke. The walls shall extend from the top of the foundation or floor assembly below to the underside of the ceiling that is a component of a fire-resistance-rated floor assembly or roof assembly above or to the underside of the floor or roof sheathing, deck or slab above. Doors shall be self- or automatic-closing upon detection of smoke in accordance with <a class=\"section_reference\" href=\"#IBC2018_Ch07_Sec716.2.6.6\">Section 716.2.6.6</a>. Doors shall not have air transfer openings and shall not be undercut in excess of the clearance permitted in accordance with <a class=\"section_reference\" href=\"#IBC2018_Ch35_PromNFPA_RefStd80_16\">NFPA 80</a>. Walls surrounding the incidental use shall not have air transfer openings unless provided with smoke dampers in accordance with <a class=\"section_reference\" href=\"#IBC2018_Ch07_Sec710.8\">Section 710.8</a>.</p>",
+                      "type": "codeSection",
+                      "children": [
+                        {
+                          "ordinal": "509.4.2.1",
+                          "ordinalClean": "509.4.2.1",
+                          "xmlId": "IBC2018_Ch05_Sec509.4.2.1",
+                          "label": "",
+                          "title": "Protection limitation.",
+                          "content": "<p>Where an <span class=\"formal_usage\">automatic sprinkler system</span> is provided in accordance with <a class=\"table_reference\" href=\"#IBC2018_Ch05_Sec509_Tbl509\">Table 509</a>, only the space occupied by the incidental use need be equipped with such a system.</p>",
+                          "type": "codeSection",
+                          "children": []
+                        }
+                      ]
+                    }
+                  },
+                  "definition-response" : {
+                    "value": {
+                      "subdefinitions": [],
+                      "term": "ACCESSIBLE.",
+                      "xmlId": "IBC2018_Ch02_Sec202_DefACCESSIBLE",
+                      "definition": "A <i>site</i>, <i>building</i>, <i>facility</i> or portion thereof that complies with Chapter 11.",
+                      "label": "[BE]",
+                      "extended": "",
+                      "type": "definition"
+                    }
+                  },
+                  "subdefinition-response" : {
+                    "value": {
+                      "term": "Low-heat appliance (residential appliance).",
+                      "xmlId": "IFGC2018P3_Ch02_Sec202_DefAPPLIANCE_TYPE_SubDefLOW_HEAT_APPLIANCE_RESIDENTIAL_APPLIANCE",
+                      "definition": "Any appliance in which the products of combustion at the point of entrance to the flue under normal operating conditions have a temperature of 1,000°F (538°C) or less.",
+                      "label": "",
+                      "extended": "",
+                      "type": "subdefinition",
+                      "children": []
+                    }
+                  },
+                  "subchapter-response" : {
+                    "value": {
+                      "ordinal": "1",
+                      "ordinalClean": "1",
+                      "xmlId": "IFGC2018P3_Ch01_SubCh01",
+                      "label": "PART",
+                      "title": "SCOPE AND APPLICATION",
+                      "type": "subchapter"
+                    }
+                  },
+                  "reference-standard-response" : {
+                    "value": {
+                      "promulgator": {
+                        "acronym": "AA",
+                        "city": "Arlington",
+                        "name": "Aluminum Association",
+                        "url": "http://www.aluminum.org",
+                        "state": "VA",
+                        "ordinal": "35",
+                        "ordinalClean": "35",
+                        "streetAddress": "1400 Crystal Drive, Suite 430",
+                        "xmlId": "IBC2018_Ch35_PromAA",
+                        "addressee": "",
+                        "location": "",
+                        "country": "",
+                        "postalCode": "22202",
+                        "type": "promulgator"
+                      },
+                      "references": "1604.3.5, 2002.1",
+                      "number": "ADM1—2015",
+                      "xmlId": "IBC2018_Ch35_PromAA_RefStdADM1_2015",
+                      "title": "Aluminum Design Manual: Part 1—A Specification for Aluminum Structures",
+                      "type": "referenceStandard"
+                    }
+                  },
+                  "figure-response" : {
+                    "value": {
+                      "footnote": "",
+                      "figure": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD...",
+                      "filename": "Images/Fig08.jpg",
+                      "ordinal": "Figure 602.4.1(2)",
+                      "ordinalClean": "602.4.1",
+                      "xmlId": "IBCComm2015V1_Ch06_Sec602.4.1_Fig602.4.1(2)",
+                      "label": "",
+                      "title": "COLUMN/FLOOR BEAM CONNECTIONSAmerican Institute for Timber Construction",
+                      "content": "",
+                      "type": "figure"
+                    }
+                  },
+                  "promulgator-response" : {
+                    "value": {
+                      "acronym": "CSA",
+                      "city": "Cleveland",
+                      "name": "CSA Group",
+                      "url": "https://www.csagroup.org/",
+                      "state": "OH",
+                      "ordinal": "14",
+                      "ordinalClean": "14",
+                      "streetAddress": "8501 East Pleasant Valley Road",
+                      "xmlId": "IPSDC2021P1_Ch14_PromCSA",
+                      "addressee": "",
+                      "location": "",
+                      "country": "",
+                      "postalCode": "44131-5516",
+                      "type": "promulgator",
+                      "children": [
+                        {
+                          "promulgator": {
+                            "acronym": "CSA",
+                            "city": "Cleveland",
+                            "name": "CSA Group",
+                            "url": "https://www.csagroup.org/",
+                            "state": "OH",
+                            "ordinal": "14",
+                            "ordinalClean": "14",
+                            "streetAddress": "8501 East Pleasant Valley Road",
+                            "xmlId": "IPSDC2021P1_Ch14_PromCSA",
+                            "addressee": "",
+                            "location": "",
+                            "country": "",
+                            "postalCode": "44131-5516",
+                            "type": "promulgator"
+                          },
+                          "references": "Table 505.1",
+                          "number": "A257.2—14",
+                          "xmlId": "IPSDC2021P1_Ch14_PromCSA_RefStdA257_2_14",
+                          "title": "Reinforced Circular Concrete Culvert, Storm Drain, Sewer Pipe and Fittings",
+                          "type": "referenceStandard"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Bad formed XML ID or could not lookup content."
+          }
+        },
+        "x-codeSamples" : [
+          {
+            "lang": "CURL",
+            "source": "curl -X GET \"https://api.iccsafe.org/v1/content/{contentId}\" -H \"Authorization: Bearer {OAuth Token}\""
+          },
+          {
+            "lang": "JavaScript",
+            "source": "var request = new XMLHttpRequest();\n//Add X-AUTH-TOKEN header\nrequest.setRequestHeader('Authorization', 'Bearer {OAuth Token}',);\nrequest.open('GET', 'https://api.iccsafe.org/v1/content/{contentId}', true);\nrequest.onload = function () {\n    //Access Response Data\n    var data = JSON.parse(this.response);\n    if (request.status >= 200 && request.status < 400) {\n        console.log(data);\n    } else {\n        //Error\n    }\n}"
+          }
+        ]
+      }
+    },
+    "/v1/content/{content_id}": {
+      "get": {
+        "tags" : [
+          "Images"
+        ],
+        "operationId": "getContentImage",
+        "summary": "Images in Content endpoint",
+        "description": "When making API requests for content, you will find that in some cases the JSON response contains base64 embedded images. Depending on the ID that you request, if the content contains an image you will be able to use it directly from the JSON response as a base64 string. This allows image data to be transmitted as part of a JSON response without requiring separate file handling or additional HTTP requests. \n \n The encoded string includes a data URI prefix (e.g. `data:image/jpeg;base64`) to indicate the MIME type of the image. You can directly embed these images in HTML by assigning the base64 string to the `src` attribute of an `<img>` tag or base64 decoding the string and saving it as an image file. \n \n In some cases you may find base64 encoded images directly within the content, for example: `<p>Type V construction is required to comply with Table 601 and Chapter 23.</p> <figure id=\"IBCComm2015V1_Ch06_Sec602.5_Fig602.5\" class=\"figure\"> <img src=\"data:image/jpeg;base64,/9j/4AAQSkZJ...`. And in other cases the image will be a child item of the content with a `\"type\": \"figure\"` and the base64 string will be under the `\"figure\"` property. For more examples, please go to the <a href=\"#tag/Content/operation/getContent\">Content endpoint</a> and switch to the `figure-response` sample.",
+        "security": [
+          {
+            "ClientIDAndSecret": ["content-read"],
+            "EmailAndPassword": ["content-read"]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "content_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "OHRC2019P2_Pt03_Ch08_Sec804.1.2_Fig804.1.2"
+            },
+            "examples": {
+              "Figure ID": {
+                "value": "OHRC2019P2_Pt03_Ch08_Sec804.1.2_Fig804.1.2",
+                "summary": "Content ID for a figure"
+              },
+              "Section with image": {
+                "value": "IBCComm2015V1_Ch06_Sec602.5",
+                "summary": "Section ID that contains an image as part of the content"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Content schema responses vary depending on the element being retrieved. JSON.",
+            "headers": {
+              "X-RateLimit-Remaining": { "$ref": "#/components/headers/X-RateLimit-Client-Remaining" },
+              "X-RateLimit-Retry-After": { "$ref": "#/components/headers/X-RateLimit-Client-Retry-After" },
+              "X-RateLimit-Limit": { "$ref": "#/components/headers/X-RateLimit-Client-Limit" }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Content"
+                },
+                "examples": {
+                  "figure-response" : {
+                    "value": {
+                      "footnote": "",
+                      "figure": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD...",
+                      "filename": "Images/Fig08.jpg",
+                      "ordinal": "Figure 602.4.1(2)",
+                      "ordinalClean": "602.4.1",
+                      "xmlId": "IBCComm2015V1_Ch06_Sec602.4.1_Fig602.4.1(2)",
+                      "label": "",
+                      "title": "COLUMN/FLOOR BEAM CONNECTIONSAmerican Institute for Timber Construction",
+                      "content": "",
+                      "type": "figure"
+                    }
+                  },
+                  "content-with-image-response" : {
+                    "value": {
+                      "type": "codeSection",
+                      "label": "",
+                      "title": "Type V.",
+                      "xmlId": "IBCComm2015V1_Ch06_Sec602.5",
+                      "content": "<p>Type V construction is that type of construction in which the structural elements, <i>exterior walls</i> and interior walls are of any materials permitted by this code.</p><div id=\"IBC2015_Ch06_Sec602.5_Comment\"> <p>❖ Type V construction allows the use of all types of materials, both noncombustible and combustible, but Type V buildings are most commonly constructed of dimensional lumber (see Commentary Figure 602.5 for an example of Type V construction). It is divided into two subclassifications: Types VA and VB. An example of a typical building of Type VA construction is a wood frame building in which the interior and exterior load-bearing walls, floors, roofs and all structural members are protected to provide a minimum 1-hour fire-resistance rating. Type V construction is required to comply with Table 601 and Chapter 23.</p> </div><div> <figure id=\"IBCComm2015V1_Ch06_Sec602.5_Fig602.5\" class=\"figure\"> <img src=\"data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBD...",
+                      "ordinal": "602.5",
+                      "ordinalClean": "602.5"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Bad formed XML ID or could not lookup content."
+          }
+        },
+        "x-codeSamples" : [
+          {
+            "lang": "CURL",
+            "source": "curl -X GET \"https://api.iccsafe.org/v1/content/{content_id}\" -H \"Authorization: Bearer {OAuth Token}\""
+          },
+          {
+            "lang": "JavaScript",
+            "source": "var request = new XMLHttpRequest();\n//Add X-AUTH-TOKEN header\nrequest.setRequestHeader('Authorization', 'Bearer {OAuth Token}',);\nrequest.open('GET', 'https://api.iccsafe.org/v1/content/{content_id}', true);\nrequest.onload = function () {\n    //Access Response Data\n    var data = JSON.parse(this.response);\n    if (request.status >= 200 && request.status < 400) {\n        console.log(data);\n    } else {\n        //Error\n    }\n}"
+          }
+        ]
+      }
+    },
+    "/v1/search": {
+      "get": {
+        "tags": [
+          "Search"
+        ],
+        "operationId": "searchContent",
+        "summary": "Search within Titles - v1",
+        "description": "Returns a JSON response listing all search results.\n",
+        "security": [
+          {
+            "ClientIDAndSecret": ["content-read"],
+            "EmailAndPassword": ["content-read"]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "bookId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example" : "IBC2018",
+            "description": "Book ID target for search."
+          },
+          {
+            "name": "chapterOrdinal",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example" : "IBC2018_Ch05",
+            "description": "Chapter Ordinal/Number target for search."
+          },
+          {
+            "name": "contentType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example" : "table",
+            "description": "The type of content to filter your search on. Possible values include: codeSection, table, figure, appendix, chapter, definitions, subdefinition, promulgator, referenceStandard"
+          },
+          {
+            "name": "contentOrdinal",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example" : "806.2",
+            "description": "Content Ordinal target for search."
+          },
+          {
+            "name": "contentId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example" : "IBC2021P1_Ch08_Sec806.2",
+            "description": "Content ID target for search."
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example" : "Means of Egress",
+            "description": "You can use quotes to search for an exact phrase (e.g. <code>\"Means of Egress\"</code>), or search without quotes to get the results that contain any of the words in the search query (e.g. <code>Means of Egress</code>)."
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1
+            },
+            "example" : "1",
+            "description": "Pagination through result set."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10
+            },
+            "example" : "10",
+            "description": "Limit Result Set.  Default set to 10."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search Results JSON",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Search"
+                },
+                "examples": {
+                  "search-response": {
+                    "value": [
+                        {
+                          "chapterid" : "IBC2018P2_Ch26",
+                          "chapterordinal" : "26",
+                          "chaptertitle" : "PLASTIC",
+                          "contentordinal" : "2612.2",
+                          "contentid" : "IBC2018P2_Ch26_Sec2612.2",
+                          "contenttitle" : "Labeling.",
+                          "content" : "<p>Plastic composite deck boards and stair treads, or their packaging, shall bear a <i>label</i> that indicates compliance with ASTM D7032 and includes the allowable load and maximum allowable span determined in accordance with ASTM D7032. Plastic composite handrails and guards, or their packaging, shall bear a label that indicates compliance with ASTM D7032 and includes the maximum allowable span determined in accordance with ASTM D7032.</p><p></p>",
+                          "contenttype" : "codeSection",
+                          "label" : ""
+                        },
+                        {
+                          "chapterid" : "IBC2018P2_Ch04",
+                          "chapterordinal" : "4",
+                          "chaptertitle" : "SPECIAL DETAILED REQUIREMENTS BASED ON OCCUPANCY AND USE",
+                          "contentordinal" : "428.4",
+                          "contentid" : "IBC2018P2_Ch04_Sec428.4",
+                          "contenttitle" : "Percentage of maximum allowable quantity in each laboratory suite.",
+                          "content" : "<p>The percentage of maximum allowable quantities of hazardous materials in each laboratory suite shall be in accordance with Table 428.3.</p>",
+                          "contenttype" : "codeSection",
+                          "label" : "[A]"
+                        }
+                      ]
+                  }
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "The book index being searched against does not exist."
+          },
+          "503": {
+            "description": "There was an error in building the search query."
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "CURL",
+            "source": "curl -X GET \"https://api.iccsafe.org/v1/search?bookId=I{bookId}&search={search}\" -H \"accept: application/json\" -H \"Authorization: Bearer {OAuth Token}\""
+          },
+          {
+            "lang": "JavaScript",
+            "source": "var request = new XMLHttpRequest();\n//Add header\nrequest.setRequestHeader('Authorization', 'Bearer {OAuth Token}',);\nrequest.open('GET', 'https://api.iccsafe.org/v1/search/?bookId=I{bookId}&search={search}', true);\nrequest.onload = function () {\n    //Access Response Data\n    var data = JSON.parse(this.response);\n    if (request.status >= 200 && request.status < 400) {\n        data.collections.forEach(result => {\n            console.log(result.content);\n        });\n    } else {\n        //Error\n    }\n}"
+          }
+        ]
+      }
+    },
+    "/v2/search": {
+      "get": {
+        "tags": [
+          "Search"
+        ],
+        "operationId": "searchContent-v2",
+        "summary": "Search within Titles - v2",
+        "description": "Returns a JSON response listing all search results.\n Introduces a new key in the response containing the highlighted parts that match the search query.\n",
+        "security": [
+          {
+            "ClientIDAndSecret": ["content-read"],
+            "EmailAndPassword": ["content-read"]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "bookId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example" : "IBC2018",
+            "description": "Book ID target for search."
+          },
+          {
+            "name": "chapterOrdinal",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example" : "IBC2018_Ch05",
+            "description": "Chapter Ordinal/Number target for search."
+          },
+          {
+            "name": "contentType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example" : "table",
+            "description": "The type of content to filter your search on. Possible values include: codeSection, table, figure, appendix, chapter, definitions, subdefinition, promulgator, referenceStandard"
+          },
+          {
+            "name": "contentOrdinal",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example" : "806.2",
+            "description": "Content Ordinal target for search."
+          },
+          {
+            "name": "contentId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example" : "IBC2021P1_Ch08_Sec806.2",
+            "description": "Content ID target for search."
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example" : "Means of Egress",
+            "description": "You can use quotes to search for an exact phrase (e.g. <code>\"Means of Egress\"</code>), or search without quotes to get the results that contain any of the words in the search query (e.g. <code>Means of Egress</code>)."
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1
+            },
+            "example" : "1",
+            "description": "Pagination through result set."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10
+            },
+            "example" : "10",
+            "description": "Limit Result Set.  Default set to 10."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search Results JSON",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Search-v2"
+                },
+                "examples": {
+                  "search-response": {
+                    "value": [
+                        {
+                          "ordinal" : "26",
+                          "title" : "PLASTIC",
+                          "xmlId" : "IBC2018P2_Ch26_Sec2612.2",
+                          "content" : "<p>Plastic composite deck boards and stair treads, or their packaging, shall bear a <i>label</i> that indicates compliance with ASTM D7032 and includes the allowable load and maximum allowable span determined in accordance with ASTM D7032. Plastic composite handrails and guards, or their packaging, shall bear a label that indicates compliance with ASTM D7032 and includes the maximum allowable span determined in accordance with ASTM D7032.</p><p></p>",
+                          "type" : "codeSection",
+                          "label" : "",
+                          "highlighted": {
+                            "content" : ["<p>Plastic composite deck boards and stair treads, or their <highlight>packaging</highlight>, shall bear a <i>label</i> that indicates compliance with ASTM D7032 and includes the allowable load and maximum allowable span determined in accordance with ASTM D7032. Plastic composite handrails and guards, or their <highlight>packaging</highlight>, shall bear a label that indicates compliance with ASTM D7032 and includes the maximum allowable span determined in accordance with ASTM D7032.</p><p></p>"]
+                          }
+                        },
+                        {
+                          "ordinal" : "4",
+                          "title" : "SPECIAL DETAILED REQUIREMENTS BASED ON OCCUPANCY AND USE",
+                          "xmlId" : "IBC2018P2_Ch04_Sec428.4",
+                          "content" : "<p>The percentage of maximum allowable quantities of hazardous materials in each laboratory suite shall be in accordance with Table 428.3.</p>",
+                          "type" : "codeSection",
+                          "label" : "[A]",
+                          "highlighted": {
+                            "content" : ["<p>The percentage of maximum allowable quantities of hazardous <highlight>materials</highlight> in each laboratory suite shall be in accordance with Table 428.3.</p>"]
+                          }
+                        }
+                      ]
+                  }
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "The book index being searched against does not exist."
+          },
+          "503": {
+            "description": "There was an error in building the search query."
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "CURL",
+            "source": "curl -X GET \"https://api.iccsafe.org/v2/search?bookId=I{bookId}&search={search}\" -H \"accept: application/json\" -H \"Authorization: Bearer {OAuth Token}\""
+          },
+          {
+            "lang": "JavaScript",
+            "source": "var request = new XMLHttpRequest();\n//Add header\nrequest.setRequestHeader('Authorization', 'Bearer {OAuth Token}',);\nrequest.open('GET', 'https://api.iccsafe.org/v2/search/?bookId=I{bookId}&search={search}', true);\nrequest.onload = function () {\n    //Access Response Data\n    var data = JSON.parse(this.response);\n    if (request.status >= 200 && request.status < 400) {\n        data.collections.forEach(result => {\n            console.log(result.content);\n        });\n    } else {\n        //Error\n    }\n}"
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ClientIDAndSecret": {
+        "type": "oauth2",
+        "description": "The ICC Code Connect API uses the OAuth 2 Client Credentials Grant Flow. \n\n https://datatracker.ietf.org/doc/html/rfc6749#section-1.3.4 \n\n ICC will register and provide clients with their credentials.",
+        "flows": {
+          "clientCredentials": {
+            "tokenUrl": "/auth/token",
+            "x-receive-token-in": "request-body",
+            "x-receive-token-in-options": "request-body",
+            "scopes": {
+              "content-read": "Grants access to ICC Content through the client's access configuration."
+            }
+          }
+        }
+      },
+      "EmailAndPassword": {
+        "type": "oauth2",
+        "description": "The ICC Code Connect API uses the OAuth 2 Client Password Grant Flow. \n\n https://datatracker.ietf.org/doc/html/rfc6749#section-1.3.3.",
+        "flows": {
+          "password": {
+            "tokenUrl": "/auth/login",
+            "x-receive-token-in": "request-body",
+            "x-receive-token-in-options": "request-body",
+            "scopes": {
+              "content-read": "Grants access to ICC Content through the client's access configuration."
+            }
+          }
+        }
+      }
+    },
+    "parameters": {
+      "bookId": {
+        "name": "bookId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "example" : "IBC2018"
+        }
+      },
+      "chapterId" : {
+        "name": "chapterId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "example" : "IBC2018_Ch05"
+        }
+      }
+    },
+    "schemas": {
+      "Book": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Book Title"
+          },
+          "shortCode": {
+            "type": "string",
+            "description": "Book Shortcode"
+          },
+          "printing": {
+            "type": "string",
+            "description": "Printing"
+          },
+          "uri": {
+            "type": "array",
+            "description": "Book Meta Information",
+            "items": {
+              "type": "string"
+            }
+          },
+          "accessStartDate": {
+            "type": "string|null",
+            "description": "Start date for access to the book",
+            "items": {
+              "type": "string|null"
+            }
+          },
+          "accessEndDate": {
+            "type": "string|null",
+            "description": "End date for access to the book",
+            "items": {
+              "type": "string|null"
+            }
+          }
+        }
+      },
+      "BookWithCount": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Book Title"
+          },
+          "shortCode": {
+            "type": "string",
+            "description": "Book Shortcode"
+          },
+          "printing": {
+            "type": "string",
+            "description": "Printing"
+          },
+          "uri": {
+            "type": "array",
+            "description": "Book Meta Information",
+            "items": {
+              "type": "string"
+            }
+          },
+          "childrenCount": {
+            "type": "object",
+            "description": "Count of children items inside the book",
+            "properties": {
+              "chapters": {
+                "type": "integer",
+                "description": "Count of chapters in the book"
+              },
+              "frontmatter": {
+                "type": "integer",
+                "description": "Count of frontmatter in the book"
+              },
+              "backmatter": {
+                "type": "integer",
+                "description": "Count of backmatter in the book"
+              },
+              "appendicies": {
+                "type": "integer",
+                "description": "Count of appendicies in the book"
+              }
+            }
+          },
+          "accessStartDate": {
+            "type": "string|null",
+            "description": "Start date for access to the book",
+            "items": {
+              "type": "string|null"
+            }
+          },
+          "accessEndDate": {
+            "type": "string|null",
+            "description": "End date for access to the book",
+            "items": {
+              "type": "string|null"
+            }
+          }
+        }
+      },
+      "Search": {
+        "type": "object",
+        "properties": {
+          "chapterid": {
+            "type": "string",
+            "description": "Chapter Id"
+          },
+          "chapterordinal": {
+            "type": "string",
+            "description": "Chapter Ordinal"
+          },
+          "chaptertitle": {
+            "type": "string",
+            "description": "Chapter Title"
+          },
+          "contentordinal": {
+            "type": "string",
+            "description": "Content Ordinal"
+          },
+          "contentid": {
+            "type": "string",
+            "description": "Content Id"
+          },
+          "content": {
+            "type": "string",
+            "description": "Book Content"
+          },
+          "contenttype": {
+            "type": "string",
+            "description": "Content type identifier from Book {codeSection, table etc}"
+          },
+          "label": {
+            "type": "string",
+            "description": "Content label"
+          }
+        }
+      },
+      "Search-v2": {
+        "type": "object",
+        "properties": {
+          "ordinal": {
+            "type": "string",
+            "description": "Chapter Ordinal"
+          },
+          "title": {
+            "type": "string",
+            "description": "Chapter Title"
+          },
+          "xmlId": {
+            "type": "string",
+            "description": "Content Id"
+          },
+          "content": {
+            "type": "string",
+            "description": "Book Content"
+          },
+          "type": {
+            "type": "string",
+            "description": "Content type identifier from Book {codeSection, table etc}"
+          },
+          "label": {
+            "type": "string",
+            "description": "Content label"
+          },
+          "highlighted": {
+            "type": "object",
+            "description": "Book content with inserted <span class='cDPDUw'>&lt;highlight&gt;</span> tags within the matched query results."
+          }
+        }
+      },
+      "Chapter": {
+        "type": "object",
+        "properties": {
+          "ordinal": {
+            "type": "string",
+            "description": "Chapter Ordinal"
+          },
+          "ordinalClean": {
+            "type": "string",
+            "description": "Clean value of the ordinal without extra symbols"
+          },
+          "title": {
+            "type": "string",
+            "description": "Chapter Title"
+          },
+          "id": {
+            "type": "string",
+            "description": "Chapter XML Id"
+          },
+          "dtype": {
+            "type": "string",
+            "description": "Data Type (chapter)"
+          }
+        }
+      },
+      "ChapterWithCount": {
+        "type": "object",
+        "properties": {
+          "ordinal": {
+            "type": "string",
+            "description": "Chapter Ordinal"
+          },
+          "ordinalClean": {
+            "type": "string",
+            "description": "Clean value of the ordinal without extra symbols"
+          },
+          "title": {
+            "type": "string",
+            "description": "Chapter Title"
+          },
+          "id": {
+            "type": "string",
+            "description": "Chapter XML Id"
+          },
+          "dtype": {
+            "type": "string",
+            "description": "Data Type (chapter)"
+          },
+          "childrenCount": {
+            "type": "object",
+            "description": "Count of children items inside the chapter",
+            "properties": {
+              "sections": {
+                "type": "integer",
+                "description": "Count of sections in this chapter"
+              }
+            }
+          }
+        }
+      },
+      "Frontmatter": {
+        "type": "object",
+        "properties": {
+          "ordinal": {
+            "type": "string",
+            "description": "Frontmatter ordinal"
+          },
+          "ordinalClean": {
+            "type": "string",
+            "description": "Clean value of the ordinal without extra symbols"
+          },
+          "title": {
+            "type": "string",
+            "description": "Frontmatter Title"
+          },
+          "id": {
+            "type": "string",
+            "description": "Frontmatter XML Id"
+          },
+          "dtype": {
+            "type": "string",
+            "description": "Data Type (FrontMatter)"
+          }
+        }
+      },
+      "FrontmatterWithCount": {
+        "type": "object",
+        "properties": {
+          "ordinal": {
+            "type": "string",
+            "description": "Frontmatter ordinal"
+          },
+          "ordinalClean": {
+            "type": "string",
+            "description": "Clean value of the ordinal without extra symbols"
+          },
+          "title": {
+            "type": "string",
+            "description": "Frontmatter Title"
+          },
+          "id": {
+            "type": "string",
+            "description": "Frontmatter XML Id"
+          },
+          "dtype": {
+            "type": "string",
+            "description": "Data Type (FrontMatter)"
+          },
+          "childrenCount": {
+            "type": "object",
+            "description": "Count of children items inside the frontmatter",
+            "properties": {
+              "sections": {
+                "type": "integer",
+                "description": "Count of sections in this frontmatter"
+              }
+            }
+          }
+        }
+      },
+      "Backmatter": {
+        "type": "object",
+        "properties": {
+          "ordinal": {
+            "type": "string",
+            "description": "Backmatter Ordinal"
+          },
+          "ordinalClean": {
+            "type": "string",
+            "description": "Clean value of the ordinal without extra symbols"
+          },
+          "title": {
+            "type": "string",
+            "description": "Backmatter Title"
+          },
+          "id": {
+            "type": "string",
+            "description": "Backmatter XML Id"
+          },
+          "dtype": {
+            "type": "string",
+            "description": "Data Type (Appendix)"
+          }
+        }
+      },
+      "BackmatterWithCount": {
+        "type": "object",
+        "properties": {
+          "ordinal": {
+            "type": "string",
+            "description": "Backmatter Ordinal"
+          },
+          "ordinalClean": {
+            "type": "string",
+            "description": "Clean value of the ordinal without extra symbols"
+          },
+          "title": {
+            "type": "string",
+            "description": "Backmatter Title"
+          },
+          "id": {
+            "type": "string",
+            "description": "Backmatter XML Id"
+          },
+          "dtype": {
+            "type": "string",
+            "description": "Data Type (Appendix)"
+          },
+          "childrenCount": {
+            "type": "object",
+            "description": "Count of children items inside the backmatter",
+            "properties": {
+              "sections": {
+                "type": "integer",
+                "description": "Count of sections in this backmatter"
+              }
+            }
+          }
+        }
+      },
+      "Appendices": {
+        "type": "object",
+        "properties": {
+          "ordinal": {
+            "type": "string",
+            "description": "Appendix Ordinal"
+          },
+          "ordinalClean": {
+            "type": "string",
+            "description": "Clean value of the ordinal without extra symbols"
+          },
+          "title": {
+            "type": "string",
+            "description": "Appendix Title"
+          },
+          "id": {
+            "type": "string",
+            "description": "Appendix XML Id"
+          },
+          "dtype": {
+            "type": "string",
+            "description": "Data Type (Appendix)"
+          }
+        }
+      },
+      "AppendicesWithCount": {
+        "type": "object",
+        "properties": {
+          "ordinal": {
+            "type": "string",
+            "description": "Appendix Ordinal"
+          },
+          "ordinalClean": {
+            "type": "string",
+            "description": "Clean value of the ordinal without extra symbols"
+          },
+          "title": {
+            "type": "string",
+            "description": "Appendix Title"
+          },
+          "id": {
+            "type": "string",
+            "description": "Appendix XML Id"
+          },
+          "dtype": {
+            "type": "string",
+            "description": "Data Type (Appendix)"
+          },
+          "childrenCount": {
+            "type": "object",
+            "description": "Count of children items inside the appendix",
+            "properties": {
+              "sections": {
+                "type": "integer",
+                "description": "Count of sections in this appendix"
+              }
+            }
+          }
+        }
+      },
+      "Section" : {
+        "type": "object",
+        "properties": {
+          "ordinal": {
+            "type": "string",
+            "description": "Section Ordinal"
+          },
+          "ordinalClean": {
+            "type": "string",
+            "description": "Clean value of the ordinal without extra symbols"
+          },
+          "title": {
+            "type": "string",
+            "description": "Section Title"
+          },
+          "id": {
+            "type": "string",
+            "description": "Section XML Id"
+          },
+          "dtype": {
+            "type": "string",
+            "description": "Data Type (section)"
+          }
+        }
+      },
+      "SectionWithCount" : {
+        "type": "object",
+        "properties": {
+          "ordinal": {
+            "type": "string",
+            "description": "Section Ordinal"
+          },
+          "ordinalClean": {
+            "type": "string",
+            "description": "Clean value of the ordinal without extra symbols"
+          },
+          "title": {
+            "type": "string",
+            "description": "Section Title"
+          },
+          "id": {
+            "type": "string",
+            "description": "Section XML Id"
+          },
+          "dtype": {
+            "type": "string",
+            "description": "Data Type (section)"
+          },
+          "childrenCount": {
+            "type": "object",
+            "description": "Count of children items inside the section",
+            "properties": {
+              "subsections": {
+                "type": "integer",
+                "description": "Count of subsections in this section"
+              },
+              "tables": {
+                "type": "integer",
+                "description": "Count of tables in this section"
+              },
+              "figures": {
+                "type": "integer",
+                "description": "Count of figures in this section"
+              }
+            }
+          }
+        }
+      },
+      "Content" : {
+        "type": "string",
+        "description": "JSON Object, Misc Format.  See examples.",
+        "format": "json"
+      },
+      "Books": {
+        "type": "object",
+        "properties": {
+          "collections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Book"
+            }
+          }
+        }
+      },
+      "BooksWithCount": {
+        "type": "object",
+        "properties": {
+          "collections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BookWithCount"
+            }
+          }
+        }
+      },
+      "Chapters": {
+        "type": "object",
+        "properties": {
+          "bookId": {
+            "type": "string",
+            "description": "Book XML Id"
+          },
+          "title": {
+            "type": "string",
+            "description": "Book Title"
+          },
+          "printing": {
+            "type": "string",
+            "description": "Book Printing"
+          },
+          "chapters": {
+            "type": "array",
+            "description": "Book Chapter List",
+            "items": {
+              "$ref": "#/components/schemas/Chapter"
+            }
+          },
+          "frontmatter": {
+            "type": "array",
+            "description": "Book Frontmatter List",
+            "items": {
+              "$ref": "#/components/schemas/Frontmatter"
+            }
+          },
+          "backmatter": {
+            "type": "array",
+            "description": "Book Backmatter List",
+            "items": {
+              "$ref": "#/components/schemas/Backmatter"
+            }
+          },
+          "appendices": {
+            "type": "array",
+            "description": "Book Appendices List",
+            "items": {
+              "$ref": "#/components/schemas/Appendices"
+            }
+          },
+          "responseId": {
+            "type": "string",
+            "description": "UUID"
+          }
+        }
+      },
+      "ChaptersWithCount": {
+        "type": "object",
+        "properties": {
+          "bookId": {
+            "type": "string",
+            "description": "Book XML Id"
+          },
+          "title": {
+            "type": "string",
+            "description": "Book Title"
+          },
+          "printing": {
+            "type": "string",
+            "description": "Book Printing"
+          },
+          "chapters": {
+            "type": "array",
+            "description": "Book Chapter List",
+            "items": {
+              "$ref": "#/components/schemas/ChapterWithCount"
+            }
+          },
+          "frontmatter": {
+            "type": "array",
+            "description": "Book Frontmatter List",
+            "items": {
+              "$ref": "#/components/schemas/FrontmatterWithCount"
+            }
+          },
+          "backmatter": {
+            "type": "array",
+            "description": "Book Backmatter List",
+            "items": {
+              "$ref": "#/components/schemas/BackmatterWithCount"
+            }
+          },
+          "appendices": {
+            "type": "array",
+            "description": "Book Appendices List",
+            "items": {
+              "$ref": "#/components/schemas/AppendicesWithCount"
+            }
+          },
+          "responseId": {
+            "type": "string",
+            "description": "UUID"
+          }
+        }
+      },
+      "Sections": {
+        "type": "object",
+        "properties": {
+          "sectionId": {
+            "type": "string",
+            "description": "Parent Section XML Id"
+          },
+          "bookId": {
+            "type": "string",
+            "description": "Section XML Id"
+          },
+          "chapterId": {
+            "type": "string",
+            "description": "Book Chapter XML Id"
+          },
+          "sections": {
+            "type": "array",
+            "description": "Section List",
+            "items": {
+              "$ref": "#/components/schemas/Section"
+            }
+          },
+          "responseId": {
+            "type": "string",
+            "description": "UUID"
+          }
+        }
+      },
+      "SectionsWithCount": {
+        "type": "object",
+        "properties": {
+          "sectionId": {
+            "type": "string",
+            "description": "Parent Section XML Id"
+          },
+          "bookId": {
+            "type": "string",
+            "description": "Section XML Id"
+          },
+          "chapterId": {
+            "type": "string",
+            "description": "Book Chapter XML Id"
+          },
+          "sections": {
+            "type": "array",
+            "description": "Section List",
+            "items": {
+              "$ref": "#/components/schemas/SectionWithCount"
+            }
+          },
+          "responseId": {
+            "type": "string",
+            "description": "UUID"
+          }
+        }
+      }
+    },
+    "headers": {
+      "X-RateLimit-Client-Remaining": {
+        "description": "Remaining number of requests at the given time for the authenticated client.",
+        "schema": {
+          "type": "integer"
+        }
+      },
+      "X-RateLimit-Client-Retry-After": {
+        "description": "Amount of seconds it takes for more requests to be available if rate limit is reached.",
+        "schema": {
+          "type": "integer"
+        }
+      },
+      "X-RateLimit-Client-Limit": {
+        "description": "Amount of requests available to the client before reaching the rate limit.",
+        "schema": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}
