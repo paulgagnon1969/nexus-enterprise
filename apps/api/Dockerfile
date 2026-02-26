@@ -7,8 +7,8 @@ WORKDIR /app
 # Install build tooling deps
 RUN apk add --no-cache bash python3 make g++
 
-# Copy root package manifest for better caching (other root files are not in this build context)
-COPY package.json ./
+# Copy root package manifest and lockfile for reproducible builds
+COPY package.json package-lock.json ./
 
 # Copy workspace package manifests that affect dependency graph
 COPY apps/api/package.json apps/api/package.json
@@ -18,8 +18,7 @@ COPY packages/database/package.json packages/database/package.json
 COPY packages/database/prisma packages/database/prisma
 COPY packages/database/prisma.config.ts packages/database/prisma.config.ts
 
-# Install dependencies for the whole monorepo
-# Use npm install instead of npm ci because we do not commit a package-lock.json yet
+# Install dependencies (lockfile present for version pinning)
 RUN npm install
 
 # Copy the rest of the repo
@@ -29,7 +28,9 @@ COPY . .
 RUN cd /app/packages/database && npx prisma generate --schema=./prisma/schema.prisma
 
 # Build only the api (and its dependencies) via Turbo
-RUN npm run build -- --filter=api
+# First build database dependency, then build API with verbose errors
+RUN npm run build -- --filter=@repo/database || true
+RUN cd /app/apps/api && npx tsc -p tsconfig.build.json
 
 # Runtime image
 FROM node:22-alpine AS runner

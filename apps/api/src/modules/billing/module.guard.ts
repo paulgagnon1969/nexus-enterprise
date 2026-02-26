@@ -6,13 +6,15 @@ import { AuthenticatedUser } from "../auth/jwt.strategy";
 const REQUIRED_MODULE_KEY = "requiredModule";
 
 /**
- * Decorator: mark a controller method as requiring a specific NCC module.
+ * Decorator: mark a controller or handler as requiring a specific NCC module.
+ *
+ * Can be applied at the class level (gates the entire controller) or at
+ * individual handler methods. Handler-level takes precedence over class-level.
  *
  * Usage:
  *   @RequiresModule('ESTIMATING')
- *   @UseGuards(JwtAuthGuard, ModuleGuard)
- *   @Get('estimates')
- *   listEstimates() { ... }
+ *   @Controller('estimates')
+ *   export class EstimatesController { ... }
  */
 export const RequiresModule = (moduleCode: string) =>
   SetMetadata(REQUIRED_MODULE_KEY, moduleCode);
@@ -25,9 +27,10 @@ export class ModuleGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const requiredModule = this.reflector.get<string>(
+    // Check handler first, then fall back to class-level decorator
+    const requiredModule = this.reflector.getAllAndOverride<string>(
       REQUIRED_MODULE_KEY,
-      context.getHandler(),
+      [context.getHandler(), context.getClass()],
     );
 
     // If no @RequiresModule decorator, allow through
