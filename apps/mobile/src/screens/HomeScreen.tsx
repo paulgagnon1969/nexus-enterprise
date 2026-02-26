@@ -171,6 +171,10 @@ export function HomeScreen({
   // Daily Log type selector
   const [showDailyLogPicker, setShowDailyLogPicker] = useState(false);
 
+  // Multi-tenant flow: show inline tenant picker until the user explicitly
+  // selects a company (or only one company exists).
+  const [tenantConfirmed, setTenantConfirmed] = useState(false);
+
   // Active video calls
   const [activeCalls, setActiveCalls] = useState<any[]>([]);
 
@@ -233,6 +237,11 @@ export function HomeScreen({
         // Non-fatal; we can still render the list without labeling the active org.
       }
 
+      // Single-tenant users skip the tenant picker entirely.
+      if (list.length <= 1) {
+        setTenantConfirmed(true);
+      }
+
       if (!list.length) {
         setCompanyMessage("No organizations found for this user.");
       }
@@ -262,9 +271,15 @@ export function HomeScreen({
   const loadProjectFeed = useCallback(async () => {
     try {
       setFeedLoading(true);
+
+      // Load projects and daily logs independently so a daily-log failure
+      // (e.g. module guard 403) doesn't prevent the project list from loading.
       const [projects, logsResponse] = await Promise.all([
         fetchUserProjects(),
-        fetchDailyLogFeed({ limit: 200 }),
+        fetchDailyLogFeed({ limit: 200 }).catch((e) => {
+          console.warn("Daily log feed failed (non-fatal):", e);
+          return { items: [] as DailyLogListItem[], total: 0, limit: 200, offset: 0 };
+        }),
       ]);
 
       setAllProjects(projects);
@@ -426,9 +441,12 @@ export function HomeScreen({
         // Notify parent (e.g. AppNavigator) of the tenant change
         onCompanyChange?.(res.company);
       }
+      // Mark tenant as confirmed so we show the project feed.
+      setTenantConfirmed(true);
       // Clear current project (belongs to old tenant)
       setSelectedProject(null);
       setProjectLogs([]);
+      setAutoDefaultApplied(false);
       // Reload project feed + favorites for the new tenant
       await Promise.all([loadProjectFeed(), loadFavoritesAndScores()]);
     } catch (e) {
@@ -644,8 +662,75 @@ export function HomeScreen({
         );
       })}
 
-      {/* CONDITIONAL: Project Home View OR Project Feed */}
-      {selectedProject ? (
+      {/* CONDITIONAL: Tenant Picker → Project Feed → Project Home */}
+      {!tenantConfirmed && companies.length > 1 ? (
+        // === INLINE TENANT PICKER ===
+        <ScrollView
+          style={styles.feedContainer}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+        >
+          <View style={{ paddingHorizontal: 16, paddingTop: 20, paddingBottom: 8 }}>
+            <Text style={{ fontSize: 20, fontWeight: "700", color: "#1f2937", marginBottom: 4 }}>
+              Select Organization
+            </Text>
+            <Text style={{ fontSize: 14, color: "#6b7280" }}>
+              Choose a tenant to view its projects
+            </Text>
+          </View>
+          {companyLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#1e3a8a" />
+              <Text style={styles.loadingText}>Loading organizations...</Text>
+            </View>
+          ) : (
+            companies
+              .filter((c) => c.kind !== "SYSTEM")
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map((c) => {
+                const isCurrent = c.id === currentCompanyId;
+                const switching = companySwitchingId === c.id;
+                return (
+                  <Pressable
+                    key={c.id}
+                    style={[
+                      styles.projectRow,
+                      isCurrent && { backgroundColor: "#eff6ff" },
+                    ]}
+                    onPress={() => {
+                      void Haptics.selectionAsync();
+                      if (isCurrent) {
+                        // Already on this tenant — just confirm and show projects
+                        setTenantConfirmed(true);
+                        void loadProjectFeed();
+                      } else {
+                        void handleSelectCompany(c.id);
+                      }
+                    }}
+                    disabled={switching}
+                  >
+                    <View style={styles.projectInfo}>
+                      <Text style={[styles.projectName, isCurrent && { color: "#1e3a8a" }]} numberOfLines={1}>
+                        🏢  {c.name}
+                      </Text>
+                      {isCurrent && (
+                        <Text style={{ fontSize: 12, color: "#1e3a8a", fontWeight: "600", marginTop: 2 }}>
+                          Currently active
+                        </Text>
+                      )}
+                    </View>
+                    {switching ? (
+                      <ActivityIndicator size="small" color="#2563eb" />
+                    ) : (
+                      <Text style={styles.chevron}>›</Text>
+                    )}
+                  </Pressable>
+                );
+              })
+          )}
+        </ScrollView>
+      ) : selectedProject ? (
         // === PROJECT HOME VIEW ===
         <ScrollView
           style={styles.feedContainer}
@@ -789,6 +874,24 @@ export function HomeScreen({
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
         >
+          {/* Tenant header with back button for multi-tenant users */}
+          {companies.length > 1 && currentCompanyName && (
+            <View style={styles.tenantFeedHeader}>
+              <Pressable
+                onPress={() => {
+                  setTenantConfirmed(false);
+                  setSelectedProject(null);
+                }}
+                style={styles.tenantBackBtn}
+              >
+                <Text style={styles.tenantBackText}>← Switch Tenant</Text>
+              </Pressable>
+              <Text style={styles.tenantFeedName} numberOfLines={1}>
+                {currentCompanyName}
+              </Text>
+            </View>
+          )}
+
           {feedLoading && !refreshing ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#1e3a8a" />
@@ -803,7 +906,7 @@ export function HomeScreen({
               <Pressable
                 key={item.project.id}
                 style={styles.projectRow}
-          onPress={() => {
+                onPress={() => {
                   void Haptics.selectionAsync();
                   void recordUsage(item.project.id, "open_project");
                   setSelectedProject(item.project);
@@ -1964,6 +2067,31 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     color: "#6b7280",
+  },
+
+  // Tenant feed header (project list view for multi-tenant users)
+  tenantFeedHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: "#f0f4ff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#dbeafe",
+  },
+  tenantBackBtn: {
+    paddingRight: 12,
+  },
+  tenantBackText: {
+    fontSize: 13,
+    color: "#1e3a8a",
+    fontWeight: "600",
+  },
+  tenantFeedName: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#1e3a8a",
   },
 
   // Back to all projects

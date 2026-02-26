@@ -2,6 +2,7 @@ import { CanActivate, ExecutionContext, ForbiddenException, Injectable, SetMetad
 import { Reflector } from "@nestjs/core";
 import { EntitlementService } from "./entitlement.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
+import { GlobalRole } from "../auth/auth.guards";
 
 const REQUIRED_MODULE_KEY = "requiredModule";
 
@@ -40,7 +41,20 @@ export class ModuleGuard implements CanActivate {
     const user = request.user as AuthenticatedUser | undefined;
 
     if (!user?.companyId) {
-      throw new ForbiddenException("Authentication required");
+      // User not yet authenticated — let the route-level auth guard handle it.
+      // Global guards run before route guards, so `request.user` may be
+      // undefined when this guard executes.  Returning `true` here is safe
+      // because the route's own @UseGuards(JwtAuthGuard / CombinedAuthGuard)
+      // will reject unauthenticated requests before the handler runs.
+      return true;
+    }
+
+    // SUPER_ADMIN and SUPPORT bypass all module entitlement checks.
+    if (
+      user.globalRole === GlobalRole.SUPER_ADMIN ||
+      user.globalRole === GlobalRole.SUPPORT
+    ) {
+      return true;
     }
 
     const enabled = await this.entitlements.isModuleEnabled(

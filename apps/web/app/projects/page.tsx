@@ -166,7 +166,13 @@ export default function ProjectsPage() {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch daily logs: ${response.statusText}`);
+        // Extract API error body for a useful message (statusText is empty on HTTP/2).
+        let detail = response.statusText || `HTTP ${response.status}`;
+        try {
+          const body = await response.json();
+          if (body?.message) detail = body.message;
+        } catch { /* ignore parse errors */ }
+        throw new Error(`Failed to fetch daily logs (${response.status}): ${detail}`);
       }
 
       const data: DailyLogsResponse = await response.json();
