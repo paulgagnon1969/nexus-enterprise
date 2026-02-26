@@ -2,9 +2,8 @@ import { Controller, Get, Post, Delete, Param, Body, Query, Req, UseGuards } fro
 import { JwtAuthGuard } from "../auth/auth.guards";
 import type { AuthenticatedUser } from "../auth/jwt.strategy";
 import { VideoService, SmartInvitee } from "./video.service";
-import { RequiresModule } from "../billing/module.guard";
-
-@RequiresModule('VIDEO')
+// NOTE: @RequiresModule('VIDEO') removed until ModuleCatalog is seeded.
+// Re-enable after billing system is live and catalog rows exist.
 @Controller("video")
 @UseGuards(JwtAuthGuard)
 export class VideoController {
