@@ -1,13 +1,19 @@
 name: Mobile iOS Build
 
+# Disabled: iOS builds are done locally (no EAS cloud credits).
+# See WARP.md "Mobile Build & Deploy Contract" for the local build process.
+# To re-enable, uncomment the trigger below.
+#
+# on:
+#   push:
+#     branches:
+#       - main
+#     paths:
+#       - 'apps/mobile/**'
+#       - '!apps/mobile/android/**'
+#       - 'apps/mobile/app.json'
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'apps/mobile/**'
-      - '!apps/mobile/android/**'
-      - 'apps/mobile/app.json'
+  workflow_dispatch:  # manual trigger only
 
 jobs:
   build-ios:
