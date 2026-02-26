@@ -142,35 +142,34 @@ async function handleGeofenceEnter(
   currentState.enteredAt = Date.now();
   await saveClockState(project.id, currentState, allState);
 
-  // If dwell time required, schedule a delayed check
+  // If dwell time required, wait before clocking in
   if (config.dwellTimeMinutes > 0) {
-    console.log(`[Geofence] Dwell time required: ${config.dwellTimeMinutes} min`);
-    // Schedule notification to check dwell time later
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: `Ready to clock in at ${project.name}?`,
-        body: `Tap to confirm you're working at this job site.`,
-        data: { type: 'clock_in_confirm', projectId: project.id, projectName: project.name },
-      },
-      trigger: { seconds: config.dwellTimeMinutes * 60 },
-    });
+    console.log(`[Geofence] Dwell time required: ${config.dwellTimeMinutes} min, checking later`);
+    // Schedule silent clock-in after dwell time
+    setTimeout(async () => {
+      const updatedStateJson = await AsyncStorage.getItem(CLOCK_STATE_KEY);
+      const updatedState: ClockState = updatedStateJson ? JSON.parse(updatedStateJson) : {};
+      const latestState = updatedState[project.id];
+      
+      // Only clock in if still at site (enteredAt timestamp still exists)
+      if (latestState?.enteredAt && Date.now() - latestState.enteredAt >= config.dwellTimeMinutes * 60 * 1000) {
+        const authJson = await AsyncStorage.getItem(BACKGROUND_AUTH_KEY);
+        const configJson = await AsyncStorage.getItem(GEOFENCE_CONFIG_KEY);
+        if (authJson && configJson) {
+          const auth = JSON.parse(authJson);
+          const config = JSON.parse(configJson);
+          const proj = config.projects.find((p: any) => p.id === project.id);
+          if (proj) {
+            await performClockIn(auth, proj, latestState, updatedState);
+          }
+        }
+      }
+    }, config.dwellTimeMinutes * 60 * 1000);
     return;
   }
 
   // Auto clock-in immediately if no dwell time required
-  if (config.autoClockIn) {
-    await performClockIn(auth, project, currentState, allState);
-  } else {
-    // Show notification asking user to confirm
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: `Arrived at ${project.name}`,
-        body: 'Tap to clock in',
-        data: { type: 'clock_in_confirm', projectId: project.id, projectName: project.name },
-      },
-      trigger: null,
-    });
-  }
+  await performClockIn(auth, project, currentState, allState);
 }
 
 async function handleGeofenceExit(
@@ -198,39 +197,26 @@ async function handleGeofenceExit(
 
   console.log(`[Geofence] Grace period started: ${config.graceTimeMinutes} min`);
 
-  if (config.autoClockOut) {
-    // Schedule auto clock-out after grace period
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: `Left ${project.name}`,
-        body: `You'll be clocked out in ${config.graceTimeMinutes} minutes unless you return.`,
-        data: { type: 'clock_out_pending', projectId: project.id },
-      },
-      trigger: null,
-    });
+  // Schedule silent clock-out after grace period
+  setTimeout(async () => {
+    // Re-check if still outside after grace period
+    const updatedStateJson = await AsyncStorage.getItem(CLOCK_STATE_KEY);
+    const updatedState: ClockState = updatedStateJson ? JSON.parse(updatedStateJson) : {};
+    const latestState = updatedState[project.id];
 
-    // Schedule the actual clock-out
-    setTimeout(async () => {
-      // Re-check if still outside after grace period
-      const updatedStateJson = await AsyncStorage.getItem(CLOCK_STATE_KEY);
-      const updatedState: ClockState = updatedStateJson ? JSON.parse(updatedStateJson) : {};
-      const latestState = updatedState[project.id];
-
-      if (latestState?.pendingClockOut && Date.now() >= latestState.pendingClockOut) {
-        await performClockOut(auth, project, latestState, updatedState);
+    if (latestState?.pendingClockOut && Date.now() >= latestState.pendingClockOut) {
+      const authJson = await AsyncStorage.getItem(BACKGROUND_AUTH_KEY);
+      const configJson = await AsyncStorage.getItem(GEOFENCE_CONFIG_KEY);
+      if (authJson && configJson) {
+        const auth = JSON.parse(authJson);
+        const config = JSON.parse(configJson);
+        const proj = config.projects.find((p: any) => p.id === project.id);
+        if (proj) {
+          await performClockOut(auth, proj, latestState, updatedState);
+        }
       }
-    }, gracePeriodMs);
-  } else {
-    // Show notification asking user to confirm
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: `Left ${project.name}`,
-        body: 'Tap to clock out',
-        data: { type: 'clock_out_confirm', projectId: project.id, projectName: project.name },
-      },
-      trigger: null,
-    });
-  }
+    }
+  }, gracePeriodMs);
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -270,26 +256,10 @@ async function performClockIn(
     delete currentState.enteredAt;
     await saveClockState(project.id, currentState, allState);
 
-    // Show notification
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: '✅ Clocked In',
-        body: `You're now clocked in at ${project.name}`,
-        data: { type: 'clocked_in', projectId: project.id },
-      },
-      trigger: null,
-    });
+    console.log('[Geofence] ✓ Clocked in successfully (silent)');
   } catch (error) {
     console.error('[Geofence] Clock-in error:', error);
-    // Show error notification
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: '⚠️ Clock-In Failed',
-        body: `Could not auto clock-in at ${project.name}. Please clock in manually.`,
-        data: { type: 'clock_in_error', projectId: project.id },
-      },
-      trigger: null,
-    });
+    // Silently fail, will retry on next entry
   }
 }
 
@@ -326,26 +296,10 @@ async function performClockOut(
     delete currentState.pendingClockOut;
     await saveClockState(project.id, currentState, allState);
 
-    // Show notification
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: '⏹️ Clocked Out',
-        body: `You've been clocked out from ${project.name}`,
-        data: { type: 'clocked_out', projectId: project.id },
-      },
-      trigger: null,
-    });
+    console.log('[Geofence] ✓ Clocked out successfully (silent)');
   } catch (error) {
     console.error('[Geofence] Clock-out error:', error);
-    // Show error notification
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: '⚠️ Clock-Out Failed',
-        body: `Could not auto clock-out from ${project.name}. Please clock out manually.`,
-        data: { type: 'clock_out_error', projectId: project.id },
-      },
-      trigger: null,
-    });
+    // Silently fail, will retry on next exit
   }
 }
 
