@@ -22,15 +22,15 @@ Defines how the Plaid OAuth redirect flow is configured and works within Nexus. 
 
 ### Flow Overview
 
-```mermaid
+<div class="mermaid">
 flowchart TD
-    A[User clicks "Link Bank Account" in billing settings] --> B[Frontend calls POST /billing/plaid/link-token]
+    A[User clicks Link Bank Account] --> B[Frontend calls POST /billing/plaid/link-token]
     B --> C[API creates link_token with redirect_uri]
     C --> D[Frontend stores link_token in sessionStorage]
     D --> E[Frontend opens Plaid Link]
     E --> F{Bank uses OAuth?}
     F -->|No| G[User enters credentials in Plaid Link]
-    F -->|Yes| H[User redirected to bank's OAuth page]
+    F -->|Yes| H[User redirected to bank OAuth page]
     H --> I[Bank redirects to /plaid/oauth]
     I --> J[OAuth page reads link_token from sessionStorage]
     J --> K[Reinitializes Plaid Link with receivedRedirectUri]
@@ -40,7 +40,7 @@ flowchart TD
     M --> N[API exchanges for access_token + creates Stripe processor token]
     N --> O[Bank account attached to Stripe customer]
     O --> P[Redirect to billing settings]
-```
+</div>
 
 ## Key Files
 
