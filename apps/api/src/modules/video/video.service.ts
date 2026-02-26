@@ -219,7 +219,8 @@ export class VideoService {
         roomId: room.id,
         projectId: room.projectId,
       },
-      sound: "default",
+      sound: "nexus_ring.wav",
+      channelId: "video-calls",
     };
 
     const result = await this.push.sendToUsers(userIds, payload);
@@ -439,7 +440,8 @@ export class VideoService {
         roomId: room.id,
         projectId: room.projectId,
       },
-      sound: "default",
+      sound: "nexus_ring.wav",
+      channelId: "video-calls",
     };
 
     try {

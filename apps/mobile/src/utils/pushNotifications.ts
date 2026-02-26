@@ -38,7 +38,7 @@ export async function registerForPushNotifications(): Promise<string | null> {
     return null;
   }
 
-  // Android notification channel
+  // Android notification channels
   if (Platform.OS === "android") {
     await Notifications.setNotificationChannelAsync("daily-logs", {
       name: "Daily Logs",
@@ -46,6 +46,15 @@ export async function registerForPushNotifications(): Promise<string | null> {
       vibrationPattern: [0, 250, 250, 250],
       lightColor: "#0284c7",
       sound: "default",
+    });
+    await Notifications.setNotificationChannelAsync("video-calls", {
+      name: "Video Calls",
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 400, 200, 400, 200, 400],
+      lightColor: "#16a34a",
+      sound: "nexus_ring.wav",
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      bypassDnd: true,
     });
   }
 

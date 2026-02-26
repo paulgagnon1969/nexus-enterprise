@@ -73,7 +73,7 @@
         {
           "icon": "./assets/icon.png",
           "color": "#0284c7",
-          "sounds": []
+          "sounds": ["./assets/sounds/nexus_ring.wav"]
         }
       ],
       [
