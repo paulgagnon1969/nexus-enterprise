@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors } from "../theme/colors";
 import { apiJson } from "../api/client";
 import * as Haptics from "expo-haptics";
@@ -49,6 +50,7 @@ export function ScrollableTabBar({
   todoBadgeCount = 0,
   onLogout,
 }: Props) {
+  const insets = useSafeAreaInsets();
   const [menuOpen, setMenuOpen] = useState(false);
   const [calling, setCalling] = useState(false);
   const [callPickerOpen, setCallPickerOpen] = useState(false);
@@ -159,14 +161,21 @@ export function ScrollableTabBar({
           .then((r: any) => {
             const results = r?.results ?? [];
             const sent = results.filter((x: any) => x.status === "sent");
+            const failed = results.filter((x: any) => x.status === "failed");
             if (sent.length > 0) {
               const summary = sent
                 .map((x: any) => `${x.channel === "push" ? "📲" : x.channel === "sms" ? "💬" : "📧"} ${x.name}`)
                 .join(", ");
               console.log(`[smart-invite] Sent: ${summary}`);
             }
+            if (failed.length > 0) {
+              console.warn(`[smart-invite] Failed: ${JSON.stringify(failed)}`);
+            }
+            if (results.length === 0) {
+              console.warn("[smart-invite] No results returned from API");
+            }
           })
-          .catch((err: any) => console.warn("[smart-invite]", err));
+          .catch((err: any) => console.warn("[smart-invite] Error:", err));
       }
 
       // 3. Close picker and navigate
@@ -186,11 +195,11 @@ export function ScrollableTabBar({
     } finally {
       setCalling(false);
     }
-  }, [calling, navigation]);
+  }, [calling, navigation, selectedCallMode]);
 
   return (
     <>
-      <View style={styles.bar}>
+      <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 8) + 8 }]}>
         {/* Home button */}
         <Pressable style={[styles.homeBtn, isHome && styles.homeBtnActive]} onPress={goHome}>
           <Text style={styles.homeIcon}>🏠</Text>
@@ -333,7 +342,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.tabBorder,
     paddingTop: 8,
-    paddingBottom: Platform.OS === "ios" ? 24 : 40,
+    paddingBottom: 8, // overridden by inline style using safe area insets
     paddingHorizontal: 16,
     gap: 12,
   },

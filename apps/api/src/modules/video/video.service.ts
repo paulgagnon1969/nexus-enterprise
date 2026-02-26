@@ -449,9 +449,14 @@ export class VideoService {
     };
 
     try {
-      await this.push.sendToUsers([userId], payload);
+      const result = await this.push.sendToUsers([userId], payload);
+      if (result.sent === 0) {
+        this.logger.warn(`Push invite failed for user ${userId}: sent=0, failed=${result.failed}`);
+        return false;
+      }
       return true;
-    } catch {
+    } catch (err: any) {
+      this.logger.warn(`Push invite error for user ${userId}: ${err?.message}`);
       return false;
     }
   }
