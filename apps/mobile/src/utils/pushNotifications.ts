@@ -5,14 +5,28 @@ import { Platform } from "react-native";
 import { apiFetch } from "../api/client";
 
 // ── Notification display behaviour (foreground) ─────────────────────
+// For video calls, suppress the system banner — our IncomingCallScreen
+// handles the UX (loud ring, vibration, accept/decline UI).
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
+  handleNotification: async (notification) => {
+    const data = notification.request.content.data;
+    if (data?.type === "video_call") {
+      return {
+        shouldShowAlert: false,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+        shouldShowBanner: false,
+        shouldShowList: false,
+      };
+    }
+    return {
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    };
+  },
 });
 
 /**

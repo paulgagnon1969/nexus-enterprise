@@ -16,6 +16,7 @@ import { getBackgroundAuth, getGeofenceConfig, setupGeofencing } from "./src/ser
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { AppNavigator } from "./src/navigation/AppNavigator";
 import { VideoCallScreen, type VideoCallParams } from "./src/screens/VideoCallScreen";
+import { IncomingCallScreen, type IncomingCallData } from "./src/screens/IncomingCallScreen";
 
 type RootStackParamList = {
   Main: undefined;
@@ -43,8 +44,11 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [incomingCall, setIncomingCall] = useState<IncomingCallData | null>(null);
   const navigationRef = useRef<NavigationContainerRef<any>>(null);
   const notificationResponseListener = useRef<Notifications.EventSubscription | null>(null);
+  const notificationReceivedListener = useRef<Notifications.EventSubscription | null>(null);
+  const incomingCallTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Auto-logout when the API client exhausts all auth (JWT + refresh + DeviceSync)
   useEffect(() => {
@@ -101,6 +105,38 @@ export default function App() {
     }
   }, [isLoggedIn]);
 
+  // ── Foreground listener: show IncomingCallScreen on video_call push ──
+  useEffect(() => {
+    notificationReceivedListener.current =
+      Notifications.addNotificationReceivedListener((notification) => {
+        const data = notification.request.content.data;
+        if (data?.type === "video_call" && data?.roomId) {
+          const callData: IncomingCallData = {
+            roomId: data.roomId as string,
+            projectId: data.projectId as string | undefined,
+            callerName:
+              (notification.request.content.body ?? "Someone is calling you").replace(" is calling you", ""),
+            projectName:
+              (notification.request.content.title ?? "")
+                .replace("📹 Video Call — ", "")
+                .replace("📹 ", "") || undefined,
+          };
+          setIncomingCall(callData);
+
+          // Auto-dismiss after 45 seconds if not answered
+          if (incomingCallTimeout.current) clearTimeout(incomingCallTimeout.current);
+          incomingCallTimeout.current = setTimeout(() => {
+            setIncomingCall(null);
+          }, 45_000);
+        }
+      });
+
+    return () => {
+      notificationReceivedListener.current?.remove();
+      if (incomingCallTimeout.current) clearTimeout(incomingCallTimeout.current);
+    };
+  }, []);
+
   // Handle notification tap → deep-link to daily log or video call
   useEffect(() => {
     notificationResponseListener.current =
@@ -114,7 +150,8 @@ export default function App() {
             projectId: data.projectId,
           });
         } else if (data.type === "video_call" && (data as any).roomId) {
-          // Join the call by fetching a token, then navigate to VideoCallScreen
+          // Dismiss incoming call UI if showing, then join
+          setIncomingCall(null);
           try {
             const res = await apiJson<{ room: any; token: string; livekitUrl: string }>(
               `/video/rooms/${(data as any).roomId}/join`,
@@ -171,6 +208,35 @@ export default function App() {
     setIsLoggedIn(false);
   };
 
+  // ── Accept incoming call: join room → navigate to VideoCallScreen ──
+  const handleAcceptCall = async () => {
+    if (!incomingCall || !navigationRef.current) return;
+    const roomId = incomingCall.roomId;
+    const projName = incomingCall.projectName;
+    setIncomingCall(null);
+    if (incomingCallTimeout.current) clearTimeout(incomingCallTimeout.current);
+
+    try {
+      const res = await apiJson<{ room: any; token: string; livekitUrl: string }>(
+        `/video/rooms/${roomId}/join`,
+        { method: "POST" },
+      );
+      navigationRef.current.navigate("VideoCall" as any, {
+        roomId,
+        token: res.token,
+        livekitUrl: res.livekitUrl,
+        projectName: projName,
+      });
+    } catch (err) {
+      console.warn("[IncomingCall] Failed to join:", err);
+    }
+  };
+
+  const handleDeclineCall = () => {
+    setIncomingCall(null);
+    if (incomingCallTimeout.current) clearTimeout(incomingCallTimeout.current);
+  };
+
   return (
     <SafeAreaProvider>
       <NavigationContainer ref={navigationRef}>
@@ -193,6 +259,15 @@ export default function App() {
           />
         </RootStack.Navigator>
       </NavigationContainer>
+
+      {/* Incoming call overlay — renders above everything */}
+      {incomingCall && (
+        <IncomingCallScreen
+          call={incomingCall}
+          onAccept={handleAcceptCall}
+          onDecline={handleDeclineCall}
+        />
+      )}
     </SafeAreaProvider>
   );
 }
