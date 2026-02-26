@@ -2,7 +2,7 @@
   "expo": {
     "name": "Nexus Mobile",
     "slug": "nexus-mobile",
-    "version": "2.8.0",
+    "version": "2.8.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -89,7 +89,7 @@
     "updates": {
       "url": "https://u.expo.dev/28b82c06-3d43-44f0-ba56-110645a13d80"
     },
-    "runtimeVersion": "2.8.0",
+    "runtimeVersion": "2.8.1",
     "extra": {
       "eas": {
         "projectId": "28b82c06-3d43-44f0-ba56-110645a13d80"
