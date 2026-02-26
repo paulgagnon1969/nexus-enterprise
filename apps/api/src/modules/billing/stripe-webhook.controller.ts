@@ -19,7 +19,7 @@ export class StripeWebhookController {
   private readonly webhookSecret: string;
 
   constructor(
-    @Inject(STRIPE_CLIENT) private readonly stripe: Stripe,
+    @Inject(STRIPE_CLIENT) private readonly stripe: Stripe | null,
     private readonly prisma: PrismaService,
     private readonly entitlements: EntitlementService,
     private readonly config: ConfigService,
@@ -41,6 +41,7 @@ export class StripeWebhookController {
       }
 
       try {
+        if (!this.stripe) throw new BadRequestException("Stripe is not configured");
         event = this.stripe.webhooks.constructEvent(rawBody, signature, this.webhookSecret);
       } catch (err: any) {
         console.error("[stripe-webhook] Signature verification failed:", err.message);

@@ -12,12 +12,19 @@ import { EntitlementService } from "./entitlement.service";
 @Injectable()
 export class BillingService {
   constructor(
-    @Inject(STRIPE_CLIENT) private readonly stripe: Stripe,
+    @Inject(STRIPE_CLIENT) private readonly stripe: Stripe | null,
     @Inject(PLAID_CLIENT) private readonly plaid: PlaidApi,
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly entitlements: EntitlementService,
   ) {}
+
+  private requireStripe(): Stripe {
+    if (!this.stripe) {
+      throw new BadRequestException("Stripe is not configured. Set STRIPE_SECRET_KEY to enable billing.");
+    }
+    return this.stripe;
+  }
 
   // ───────────────────────────────────────────────
   // Stripe Customer
@@ -32,7 +39,8 @@ export class BillingService {
 
     if (company.stripeCustomerId) return company.stripeCustomerId;
 
-    const customer = await this.stripe.customers.create({
+    const stripe = this.requireStripe();
+    const customer = await stripe.customers.create({
       name: company.name,
       email: company.email || undefined,
       metadata: { nexusCompanyId: companyId },
@@ -55,7 +63,8 @@ export class BillingService {
     this.ensureBillingPermission(actor);
     const customerId = await this.ensureStripeCustomer(actor.companyId);
 
-    const intent = await this.stripe.setupIntents.create({
+    const stripe = this.requireStripe();
+    const intent = await stripe.setupIntents.create({
       customer: customerId,
       payment_method_types: ["card"],
     });
@@ -82,8 +91,9 @@ export class BillingService {
     if (!pm) throw new NotFoundException("Payment method not found");
 
     // Update Stripe customer default
+    const stripe = this.requireStripe();
     const customerId = await this.ensureStripeCustomer(actor.companyId);
-    await this.stripe.customers.update(customerId, {
+    await stripe.customers.update(customerId, {
       invoice_settings: { default_payment_method: pm.stripePaymentMethodId },
     });
 
@@ -111,7 +121,7 @@ export class BillingService {
     });
     if (!pm) throw new NotFoundException("Payment method not found");
 
-    await this.stripe.paymentMethods.detach(pm.stripePaymentMethodId);
+    await this.requireStripe().paymentMethods.detach(pm.stripePaymentMethodId);
     await this.prisma.tenantPaymentMethod.delete({ where: { id: paymentMethodId } });
 
     return { ok: true };
@@ -161,8 +171,9 @@ export class BillingService {
     const bankAccountToken = processorResponse.data.stripe_bank_account_token;
 
     // 3. Attach bank account to Stripe customer
+    const stripe = this.requireStripe();
     const customerId = await this.ensureStripeCustomer(actor.companyId);
-    const source = await this.stripe.customers.createSource(customerId, {
+    const source = await stripe.customers.createSource(customerId, {
       source: bankAccountToken,
     }) as Stripe.BankAccount;
 
@@ -246,7 +257,8 @@ export class BillingService {
     const sub = await this.ensureSubscription(actor.companyId);
 
     // Add subscription item to Stripe
-    const item = await this.stripe.subscriptionItems.create({
+    const stripe = this.requireStripe();
+    const item = await stripe.subscriptionItems.create({
       subscription: sub.stripeSubId,
       price: catalogEntry.stripePriceId,
       proration_behavior: "create_prorations",
@@ -295,7 +307,7 @@ export class BillingService {
 
     // Remove subscription item from Stripe
     if (existing.stripeSubscriptionItemId) {
-      await this.stripe.subscriptionItems.del(existing.stripeSubscriptionItemId, {
+      await this.requireStripe().subscriptionItems.del(existing.stripeSubscriptionItemId, {
         proration_behavior: "create_prorations",
       });
     }
@@ -313,8 +325,9 @@ export class BillingService {
   async getUpcomingInvoice(actor: AuthenticatedUser) {
     const customerId = await this.ensureStripeCustomer(actor.companyId);
 
+    const stripe = this.requireStripe();
     try {
-      const invoice = await this.stripe.invoices.createPreview({
+      const invoice = await stripe.invoices.createPreview({
         customer: customerId,
       });
 
@@ -347,7 +360,8 @@ export class BillingService {
 
     const customerId = await this.ensureStripeCustomer(actor.companyId);
 
-    const invoices = await this.stripe.invoices.list({
+    const stripe = this.requireStripe();
+    const invoices = await stripe.invoices.list({
       customer: customerId,
       limit: 24,
     });
@@ -381,7 +395,7 @@ export class BillingService {
     });
     if (!sub) throw new NotFoundException("No active subscription found");
 
-    await this.stripe.subscriptions.update(sub.stripeSubId, {
+    await this.requireStripe().subscriptions.update(sub.stripeSubId, {
       cancel_at_period_end: true,
     });
 
@@ -402,7 +416,7 @@ export class BillingService {
     });
     if (!sub) throw new NotFoundException("No pending cancellation found");
 
-    await this.stripe.subscriptions.update(sub.stripeSubId, {
+    await this.requireStripe().subscriptions.update(sub.stripeSubId, {
       cancel_at_period_end: false,
     });
 
@@ -439,7 +453,8 @@ export class BillingService {
       proration_behavior: "create_prorations",
     };
 
-    const stripeSub = await this.stripe.subscriptions.create(subParams);
+    const stripe = this.requireStripe();
+    const stripeSub = await stripe.subscriptions.create(subParams);
 
     // In Stripe v20 current_period_end was removed; derive from latest invoice
     const latestInv = stripeSub.latest_invoice;
@@ -527,8 +542,9 @@ export class BillingService {
     }
 
     // Charge via Stripe PaymentIntent (one-time)
+    const stripe = this.requireStripe();
     const customerId = await this.ensureStripeCustomer(actor.companyId);
-    const paymentIntent = await this.stripe.paymentIntents.create({
+    const paymentIntent = await stripe.paymentIntents.create({
       amount: catalogEntry.projectUnlockPrice,
       currency: "usd",
       customer: customerId,
