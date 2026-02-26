@@ -235,7 +235,7 @@ async function performClockIn(
 
   try {
     // Call API to clock in
-    const response = await fetch(`${auth.apiBaseUrl}/timecards/clock-in`, {
+    const response = await fetch(`${auth.apiBaseUrl}/timecard/me/clock-in`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -275,7 +275,7 @@ async function performClockOut(
 
   try {
     // Call API to clock out
-    const response = await fetch(`${auth.apiBaseUrl}/timecards/clock-out`, {
+    const response = await fetch(`${auth.apiBaseUrl}/timecard/me/clock-out`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
