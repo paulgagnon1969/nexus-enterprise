@@ -10,6 +10,7 @@ import {
   Platform,
 } from "react-native";
 import { useAudioPlayer, setAudioModeAsync } from "expo-audio";
+import { callRingConfig } from "../config/callRingConfig";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const ringtoneSource = require("../../assets/sounds/nexus_ring.wav");
@@ -37,35 +38,35 @@ export function IncomingCallScreen({ call, onAccept, onDecline }: Props) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   // ── Start ringing + vibration on mount ────────────────────────────
+  // Ring behaviour is controlled by callRingConfig — see
+  // src/config/callRingConfig.ts and the SOP for the full flag reference.
   useEffect(() => {
-    const startRinging = async () => {
-      try {
-        // Configure audio for loud playback — even in silent mode on iOS
-        await setAudioModeAsync({
-          playsInSilentMode: true,
-          shouldPlayInBackground: true,
-          interruptionMode: "doNotMix",
-        });
-      } catch (err) {
-        console.warn("[IncomingCall] Failed to set audio mode:", err);
-      }
+    if (callRingConfig.inAppAudioFallback) {
+      const startRinging = async () => {
+        try {
+          await setAudioModeAsync({
+            playsInSilentMode: callRingConfig.overrideSilentMode,
+            shouldPlayInBackground: true,
+            interruptionMode: "doNotMix",
+          });
+        } catch (err) {
+          console.warn("[IncomingCall] Failed to set audio mode:", err);
+        }
 
-      // Play the ringtone on loop at max volume
-      try {
-        player.loop = true;
-        player.volume = 1.0;
-        player.play();
-      } catch (err) {
-        console.warn("[IncomingCall] Failed to play ringtone:", err);
-      }
-    };
+        try {
+          player.loop = true;
+          player.volume = 1.0;
+          player.play();
+        } catch (err) {
+          console.warn("[IncomingCall] Failed to play ringtone:", err);
+        }
+      };
+      startRinging();
+    }
 
-    startRinging();
-
-    // Aggressive vibration pattern: 800ms buzz, 200ms pause, repeat
-    // The `true` flag makes it repeat indefinitely
-    const VIBRATION_PATTERN = [0, 800, 200, 800, 200, 600, 400, 800];
-    Vibration.vibrate(VIBRATION_PATTERN, true);
+    if (callRingConfig.vibrationEnabled) {
+      Vibration.vibrate([...callRingConfig.vibrationPattern], true);
+    }
 
     return () => {
       Vibration.cancel();

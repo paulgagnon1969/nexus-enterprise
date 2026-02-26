@@ -1,22 +1,30 @@
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import { apiFetch } from "../api/client";
+import { callRingConfig } from "../config/callRingConfig";
 
-// ── Notification display behaviour (foreground) ─────────────────────
-// For video calls, suppress the system banner — our IncomingCallScreen
-// handles the UX (loud ring, vibration, accept/decline UI).
+// ── Notification display behaviour ──────────────────────────────────
+// Ring behaviour for video calls is driven by callRingConfig.
+// See src/config/callRingConfig.ts and the SOP for the full flag reference.
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const data = notification.request.content.data;
     if (data?.type === "video_call") {
+      const isForeground = AppState.currentState === "active";
+      const playSound = isForeground
+        ? callRingConfig.systemSound.foreground
+        : callRingConfig.systemSound.background;
+      const showBanner = isForeground
+        ? callRingConfig.showForegroundBanner
+        : true;
       return {
-        shouldShowAlert: false,
-        shouldPlaySound: false,
-        shouldSetBadge: false,
-        shouldShowBanner: false,
-        shouldShowList: false,
+        shouldShowAlert: showBanner,
+        shouldPlaySound: playSound,
+        shouldSetBadge: true,
+        shouldShowBanner: showBanner,
+        shouldShowList: true,
       };
     }
     return {
@@ -121,12 +129,13 @@ export async function deregisterPushToken(): Promise<void> {
  */
 export function parseNotificationData(
   response: Notifications.NotificationResponse,
-): { type: string; dailyLogId?: string; projectId?: string } | null {
+): { type: string; dailyLogId?: string; projectId?: string; roomId?: string } | null {
   const data = response.notification.request.content.data;
   if (!data?.type) return null;
   return {
     type: data.type as string,
     dailyLogId: data.dailyLogId as string | undefined,
     projectId: data.projectId as string | undefined,
+    roomId: data.roomId as string | undefined,
   };
 }

@@ -11,8 +11,14 @@ export interface PushPayload {
   data?: Record<string, unknown>;
   /** Optional badge count (iOS) */
   badge?: number;
-  /** Optional sound name */
-  sound?: "default" | null;
+  /**
+   * Sound to play with the notification.
+   *  - "default"         → system default sound
+   *  - custom filename   → e.g. "nexus_ring.wav" (must be bundled in the app;
+   *                         on Android the channel sound takes precedence)
+   *  - null / omitted    → silent
+   */
+  sound?: string | null;
   /** Optional channel (Android) */
   channelId?: string;
 }

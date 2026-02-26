@@ -17,6 +17,7 @@ import { LoginScreen } from "./src/screens/LoginScreen";
 import { AppNavigator } from "./src/navigation/AppNavigator";
 import { VideoCallScreen, type VideoCallParams } from "./src/screens/VideoCallScreen";
 import { IncomingCallScreen, type IncomingCallData } from "./src/screens/IncomingCallScreen";
+import { callRingConfig } from "./src/config/callRingConfig";
 
 type RootStackParamList = {
   Main: undefined;
@@ -123,11 +124,13 @@ export default function App() {
           };
           setIncomingCall(callData);
 
-          // Auto-dismiss after 45 seconds if not answered
+          // Auto-dismiss if not answered (duration from callRingConfig)
           if (incomingCallTimeout.current) clearTimeout(incomingCallTimeout.current);
-          incomingCallTimeout.current = setTimeout(() => {
-            setIncomingCall(null);
-          }, 45_000);
+          if (callRingConfig.ringTimeoutMs > 0) {
+            incomingCallTimeout.current = setTimeout(() => {
+              setIncomingCall(null);
+            }, callRingConfig.ringTimeoutMs);
+          }
         }
       });
 
@@ -149,16 +152,16 @@ export default function App() {
             logId: data.dailyLogId,
             projectId: data.projectId,
           });
-        } else if (data.type === "video_call" && (data as any).roomId) {
+        } else if (data.type === "video_call" && data.roomId) {
           // Dismiss incoming call UI if showing, then join
           setIncomingCall(null);
           try {
             const res = await apiJson<{ room: any; token: string; livekitUrl: string }>(
-              `/video/rooms/${(data as any).roomId}/join`,
+              `/video/rooms/${data.roomId}/join`,
               { method: "POST" },
             );
             navigationRef.current.navigate("VideoCall" as any, {
-              roomId: (data as any).roomId,
+              roomId: data.roomId,
               token: res.token,
               livekitUrl: res.livekitUrl,
               projectName: undefined,
