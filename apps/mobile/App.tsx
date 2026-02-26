@@ -12,6 +12,7 @@ import { recoverStuckProcessing } from "./src/offline/outbox";
 import { startAutoSync, stopAutoSync } from "./src/offline/autoSync";
 import { registerForPushNotifications, deregisterPushToken, parseNotificationData } from "./src/utils/pushNotifications";
 import { apiJson, setOnAuthExhausted } from "./src/api/client";
+import { getBackgroundAuth, getGeofenceConfig, setupGeofencing } from "./src/services/geofencing";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { AppNavigator } from "./src/navigation/AppNavigator";
 import { VideoCallScreen, type VideoCallParams } from "./src/screens/VideoCallScreen";
@@ -61,6 +62,25 @@ export default function App() {
         await initDb();
         // Recover any outbox items stuck in PROCESSING (e.g., app killed mid-sync)
         await recoverStuckProcessing();
+        
+        // Restore geofencing if it was previously configured
+        // This ensures automatic clock-in/out works even if user hasn't logged in yet
+        const bgAuth = await getBackgroundAuth();
+        const geoConfig = await getGeofenceConfig();
+        if (bgAuth && geoConfig.enabled && geoConfig.projects.length > 0) {
+          try {
+            await setupGeofencing(
+              bgAuth.token,
+              bgAuth.userId,
+              bgAuth.apiBaseUrl,
+              geoConfig.projects,
+            );
+            console.log('[App] Geofencing restored on startup');
+          } catch (err) {
+            console.warn('[App] Failed to restore geofencing:', err);
+          }
+        }
+        
         const tokens = await getTokens();
         setIsLoggedIn(!!tokens);
       } catch (e) {

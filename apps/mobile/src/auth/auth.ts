@@ -26,7 +26,8 @@ export async function login(req: LoginRequest): Promise<LoginResponse> {
     console.log("[auth] Stored DeviceSync credentials");
   }
 
-  // Set up automatic geofencing for all projects (runs in background)
+  // Update geofencing with fresh auth token and latest projects
+  // This keeps background auth fresh but geofencing continues running
   if (res.user?.projects && res.user.projects.length > 0) {
     try {
       const apiBaseUrl = await getApiBaseUrl();
@@ -40,16 +41,17 @@ export async function login(req: LoginRequest): Promise<LoginResponse> {
         }));
 
       if (projectsWithCoords.length > 0) {
+        // This updates auth and projects, but geofencing task keeps running
         await setupGeofencing(
           res.accessToken,
           res.user.id,
           apiBaseUrl,
           projectsWithCoords,
         );
-        console.log(`[auth] Geofencing enabled for ${projectsWithCoords.length} projects`);
+        console.log(`[auth] Geofencing updated for ${projectsWithCoords.length} projects`);
       }
     } catch (err) {
-      console.warn('[auth] Geofencing setup failed (non-fatal):', err);
+      console.warn('[auth] Geofencing update failed (non-fatal):', err);
     }
   }
 
@@ -57,14 +59,12 @@ export async function login(req: LoginRequest): Promise<LoginResponse> {
 }
 
 export async function logout(): Promise<void> {
-  // Stop geofencing
-  try {
-    await stopGeofencing();
-    console.log('[auth] Geofencing stopped');
-  } catch (err) {
-    console.warn('[auth] Failed to stop geofencing:', err);
-  }
-
+  // DO NOT stop geofencing on logout!
+  // Geofencing should continue running in background even when logged out
+  // This allows automatic clock-in/out without requiring active login
+  
   // Clear all auth data (JWT + sync credentials)
   await clearAllAuth();
+  
+  console.log('[auth] Logged out (geofencing still active)');
 }
