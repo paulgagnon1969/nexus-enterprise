@@ -1,0 +1,11 @@
+dist/
+node_modules/
+*.log
+.DS_Store
+
+# Generated OpenAPI client (will be regenerated)
+src/generated/
+
+# Don't commit the OpenAPI spec if it contains sensitive info
+# Uncomment if needed:
+# icc-openapi.json

@@ -15,6 +15,12 @@
     "paths": {
       "@repo/types/*": [
         "packages/types/src/*"
+      ],
+      "@repo/icc-client": [
+        "packages/icc-client/src/index.ts"
+      ],
+      "@repo/icc-client/*": [
+        "packages/icc-client/src/*"
       ]
     }
   }
