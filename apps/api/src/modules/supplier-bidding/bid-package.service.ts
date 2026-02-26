@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { BidPackageStatus, BidStatus, InvitationStatus } from "@prisma/client";
-import { cuid } from "@paralleldrive/cuid2";
+import { randomUUID } from "crypto";
 
 export interface CreateBidPackageDto {
   projectId: string;
@@ -199,7 +199,7 @@ export class BidPackageService {
 
     const invitations = await Promise.all(
       suppliers.map(async (supplier) => {
-        const accessToken = cuid();
+        const accessToken = randomUUID();
 
         return this.prisma.supplierInvitation.create({
           data: {
@@ -353,16 +353,24 @@ export class BidPackageService {
             create: dto.lineItems.map((item) => ({
               bidPackageLineItemId: item.bidPackageLineItemId,
               unitPrice: item.unitPrice,
-              totalPrice: item.unitPrice && item.unitPrice > 0
-                ? await this.calculateLineTotal(item.bidPackageLineItemId, item.unitPrice)
-                : null,
+              totalPrice: null, // Will calculate below
               notes: item.notes,
               leadTimeDays: item.leadTimeDays,
             })),
           },
         },
-        include: { lineItems: true },
+        include: { lineItems: { include: { packageLineItem: true } } },
       });
+
+      // Calculate line totals
+      for (const lineItem of bid.lineItems) {
+        if (lineItem.unitPrice && lineItem.packageLineItem.qty) {
+          await this.prisma.supplierBidLineItem.update({
+            where: { id: lineItem.id },
+            data: { totalPrice: lineItem.unitPrice * lineItem.packageLineItem.qty },
+          });
+        }
+      }
 
       this.logger.log(`Amended bid ${bid.id} (revision ${bid.revisionNo})`);
     } else if (!existingBid) {

@@ -108,9 +108,9 @@ export class SupplierPortalController {
       }
       return {
         bidPackageLineItemId,
-        unitPrice: item.unitPrice,
-        leadTimeDays: item.leadTimeDays,
-        notes: item.notes,
+        unitPrice: item.unitPrice ?? undefined,
+        leadTimeDays: item.leadTimeDays ?? undefined,
+        notes: item.notes ?? undefined,
       };
     });
 

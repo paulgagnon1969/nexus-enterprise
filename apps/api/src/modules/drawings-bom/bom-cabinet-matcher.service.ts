@@ -196,7 +196,7 @@ export class BomCabinetMatcherService {
     }
 
     // 2. Fallback: try SKU-based exact match
-    const sel = bomLine.sel || bomLine.description?.match(/\b[A-Z]{2,3}-[A-Z0-9-]+\b/)?.[0];
+    const sel = (bomLine as any).sel || bomLine.description?.match(/\b[A-Z]{2,3}-[A-Z0-9-]+\b/)?.[0];
     if (sel) {
       const skuMatch = await this.prisma.companyPriceListItem.findFirst({
         where: {

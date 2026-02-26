@@ -12,7 +12,7 @@ export class BidPackageController {
    * POST /bid-packages
    */
   @Post()
-  async create(@Request() req, @Body() dto: CreateBidPackageDto) {
+  async create(@Request() req: any, @Body() dto: CreateBidPackageDto) {
     const { companyId, userId } = req.user;
     return this.bidPackageService.createBidPackage(companyId, userId, dto);
   }
@@ -22,7 +22,7 @@ export class BidPackageController {
    * GET /bid-packages?projectId=xxx
    */
   @Get()
-  async list(@Request() req, @Query("projectId") projectId: string) {
+  async list(@Request() req: any, @Query("projectId") projectId: string) {
     const { companyId } = req.user;
     return this.bidPackageService.listBidPackages(companyId, projectId);
   }
@@ -32,7 +32,7 @@ export class BidPackageController {
    * GET /bid-packages/:id
    */
   @Get(":id")
-  async get(@Request() req, @Param("id") id: string) {
+  async get(@Request() req: any, @Param("id") id: string) {
     const { companyId } = req.user;
     return this.bidPackageService.getBidPackage(id, companyId);
   }
@@ -43,7 +43,7 @@ export class BidPackageController {
    */
   @Post(":id/invite")
   async invite(
-    @Request() req,
+    @Request() req: any,
     @Param("id") packageId: string,
     @Body() body: { suppliers: InviteSupplierDto[] },
   ) {
@@ -56,7 +56,7 @@ export class BidPackageController {
    * GET /bid-packages/:id/compare
    */
   @Get(":id/compare")
-  async compare(@Request() req, @Param("id") packageId: string) {
+  async compare(@Request() req: any, @Param("id") packageId: string) {
     const { companyId } = req.user;
     return this.bidPackageService.compareBids(packageId, companyId);
   }
@@ -67,7 +67,7 @@ export class BidPackageController {
    */
   @Post(":id/award")
   async award(
-    @Request() req,
+    @Request() req: any,
     @Param("id") packageId: string,
     @Body() body: { bidId: string; notes?: string },
   ) {
@@ -80,7 +80,7 @@ export class BidPackageController {
    * POST /bid-packages/:id/close
    */
   @Post(":id/close")
-  async close(@Request() req, @Param("id") packageId: string) {
+  async close(@Request() req: any, @Param("id") packageId: string) {
     const { companyId } = req.user;
     return this.bidPackageService.closeBidding(packageId, companyId);
   }
