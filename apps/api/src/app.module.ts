@@ -58,7 +58,6 @@ import { LocationsModule } from "./modules/locations/locations.module";
 import { DrawingsBomModule } from "./modules/drawings-bom/drawings-bom.module";
 import { PlanSheetsModule } from "./modules/plan-sheets/plan-sheets.module";
 import { HelpItemsModule } from "./modules/help-items/help-items.module";
-import { IccModule } from "./modules/icc/icc.module";
 import { TranscriptionModule } from "./modules/transcription/transcription.module";
 import { VjnModule } from "./modules/vjn/vjn.module";
 import { SupplierBiddingModule } from "./modules/supplier-bidding/supplier-bidding.module";
@@ -129,7 +128,6 @@ import { BillingModule } from "./modules/billing/billing.module";
     DrawingsBomModule,
     PlanSheetsModule,
     HelpItemsModule,
-    IccModule,
     TranscriptionModule,
     VjnModule,
     SupplierBiddingModule,

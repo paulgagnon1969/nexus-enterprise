@@ -215,6 +215,7 @@ model Company {
   tenantPaymentMethods   TenantPaymentMethod[]
   tenantModuleSubscriptions TenantModuleSubscription[]
   billingEvents          BillingEvent[]
+  projectFeatureUnlocks  ProjectFeatureUnlock[]
 }
 
 model OrganizationTemplate {
@@ -1250,6 +1251,9 @@ model Project {
 
   // Supplier Bidding System
   bidPackages BidPackage[]
+
+  // Per-project feature unlocks (one-time purchases)
+  projectFeatureUnlocks ProjectFeatureUnlock[]
 
   /// Building model type (e.g. "A Model", "G Model", "F Model")
   buildingModelType String?
@@ -7230,16 +7234,18 @@ model TenantModuleSubscription {
 /// Canonical catalog of all NCC modules available for purchase. Each module
 /// maps to a Stripe Product + Price. Seeded by migration / admin script.
 model ModuleCatalog {
-  id              String  @id @default(cuid())
-  code            String  @unique
+  id              String       @id @default(cuid())
+  code            String       @unique
   label           String
   description     String?
-  stripeProductId String? // Stripe Product ID
-  stripePriceId   String? // Default monthly Price ID
-  monthlyPrice    Int?    // Display price in cents (e.g. 4900 = $49.00)
-  isCore          Boolean @default(false) // CORE modules can't be toggled off
-  sortOrder       Int     @default(0)
-  active          Boolean @default(true)
+  stripeProductId String?      // Stripe Product ID
+  stripePriceId   String?      // Default monthly Price ID
+  monthlyPrice    Int?         // Display price in cents (e.g. 4900 = $49.00)
+  pricingModel    PricingModel @default(MONTHLY)
+  projectUnlockPrice Int?      // One-time unlock price in cents (PER_PROJECT only)
+  isCore          Boolean      @default(false) // CORE modules can't be toggled off
+  sortOrder       Int          @default(0)
+  active          Boolean      @default(true)
 }
 
 /// Stripe webhook events stored for idempotency and audit. Every processed
@@ -7268,4 +7274,32 @@ enum SubscriptionStatus {
 enum PaymentMethodType {
   CARD
   US_BANK_ACCOUNT
+}
+
+/// Pricing model for a module in the catalog.
+enum PricingModel {
+  MONTHLY      // Standard recurring subscription
+  PER_PROJECT  // One-time unlock fee per project
+  PER_USE      // Pay-per-use (future)
+}
+
+/// Tracks one-time per-project feature unlocks. When a PM unlocks a
+/// PER_PROJECT module on a specific project, a record is created here
+/// and the feature becomes available indefinitely on that project.
+model ProjectFeatureUnlock {
+  id                  String   @id @default(cuid())
+  companyId           String
+  projectId           String
+  featureCode         String   // matches ModuleCatalog.code
+  stripePaymentIntentId String? // Stripe PI for the one-time charge
+  amountCents         Int      // price charged at time of unlock
+  unlockedByUserId    String?  // user who triggered the unlock
+  unlockedAt          DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id])
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@unique([companyId, projectId, featureCode], name: "ProjectFeatureUnlock_company_project_feature_key")
+  @@index([companyId], map: "ProjectFeatureUnlock_company_idx")
+  @@index([projectId], map: "ProjectFeatureUnlock_project_idx")
 }

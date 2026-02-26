@@ -28,9 +28,7 @@ COPY . .
 RUN cd /app/packages/database && npx prisma generate --schema=./prisma/schema.prisma
 
 # Build only the api (and its dependencies) via Turbo
-# First build database dependency, then build API with verbose errors
-RUN npm run build -- --filter=@repo/database || true
-RUN cd /app/apps/api && npx tsc -p tsconfig.build.json
+RUN npm run build -- --filter=api
 
 # Runtime image
 FROM node:22-alpine AS runner

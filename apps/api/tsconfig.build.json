@@ -6,6 +6,7 @@
     "dist",
     "src/modules/locations/**/*",
     "src/modules/worker/**/*",
-    "src/modules/xact-schedule/**/*"
+    "src/modules/xact-schedule/**/*",
+    "src/modules/icc/**/*"
   ]
 }
