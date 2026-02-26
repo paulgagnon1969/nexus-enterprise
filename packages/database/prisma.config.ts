@@ -8,9 +8,14 @@ const url =
   process.env.DATABASE_URL ??
   "postgresql://nexus_user:nexus_password@localhost:5433/nexus_db";
 
+const shadowUrl =
+  process.env.SHADOW_DATABASE_URL ??
+  "postgresql://nexus_user:nexus_password@localhost:5434/nexus_shadow";
+
 export default defineConfig({
   schema: "prisma/schema.prisma",
   datasource: {
     url,
+    shadowDatabaseUrl: shadowUrl,
   },
 });
