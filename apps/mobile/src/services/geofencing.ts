@@ -13,6 +13,8 @@ export interface BackgroundAuth {
   userId: string;
   apiBaseUrl: string;
   lastRefresh: number;
+  tokenExpiry?: number; // Timestamp when token expires
+  isServiceToken?: boolean; // True if this is a long-lived service token
 }
 
 export interface GeofenceConfig {
@@ -342,12 +344,46 @@ export async function setupGeofencing(
   // Request notification permission
   await Notifications.requestPermissionsAsync();
 
+  // Try to create a long-lived service token for geofencing (90 days)
+  // If this fails (user not super admin or endpoint doesn't exist), fall back to regular token
+  let geofenceToken = token;
+  let isServiceToken = false;
+  let tokenExpiry = Date.now() + (15 * 60 * 1000); // Default: 15 min
+  
+  try {
+    const serviceTokenRes = await fetch(`${apiBaseUrl}/auth/service-token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        label: 'geofencing-background',
+        expiresInDays: 90,
+      }),
+    });
+    
+    if (serviceTokenRes.ok) {
+      const serviceTokenData = await serviceTokenRes.json();
+      geofenceToken = serviceTokenData.token;
+      isServiceToken = true;
+      tokenExpiry = new Date(serviceTokenData.expiresAt).getTime();
+      console.log('[Geofence] Using 90-day service token for background tasks');
+    } else {
+      console.log('[Geofence] Service token not available, using regular token');
+    }
+  } catch (err) {
+    console.warn('[Geofence] Failed to create service token, using regular token:', err);
+  }
+  
   // Store auth data for background task
   const auth: BackgroundAuth = {
-    token,
+    token: geofenceToken,
     userId,
     apiBaseUrl,
     lastRefresh: Date.now(),
+    tokenExpiry,
+    isServiceToken,
   };
   await AsyncStorage.setItem(BACKGROUND_AUTH_KEY, JSON.stringify(auth));
 
