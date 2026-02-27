@@ -107,6 +107,7 @@ function CallUI({
   const [mode, setMode] = useState<CallMode>(initialMode);
   const [audioMuted, setAudioMuted] = useState(false);
   const [videoMuted, setVideoMuted] = useState(initialMode !== "video");
+  const [facingFront, setFacingFront] = useState(true);
   const [elapsed, setElapsed] = useState(0);
   const [pttActive, setPttActive] = useState(false);
 
@@ -186,12 +187,28 @@ function CallUI({
   const flipCamera = useCallback(async () => {
     const lp = room.localParticipant;
     const camTrack = lp.getTrackPublication(Track.Source.Camera);
-    if (camTrack?.track) {
-      await (camTrack.track as any).restartTrack({
-        facingMode: (camTrack.track as any).facingMode === "user" ? "environment" : "user",
-      });
+    if (!camTrack?.track) return;
+
+    // React Native WebRTC exposes _switchCamera() on the underlying
+    // media stream track — this is the most reliable way to flip.
+    try {
+      const mediaTrack = (camTrack.track as any).mediaStreamTrack;
+      if (mediaTrack?._switchCamera) {
+        mediaTrack._switchCamera();
+        setFacingFront((f) => !f);
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        return;
+      }
+    } catch (e) {
+      console.warn("[Call] _switchCamera failed, falling back to restartTrack:", e);
     }
-  }, [room]);
+
+    // Fallback: restart the track with the opposite facingMode
+    const newFacing = facingFront ? "environment" : "user";
+    await (camTrack.track as any).restartTrack({ facingMode: newFacing });
+    setFacingFront((f) => !f);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, [room, facingFront]);
 
   // ── PTT (push-to-talk) ────────────────────────────────────────────
 

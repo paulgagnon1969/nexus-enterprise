@@ -51,13 +51,7 @@
 				<key>ActionParameters</key>
 				<dict>
 					<key>source</key>
-					<string>on run {input, parameters}
-    tell application "Terminal"
-        activate
-        do script "zsh -lc 'if ! docker info &gt;/dev/null 2&gt;&amp;1; then echo \"[dev-reset] Launching Docker Desktop...\"; open -a Docker; echo \"[dev-reset] Waiting for Docker daemon...\"; while ! docker info &gt;/dev/null 2&gt;&amp;1; do sleep 2; done; echo \"[dev-reset] Docker is ready.\"; else echo \"[dev-reset] Docker already running.\"; fi; sleep 2; cd /Users/pg/nexus-enterprise &amp;&amp; ./start-dev-clear-all.sh'"
-    end tell
-    return input
-end run</string>
+					<string>on run {input, parameters}	tell application "Terminal"		activate		do script "zsh -lc 'if ! docker info &gt;/dev/null 2&gt;&amp;1; then echo \"[dev-reset] Launching Docker Desktop...\"; open -a Docker; echo \"[dev-reset] Waiting for Docker daemon...\"; while ! docker info &gt;/dev/null 2&gt;&amp;1; do sleep 2; done; echo \"[dev-reset] Docker is ready.\"; else echo \"[dev-reset] Docker already running.\"; fi; sleep 2; cd /Users/pg/nexus-enterprise &amp;&amp; ./start-dev-clear-all.sh'"	end tell	return inputend run</string>
 				</dict>
 				<key>BundleIdentifier</key>
 				<string>com.apple.Automator.RunScript</string>
@@ -111,7 +105,7 @@ end run</string>
 				<key>isViewVisible</key>
 				<integer>1</integer>
 				<key>location</key>
-				<string>309.000000:747.000000</string>
+				<string>309.000000:634.000000</string>
 				<key>nibPath</key>
 				<string>/System/Library/Automator/Run AppleScript.action/Contents/Resources/Base.lproj/main.nib</string>
 			</dict>

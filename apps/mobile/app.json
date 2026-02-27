@@ -90,6 +90,15 @@
         }
       ],
       "expo-task-manager",
+      [
+        "expo-navigation-bar",
+        {
+          "position": "absolute",
+          "visibility": "hidden",
+          "behavior": "overlay-swipe",
+          "backgroundColor": "#00000001"
+        }
+      ],
       "@livekit/react-native-expo-plugin",
       "@config-plugins/react-native-webrtc",
       "expo-audio",

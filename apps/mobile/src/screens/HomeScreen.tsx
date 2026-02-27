@@ -100,6 +100,7 @@ export function HomeScreen({
   onOpenPetl,
   onOpenDailyLogCreate,
   onJoinCall,
+  onCreateProject,
 }: {
   onLogout: () => void;
   onGoProjects: () => void;
@@ -110,6 +111,7 @@ export function HomeScreen({
   onOpenPetl?: (project: ProjectListItem) => void;
   onOpenDailyLogCreate?: (project: ProjectListItem, logType?: string) => void;
   onJoinCall?: (params: { roomId: string; token: string; livekitUrl: string; projectName?: string }) => void;
+  onCreateProject?: () => void;
 }) {
   const { width } = useWindowDimensions();
   const isLandscape = width > 600;
@@ -890,6 +892,20 @@ export function HomeScreen({
                 {currentCompanyName}
               </Text>
             </View>
+          )}
+
+          {/* New Project button */}
+          {onCreateProject && (
+            <Pressable
+              style={styles.newProjectBtn}
+              onPress={() => {
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                onCreateProject();
+              }}
+            >
+              <Text style={styles.newProjectBtnIcon}>＋</Text>
+              <Text style={styles.newProjectBtnText}>New Project</Text>
+            </Pressable>
           )}
 
           {feedLoading && !refreshing ? (
@@ -2092,6 +2108,33 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
     color: "#1e3a8a",
+  },
+
+  // New Project button in project feed
+  newProjectBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 12,
+    paddingVertical: 12,
+    backgroundColor: "#eff6ff",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    borderStyle: "dashed",
+    gap: 6,
+  },
+  newProjectBtnIcon: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#2563eb",
+  },
+  newProjectBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#2563eb",
   },
 
   // Back to all projects

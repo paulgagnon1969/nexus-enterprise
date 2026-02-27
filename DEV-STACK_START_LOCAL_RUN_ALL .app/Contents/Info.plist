@@ -62,15 +62,15 @@
 	<key>DTPlatformName</key>
 	<string>macosx</string>
 	<key>DTPlatformVersion</key>
-	<string>26.3</string>
+	<string>26.4</string>
 	<key>DTSDKBuild</key>
-	<string>25D5085s</string>
+	<string>25E216</string>
 	<key>DTSDKName</key>
-	<string>macosx26.3.internal</string>
+	<string>macosx26.4.internal</string>
 	<key>DTXcode</key>
-	<string>2600</string>
+	<string>2630</string>
 	<key>DTXcodeBuild</key>
-	<string>17A6264l</string>
+	<string>17E6107</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>10.9</string>
 	<key>LSUIElement</key>

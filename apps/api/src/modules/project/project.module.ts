@@ -8,10 +8,11 @@ import { TenantClientController } from "./tenant-client.controller";
 import { OrgTemplateService } from "./org-template.service";
 import { OrgTemplateController } from "./org-template.controller";
 import { SupplierCatalogModule } from "../supplier-catalog/supplier-catalog.module";
+import { NotificationsService } from "../notifications/notifications.service";
 
 @Module({
   imports: [SupplierCatalogModule],
-  providers: [ProjectService, ImportJobsService, TaxJurisdictionService, TenantClientService, OrgTemplateService],
+  providers: [ProjectService, ImportJobsService, TaxJurisdictionService, TenantClientService, OrgTemplateService, NotificationsService],
   controllers: [ProjectController, TenantClientController, OrgTemplateController]
 })
 export class ProjectModule {}

@@ -21,6 +21,7 @@ import { TimecardScreen } from "../screens/TimecardScreen";
 import { TodosScreen } from "../screens/TodosScreen";
 import { PlanSheetsScreen } from "../screens/PlanSheetsScreen";
 import { PlanSheetViewerScreen } from "../screens/PlanSheetViewerScreen";
+import { CreateProjectScreen } from "../screens/CreateProjectScreen";
 import { ScrollableTabBar } from "../components/ScrollableTabBar";
 import { fetchAllTasks } from "../api/tasks";
 import { apiJson } from "../api/client";
@@ -46,6 +47,7 @@ export type DirectoryStackParamList = {
 
 export type ProjectsStackParamList = {
   ProjectsList: undefined;
+  CreateProject: undefined;
   DailyLogs: { project: ProjectListItem; companyName?: string; petlChanges?: PetlSessionChanges; createLogType?: string };
   FieldPetl: { project: ProjectListItem; companyName?: string };
   PlanSheets: { project: ProjectListItem };
@@ -170,6 +172,19 @@ function PlanSheetViewerWrapper() {
   );
 }
 
+function CreateProjectWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList & RootTabParamList>>();
+  return (
+    <CreateProjectScreen
+      onBack={() => navigation.goBack()}
+      onCreated={(project) => {
+        // Navigate to the new project's DailyLogs view
+        navigation.replace("DailyLogs", { project });
+      }}
+    />
+  );
+}
+
 // Directory stack with drill-down to PhoneContacts and Invite
 function DirectoryStackNavigator() {
   return (
@@ -217,6 +232,7 @@ function ProjectsStackNavigator() {
   return (
     <ProjectsStack.Navigator screenOptions={{ headerShown: false }}>
       <ProjectsStack.Screen name="ProjectsList" component={ProjectsListWrapper} />
+      <ProjectsStack.Screen name="CreateProject" component={CreateProjectWrapper} />
       <ProjectsStack.Screen name="DailyLogs" component={DailyLogsWrapper} />
       <ProjectsStack.Screen name="FieldPetl" component={FieldPetlWrapper} />
       <ProjectsStack.Screen name="PlanSheets" component={PlanSheetsWrapper} />
@@ -285,6 +301,11 @@ function HomeTabScreen() {
         if (root) {
           root.navigate("Call", params);
         }
+      }}
+      onCreateProject={() => {
+        navigation.navigate("ProjectsTab", {
+          screen: "CreateProject",
+        });
       }}
     />
   );

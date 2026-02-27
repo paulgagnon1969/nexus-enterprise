@@ -55,6 +55,7 @@ import {
 import { importXactCsvForProject, importXactComponentsCsvForEstimate, allocateComponentsForEstimate } from "@repo/database";
 import { TaxJurisdictionService } from "./tax-jurisdiction.service";
 import { BigBoxProvider } from "../supplier-catalog/bigbox.provider";
+import { NotificationsService, CreateNotificationParams } from "../notifications/notifications.service";
 
 type PetlArchiveBundleV1 = {
   schemaVersion: 1;
@@ -184,6 +185,7 @@ export class ProjectService {
     private readonly audit: AuditService,
     private readonly taxJurisdictions: TaxJurisdictionService,
     private readonly bigBox: BigBoxProvider,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -375,7 +377,112 @@ export class ProjectService {
       }
     });
 
+    // Auto-create PM review task when a non-OWNER/ADMIN creates a project
+    // (e.g. Foreman creating from mobile). This is non-fatal.
+    if (actor.role !== Role.OWNER && actor.role !== Role.ADMIN) {
+      try {
+        await this.createPmReviewTask(project, actor);
+      } catch (err: any) {
+        this.logger.warn(`PM review task creation failed (non-fatal): ${err.message}`);
+      }
+    }
+
     return project;
+  }
+
+  /**
+   * Auto-create a task + notification for a PM (or highest-authority user)
+   * to review a newly created project. Called when the creator is not an
+   * OWNER or ADMIN (e.g. Foreman creating from mobile).
+   */
+  private async createPmReviewTask(
+    project: { id: string; name: string; companyId: string },
+    creator: AuthenticatedUser,
+  ): Promise<void> {
+    // Find the best reviewer: prefer PM, then SUPERINTENDENT, EXECUTIVE, ADMIN, OWNER
+    const REVIEWER_PROFILE_CODES = ["PM", "SUPERINTENDENT", "EXECUTIVE"];
+    const REVIEWER_ROLES: Role[] = [Role.ADMIN, Role.OWNER];
+
+    let reviewerUserId: string | null = null;
+
+    // 1. Try profile-code based lookup (PM > SUPERINTENDENT > EXECUTIVE)
+    for (const code of REVIEWER_PROFILE_CODES) {
+      const membership = await this.prisma.companyMembership.findFirst({
+        where: {
+          companyId: project.companyId,
+          isActive: true,
+          profile: { code },
+          NOT: { userId: creator.userId },
+        },
+        select: { userId: true },
+      });
+      if (membership) {
+        reviewerUserId = membership.userId;
+        break;
+      }
+    }
+
+    // 2. Fall back to company-level ADMIN or OWNER
+    if (!reviewerUserId) {
+      for (const role of REVIEWER_ROLES) {
+        const membership = await this.prisma.companyMembership.findFirst({
+          where: {
+            companyId: project.companyId,
+            isActive: true,
+            role,
+            NOT: { userId: creator.userId },
+          },
+          select: { userId: true },
+        });
+        if (membership) {
+          reviewerUserId = membership.userId;
+          break;
+        }
+      }
+    }
+
+    if (!reviewerUserId) {
+      this.logger.warn(`No reviewer found for project ${project.id} in company ${project.companyId}`);
+      return;
+    }
+
+    // Look up creator name for the task description
+    const creatorUser = await this.prisma.user.findUnique({
+      where: { id: creator.userId },
+      select: { firstName: true, lastName: true, email: true },
+    });
+    const creatorName = [creatorUser?.firstName, creatorUser?.lastName].filter(Boolean).join(" ")
+      || creatorUser?.email
+      || "A team member";
+
+    // Create review task
+    await this.prisma.task.create({
+      data: {
+        title: `Review new project: ${project.name}`,
+        description: `Created by ${creatorName}. Please review and approve the project file.`,
+        status: "TODO",
+        priority: "HIGH",
+        companyId: project.companyId,
+        projectId: project.id,
+        assigneeId: reviewerUserId,
+        createdByUserId: creator.userId,
+        relatedEntityType: "PROJECT_REVIEW",
+        relatedEntityId: project.id,
+      },
+    });
+
+    // Send in-app notification to the reviewer
+    await this.notifications.createNotification({
+      userId: reviewerUserId,
+      companyId: project.companyId,
+      projectId: project.id,
+      kind: "PROJECT" as any,
+      title: "New project needs review",
+      body: `${creatorName} created "${project.name}". Tap to review.`,
+      metadata: { projectId: project.id, type: "project_review" },
+    });
+
+    this.logger.log(`PM review task created for project=${project.id}, reviewer=${reviewerUserId}`);
   }
 
   async getProjectByIdForUser(projectId: string, actor: AuthenticatedUser) {
@@ -1504,10 +1611,6 @@ export class ProjectService {
     companyId: string,
     actor: AuthenticatedUser
   ) {
-    if (currentUserRole !== Role.OWNER && currentUserRole !== Role.ADMIN) {
-      throw new ForbiddenException("Only company OWNER or ADMIN can manage project members");
-    }
-
     const project = await this.prisma.project.findFirst({
       where: {
         id: projectId,
@@ -1517,6 +1620,18 @@ export class ProjectService {
 
     if (!project) {
       throw new NotFoundException("Project not found in this company");
+    }
+
+    // Company OWNER/ADMIN can always add members.
+    // Project-level OWNER (e.g. Foreman who created the project) can also add.
+    if (currentUserRole !== Role.OWNER && currentUserRole !== Role.ADMIN) {
+      const actorProjectMembership = await this.prisma.projectMembership.findUnique({
+        where: { userId_projectId: { userId: actor.userId, projectId } },
+        select: { role: true },
+      });
+      if (actorProjectMembership?.role !== "OWNER") {
+        throw new ForbiddenException("Only company OWNER/ADMIN or project OWNER can manage project members");
+      }
     }
 
     // For now, we only allow adding members from the same company.
