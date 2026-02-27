@@ -7,6 +7,7 @@ import { DrawingUploadStatus } from "@prisma/client";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { PDFParse } from "pdf-parse";
+import { PDFDocument } from "pdf-lib";
 import * as fs from "fs";
 import * as path from "path";
 import { execFile } from "child_process";
@@ -280,7 +281,19 @@ export class DrawingsBomService {
       await this.updateStatus(uploadId, DrawingUploadStatus.EXTRACTING_TEXT);
       const pages = await this.extractPdfText(uploadId);
 
-      // Step 2: AI BOM extraction (multi-provider merge)
+      // Step 2: AI BOM extraction (multi-provider merge) — optional
+      // If no AI providers are configured, skip BOM extraction gracefully.
+      // Plan sheet processing is independent and shouldn't be blocked by this.
+      const providers = this.getAvailableProviders();
+      if (providers.length === 0) {
+        this.logger.warn(
+          `No AI providers configured — skipping BOM extraction for ${uploadId}. ` +
+          `Plan sheet processing can still be triggered independently.`,
+        );
+        await this.updateStatus(uploadId, DrawingUploadStatus.READY);
+        return;
+      }
+
       await this.updateStatus(uploadId, DrawingUploadStatus.EXTRACTING_BOM);
       const bomLines = await this.extractAndMergeBom(uploadId, pages);
 
@@ -322,17 +335,37 @@ export class DrawingsBomService {
   }
 
   /**
-   * Get the actual page count from a PDF using pdfinfo (poppler-utils).
-   * Falls back to 0 if pdfinfo is unavailable or fails.
+   * Get the actual page count from a PDF buffer using pdf-lib (pure JS).
+   * Falls back to pdfinfo (poppler-utils) if pdf-lib fails.
+   * Returns 0 only if both methods fail.
    */
-  private async getPdfPageCount(pdfPath: string): Promise<number> {
+  private async getPdfPageCount(pdfBuffer: Buffer): Promise<number> {
+    // Primary: pdf-lib (pure JS, no system binary dependency)
     try {
-      const { stdout } = await execFileAsync("pdfinfo", [pdfPath]);
-      const match = stdout.match(/Pages:\s+(\d+)/);
-      return match ? parseInt(match[1], 10) : 0;
+      const doc = await PDFDocument.load(pdfBuffer, { ignoreEncryption: true });
+      const count = doc.getPageCount();
+      if (count > 0) {
+        this.logger.log(`pdf-lib page count: ${count}`);
+        return count;
+      }
     } catch (err: any) {
-      this.logger.warn(`pdfinfo failed for ${pdfPath}: ${err?.message ?? err}`);
+      this.logger.warn(`pdf-lib page count failed: ${err?.message ?? err}`);
+    }
+
+    // Fallback: pdfinfo (requires poppler-utils in Docker image)
+    const tempPath = `/tmp/pdfinfo-${Date.now()}.pdf`;
+    try {
+      await writeFile(tempPath, pdfBuffer);
+      const { stdout } = await execFileAsync("pdfinfo", [tempPath]);
+      const match = stdout.match(/Pages:\s+(\d+)/);
+      const count = match ? parseInt(match[1], 10) : 0;
+      if (count > 0) this.logger.log(`pdfinfo page count: ${count}`);
+      return count;
+    } catch (err: any) {
+      this.logger.warn(`pdfinfo failed: ${err?.message ?? err}`);
       return 0;
+    } finally {
+      fs.unlink(tempPath, () => {});
     }
   }
 
@@ -344,18 +377,20 @@ export class DrawingsBomService {
 
     const { localPath, isTemp: isGcsTemp } = await this.resolveToLocalPath(upload.storedPath);
 
-    // Write to temp path for PDFParse (it works better with file paths)
-    const tempPath = `/tmp/drawings-bom-${Date.now()}.pdf`;
+    // Read PDF into buffer for page counting and text extraction
     const buffer = await fs.promises.readFile(localPath);
-    await writeFile(tempPath, buffer);
 
     // Clean up GCS temp file if we downloaded one
-    if (isGcsTemp && localPath !== tempPath) {
+    if (isGcsTemp) {
       fs.unlink(localPath, () => {});
     }
 
     // Get the real page count from PDF metadata (not from text extraction)
-    const actualPageCount = await this.getPdfPageCount(tempPath);
+    const actualPageCount = await this.getPdfPageCount(buffer);
+
+    // Write to temp path for PDFParse text extraction
+    const tempPath = `/tmp/drawings-bom-${Date.now()}.pdf`;
+    await writeFile(tempPath, buffer);
 
     let rawText: string;
     try {
