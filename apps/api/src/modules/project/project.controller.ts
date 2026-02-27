@@ -1815,4 +1815,25 @@ export class ProjectController {
       body,
     );
   }
+
+  /**
+   * GET /projects/:id/logistics
+   * Returns map-centric logistics data: center coords, deployed assets,
+   * inventory locations with material counts, nearby company projects.
+   */
+  @UseGuards(CombinedAuthGuard)
+  @Get(":id/logistics")
+  getLogistics(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Query("radiusMiles") radiusMiles?: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    const radius = radiusMiles ? parseInt(radiusMiles, 10) : 25;
+    return this.projects.getLogisticsForProject(
+      projectId,
+      user.companyId,
+      isNaN(radius) ? 25 : radius,
+    );
+  }
 }

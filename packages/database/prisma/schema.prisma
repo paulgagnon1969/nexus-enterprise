@@ -4158,6 +4158,9 @@ model Location {
   parent           Location?  @relation("LocationHierarchy", fields: [parentLocationId], references: [id])
   children         Location[] @relation("LocationHierarchy")
 
+  latitude  Float?
+  longitude Float?
+
   isActive Boolean @default(true)
   metadata Json?
 

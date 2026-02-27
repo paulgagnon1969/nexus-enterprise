@@ -13640,4 +13640,179 @@ export class ProjectService {
       updatedParticleCount: updatedParticles.length,
     };
   }
+
+  // ── Logistics map data ─────────────────────────────────────────────────
+
+  /**
+   * Haversine distance between two lat/lng points in miles.
+   */
+  private haversineMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
+    const R = 3958.8; // Earth radius in miles
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  /**
+   * GET /projects/:id/logistics
+   * Returns map data: project center, deployed assets, inventory pins, nearby projects.
+   */
+  async getLogisticsForProject(
+    projectId: string,
+    companyId: string,
+    radiusMiles = 25,
+  ) {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, companyId },
+      select: {
+        id: true,
+        name: true,
+        latitude: true,
+        longitude: true,
+        addressLine1: true,
+        city: true,
+        state: true,
+      },
+    });
+
+    if (!project) {
+      throw new NotFoundException("Project not found");
+    }
+
+    const center = {
+      lat: project.latitude,
+      lng: project.longitude,
+      name: project.name,
+      address: [project.addressLine1, project.city, project.state].filter(Boolean).join(", "),
+    };
+
+    // 1. Deployed assets for this project (ACTIVE usages)
+    const activeUsages = await this.prisma.assetUsage.findMany({
+      where: { projectId, companyId, status: "ACTIVE" },
+      include: {
+        asset: {
+          include: {
+            currentLocation: { select: { id: true, name: true, type: true, latitude: true, longitude: true } },
+          },
+        },
+      },
+    });
+
+    const assets = activeUsages.map((u) => ({
+      usageId: u.id,
+      assetId: u.asset.id,
+      name: u.asset.name,
+      code: u.asset.code,
+      assetType: u.asset.assetType,
+      manufacturer: u.asset.manufacturer,
+      model: u.asset.model,
+      location: u.asset.currentLocation
+        ? {
+            id: u.asset.currentLocation.id,
+            name: u.asset.currentLocation.name,
+            type: u.asset.currentLocation.type,
+            lat: u.asset.currentLocation.latitude,
+            lng: u.asset.currentLocation.longitude,
+          }
+        : null,
+    }));
+
+    // 2. Material lots for this project (by destination project)
+    const lots = await this.prisma.materialLot.findMany({
+      where: { companyId, destinationProjectId: projectId },
+      include: {
+        currentLocation: { select: { id: true, name: true, type: true, latitude: true, longitude: true } },
+      },
+    });
+
+    // Group lots by location for inventory pins
+    const locationMap = new Map<string, {
+      id: string;
+      name: string;
+      type: string;
+      lat: number | null;
+      lng: number | null;
+      items: { sku: string; name: string; quantity: number; uom: string }[];
+    }>();
+
+    for (const lot of lots) {
+      const loc = lot.currentLocation;
+      if (!loc) continue;
+      if (!locationMap.has(loc.id)) {
+        locationMap.set(loc.id, {
+          id: loc.id,
+          name: loc.name,
+          type: loc.type,
+          lat: loc.latitude,
+          lng: loc.longitude,
+          items: [],
+        });
+      }
+      locationMap.get(loc.id)!.items.push({
+        sku: lot.sku,
+        name: lot.name,
+        quantity: Number(lot.quantity),
+        uom: lot.uom,
+      });
+    }
+
+    const inventory = Array.from(locationMap.values());
+
+    // 3. Nearby company projects (same company, has coords, within radius)
+    let nearbyProjects: {
+      id: string;
+      name: string;
+      lat: number;
+      lng: number;
+      city: string;
+      state: string;
+      distanceMiles: number;
+    }[] = [];
+
+    if (center.lat != null && center.lng != null) {
+      const allProjects = await this.prisma.project.findMany({
+        where: {
+          companyId,
+          id: { not: projectId },
+          latitude: { not: null },
+          longitude: { not: null },
+          status: { not: "deleted" },
+        },
+        select: {
+          id: true,
+          name: true,
+          latitude: true,
+          longitude: true,
+          city: true,
+          state: true,
+        },
+      });
+
+      nearbyProjects = allProjects
+        .map((p) => {
+          const dist = this.haversineMiles(center.lat!, center.lng!, p.latitude!, p.longitude!);
+          return {
+            id: p.id,
+            name: p.name,
+            lat: p.latitude!,
+            lng: p.longitude!,
+            city: p.city,
+            state: p.state,
+            distanceMiles: Math.round(dist * 10) / 10,
+          };
+        })
+        .filter((p) => p.distanceMiles <= radiusMiles)
+        .sort((a, b) => a.distanceMiles - b.distanceMiles);
+    }
+
+    return {
+      center,
+      assets,
+      inventory,
+      nearbyProjects,
+    };
+  }
 }

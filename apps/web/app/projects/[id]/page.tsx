@@ -12,6 +12,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
 import { useBusyOverlay } from "../../busy-overlay-context";
 import { uploadImageFileToNexusUploads } from "../../lib/uploads";
 import {
@@ -32,6 +33,8 @@ import { DescriptionPicker } from "../../components/DescriptionPicker";
 import PersonnelPicker, { type PersonnelEntry } from "./personnel-picker";
 import { ProcurementPanel } from "./procurement-panel";
 import { PlanSheetsTab } from "./plan-sheets-tab";
+
+const LogisticsTab = dynamic(() => import("./logistics-tab"), { ssr: false });
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -869,6 +872,7 @@ type TabKey =
   | "PLANS"
   | "STRUCTURE"
   | "DAILY_LOGS"
+  | "LOGISTICS"
   | "FILES"
   | "FINANCIAL"
   | "JOURNAL";
@@ -14101,6 +14105,7 @@ ${htmlBody}
             ...(isPmOrAbove ? [{ key: "BOM" as TabKey, label: "BOM & Procure" }] : []),
             ...(isPmOrAbove ? [{ key: "PLANS" as TabKey, label: "Plans" }] : []),
             ...(isPmOrAbove ? [{ key: "STRUCTURE" as TabKey, label: "Project Organization" }] : []),
+            ...(isPmOrAbove ? [{ key: "LOGISTICS" as TabKey, label: "Logistics" }] : []),
             { key: "FILES", label: "Files" },
             ...(isAdminOrAbove ? [{ key: "JOURNAL" as TabKey, label: "Journal" }] : []),
             ...(isPmOrAbove ? [{ key: "FINANCIAL" as TabKey, label: "Financial" }] : []),
@@ -26498,6 +26503,11 @@ onClick={() => setManageTemplatesOpen(true)}
       {/* PLANS tab content (PM+ only) */}
       {activeTab === "PLANS" && isPmOrAbove && (
         <PlanSheetsTab projectId={id} />
+      )}
+
+      {/* LOGISTICS tab content (PM+ only) */}
+      {activeTab === "LOGISTICS" && isPmOrAbove && (
+        <LogisticsTab projectId={id} />
       )}
 
       {/* JOURNAL tab content (Admin+ only) */}
