@@ -7,20 +7,29 @@ let redisConnection: IORedis | null = null;
 let importQueue: Queue | null = null;
 
 /**
+ * Resolve the Redis URL for BullMQ queue operations.
+ * Checks BULLMQ_REDIS_URL first (API-only, avoids activating the RedisService
+ * caching layer which uses REDIS_URL), then falls back to REDIS_URL (worker).
+ */
+function getQueueRedisUrl(): string | undefined {
+  return process.env.BULLMQ_REDIS_URL || process.env.REDIS_URL;
+}
+
+/**
  * Check if Redis is configured and available for queueing.
- * Returns false if REDIS_URL is not set.
+ * Returns false if neither BULLMQ_REDIS_URL nor REDIS_URL is set.
  */
 export function isRedisAvailable(): boolean {
-  return !!process.env.REDIS_URL;
+  return !!getQueueRedisUrl();
 }
 
 export function getBullRedisConnection(): IORedis {
   if (redisConnection) return redisConnection;
 
-  const url = process.env.REDIS_URL;
+  const url = getQueueRedisUrl();
   if (!url) {
     throw new Error(
-      "REDIS_URL is not set. Import jobs require Redis (BullMQ)."
+      "BULLMQ_REDIS_URL (or REDIS_URL) is not set. Import jobs require Redis (BullMQ)."
     );
   }
 
