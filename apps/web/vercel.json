@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "cd ../.. && npx turbo run build --filter=web",
+  "buildCommand": "npx next build",
   "installCommand": "cd ../.. && npm install --legacy-peer-deps",
   "framework": "nextjs"
 }

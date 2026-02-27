@@ -1,32 +1,174 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition, useRef, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useTransition, useRef, useCallback } from "react";
 import dynamic from "next/dynamic";
+import "mapbox-gl/dist/mapbox-gl.css";
 
 const MapComponent = dynamic(
   () => import("react-map-gl/mapbox").then((m) => {
-    const { default: Map, Marker, NavigationControl } = m;
-    return function MapPopup({ lat, lng, label }: { lat: number; lng: number; label: string }) {
+    const { default: Map, Marker, Popup, NavigationControl } = m;
+
+    // Pin components
+    function ProjectPin() {
+      return (
+        <div style={{ position: "relative", cursor: "pointer" }}>
+          <svg width="32" height="42" viewBox="0 0 32 42" fill="none">
+            <path d="M16 0C7.163 0 0 7.163 0 16c0 12 16 26 16 26s16-14 16-26C32 7.163 24.837 0 16 0z" fill="#2563eb" />
+            <circle cx="16" cy="16" r="8" fill="#ffffff" />
+            <circle cx="16" cy="16" r="4" fill="#2563eb" />
+          </svg>
+        </div>
+      );
+    }
+    function NearbyProjectPin() {
+      return (
+        <div style={{ cursor: "pointer" }}>
+          <svg width="20" height="26" viewBox="0 0 20 26" fill="none">
+            <path d="M10 0C4.477 0 0 4.477 0 10c0 7.5 10 16 10 16s10-8.5 10-16C20 4.477 15.523 0 10 0z" fill="#6b7280" />
+            <circle cx="10" cy="10" r="4" fill="#ffffff" />
+          </svg>
+        </div>
+      );
+    }
+    function InventoryPin({ count }: { count: number }) {
+      return (
+        <div style={{ position: "relative", cursor: "pointer", textAlign: "center" }}>
+          <svg width="24" height="32" viewBox="0 0 28 36" fill="none">
+            <path d="M14 0C6.268 0 0 6.268 0 14c0 10.5 14 22 14 22s14-11.5 14-22C28 6.268 21.732 0 14 0z" fill="#059669" />
+            <circle cx="14" cy="14" r="6" fill="#ffffff" />
+          </svg>
+          <div style={{ position: "absolute", top: -7, left: "50%", transform: "translateX(-50%)", background: "#059669", color: "#fff", fontSize: 8, fontWeight: 700, padding: "0px 4px", borderRadius: 4, whiteSpace: "nowrap" }}>
+            {count}
+          </div>
+        </div>
+      );
+    }
+    function AssetPin() {
+      return (
+        <div style={{ position: "relative", cursor: "pointer" }}>
+          <svg width="22" height="28" viewBox="0 0 28 36" fill="none">
+            <path d="M14 0C6.268 0 0 6.268 0 14c0 10.5 14 22 14 22s14-11.5 14-22C28 6.268 21.732 0 14 0z" fill="#ea580c" />
+            <circle cx="14" cy="14" r="6" fill="#ffffff" />
+          </svg>
+        </div>
+      );
+    }
+    function SupplierPin() {
+      return (
+        <div style={{ position: "relative", cursor: "pointer" }}>
+          <svg width="22" height="28" viewBox="0 0 28 36" fill="none">
+            <path d="M14 0C6.268 0 0 6.268 0 14c0 10.5 14 22 14 22s14-11.5 14-22C28 6.268 21.732 0 14 0z" fill="#7c3aed" />
+            <circle cx="14" cy="14" r="6" fill="#ffffff" />
+          </svg>
+        </div>
+      );
+    }
+
+    interface MapPopupProps {
+      lat: number;
+      lng: number;
+      label: string;
+      projectId: string;
+      authToken: string;
+      allProjects: Array<{ id: string; name: string; latitude?: number | null; longitude?: number | null; city?: string; state?: string }>;
+    }
+
+    interface LogisticsNearby { id: string; name: string; lat: number; lng: number; city: string; state: string; distanceMiles: number }
+    interface LogisticsAsset { usageId: string; name: string; code: string | null; assetType: string; location: { lat: number | null; lng: number | null; name: string } | null }
+    interface LogisticsInventory { id: string; name: string; type: string; lat: number | null; lng: number | null; items: Array<{ name: string; quantity: number; uom: string }> }
+
+    return function MapPopup({ lat, lng, label, projectId, authToken, allProjects }: MapPopupProps) {
       const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
+      const API = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const [logData, setLogData] = React.useState<{ nearby: LogisticsNearby[]; assets: LogisticsAsset[]; inventory: LogisticsInventory[] } | null>(null);
+      const [popup, setPopup] = React.useState<{ lat: number; lng: number; content: string } | null>(null);
+
+      React.useEffect(() => {
+        if (!authToken || !projectId) return;
+        fetch(`${API}/projects/${projectId}/logistics?radiusMiles=10`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        })
+          .then((r: Response) => r.ok ? r.json() : null)
+          .then((d: any) => {
+            if (d) setLogData({
+              nearby: d.nearbyProjects ?? [],
+              assets: d.assets ?? [],
+              inventory: d.inventory ?? [],
+            });
+          })
+          .catch(() => {});
+      }, [projectId, authToken]);
+
+      // Also include all geocoded projects as small pins (those not already in nearby)
+      const nearbyIds = new Set(logData?.nearby?.map((n: LogisticsNearby) => n.id) ?? []);
+      const otherProjects = allProjects.filter(
+        (p) => p.id !== projectId && !nearbyIds.has(p.id) && p.latitude != null && p.longitude != null,
+      );
+
       if (!MAPBOX_TOKEN) return <div style={{ padding: 20, fontSize: 12, color: "#6b7280" }}>Mapbox token not configured.</div>;
       return (
-        <div style={{ width: 400, height: 280 }}>
+        <div style={{ width: 520, height: 380 }}>
           <Map
             mapboxAccessToken={MAPBOX_TOKEN}
-            initialViewState={{ longitude: lng, latitude: lat, zoom: 14 }}
+            initialViewState={{ longitude: lng, latitude: lat, zoom: 11 }}
             style={{ width: "100%", height: "100%" }}
             mapStyle="mapbox://styles/mapbox/streets-v12"
           >
             <NavigationControl position="top-right" />
+
+            {/* Current project — blue pin */}
             <Marker longitude={lng} latitude={lat} anchor="bottom">
-              <svg width="28" height="36" viewBox="0 0 28 36" fill="none">
-                <path d="M14 0C6.268 0 0 6.268 0 14c0 10.5 14 22 14 22s14-11.5 14-22C28 6.268 21.732 0 14 0z" fill="#2563eb" />
-                <circle cx="14" cy="14" r="6" fill="#ffffff" />
-                <circle cx="14" cy="14" r="3" fill="#2563eb" />
-              </svg>
+              <ProjectPin />
             </Marker>
+
+            {/* Nearby projects from logistics — grey pins */}
+            {logData?.nearby?.map((np: LogisticsNearby) => (
+              <Marker key={`np-${np.id}`} longitude={np.lng} latitude={np.lat} anchor="bottom"
+                onClick={(e: any) => { e.originalEvent?.stopPropagation(); setPopup({ lat: np.lat, lng: np.lng, content: `${np.name} — ${np.city}, ${np.state} (${np.distanceMiles.toFixed(1)} mi)` }); }}>
+                <NearbyProjectPin />
+              </Marker>
+            ))}
+
+            {/* Other company projects — grey pins */}
+            {otherProjects.map((p) => (
+              <Marker key={`op-${p.id}`} longitude={p.longitude!} latitude={p.latitude!} anchor="bottom"
+                onClick={(e: any) => { e.originalEvent?.stopPropagation(); setPopup({ lat: p.latitude!, lng: p.longitude!, content: `${p.name}${p.city ? ` — ${p.city}, ${p.state}` : ""}` }); }}>
+                <NearbyProjectPin />
+              </Marker>
+            ))}
+
+            {/* Inventory locations — green pins */}
+            {logData?.inventory?.filter((inv: LogisticsInventory) => inv.lat && inv.lng).map((inv: LogisticsInventory) => (
+              <Marker key={`inv-${inv.id}`} longitude={inv.lng!} latitude={inv.lat!} anchor="bottom"
+                onClick={(e: any) => { e.originalEvent?.stopPropagation(); setPopup({ lat: inv.lat!, lng: inv.lng!, content: `📦 ${inv.name} (${inv.type}) — ${inv.items.length} item(s)` }); }}>
+                <InventoryPin count={inv.items.length} />
+              </Marker>
+            ))}
+
+            {/* Asset pins — orange */}
+            {logData?.assets?.filter((a: LogisticsAsset) => a.location?.lat && a.location?.lng).map((a: LogisticsAsset) => (
+              <Marker key={`ast-${a.usageId}`} longitude={a.location!.lng!} latitude={a.location!.lat!} anchor="bottom"
+                onClick={(e: any) => { e.originalEvent?.stopPropagation(); setPopup({ lat: a.location!.lat!, lng: a.location!.lng!, content: `🔧 ${a.name} (${a.assetType})${a.location?.name ? ` @ ${a.location.name}` : ""}` }); }}>
+                <AssetPin />
+              </Marker>
+            ))}
+
+            {/* Popup */}
+            {popup && (
+              <Popup longitude={popup.lng} latitude={popup.lat} anchor="bottom" onClose={() => setPopup(null)} closeOnClick={false} style={{ maxWidth: 260 }}>
+                <div style={{ fontSize: 12, padding: 2 }}>{popup.content}</div>
+              </Popup>
+            )}
           </Map>
-          <div style={{ padding: "6px 8px", fontSize: 12, fontWeight: 500, color: "#374151", borderTop: "1px solid #e5e7eb" }}>{label}</div>
+          <div style={{ padding: "6px 10px", fontSize: 12, fontWeight: 500, color: "#374151", borderTop: "1px solid #e5e7eb", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>{label}</span>
+            <span style={{ display: "flex", gap: 10, fontSize: 10, color: "#6b7280" }}>
+              <span><span style={{ color: "#2563eb" }}>●</span> Project</span>
+              <span><span style={{ color: "#6b7280" }}>●</span> Nearby</span>
+              <span><span style={{ color: "#059669" }}>●</span> Inventory</span>
+              <span><span style={{ color: "#ea580c" }}>●</span> Assets</span>
+            </span>
+          </div>
         </div>
       );
     };
@@ -188,7 +330,7 @@ export default function ProjectsPage() {
   const [detailModal, setDetailModal] = useState<{ open: boolean; log: DailyLogDetail | null; loading: boolean }>({ open: false, log: null, loading: false });
 
   // Map popover
-  const [mapPopover, setMapPopover] = useState<{ logId: string; lat: number; lng: number; label: string } | null>(null);
+  const [mapPopover, setMapPopover] = useState<{ logId: string; projectId: string; lat: number; lng: number; label: string } | null>(null);
 
   // Dashboard cards: Tasks + Notes/Journal
   const [dashTasks, setDashTasks] = useState<DashboardTask[]>([]);
@@ -322,7 +464,7 @@ export default function ProjectsPage() {
     })();
   }, [token]);
 
-  const fetchLogs
+  const fetchLogs = async () => {
     try {
       setLoading(true);
       setError(null);
@@ -458,7 +600,7 @@ export default function ProjectsPage() {
     if (mapPopover?.logId === log.id) {
       setMapPopover(null);
     } else {
-      setMapPopover({ logId: log.id, ...coords });
+      setMapPopover({ logId: log.id, projectId: log.projectId, ...coords });
     }
   }, [projectCoordsMap, mapPopover]);
 
@@ -1221,7 +1363,7 @@ export default function ProjectsPage() {
                             ×
                           </button>
                         </div>
-                        <MapComponent lat={mapPopover.lat} lng={mapPopover.lng} label={mapPopover.label} />
+                        <MapComponent lat={mapPopover.lat} lng={mapPopover.lng} label={mapPopover.label} projectId={mapPopover.projectId} authToken={token || ""} allProjects={availableProjects} />
                       </div>
                     )}
                   </div>
