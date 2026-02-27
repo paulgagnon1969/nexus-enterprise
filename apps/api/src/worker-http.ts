@@ -5,14 +5,13 @@ import { IMPORT_QUEUE_NAME } from "./infra/queue/import-queue";
 
 const startedAt = new Date().toISOString();
 let workerReady = false;
+let workerError: string | null = null;
 
 async function bootstrap() {
-  // Start the BullMQ import worker (connects to Postgres and Redis).
-  await startWorker();
-  workerReady = true;
-
   const port = Number(process.env.PORT || 8080);
 
+  // Start the HTTP health-check server FIRST so Cloud Run's startup probe
+  // succeeds immediately. The worker can take time to connect to Redis/Postgres.
   const server = http.createServer((_req, res) => {
     const url = _req.url ?? "/";
 
@@ -26,6 +25,7 @@ async function bootstrap() {
           service: "nexus-worker",
           queue: IMPORT_QUEUE_NAME,
           workerReady,
+          workerError,
           startedAt,
           uptime: Math.floor(process.uptime()),
         }),
@@ -37,7 +37,7 @@ async function bootstrap() {
     if (url === "/health/ready") {
       res.statusCode = workerReady ? 200 : 503;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ ready: workerReady }));
+      res.end(JSON.stringify({ ready: workerReady, error: workerError }));
       return;
     }
 
@@ -46,8 +46,21 @@ async function bootstrap() {
   });
 
   server.listen(port, "0.0.0.0", () => {
-    console.log(`[worker-http] listening on http://0.0.0.0:${port}`);
+    console.log(`[worker-http] health server listening on port ${port}`);
   });
+
+  // Now start the BullMQ worker (connects to Postgres and Redis).
+  // This may take a while but the health server is already responding.
+  try {
+    await startWorker();
+    workerReady = true;
+    console.log("[worker-http] worker initialized successfully");
+  } catch (err: any) {
+    workerError = err?.message ?? String(err);
+    console.error("[worker-http] worker failed to start:", workerError);
+    // Don't exit — keep the health server running so Cloud Run doesn't
+    // enter a crash loop. The /health/ready endpoint will report 503.
+  }
 }
 
 bootstrap().catch((err) => {
