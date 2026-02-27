@@ -47,10 +47,30 @@ jobs:
       # Start Cloud SQL Proxy in TCP mode (port 5432)
       - name: Start Cloud SQL Proxy
         run: |
-          curl -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.14.3/cloud-sql-proxy.linux.amd64
+          curl -fsSL -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.14.3/cloud-sql-proxy.linux.amd64
           chmod +x cloud-sql-proxy
-          ./cloud-sql-proxy --port 5432 nexus-enterprise-480610:us-central1:nexus-dev-postgres &
-          sleep 5  # Wait for proxy to start
+          ./cloud-sql-proxy --port 5432 nexus-enterprise-480610:us-central1:nexus-dev-postgres \
+            > /tmp/sql-proxy.log 2>&1 &
+          PROXY_PID=$!
+          echo "Cloud SQL Proxy started (PID $PROXY_PID)"
+
+          # Wait up to 30s for the proxy to accept connections
+          for i in $(seq 1 30); do
+            if nc -z 127.0.0.1 5432 2>/dev/null; then
+              echo "Cloud SQL Proxy is ready (took ${i}s)"
+              exit 0
+            fi
+            # Check if the proxy process died
+            if ! kill -0 $PROXY_PID 2>/dev/null; then
+              echo "::error::Cloud SQL Proxy exited unexpectedly:"
+              cat /tmp/sql-proxy.log
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "::error::Cloud SQL Proxy failed to become ready within 30s:"
+          cat /tmp/sql-proxy.log
+          exit 1
 
       # Run Prisma migrations against Cloud SQL dev using DATABASE_URL
       - name: Run Prisma migrations on Cloud SQL dev
