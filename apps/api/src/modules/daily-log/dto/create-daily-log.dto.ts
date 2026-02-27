@@ -8,6 +8,7 @@ export enum DailyLogTypeDto {
   QUALITY = 'QUALITY',
   TADL = 'TADL',
   INVENTORY_MOVE = 'INVENTORY_MOVE',
+  EQUIPMENT_USAGE = 'EQUIPMENT_USAGE',
 }
 
 export enum FulfillmentMethodDto {
@@ -167,6 +168,11 @@ export class CreateDailyLogDto {
   @IsOptional()
   @IsEnum(InventoryMoveTypeDto)
   moveType?: InventoryMoveTypeDto;
+
+  // Equipment usage fields (used when type = EQUIPMENT_USAGE)
+  // [{assetId, hours, meterType?, meterReading?, notes?}]
+  @IsOptional()
+  equipmentUsageJson?: any;
 
   // Structured personnel onsite (JSON array of PersonnelEntry)
   @IsOptional()

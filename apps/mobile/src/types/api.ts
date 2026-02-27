@@ -87,7 +87,32 @@ export interface Contact {
   source: ContactSource;
 }
 
-export type DailyLogType = "PUDL" | "RECEIPT_EXPENSE" | "JSA" | "INCIDENT" | "QUALITY";
+export type DailyLogType = "PUDL" | "RECEIPT_EXPENSE" | "JSA" | "INCIDENT" | "QUALITY" | "EQUIPMENT_USAGE";
+
+export interface EquipmentUsageEntry {
+  assetId: string;
+  hours?: number;
+  meterType?: "HOURS" | "MILES" | "RUN_CYCLES" | "GENERATOR_HOURS";
+  meterReading?: number;
+  notes?: string;
+}
+
+export interface DeployedAsset {
+  id: string;
+  name: string;
+  assetType: string;
+  baseRate?: string | null;
+  baseUnit?: string | null;
+}
+
+export interface ProjectEquipmentSummary {
+  deployedCount: number;
+  deployedAssets: DeployedAsset[];
+  totalHours: number;
+  hoursThisWeek: number;
+  totalCost: number;
+  upcomingMaintenance: number;
+}
 
 export interface DailyLogCreateRequest {
   logDate: string; // ISO date
@@ -108,6 +133,9 @@ export interface DailyLogCreateRequest {
   expenseVendor?: string | null;
   expenseAmount?: number | null;
   expenseDate?: string | null;
+
+  // Equipment usage fields (used when type = EQUIPMENT_USAGE)
+  equipmentUsageJson?: EquipmentUsageEntry[];
 
   // Sharing flags (optional)
   shareInternal?: boolean;

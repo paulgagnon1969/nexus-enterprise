@@ -5157,6 +5157,30 @@ ${htmlBody}
     return () => { cancelled = true; };
   }, [activeTab, project, startUiTransition]);
 
+  // Equipment summary for SUMMARY tab (from Asset system)
+  const [equipSummary, setEquipSummary] = useState<{
+    deployedCount: number;
+    totalHours: number;
+    hoursThisWeek: number;
+    totalCost: number;
+    upcomingMaintenance: number;
+  } | null>(null);
+  useEffect(() => {
+    if (activeTab !== "SUMMARY" || !project) return;
+    let cancelled = false;
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+    fetch(`${API_BASE}/assets/project-summary?projectId=${project.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data) startUiTransition(() => setEquipSummary(data));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [activeTab, project, startUiTransition]);
+
   useEffect(() => {
     if (isEditTransitionPending) {
       if (!editTransitionOverlayDoneRef.current) {
@@ -14389,6 +14413,46 @@ ${htmlBody}
                   <div style={{ fontSize: 11, color: "#1d4ed8" }}>Due within 7 days</div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* === ROW 0.5: Equipment Utilization === */}
+          {equipSummary && equipSummary.deployedCount > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+              {/* Deployed */}
+              <div style={{ borderRadius: 8, border: "1px solid #a7f3d0", background: "#ecfdf5", padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ fontSize: 28, fontWeight: 700, color: "#059669" }}>{equipSummary.deployedCount}</div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#065f46" }}>Deployed</div>
+                  <div style={{ fontSize: 11, color: "#047857" }}>Active equipment</div>
+                </div>
+              </div>
+              {/* Hours This Week */}
+              <div style={{ borderRadius: 8, border: "1px solid #c4b5fd", background: "#f5f3ff", padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ fontSize: 28, fontWeight: 700, color: "#7c3aed" }}>{equipSummary.hoursThisWeek}</div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#5b21b6" }}>Hours (7d)</div>
+                  <div style={{ fontSize: 11, color: "#6d28d9" }}>This week</div>
+                </div>
+              </div>
+              {/* Cost To Date */}
+              <div style={{ borderRadius: 8, border: "1px solid #e5e7eb", background: "#f9fafb", padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "#374151" }}>${equipSummary.totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>Equip Cost</div>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>{equipSummary.totalHours}h total</div>
+                </div>
+              </div>
+              {/* Upcoming Maintenance */}
+              {equipSummary.upcomingMaintenance > 0 && (
+                <div style={{ borderRadius: 8, border: "1px solid #fcd34d", background: "#fffbeb", padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: "#d97706" }}>{equipSummary.upcomingMaintenance}</div>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#92400e" }}>Maintenance</div>
+                    <div style={{ fontSize: 11, color: "#b45309" }}>Due within 7 days</div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

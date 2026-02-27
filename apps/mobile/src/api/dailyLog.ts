@@ -5,6 +5,7 @@ import type {
   DailyLogUpdateRequest,
   DailyLogRevision,
   ProjectListItem,
+  ProjectEquipmentSummary,
 } from "../types/api";
 
 /**
@@ -209,6 +210,17 @@ export async function deleteAttachment(
   await apiFetch(
     `/daily-logs/${encodeURIComponent(logId)}/attachments/${encodeURIComponent(attachmentId)}`,
     { method: "DELETE" },
+  );
+}
+
+/**
+ * Fetch deployed equipment for a project (for equipment usage log entry).
+ */
+export async function fetchProjectEquipment(
+  projectId: string,
+): Promise<ProjectEquipmentSummary> {
+  return apiJson<ProjectEquipmentSummary>(
+    `/assets/project-summary?projectId=${encodeURIComponent(projectId)}`,
   );
 }
 

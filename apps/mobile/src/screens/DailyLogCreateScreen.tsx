@@ -16,14 +16,14 @@ import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { apiFetch, apiJson } from "../api/client";
-import { fetchUserProjects, triggerLogOcr, scanReceiptImage } from "../api/dailyLog";
+import { fetchUserProjects, triggerLogOcr, scanReceiptImage, fetchProjectEquipment } from "../api/dailyLog";
 import { enqueueOutbox } from "../offline/outbox";
 import { triggerSync } from "../offline/autoSync";
 import { copyToAppStorage, type StoredFile } from "../storage/files";
 import { compressForNetwork, getNetworkTier } from "../utils/mediaCompressor";
 import { recordUsage } from "../storage/usageTracker";
 import { colors } from "../theme/colors";
-import type { DailyLogCreateRequest, DailyLogType, ProjectListItem } from "../types/api";
+import type { DailyLogCreateRequest, DailyLogType, ProjectListItem, DeployedAsset, EquipmentUsageEntry } from "../types/api";
 
 interface Props {
   onBack: () => void;
@@ -53,6 +53,12 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
   const [expenseVendor, setExpenseVendor] = useState("");
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseDate, setExpenseDate] = useState(today);
+
+  // Equipment usage fields
+  const [deployedAssets, setDeployedAssets] = useState<DeployedAsset[]>([]);
+  const [loadingEquipment, setLoadingEquipment] = useState(false);
+  const [equipEntries, setEquipEntries] = useState<Array<EquipmentUsageEntry & { _key: string }>>([]);
+
   const [crewOnSite, setCrewOnSite] = useState("");
   const [workPerformed, setWorkPerformed] = useState("");
   const [issues, setIssues] = useState("");
@@ -80,6 +86,27 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
   }, []);
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
+
+  // Fetch deployed equipment when project changes and type is EQUIPMENT_USAGE
+  useEffect(() => {
+    if (logType !== "EQUIPMENT_USAGE" || !selectedProjectId) {
+      setDeployedAssets([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingEquipment(true);
+    fetchProjectEquipment(selectedProjectId)
+      .then((data) => {
+        if (!cancelled) setDeployedAssets(data.deployedAssets ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setDeployedAssets([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingEquipment(false);
+      });
+    return () => { cancelled = true; };
+  }, [logType, selectedProjectId]);
 
   const pickPhotoFromLibrary = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -255,11 +282,22 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
     const localLogId = makeLocalId();
 
     const isReceipt = logType === "RECEIPT_EXPENSE";
+    const isEquipment = logType === "EQUIPMENT_USAGE";
+
+    // Validate equipment entries
+    if (isEquipment && equipEntries.length === 0) {
+      setStatus("Please add at least one equipment entry");
+      setSaving(false);
+      return;
+    }
+
+    // Strip internal _key from equipment entries before sending
+    const cleanedEquipEntries: EquipmentUsageEntry[] = equipEntries.map(({ _key, ...rest }) => rest);
 
     const dto: DailyLogCreateRequest = {
       logDate,
       type: logType,
-      title: title || null,
+      title: title || (isEquipment ? `Equipment log — ${equipEntries.length} asset(s)` : null),
       weatherSummary: weatherSummary || null,
       crewOnSite: crewOnSite || null,
       workPerformed: workPerformed || null,
@@ -273,6 +311,10 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
         expenseVendor: expenseVendor || null,
         expenseAmount: expenseAmount ? parseFloat(expenseAmount) : null,
         expenseDate: expenseDate || null,
+      } : {}),
+      // Equipment usage fields
+      ...(isEquipment ? {
+        equipmentUsageJson: cleanedEquipEntries,
       } : {}),
       // Receipts are private by default
       shareInternal: isReceipt ? false : true,
@@ -486,6 +528,7 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
           {([
             { key: "PUDL" as const, label: "Daily Log (PUDL)" },
             { key: "RECEIPT_EXPENSE" as const, label: "Receipt / Expense" },
+            { key: "EQUIPMENT_USAGE" as const, label: "Equipment Usage" },
             { key: "JSA" as const, label: "Job Safety Assessment" },
             { key: "INCIDENT" as const, label: "Incident Report" },
             { key: "QUALITY" as const, label: "Quality Inspection" },
@@ -555,6 +598,173 @@ export function DailyLogCreateScreen({ onBack, onCreated, projectId }: Props) {
                 />
               </View>
             </View>
+          </View>
+        )}
+
+        {/* Equipment Usage section — shown when type is EQUIPMENT_USAGE */}
+        {logType === "EQUIPMENT_USAGE" && (
+          <View style={styles.equipmentSection}>
+            <Text style={styles.equipmentSectionTitle}>Equipment Entries</Text>
+            {loadingEquipment ? (
+              <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 12 }} />
+            ) : deployedAssets.length === 0 ? (
+              <Text style={styles.equipmentHint}>
+                No equipment deployed to this project. Deploy assets first via the web app.
+              </Text>
+            ) : (
+              <>
+                <Text style={styles.equipmentHint}>
+                  Log hours and meter readings for deployed equipment.
+                </Text>
+                {equipEntries.map((entry, idx) => {
+                  const selectedAsset = deployedAssets.find((a) => a.id === entry.assetId);
+                  return (
+                    <View key={entry._key} style={styles.equipmentEntry}>
+                      <View style={styles.equipmentEntryHeader}>
+                        <Text style={styles.equipmentEntryLabel}>Equipment #{idx + 1}</Text>
+                        <Pressable
+                          onPress={() => setEquipEntries((prev) => prev.filter((e) => e._key !== entry._key))}
+                        >
+                          <Text style={styles.removeText}>Remove</Text>
+                        </Pressable>
+                      </View>
+
+                      {/* Asset picker */}
+                      <Text style={styles.label}>Asset</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+                        {deployedAssets.map((asset) => (
+                          <Pressable
+                            key={asset.id}
+                            style={[styles.chip, entry.assetId === asset.id && styles.chipSelected]}
+                            onPress={() =>
+                              setEquipEntries((prev) =>
+                                prev.map((e) => (e._key === entry._key ? { ...e, assetId: asset.id } : e)),
+                              )
+                            }
+                          >
+                            <Text
+                              style={entry.assetId === asset.id ? styles.chipTextSelected : styles.chipText}
+                              numberOfLines={1}
+                            >
+                              {asset.name}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </ScrollView>
+
+                      {selectedAsset && (
+                        <Text style={{ fontSize: 11, color: colors.textMuted, marginBottom: 6 }}>
+                          Rate: ${selectedAsset.baseRate ?? "N/A"}/{selectedAsset.baseUnit ?? "hr"}
+                        </Text>
+                      )}
+
+                      {/* Hours */}
+                      <View style={styles.receiptRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.label}>Hours</Text>
+                          <TextInput
+                            style={styles.input}
+                            value={entry.hours != null ? String(entry.hours) : ""}
+                            onChangeText={(v) =>
+                              setEquipEntries((prev) =>
+                                prev.map((e) =>
+                                  e._key === entry._key ? { ...e, hours: v ? parseFloat(v) : undefined } : e,
+                                ),
+                              )
+                            }
+                            placeholder="0"
+                            keyboardType="decimal-pad"
+                          />
+                        </View>
+                        <View style={{ flex: 1, marginLeft: 12 }}>
+                          <Text style={styles.label}>Meter Type</Text>
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                            {(["HOURS", "MILES", "RUN_CYCLES", "GENERATOR_HOURS"] as const).map((mt) => (
+                              <Pressable
+                                key={mt}
+                                style={[
+                                  styles.meterChip,
+                                  entry.meterType === mt && styles.meterChipSelected,
+                                ]}
+                                onPress={() =>
+                                  setEquipEntries((prev) =>
+                                    prev.map((e) =>
+                                      e._key === entry._key
+                                        ? { ...e, meterType: e.meterType === mt ? undefined : mt }
+                                        : e,
+                                    ),
+                                  )
+                                }
+                              >
+                                <Text
+                                  style={
+                                    entry.meterType === mt
+                                      ? styles.meterChipTextSelected
+                                      : styles.meterChipText
+                                  }
+                                >
+                                  {mt.replace(/_/g, " ")}
+                                </Text>
+                              </Pressable>
+                            ))}
+                          </ScrollView>
+                        </View>
+                      </View>
+
+                      {/* Meter reading (only if meter type selected) */}
+                      {entry.meterType && (
+                        <View style={{ marginTop: 4 }}>
+                          <Text style={styles.label}>Current Meter Reading</Text>
+                          <TextInput
+                            style={styles.input}
+                            value={entry.meterReading != null ? String(entry.meterReading) : ""}
+                            onChangeText={(v) =>
+                              setEquipEntries((prev) =>
+                                prev.map((e) =>
+                                  e._key === entry._key
+                                    ? { ...e, meterReading: v ? parseFloat(v) : undefined }
+                                    : e,
+                                ),
+                              )
+                            }
+                            placeholder={`Current ${entry.meterType.toLowerCase().replace(/_/g, " ")} reading`}
+                            keyboardType="decimal-pad"
+                          />
+                        </View>
+                      )}
+
+                      {/* Notes */}
+                      <Text style={styles.label}>Notes</Text>
+                      <TextInput
+                        style={styles.input}
+                        value={entry.notes ?? ""}
+                        onChangeText={(v) =>
+                          setEquipEntries((prev) =>
+                            prev.map((e) => (e._key === entry._key ? { ...e, notes: v || undefined } : e)),
+                          )
+                        }
+                        placeholder="Optional notes"
+                      />
+                    </View>
+                  );
+                })}
+
+                <Pressable
+                  style={styles.addEquipButton}
+                  onPress={() =>
+                    setEquipEntries((prev) => [
+                      ...prev,
+                      {
+                        _key: `eq_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                        assetId: deployedAssets[0]?.id ?? "",
+                      },
+                    ])
+                  }
+                >
+                  <Text style={styles.addEquipButtonText}>+ Add Equipment Entry</Text>
+                </Pressable>
+              </>
+            )}
           </View>
         )}
 
@@ -871,5 +1081,79 @@ const styles = StyleSheet.create({
   },
   receiptRow: {
     flexDirection: "row",
+  },
+  equipmentSection: {
+    backgroundColor: "#ecfdf5",
+    borderRadius: 10,
+    padding: 14,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: "#a7f3d0",
+  },
+  equipmentSectionTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#065f46",
+    marginBottom: 4,
+  },
+  equipmentHint: {
+    fontSize: 12,
+    color: "#047857",
+    marginBottom: 8,
+  },
+  equipmentEntry: {
+    backgroundColor: "#ffffff",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#d1fae5",
+  },
+  equipmentEntryHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  equipmentEntryLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#065f46",
+  },
+  addEquipButton: {
+    borderWidth: 1,
+    borderColor: "#059669",
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    marginTop: 4,
+  },
+  addEquipButtonText: {
+    color: "#059669",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  meterChip: {
+    borderWidth: 1,
+    borderColor: colors.borderMuted,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginRight: 6,
+    backgroundColor: colors.background,
+  },
+  meterChipSelected: {
+    backgroundColor: "#059669",
+    borderColor: "#059669",
+  },
+  meterChipText: {
+    fontSize: 10,
+    color: colors.textSecondary,
+  },
+  meterChipTextSelected: {
+    fontSize: 10,
+    color: "#ffffff",
+    fontWeight: "600",
   },
 });

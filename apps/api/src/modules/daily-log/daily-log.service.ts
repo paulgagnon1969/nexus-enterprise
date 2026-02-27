@@ -5,7 +5,7 @@ import { GcsService } from "../../infra/storage/gcs.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateDailyLogDto, DailyLogTypeDto } from "./dto/create-daily-log.dto";
 import { UpdateDailyLogDto } from "./dto/update-daily-log.dto";
-import { Role, DailyLogStatus, DailyLogType, ProjectBillStatus, FulfillmentMethod, InventoryMoveType, InventoryItemType, $Enums } from "@prisma/client";
+import { Role, DailyLogStatus, DailyLogType, ProjectBillStatus, FulfillmentMethod, InventoryMoveType, InventoryItemType, MaintenanceMeterType, $Enums } from "@prisma/client";
 import { moveInventoryWithCost } from '@repo/database/src/inventory';
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -17,6 +17,8 @@ import { ReceiptOcrService } from "../ocr/receipt-ocr.service";
 import { OpenAiOcrProvider } from "../ocr/openai-ocr.provider";
 import { WeatherService } from "../weather/weather.service";
 import { TranscriptionService } from "../transcription/transcription.service";
+import { AssetDeploymentService } from "../asset/asset-deployment.service";
+import { AssetMaintenanceService } from "../asset/asset-maintenance.service";
 
 // Profile codes that are considered PM+ level (can edit logs, see delayed logs, publish)
 const PM_PLUS_PROFILES = new Set(["PM", "EXECUTIVE"]);
@@ -40,6 +42,8 @@ export class DailyLogService {
     private readonly openAiOcr: OpenAiOcrProvider,
     private readonly weather: WeatherService,
     private readonly transcription: TranscriptionService,
+    private readonly assetDeployment: AssetDeploymentService,
+    private readonly assetMaintenance: AssetMaintenanceService,
   ) {}
 
   private async assertProjectAccess(
@@ -888,6 +892,7 @@ export class DailyLogService {
     const logType = dto.type ? (dto.type as unknown as DailyLogType) : DailyLogType.PUDL;
     const isReceiptExpense = logType === DailyLogType.RECEIPT_EXPENSE;
     const isInventoryMove = logType === DailyLogType.INVENTORY_MOVE;
+    const isEquipmentUsage = logType === DailyLogType.EQUIPMENT_USAGE;
 
     // For RECEIPT_EXPENSE, override visibility to private
     const shareInternal = isReceiptExpense ? false : (dto.shareInternal ?? true);
@@ -955,6 +960,8 @@ export class DailyLogService {
         moveType: isInventoryMove && dto.moveType
           ? (dto.moveType as unknown as InventoryMoveType)
           : null,
+        // Equipment usage fields
+        equipmentUsageJson: isEquipmentUsage ? (dto.equipmentUsageJson ?? undefined) : undefined,
       },
       include: {
         createdBy: {
@@ -1046,6 +1053,11 @@ export class DailyLogService {
     // For INVENTORY_MOVE logs: execute actual inventory movements
     if (isInventoryMove) {
       await this.handleInventoryMoveLog(created.id, companyId, actor, dto);
+    }
+
+    // For EQUIPMENT_USAGE logs: create time-punch transactions + meter readings
+    if (isEquipmentUsage) {
+      await this.handleEquipmentUsageLog(created.id, projectId, companyId, actor, dto);
     }
 
     // If the Person Onsite is not currently a project participant, create a
@@ -1449,6 +1461,122 @@ export class DailyLogService {
 
     this.logger.log(
       `[handleInventoryMoveLog] Log ${dailyLogId}: ${movementIds.length} movements executed, ${processedItems.filter((i: any) => i.status === 'FAILED').length} failed`,
+    );
+  }
+
+  /**
+   * Handle EQUIPMENT_USAGE daily log.
+   * For each entry in equipmentUsageJson:
+   *   1. Find the active AssetUsage on this project (or skip if no active usage).
+   *   2. Record a TIME_PUNCH via AssetDeploymentService.
+   *   3. If a meter reading is provided, record it via AssetMaintenanceService
+   *      (which auto-triggers maintenance schedules if thresholds are crossed).
+   *   4. Persist processed results back to equipmentUsageJson.
+   */
+  private async handleEquipmentUsageLog(
+    dailyLogId: string,
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    dto: CreateDailyLogDto,
+  ): Promise<void> {
+    let entries: Array<{
+      assetId: string;
+      hours?: number;
+      meterType?: string;
+      meterReading?: number;
+      notes?: string;
+    }> = [];
+
+    try {
+      const raw = dto.equipmentUsageJson;
+      entries = Array.isArray(raw) ? raw : typeof raw === 'string' ? JSON.parse(raw) : [];
+    } catch {
+      this.logger.warn(`[handleEquipmentUsageLog] Failed to parse equipmentUsageJson for log ${dailyLogId}`);
+      return;
+    }
+
+    if (!entries.length) {
+      this.logger.log(`[handleEquipmentUsageLog] No equipment entries for log ${dailyLogId}`);
+      return;
+    }
+
+    const processed: any[] = [];
+
+    for (const entry of entries) {
+      const result: any = { ...entry, status: 'OK' };
+
+      try {
+        if (!entry.assetId) {
+          result.status = 'SKIPPED';
+          result.error = 'No assetId provided';
+          processed.push(result);
+          continue;
+        }
+
+        // Find active usage for this asset on this project
+        const activeUsage = await this.prisma.assetUsage.findFirst({
+          where: { assetId: entry.assetId, projectId, companyId, status: 'ACTIVE' },
+        });
+
+        // Record time punch if hours > 0
+        if (entry.hours && entry.hours > 0) {
+          if (!activeUsage) {
+            result.status = 'SKIPPED_NO_USAGE';
+            result.error = `No active usage found for asset ${entry.assetId} on project ${projectId}`;
+            processed.push(result);
+            continue;
+          }
+
+          const punchResult = await this.assetDeployment.recordTimePunch(
+            companyId,
+            actor.userId,
+            activeUsage.id,
+            entry.hours,
+            dto.logDate,
+            { dailyLogId, notes: entry.notes },
+          );
+          result.transactionId = punchResult.transaction.id;
+          result.effectiveRate = punchResult.effectiveRate;
+          result.totalCost = punchResult.totalCost;
+        }
+
+        // Record meter reading if provided
+        if (entry.meterType && entry.meterReading != null) {
+          const validMeterTypes = ['HOURS', 'MILES', 'RUN_CYCLES', 'GENERATOR_HOURS'];
+          if (validMeterTypes.includes(entry.meterType)) {
+            const meterResult = await this.assetMaintenance.recordMeterReading(
+              companyId,
+              entry.assetId,
+              entry.meterType as MaintenanceMeterType,
+              entry.meterReading,
+              `daily-log:${dailyLogId}`,
+            );
+            result.meterReadingId = meterResult.reading.id;
+            result.triggeredTodos = meterResult.triggeredTodos;
+          } else {
+            result.meterWarning = `Unknown meter type: ${entry.meterType}`;
+          }
+        }
+      } catch (err: any) {
+        this.logger.error(`[handleEquipmentUsageLog] Failed for asset ${entry.assetId}: ${err?.message}`);
+        result.status = 'FAILED';
+        result.error = err?.message;
+      }
+
+      processed.push(result);
+    }
+
+    // Persist processed results back to the log
+    await this.prisma.dailyLog.update({
+      where: { id: dailyLogId },
+      data: { equipmentUsageJson: processed },
+    });
+
+    const ok = processed.filter((p: any) => p.status === 'OK').length;
+    const failed = processed.filter((p: any) => p.status === 'FAILED').length;
+    this.logger.log(
+      `[handleEquipmentUsageLog] Log ${dailyLogId}: ${ok} processed, ${failed} failed, ${processed.length - ok - failed} skipped`,
     );
   }
 

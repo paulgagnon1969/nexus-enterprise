@@ -13,9 +13,10 @@ import { TaskService } from "../task/task.service";
 import { OcrModule } from "../ocr/ocr.module";
 import { WeatherModule } from "../weather/weather.module";
 import { TranscriptionModule } from "../transcription/transcription.module";
+import { AssetModule } from "../asset/asset.module";
 
 @Module({
-  imports: [PrismaModule, NotificationsModule, OcrModule, WeatherModule, TranscriptionModule],
+  imports: [PrismaModule, NotificationsModule, OcrModule, WeatherModule, TranscriptionModule, AssetModule],
   providers: [DailyLogService, AuditService, TaskService, JsaReminderService, EmailService],
   controllers: [DailyLogController, DailyLogFeedController, DailyLogAttachmentsController, PersonnelRosterController, TimeEntryController]
 })

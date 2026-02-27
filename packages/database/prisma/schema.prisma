@@ -2945,6 +2945,10 @@ model DailyLog {
   inventoryMoveItemsJson Json?   // [{materialLotId, description, quantity, uom}]
   moveType               InventoryMoveType?
 
+  /// Equipment usage fields (used when type = EQUIPMENT_USAGE)
+  /// [{assetId, hours, meterType?, meterReading?, notes?}]
+  equipmentUsageJson     Json?
+
   createdBy    User                 @relation(fields: [createdById], references: [id])
   project      Project              @relation(fields: [projectId], references: [id])
   attachments  DailyLogAttachment[]
@@ -3903,6 +3907,7 @@ enum DailyLogType {
   QUALITY // Quality inspection
   TADL // Time Accounting Daily Log
   INVENTORY_MOVE // Inventory drop, pickup, or transfer
+  EQUIPMENT_USAGE // Equipment hours/meter entries from field
 }
 
 enum FulfillmentMethod {
