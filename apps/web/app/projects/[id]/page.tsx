@@ -5118,6 +5118,7 @@ ${htmlBody}
   const [showPid, setShowPid] = useState(false);
 
 
+
   // Project header edit state
   const [editProjectMode, setEditProjectMode] = useState(false);
 
@@ -5137,6 +5138,24 @@ ${htmlBody}
   // General UI transition for toggle buttons, schedule controls, etc.
   // This prevents 2+ second INP issues when clicking buttons that trigger re-renders.
   const [, startUiTransition] = useTransition();
+
+  // Task dashboard summary (fetched when SUMMARY tab is active)
+  const [taskSummary, setTaskSummary] = useState<{ overdue: number; dueNow: number; comingDue: number; total: number } | null>(null);
+  useEffect(() => {
+    if (activeTab !== "SUMMARY" || !project) return;
+    let cancelled = false;
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+    fetch(`${API_BASE}/tasks/summary?projectId=${project.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data) startUiTransition(() => setTaskSummary(data));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [activeTab, project, startUiTransition]);
 
   useEffect(() => {
     if (isEditTransitionPending) {
@@ -14343,6 +14362,36 @@ ${htmlBody}
       {/* SUMMARY tab content */}
       {activeTab === "SUMMARY" && (
         <div style={{ marginBottom: 16 }}>
+          {/* === ROW 0: Task Dashboard === */}
+          {taskSummary && (taskSummary.overdue > 0 || taskSummary.dueNow > 0 || taskSummary.comingDue > 0) && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+              {/* Overdue */}
+              <div style={{ borderRadius: 8, border: "1px solid #fca5a5", background: "#fef2f2", padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ fontSize: 28, fontWeight: 700, color: "#dc2626" }}>{taskSummary.overdue}</div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#991b1b" }}>Overdue</div>
+                  <div style={{ fontSize: 11, color: "#b91c1c" }}>Tasks past due date</div>
+                </div>
+              </div>
+              {/* Due Now */}
+              <div style={{ borderRadius: 8, border: "1px solid #fcd34d", background: "#fffbeb", padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ fontSize: 28, fontWeight: 700, color: "#d97706" }}>{taskSummary.dueNow}</div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#92400e" }}>Due Now</div>
+                  <div style={{ fontSize: 11, color: "#b45309" }}>Due today</div>
+                </div>
+              </div>
+              {/* Coming Due */}
+              <div style={{ borderRadius: 8, border: "1px solid #93c5fd", background: "#eff6ff", padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ fontSize: 28, fontWeight: 700, color: "#2563eb" }}>{taskSummary.comingDue}</div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#1e40af" }}>Coming Due</div>
+                  <div style={{ fontSize: 11, color: "#1d4ed8" }}>Due within 7 days</div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* === ROW 1: General Info | Project Team | Job Groups/Tags === */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
             {/* General Info card */}

@@ -2187,6 +2187,9 @@ model Task {
   reminderIntervalMinutes Int?
   lastReminderAt          DateTime?
 
+  escalationTier Int       @default(0) // 0=none, 1=assigned, 2=manager, 3=owner+admin
+  escalatedAt    DateTime?
+
   assignee        User?            @relation("TaskAssignee", fields: [assigneeId], references: [id])
   company         Company          @relation(fields: [companyId], references: [id])
   project         Project          @relation(fields: [projectId], references: [id])

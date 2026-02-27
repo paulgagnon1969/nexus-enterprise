@@ -5,7 +5,8 @@ import { GcsService } from "../../infra/storage/gcs.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateDailyLogDto, DailyLogTypeDto } from "./dto/create-daily-log.dto";
 import { UpdateDailyLogDto } from "./dto/update-daily-log.dto";
-import { Role, DailyLogStatus, DailyLogType, ProjectBillStatus, FulfillmentMethod, InventoryMoveType, $Enums } from "@prisma/client";
+import { Role, DailyLogStatus, DailyLogType, ProjectBillStatus, FulfillmentMethod, InventoryMoveType, InventoryItemType, $Enums } from "@prisma/client";
+import { moveInventoryWithCost } from '@repo/database/src/inventory';
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { NotificationsService } from "../notifications/notifications.service";
@@ -1042,6 +1043,11 @@ export class DailyLogService {
       await this.handleReceiptExpenseLog(created.id, projectId, companyId, actor, dto, attachedProjectFiles);
     }
 
+    // For INVENTORY_MOVE logs: execute actual inventory movements
+    if (isInventoryMove) {
+      await this.handleInventoryMoveLog(created.id, companyId, actor, dto);
+    }
+
     // If the Person Onsite is not currently a project participant, create a
     // follow-up Task for tenant admins to add them to the project roster.
     await this.createPersonOnsiteTaskIfNeeded(dto, actor, projectId, companyId, project);
@@ -1283,6 +1289,167 @@ export class DailyLogService {
         // Best-effort only; do not block log save on task failures.
       }
     }
+  }
+
+  /**
+   * Handle INVENTORY_MOVE daily log: execute actual inventory movements.
+   * Parses inventoryMoveItemsJson, calls moveInventoryWithCost for each item,
+   * updates MaterialLot.currentLocationId, and persists movement IDs.
+   */
+  private async handleInventoryMoveLog(
+    dailyLogId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    dto: CreateDailyLogDto,
+  ): Promise<void> {
+    const fromLocationId = dto.moveFromLocationId;
+    const toLocationId = dto.moveToLocationId;
+
+    if (!fromLocationId || !toLocationId) {
+      this.logger.warn(`[handleInventoryMoveLog] Missing from/to location for log ${dailyLogId}`);
+      return;
+    }
+
+    let items: { materialLotId?: string; description?: string; quantity?: number; uom?: string }[] = [];
+    try {
+      const raw = dto.inventoryMoveItemsJson;
+      items = Array.isArray(raw) ? raw : typeof raw === 'string' ? JSON.parse(raw) : [];
+    } catch {
+      this.logger.warn(`[handleInventoryMoveLog] Failed to parse inventoryMoveItemsJson for log ${dailyLogId}`);
+      return;
+    }
+
+    if (!items.length) {
+      this.logger.log(`[handleInventoryMoveLog] No items to move for log ${dailyLogId}`);
+      return;
+    }
+
+    const moveType = dto.moveType ?? 'TRANSFER';
+    const movementIds: string[] = [];
+    const processedItems: any[] = [];
+
+    for (const item of items) {
+      try {
+        let lotId = item.materialLotId;
+        let qty: number;
+
+        if (lotId) {
+          // Moving an existing MaterialLot
+          const lot = await this.prisma.materialLot.findUnique({ where: { id: lotId } });
+          if (!lot) {
+            this.logger.warn(`[handleInventoryMoveLog] MaterialLot ${lotId} not found, skipping`);
+            continue;
+          }
+
+          // Lot Transfer = whole quantity, Qty Transfer = specified amount
+          qty = item.quantity != null ? Math.abs(item.quantity) : Number(lot.quantity);
+
+          const result = await moveInventoryWithCost({
+            companyId,
+            itemType: InventoryItemType.MATERIAL,
+            itemId: lotId,
+            fromLocationId,
+            toLocationId,
+            quantity: qty,
+            reason: moveType,
+            note: `Inventory move log ${dailyLogId}: ${item.description ?? lot.name}`,
+            movedByUserId: actor.userId,
+          });
+          movementIds.push(result.movement.id);
+
+          // Update lot's current location if full quantity was moved
+          if (qty >= Number(lot.quantity)) {
+            await this.prisma.materialLot.update({
+              where: { id: lotId },
+              data: { currentLocationId: toLocationId },
+            });
+          }
+
+          processedItems.push({
+            ...item,
+            movementId: result.movement.id,
+            movedQuantity: qty,
+            status: 'MOVED',
+          });
+        } else {
+          // Ad-hoc move without a pre-existing lot — create a new MaterialLot
+          qty = Math.abs(item.quantity ?? 1);
+          const sku = (item.description ?? 'unknown')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-|-$/g, '')
+            .slice(0, 50);
+
+          const newLot = await this.prisma.materialLot.create({
+            data: {
+              companyId,
+              sku,
+              name: item.description ?? 'Ad-hoc material',
+              quantity: qty,
+              uom: item.uom ?? 'EA',
+              currentLocationId: toLocationId,
+              originLocationId: fromLocationId,
+            },
+          });
+          lotId = newLot.id;
+
+          // Initial load at source, then move to destination
+          const loadResult = await moveInventoryWithCost({
+            companyId,
+            itemType: InventoryItemType.MATERIAL,
+            itemId: lotId,
+            fromLocationId: null,
+            toLocationId: fromLocationId,
+            quantity: qty,
+            reason: 'INVENTORY_MOVE_INITIAL',
+            note: `Ad-hoc lot for move log ${dailyLogId}`,
+            movedByUserId: actor.userId,
+            explicitUnitCostForInitialLoad: 0, // no cost data for ad-hoc
+          });
+          movementIds.push(loadResult.movement.id);
+
+          const moveResult = await moveInventoryWithCost({
+            companyId,
+            itemType: InventoryItemType.MATERIAL,
+            itemId: lotId,
+            fromLocationId,
+            toLocationId,
+            quantity: qty,
+            reason: moveType,
+            note: `Inventory move log ${dailyLogId}: ${item.description ?? 'Ad-hoc'}`,
+            movedByUserId: actor.userId,
+          });
+          movementIds.push(moveResult.movement.id);
+
+          processedItems.push({
+            ...item,
+            materialLotId: lotId,
+            movementId: moveResult.movement.id,
+            movedQuantity: qty,
+            status: 'MOVED',
+          });
+        }
+      } catch (err: any) {
+        this.logger.error(`[handleInventoryMoveLog] Move failed for item: ${err?.message}`);
+        processedItems.push({
+          ...item,
+          status: 'FAILED',
+          error: err?.message,
+        });
+      }
+    }
+
+    // Persist processed items + movement IDs back to the log
+    await this.prisma.dailyLog.update({
+      where: { id: dailyLogId },
+      data: {
+        inventoryMoveItemsJson: processedItems,
+      },
+    });
+
+    this.logger.log(
+      `[handleInventoryMoveLog] Log ${dailyLogId}: ${movementIds.length} movements executed, ${processedItems.filter((i: any) => i.status === 'FAILED').length} failed`,
+    );
   }
 
   /**

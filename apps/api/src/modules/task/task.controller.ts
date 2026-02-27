@@ -1,12 +1,16 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { TaskService } from "./task.service";
+import { TaskEscalationService } from "./task-escalation.service";
 import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateTaskDto, UpdateTaskStatusDto, UpdateTaskDto, TaskPriorityEnum, TaskStatusEnum } from "./dto/task.dto";
 
 @Controller("tasks")
 export class TaskController {
-  constructor(private readonly tasks: TaskService) {}
+  constructor(
+    private readonly tasks: TaskService,
+    private readonly escalation: TaskEscalationService,
+  ) {}
 
   @UseGuards(JwtAuthGuard)
   @Get()
@@ -75,5 +79,14 @@ export class TaskController {
   ) {
     const actor = req.user as AuthenticatedUser;
     return this.tasks.updateTask(actor, id, dto);
+  }
+
+  /** On-demand escalation check (admin only). */
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Post("escalate")
+  async triggerEscalation() {
+    await this.escalation.checkAndEscalateOverdueTasks();
+    return { ok: true };
   }
 }

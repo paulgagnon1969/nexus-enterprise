@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
+import { ScheduleModule } from "@nestjs/schedule";
 import { HealthModule } from "./modules/health/health.module";
 import { PrismaModule } from "./infra/prisma/prisma.module";
 import { RedisModule } from "./infra/redis/redis.module";
@@ -71,6 +72,7 @@ import { BillingModule } from "./modules/billing/billing.module";
       // so DATABASE_URL / REDIS_URL are visible in dev regardless of cwd.
       envFilePath: [".env", "../../.env"]
     }),
+    ScheduleModule.forRoot(),
     CommonModule,
     PrismaModule,
     RedisModule,
