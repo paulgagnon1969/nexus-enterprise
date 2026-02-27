@@ -85,6 +85,11 @@ export class RedisService implements OnModuleDestroy {
 
     if (url) {
       this.client = new Redis(url);
+      // Prevent unhandled ioredis errors from crashing the process.
+      // Connection retries are handled internally by ioredis; we just log.
+      this.client.on('error', (err: Error) => {
+        console.warn('[redis] Connection error (non-fatal):', err.message);
+      });
     } else {
       // In production-like environments without Redis configured, still fall
       // back to no-op so that the API degrades gracefully instead of

@@ -526,19 +526,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </svg>
           </Link>
 
-          {/* Placeholder tabs matching Buildertrend-style menu (without Sales) */}
-          <Link
-            href="/project-management"
-            className={
-              "app-nav-link" +
-              (isActive("/project-management")
-                ? " app-nav-link-active"
-                : "")
-            }
-          >
-            {h.projectManagement}
-          </Link>
-
           {/* Nexus System — visible to ADMIN+ users */}
           {isAdminPlus && !isSystemRoute && (
             <Link
@@ -629,7 +616,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     },
                     { label: h.openTradesProfile, href: "/company/trades" },
                     { label: h.clientProfiles, href: "/company/clients" },
-                    { label: "Roles & permissions", href: "/settings/roles" },
                     { label: "Field Security", href: "/admin/security" },
                   ]
                 : [
@@ -640,7 +626,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     },
                     { label: h.openTradesProfile, href: "/company/trades" },
                     { label: h.clientProfiles, href: "/company/clients" },
-                    { label: "Roles & permissions", href: "/settings/roles" },
                   ]
             }
           />

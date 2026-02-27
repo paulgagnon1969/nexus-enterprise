@@ -37,6 +37,10 @@ import {
 } from "../api/dailyLog";
 import { recordUsage, getProjectScores } from "../storage/usageTracker";
 import { DirectionsDialog } from "../components/DirectionsDialog";
+import { ProjectMap } from "../components/ProjectMap";
+import { JobSiteMap } from "../components/JobSiteMap";
+import { RouteMap } from "../components/RouteMap";
+import { useCrewTracking } from "../hooks/useCrewTracking";
 import type {
   DailyLogListItem,
   DailyLogDetail,
@@ -173,12 +177,24 @@ export function HomeScreen({
   // Daily Log type selector
   const [showDailyLogPicker, setShowDailyLogPicker] = useState(false);
 
+  // Map view mode (list vs map) for project feed
+  const [feedViewMode, setFeedViewMode] = useState<"list" | "map">("list");
+
+  // Route map modal
+  const [showRouteMap, setShowRouteMap] = useState(false);
+
   // Multi-tenant flow: show inline tenant picker until the user explicitly
   // selects a company (or only one company exists).
   const [tenantConfirmed, setTenantConfirmed] = useState(false);
 
   // Active video calls
   const [activeCalls, setActiveCalls] = useState<any[]>([]);
+
+  // Crew tracking for map views
+  const { crew } = useCrewTracking({
+    projectId: selectedProject?.id ?? null,
+    enabled: !!selectedProject,
+  });
 
   // Daily log type options — must match DailyLogType enum + production web
   const dailyLogTypes = [
@@ -740,19 +756,40 @@ export function HomeScreen({
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
         >
+          {/* Job Site Satellite Map */}
+          {selectedProject.latitude != null && selectedProject.longitude != null && (
+            <JobSiteMap
+              latitude={selectedProject.latitude}
+              longitude={selectedProject.longitude}
+              projectName={selectedProject.name}
+              projectId={selectedProject.id}
+              crew={crew}
+            />
+          )}
+
           {/* Project Header */}
           <View style={styles.projectHeader}>
             <Text style={styles.projectHeaderName}>{selectedProject.name}</Text>
             {getProjectAddress(selectedProject) && (
-              <Pressable
-                style={styles.projectAddressRow}
-                onPress={() => setShowDirections(true)}
-              >
-                <MapPinIcon size={16} color="#0ea5e9" />
-                <Text style={styles.projectHeaderAddress}>
-                  {getProjectAddress(selectedProject)}
-                </Text>
-              </Pressable>
+              <View style={styles.projectAddressRow}>
+                <Pressable
+                  style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1 }}
+                  onPress={() => setShowDirections(true)}
+                >
+                  <MapPinIcon size={16} color="#0ea5e9" />
+                  <Text style={styles.projectHeaderAddress}>
+                    {getProjectAddress(selectedProject)}
+                  </Text>
+                </Pressable>
+                {selectedProject.latitude != null && selectedProject.longitude != null && (
+                  <Pressable
+                    onPress={() => setShowRouteMap(true)}
+                    style={styles.routeBtn}
+                  >
+                    <Text style={styles.routeBtnText}>🧭 Route</Text>
+                  </Pressable>
+                )}
+              </View>
             )}
           </View>
 
@@ -894,24 +931,51 @@ export function HomeScreen({
             </View>
           )}
 
-          {/* New Project button */}
-          {onCreateProject && (
-            <Pressable
-              style={styles.newProjectBtn}
-              onPress={() => {
-                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                onCreateProject();
-              }}
-            >
-              <Text style={styles.newProjectBtnIcon}>＋</Text>
-              <Text style={styles.newProjectBtnText}>New Project</Text>
-            </Pressable>
-          )}
+          {/* New Project button + List/Map toggle */}
+          <View style={styles.feedToolbar}>
+            {onCreateProject && (
+              <Pressable
+                style={styles.newProjectBtn}
+                onPress={() => {
+                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  onCreateProject();
+                }}
+              >
+                <Text style={styles.newProjectBtnIcon}>＋</Text>
+                <Text style={styles.newProjectBtnText}>New Project</Text>
+              </Pressable>
+            )}
+            <View style={styles.viewToggle}>
+              <Pressable
+                style={[styles.viewToggleBtn, feedViewMode === "list" && styles.viewToggleBtnActive]}
+                onPress={() => setFeedViewMode("list")}
+              >
+                <Text style={[styles.viewToggleText, feedViewMode === "list" && styles.viewToggleTextActive]}>☰ List</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.viewToggleBtn, feedViewMode === "map" && styles.viewToggleBtnActive]}
+                onPress={() => setFeedViewMode("map")}
+              >
+                <Text style={[styles.viewToggleText, feedViewMode === "map" && styles.viewToggleTextActive]}>🗺 Map</Text>
+              </Pressable>
+            </View>
+          </View>
 
           {feedLoading && !refreshing ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#1e3a8a" />
               <Text style={styles.loadingText}>Loading projects...</Text>
+            </View>
+          ) : feedViewMode === "map" ? (
+            <View style={{ flex: 1, minHeight: 400 }}>
+              <ProjectMap
+                projects={allProjects}
+                onSelectProject={(p) => {
+                  void Haptics.selectionAsync();
+                  void recordUsage(p.id, "open_project");
+                  setSelectedProject(p);
+                }}
+              />
             </View>
           ) : projectsWithLogs.length === 0 ? (
             <View style={styles.emptyContainer}>
@@ -1397,6 +1461,25 @@ export function HomeScreen({
             longitude: selectedProject.longitude,
             address: getProjectAddress(selectedProject),
             name: selectedProject.name,
+          }}
+          onViewRoute={() => {
+            setShowDirections(false);
+            setShowRouteMap(true);
+          }}
+        />
+      )}
+
+      {/* Route map modal */}
+      {selectedProject && selectedProject.latitude != null && selectedProject.longitude != null && (
+        <RouteMap
+          visible={showRouteMap}
+          onClose={() => setShowRouteMap(false)}
+          destination={{
+            latitude: selectedProject.latitude,
+            longitude: selectedProject.longitude,
+            name: selectedProject.name,
+            address: getProjectAddress(selectedProject),
+            projectId: selectedProject.id,
           }}
         />
       )}
@@ -2110,14 +2193,55 @@ const styles = StyleSheet.create({
     color: "#1e3a8a",
   },
 
+  // Feed toolbar (new project + list/map toggle)
+  feedToolbar: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  viewToggle: {
+    flexDirection: "row",
+    alignSelf: "flex-end",
+    backgroundColor: "#f3f4f6",
+    borderRadius: 8,
+    overflow: "hidden",
+    marginTop: 6,
+  },
+  viewToggleBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
+  viewToggleBtnActive: {
+    backgroundColor: "#1e3a8a",
+    borderRadius: 8,
+  },
+  viewToggleText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#6b7280",
+  },
+  viewToggleTextActive: {
+    color: "#ffffff",
+  },
+  routeBtn: {
+    backgroundColor: "#eff6ff",
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+  },
+  routeBtnText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#1e3a8a",
+  },
+
   // New Project button in project feed
   newProjectBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 12,
     paddingVertical: 12,
     backgroundColor: "#eff6ff",
     borderRadius: 10,

@@ -25,6 +25,8 @@ interface DirectionsDialogProps {
     address?: string | null;
     name?: string | null;
   };
+  /** Open the in-app route map instead of an external app */
+  onViewRoute?: () => void;
 }
 
 interface MapApp {
@@ -39,6 +41,7 @@ export function DirectionsDialog({
   visible,
   onClose,
   destination,
+  onViewRoute,
 }: DirectionsDialogProps) {
   const [preferredApp, setPreferredAppState] = useState<MapAppType>(null);
   const [rememberChoice, setRememberChoice] = useState(false);
@@ -190,6 +193,13 @@ export function DirectionsDialog({
               <Text style={styles.closeText}>✕</Text>
             </Pressable>
           </View>
+
+          {/* View Route (in-app map) */}
+          {onViewRoute && destination.latitude != null && destination.longitude != null && (
+            <Pressable style={styles.viewRouteBtn} onPress={onViewRoute}>
+              <Text style={styles.viewRouteBtnText}>🗺 View Route on Map</Text>
+            </Pressable>
+          )}
 
           {/* Destination info */}
           <View style={styles.destinationBox}>
@@ -371,5 +381,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textMuted,
     textDecorationLine: "underline",
+  },
+  viewRouteBtn: {
+    backgroundColor: "#1e3a8a",
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  viewRouteBtnText: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "700",
   },
 });

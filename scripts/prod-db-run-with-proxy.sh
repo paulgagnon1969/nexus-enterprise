@@ -20,7 +20,7 @@ set -euo pipefail
 #   ./scripts/prod-db-run-with-proxy.sh --allow-kill-port
 
 INSTANCE="${INSTANCE:-nexus-enterprise-480610:us-central1:nexusprod-v2}"
-LOCAL_PORT="${LOCAL_PORT:-5433}"
+LOCAL_PORT="${LOCAL_PORT:-5435}"
 DB_USER="${DB_USER:-postgres}"
 DB_NAME="${DB_NAME:-nexus_db}"
 

@@ -434,22 +434,6 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        <Link
-          href="/system/templates"
-          style={{
-            margin: "0 -8px 6px",
-            fontSize: 12,
-            padding: "6px 12px",
-            display: "block",
-            textDecoration: "none",
-            background: pathname?.startsWith("/system/templates") ? "#f3f4f6" : "#ffffff",
-            color: "#0f172a",
-            borderBottom: "1px solid #e5e7eb",
-          }}
-        >
-          SORM — Templates
-        </Link>
-
 
         <Link
           href="/system"
@@ -759,14 +743,6 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
             Proj Overview
           </Link>
           <Link
-            href="/project-management"
-            target="_blank"
-            rel="noreferrer"
-            style={{ textDecoration: "none", color: "#111827" }}
-          >
-            Project Management
-          </Link>
-          <Link
             href="/locations"
             target="_blank"
             rel="noreferrer"
@@ -829,14 +805,6 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
             style={{ textDecoration: "none", color: "#111827" }}
           >
             Import / Export People
-          </Link>
-          <Link
-            href="/system/nex-net"
-            target="_self"
-            rel="noreferrer"
-            style={{ textDecoration: "none", color: "#111827" }}
-          >
-            Nex-Net
           </Link>
           <Link
             href="/company/users?tab=candidates"

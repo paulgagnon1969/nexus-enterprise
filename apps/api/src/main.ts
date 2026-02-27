@@ -95,7 +95,10 @@ async function bootstrap() {
   server.printRoutes({ commonPrefix: false }); // shows clean tree
 }
 
-bootstrap();
+bootstrap().catch((err) => {
+  console.error('[api] Fatal startup error:', err);
+  process.exit(1);
+});
 
 // Deployment trigger 1771091354
 // Updated: Sun Feb 15 06:16:41 CST 2026

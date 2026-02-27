@@ -159,6 +159,39 @@ export class ProjectController {
     );
   }
 
+  // ── Crew Location Tracking ────────────────────────────────────────
+
+  /**
+   * POST /projects/:id/location
+   * Report current user's GPS position (foreground-only, for job site maps).
+   */
+  @UseGuards(CombinedAuthGuard)
+  @Post(":id/location")
+  reportLocation(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Body() body: { latitude: number; longitude: number; accuracy?: number },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.upsertCrewLocation(
+      projectId,
+      user.userId,
+      body.latitude,
+      body.longitude,
+      body.accuracy ?? null,
+    );
+  }
+
+  /**
+   * GET /projects/:id/crew-locations
+   * Returns latest position for each crew member active in the last 5 minutes.
+   */
+  @UseGuards(CombinedAuthGuard)
+  @Get(":id/crew-locations")
+  getCrewLocations(@Req() req: any, @Param("id") projectId: string) {
+    return this.projects.getCrewLocations(projectId);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Roles(Role.OWNER, Role.ADMIN)
   @Post(":id/members")

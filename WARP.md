@@ -165,6 +165,37 @@ Both services use the same Docker image. When deploying API changes that affect 
 - Stop local infra:
   - `docker compose -f infra/docker/docker-compose.yml down`
 
+## Production Credentials & Autonomous Execution
+
+Production secrets live in `~/.nexus-prod-env` (git-ignored). This file contains:
+- `PROD_DB_PASSWORD` — Cloud SQL Postgres password
+- `STRIPE_SECRET_KEY` — Stripe live secret key
+- `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV` — Plaid production credentials
+- `PROJECT_ID`, `REGION`, `SERVICE` — GCP project config
+
+**When Warp needs to run any command against production** (seed scripts, migrations, one-off DB queries, deploy steps), it MUST:
+
+1. **Source the prod env file automatically** — do NOT ask the user to do it manually:
+   ```bash
+   source ~/.nexus-prod-env
+   ```
+2. **Use `scripts/prod-db-run-with-proxy.sh`** for any command that needs the prod database:
+   ```bash
+   source ~/.nexus-prod-env && /Users/pg/nexus-enterprise/scripts/prod-db-run-with-proxy.sh --allow-kill-port -- <command>
+   ```
+3. **Never echo, print, or log secret values.** Use env vars by reference only (`$STRIPE_SECRET_KEY`, `$PROD_DB_PASSWORD`).
+4. **For deploy scripts**, `deploy-prod.sh` loads from the repo-root `.env` automatically — no extra sourcing needed.
+5. **For seed/migration scripts that need both DB + Stripe/Plaid**, export the needed vars from `~/.nexus-prod-env` before running through the proxy wrapper.
+
+**Example — seed module catalog against prod:**
+```bash
+source ~/.nexus-prod-env && STRIPE_SECRET_KEY=$STRIPE_SECRET_KEY \
+  /Users/pg/nexus-enterprise/scripts/prod-db-run-with-proxy.sh --allow-kill-port -- \
+  npx ts-node /Users/pg/nexus-enterprise/apps/api/src/scripts/seed-module-catalog.ts
+```
+
+**Production API URL:** `https://nexus-api-wswbn2e6ta-uc.a.run.app`
+
 ## Docs and domain knowledge
 
 - `docs/README.md` explains doc layout:

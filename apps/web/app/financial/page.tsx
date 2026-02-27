@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState, useTransition, useCallback } from "react";
+import { usePlaidLink } from "react-plaid-link";
 import { PageCard } from "../ui-shell";
 import {
   GoldenComponentsCoverageCard,
@@ -33,7 +34,8 @@ type FinancialSection =
   | "FINANCIAL_ALLOCATION"
   | "DIVISION_CODES_LOOKUP"
   | "FORECASTING"
-  | "SUPPLIER_CATALOG";
+  | "SUPPLIER_CATALOG"
+  | "BANKING";
 
 /** Card definitions for the Financial landing page grid. */
 const FINANCIAL_CARDS: {
@@ -115,6 +117,12 @@ const FINANCIAL_CARDS: {
     icon: "🏗️",
     title: "Division Codes Lookup",
     subtitle: "CSI-16 divisions & Xactimate category mapping",
+  },
+  {
+    id: "BANKING",
+    icon: "🏦",
+    title: "Banking & Transactions",
+    subtitle: "Connect bank accounts, sync & analyze transactions",
   },
 ];
 
@@ -305,6 +313,53 @@ export default function FinancialPage() {
   const [componentsEta, setComponentsEta] = useState<number | null>(null);
 
   const [showInventoryLogisticsInfo, setShowInventoryLogisticsInfo] = useState(false);
+
+  // ── Banking & Transactions state ──
+  type BankConnectionDto = {
+    id: string;
+    institutionName: string | null;
+    accountName: string | null;
+    accountMask: string | null;
+    accountType: string | null;
+    accountSubtype: string | null;
+    status: string;
+    lastSyncedAt: string | null;
+    createdAt: string;
+    _count: { transactions: number };
+  };
+  type BankTransactionDto = {
+    id: string;
+    plaidTransactionId: string;
+    date: string;
+    name: string;
+    merchantName: string | null;
+    amount: number;
+    primaryCategory: string | null;
+    detailedCategory: string | null;
+    pending: boolean;
+    paymentChannel: string | null;
+  };
+  type BankSummaryDto = {
+    totalInflow: number;
+    totalOutflow: number;
+    net: number;
+    transactionCount: number;
+    byCategory: Record<string, { inflow: number; outflow: number; count: number }>;
+  };
+  const [bankConnections, setBankConnections] = useState<BankConnectionDto[]>([]);
+  const [bankTransactions, setBankTransactions] = useState<BankTransactionDto[]>([]);
+  const [bankSummary, setBankSummary] = useState<BankSummaryDto | null>(null);
+  const [bankTxTotal, setBankTxTotal] = useState(0);
+  const [bankTxPage, setBankTxPage] = useState(1);
+  const [bankTxPageSize] = useState(50);
+  const [bankLoading, setBankLoading] = useState(false);
+  const [bankSyncing, setBankSyncing] = useState(false);
+  const [bankError, setBankError] = useState<string | null>(null);
+  const [bankSearch, setBankSearch] = useState("");
+  const [bankStartDate, setBankStartDate] = useState("");
+  const [bankEndDate, setBankEndDate] = useState("");
+  const [bankCategoryFilter, setBankCategoryFilter] = useState("");
+  const [bankConnecting, setBankConnecting] = useState(false);
 
   // Last Golden-related import jobs (so we can poll status after enqueue).
   const [priceListJob, setPriceListJob] = useState<ImportJobDto | null>(null);
@@ -627,6 +682,148 @@ export default function FinancialPage() {
       setCostBookMatches([]);
     }
   };
+
+  // ── Banking helpers ──
+  async function fetchBankConnections() {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/banking/connections`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setBankConnections(await res.json());
+    } catch {}
+  }
+
+  async function fetchBankTransactions(page = 1) {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    setBankLoading(true);
+    setBankError(null);
+    try {
+      const params = new URLSearchParams();
+      params.set("page", String(page));
+      params.set("pageSize", String(bankTxPageSize));
+      if (bankSearch) params.set("search", bankSearch);
+      if (bankStartDate) params.set("startDate", bankStartDate);
+      if (bankEndDate) params.set("endDate", bankEndDate);
+      if (bankCategoryFilter) params.set("category", bankCategoryFilter);
+      const res = await fetch(`${API_BASE}/banking/transactions?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`Failed (${res.status})`);
+      const json = await res.json();
+      setBankTransactions(json.transactions ?? []);
+      setBankTxTotal(json.total ?? 0);
+      setBankTxPage(json.page ?? 1);
+    } catch (err: any) {
+      setBankError(err?.message ?? "Failed to load transactions");
+    } finally {
+      setBankLoading(false);
+    }
+  }
+
+  async function fetchBankSummary() {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    try {
+      const params = new URLSearchParams();
+      if (bankStartDate) params.set("startDate", bankStartDate);
+      if (bankEndDate) params.set("endDate", bankEndDate);
+      const res = await fetch(`${API_BASE}/banking/transactions/summary?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setBankSummary(await res.json());
+    } catch {}
+  }
+
+  async function handleBankSync() {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    setBankSyncing(true);
+    try {
+      await fetch(`${API_BASE}/banking/sync`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      await fetchBankConnections();
+      await fetchBankTransactions(1);
+      await fetchBankSummary();
+    } catch {} finally {
+      setBankSyncing(false);
+    }
+  }
+
+  const [bankLinkToken, setBankLinkToken] = useState<string | null>(null);
+
+  async function handleBankConnect() {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    setBankConnecting(true);
+    try {
+      const linkRes = await fetch(`${API_BASE}/banking/link-token`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!linkRes.ok) throw new Error("Failed to create link token");
+      const { linkToken } = await linkRes.json();
+      setBankLinkToken(linkToken);
+    } catch (err: any) {
+      setBankError(err?.message ?? "Failed to connect bank");
+      setBankConnecting(false);
+    }
+  }
+
+  const onPlaidBankSuccess = useCallback(async (publicToken: string, metadata: any) => {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    const account = metadata.accounts?.[0];
+    const institution = metadata.institution;
+    try {
+      await fetch(`${API_BASE}/banking/connect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          publicToken,
+          account: {
+            id: account?.id,
+            name: account?.name,
+            mask: account?.mask,
+            type: account?.type,
+            subtype: account?.subtype,
+          },
+          institution: institution
+            ? { institution_id: institution.institution_id, name: institution.name }
+            : undefined,
+        }),
+      });
+      await fetchBankConnections();
+      await fetchBankTransactions(1);
+      await fetchBankSummary();
+    } catch {} finally {
+      setBankConnecting(false);
+      setBankLinkToken(null);
+    }
+  }, []);
+
+  const { open: openBankPlaid, ready: bankPlaidReady } = usePlaidLink({
+    token: bankLinkToken,
+    onSuccess: onPlaidBankSuccess,
+    onExit: () => { setBankConnecting(false); setBankLinkToken(null); },
+  });
+
+  // Auto-open Plaid Link when link token is ready
+  useEffect(() => {
+    if (bankLinkToken && bankPlaidReady) openBankPlaid();
+  }, [bankLinkToken, bankPlaidReady, openBankPlaid]);
+
+  // Lazy-load banking data when Banking section is opened.
+  useEffect(() => {
+    if (activeSection !== "BANKING") return;
+    fetchBankConnections();
+    fetchBankTransactions(1);
+    fetchBankSummary();
+  }, [activeSection]);
 
   // Lazy-load Asset Logistics tree when that tab is first opened.
   useEffect(() => {
@@ -3213,6 +3410,278 @@ export default function FinancialPage() {
               validated against live SerpApi catalog pricing.
             </p>
           </div>
+        </section>
+      )}
+
+      {/* Banking & Transactions */}
+      {activeSection === "BANKING" && (
+        <section style={{ marginBottom: 24 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, margin: "8px 0" }}>
+            Banking &amp; Transactions
+          </h3>
+
+          {/* Connected accounts banner */}
+          <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+            {bankConnections.filter(c => c.status === "ACTIVE").map(conn => (
+              <div
+                key={conn.id}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: "1px solid #d1fae5",
+                  background: "#f0fdf4",
+                  fontSize: 12,
+                }}
+              >
+                <span style={{ fontWeight: 600 }}>{conn.institutionName ?? "Bank"}</span>
+                {conn.accountName && <span> — {conn.accountName}</span>}
+                {conn.accountMask && <span> (••••{conn.accountMask})</span>}
+                <span style={{ color: "#6b7280", marginLeft: 8 }}>
+                  {conn._count.transactions.toLocaleString()} txns
+                </span>
+                {conn.lastSyncedAt && (
+                  <span style={{ color: "#9ca3af", marginLeft: 8, fontSize: 11 }}>
+                    Last sync: {new Date(conn.lastSyncedAt).toLocaleString()}
+                  </span>
+                )}
+              </div>
+            ))}
+
+            {bankConnections.filter(c => c.status === "REQUIRES_REAUTH").map(conn => (
+              <div
+                key={conn.id}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: "1px solid #fbbf24",
+                  background: "#fffbeb",
+                  fontSize: 12,
+                }}
+              >
+                <span style={{ fontWeight: 600, color: "#b45309" }}>
+                  {conn.institutionName ?? "Bank"} — Re-authentication required
+                </span>
+              </div>
+            ))}
+
+            <button
+              type="button"
+              onClick={handleBankConnect}
+              disabled={bankConnecting}
+              style={{
+                padding: "8px 16px",
+                borderRadius: 8,
+                border: "1px solid #2563eb",
+                background: "#2563eb",
+                color: "#fff",
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: bankConnecting ? "not-allowed" : "pointer",
+                opacity: bankConnecting ? 0.6 : 1,
+              }}
+            >
+              {bankConnecting ? "Connecting…" : bankConnections.length ? "+ Connect Another" : "Connect Bank Account"}
+            </button>
+
+            {bankConnections.some(c => c.status === "ACTIVE") && (
+              <button
+                type="button"
+                onClick={handleBankSync}
+                disabled={bankSyncing}
+                style={{
+                  padding: "8px 16px",
+                  borderRadius: 8,
+                  border: "1px solid #e5e7eb",
+                  background: "#f9fafb",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: bankSyncing ? "not-allowed" : "pointer",
+                  opacity: bankSyncing ? 0.6 : 1,
+                }}
+              >
+                {bankSyncing ? "Syncing…" : "Sync Now"}
+              </button>
+            )}
+          </div>
+
+          {/* Summary bar */}
+          {bankSummary && (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(4, 1fr)",
+                gap: 12,
+                marginBottom: 16,
+              }}
+            >
+              {[
+                { label: "Inflow", value: bankSummary.totalInflow, color: "#22c55e", prefix: "+$" },
+                { label: "Outflow", value: bankSummary.totalOutflow, color: "#ef4444", prefix: "-$" },
+                { label: "Net", value: bankSummary.net, color: bankSummary.net >= 0 ? "#22c55e" : "#ef4444", prefix: bankSummary.net >= 0 ? "+$" : "-$" },
+                { label: "Transactions", value: bankSummary.transactionCount, color: "#3b82f6", prefix: "" },
+              ].map(s => (
+                <div
+                  key={s.label}
+                  style={{
+                    padding: 14,
+                    borderRadius: 10,
+                    border: "1px solid #e5e7eb",
+                    background: "#ffffff",
+                    textAlign: "center",
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 4 }}>{s.label}</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>
+                    {s.prefix}{typeof s.value === "number" && s.label !== "Transactions" ? Math.abs(s.value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : s.value.toLocaleString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Filters */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12, alignItems: "center" }}>
+            <input
+              type="text"
+              placeholder="Search transactions…"
+              value={bankSearch}
+              onChange={e => setBankSearch(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") { fetchBankTransactions(1); fetchBankSummary(); } }}
+              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12, width: 200 }}
+            />
+            <input
+              type="date"
+              value={bankStartDate}
+              onChange={e => setBankStartDate(e.target.value)}
+              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
+            />
+            <span style={{ fontSize: 12, color: "#6b7280" }}>to</span>
+            <input
+              type="date"
+              value={bankEndDate}
+              onChange={e => setBankEndDate(e.target.value)}
+              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
+            />
+            <input
+              type="text"
+              placeholder="Category…"
+              value={bankCategoryFilter}
+              onChange={e => setBankCategoryFilter(e.target.value)}
+              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12, width: 140 }}
+            />
+            <button
+              type="button"
+              onClick={() => { fetchBankTransactions(1); fetchBankSummary(); }}
+              style={{
+                padding: "6px 14px",
+                borderRadius: 6,
+                border: "1px solid #e5e7eb",
+                background: "#0f172a",
+                color: "#fff",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Apply
+            </button>
+          </div>
+
+          {bankError && (
+            <div style={{ color: "#b91c1c", fontSize: 12, marginBottom: 8 }}>{bankError}</div>
+          )}
+
+          {/* Transaction table */}
+          <div style={{ overflowX: "auto", borderRadius: 8, border: "1px solid #e5e7eb" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead style={{ background: "#f9fafb" }}>
+                <tr>
+                  <th style={{ textAlign: "left", padding: "8px 10px", whiteSpace: "nowrap" }}>Date</th>
+                  <th style={{ textAlign: "left", padding: "8px 10px" }}>Description</th>
+                  <th style={{ textAlign: "left", padding: "8px 10px" }}>Merchant</th>
+                  <th style={{ textAlign: "left", padding: "8px 10px" }}>Category</th>
+                  <th style={{ textAlign: "right", padding: "8px 10px", whiteSpace: "nowrap" }}>Amount</th>
+                  <th style={{ textAlign: "center", padding: "8px 10px" }}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bankLoading && (
+                  <tr><td colSpan={6} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>Loading…</td></tr>
+                )}
+                {!bankLoading && bankTransactions.length === 0 && (
+                  <tr><td colSpan={6} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>
+                    {bankConnections.length === 0 ? "Connect a bank account to see transactions." : "No transactions found."}
+                  </td></tr>
+                )}
+                {!bankLoading && bankTransactions.map(txn => (
+                  <tr key={txn.id} style={{ borderTop: "1px solid #e5e7eb" }}>
+                    <td style={{ padding: "8px 10px", whiteSpace: "nowrap" }}>
+                      {new Date(txn.date).toLocaleDateString()}
+                    </td>
+                    <td style={{ padding: "8px 10px", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {txn.name}
+                    </td>
+                    <td style={{ padding: "8px 10px", color: "#374151" }}>
+                      {txn.merchantName ?? "—"}
+                    </td>
+                    <td style={{ padding: "8px 10px" }}>
+                      {txn.primaryCategory ? (
+                        <span style={{ padding: "2px 6px", borderRadius: 4, background: "#f3f4f6", fontSize: 11 }}>
+                          {txn.primaryCategory}
+                        </span>
+                      ) : "—"}
+                    </td>
+                    <td style={{
+                      padding: "8px 10px",
+                      textAlign: "right",
+                      fontWeight: 600,
+                      color: txn.amount < 0 ? "#22c55e" : "#ef4444",
+                      whiteSpace: "nowrap",
+                    }}>
+                      {txn.amount < 0 ? "+" : "-"}${Math.abs(txn.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                      <span style={{
+                        padding: "2px 8px",
+                        borderRadius: 4,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        background: txn.pending ? "#fef3c7" : "#d1fae5",
+                        color: txn.pending ? "#b45309" : "#065f46",
+                      }}>
+                        {txn.pending ? "PENDING" : "POSTED"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {bankTxTotal > bankTxPageSize && (
+            <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 12 }}>
+              <button
+                type="button"
+                disabled={bankTxPage <= 1}
+                onClick={() => fetchBankTransactions(bankTxPage - 1)}
+                style={{ padding: "4px 12px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12, cursor: "pointer" }}
+              >
+                ← Prev
+              </button>
+              <span style={{ fontSize: 12, lineHeight: "28px", color: "#6b7280" }}>
+                Page {bankTxPage} of {Math.ceil(bankTxTotal / bankTxPageSize)}
+              </span>
+              <button
+                type="button"
+                disabled={bankTxPage >= Math.ceil(bankTxTotal / bankTxPageSize)}
+                onClick={() => fetchBankTransactions(bankTxPage + 1)}
+                style={{ padding: "4px 12px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12, cursor: "pointer" }}
+              >
+                Next →
+              </button>
+            </div>
+          )}
         </section>
       )}
 

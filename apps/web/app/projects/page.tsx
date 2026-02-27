@@ -1,7 +1,38 @@
 "use client";
 
-import { useEffect, useState, useTransition, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState, useTransition, useRef, useCallback } from "react";
+import dynamic from "next/dynamic";
+
+const MapComponent = dynamic(
+  () => import("react-map-gl/mapbox").then((m) => {
+    const { default: Map, Marker, NavigationControl } = m;
+    return function MapPopup({ lat, lng, label }: { lat: number; lng: number; label: string }) {
+      const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
+      if (!MAPBOX_TOKEN) return <div style={{ padding: 20, fontSize: 12, color: "#6b7280" }}>Mapbox token not configured.</div>;
+      return (
+        <div style={{ width: 400, height: 280 }}>
+          <Map
+            mapboxAccessToken={MAPBOX_TOKEN}
+            initialViewState={{ longitude: lng, latitude: lat, zoom: 14 }}
+            style={{ width: "100%", height: "100%" }}
+            mapStyle="mapbox://styles/mapbox/streets-v12"
+          >
+            <NavigationControl position="top-right" />
+            <Marker longitude={lng} latitude={lat} anchor="bottom">
+              <svg width="28" height="36" viewBox="0 0 28 36" fill="none">
+                <path d="M14 0C6.268 0 0 6.268 0 14c0 10.5 14 22 14 22s14-11.5 14-22C28 6.268 21.732 0 14 0z" fill="#2563eb" />
+                <circle cx="14" cy="14" r="6" fill="#ffffff" />
+                <circle cx="14" cy="14" r="3" fill="#2563eb" />
+              </svg>
+            </Marker>
+          </Map>
+          <div style={{ padding: "6px 8px", fontSize: 12, fontWeight: 500, color: "#374151", borderTop: "1px solid #e5e7eb" }}>{label}</div>
+        </div>
+      );
+    };
+  }),
+  { ssr: false, loading: () => <div style={{ padding: 20, fontSize: 12 }}>Loading map…</div> },
+);
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -32,6 +63,26 @@ interface DailyLog {
   }>;
 }
 
+/** Full daily log shape returned by GET /daily-logs/:logId */
+interface DailyLogDetail extends DailyLog {
+  weatherSummary?: string | null;
+  personOnsite?: string | null;
+  manpowerOnsite?: string | null;
+  safetyIncidents?: string | null;
+  confidentialNotes?: string | null;
+  shareInternal?: boolean;
+  shareSubs?: boolean;
+  shareClient?: boolean;
+  sharePrivate?: boolean;
+  expenseVendor?: string | null;
+  expenseAmount?: number | null;
+  expenseDate?: string | null;
+  building?: { id: string; name: string; code?: string | null } | null;
+  unit?: { id: string; label: string; floor?: number | null } | null;
+  roomParticle?: { id: string; name: string; fullLabel?: string | null } | null;
+  sowItem?: { id: string; description?: string | null } | null;
+}
+
 interface DailyLogsResponse {
   items: DailyLog[];
   total: number;
@@ -42,6 +93,11 @@ interface DailyLogsResponse {
 interface Project {
   id: string;
   name: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  addressLine1?: string;
+  city?: string;
+  state?: string;
   tenantClientId?: string | null;
   tenantClient?: {
     id: string;
@@ -60,16 +116,15 @@ const LOG_TYPE_LABELS: Record<DailyLog["type"], string> = {
   TADL: "Time Accounting",
 };
 
-const STATUS_COLORS: Record<DailyLog["status"], string> = {
-  SUBMITTED: "bg-blue-100 text-blue-800",
-  APPROVED: "bg-green-100 text-green-800",
-  REJECTED: "bg-red-100 text-red-800",
+const STATUS_STYLE: Record<DailyLog["status"], { bg: string; color: string }> = {
+  SUBMITTED: { bg: "#dbeafe", color: "#1e40af" },
+  APPROVED: { bg: "#d1fae5", color: "#065f46" },
+  REJECTED: { bg: "#fee2e2", color: "#991b1b" },
 };
 
-const CARD_HEIGHT = 160; // Approximate height of each log card in pixels
+const ROW_HEIGHT = 44; // Compact row height in pixels
 
 export default function ProjectsPage() {
-  const router = useRouter();
   const [logs, setLogs] = useState<DailyLog[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -90,12 +145,30 @@ export default function ProjectsPage() {
   const [availableProjects, setAvailableProjects] = useState<Project[]>([]);
   const [availableClients, setAvailableClients] = useState<Array<{ id: string; name: string }>>([]);
 
+  // Detail modal
+  const [detailModal, setDetailModal] = useState<{ open: boolean; log: DailyLogDetail | null; loading: boolean }>({ open: false, log: null, loading: false });
+
+  // Map popover
+  const [mapPopover, setMapPopover] = useState<{ logId: string; lat: number; lng: number; label: string } | null>(null);
+
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [, startUiTransition] = useTransition();
+
+  // Build project coords lookup
+  const projectCoordsMap = useMemo(() => {
+    const m = new Map<string, { lat: number; lng: number; label: string }>();
+    availableProjects.forEach((p) => {
+      if (p.latitude != null && p.longitude != null) {
+        const label = [p.name, p.addressLine1, [p.city, p.state].filter(Boolean).join(", ")].filter(Boolean).join(" — ");
+        m.set(p.id, { lat: p.latitude, lng: p.longitude, label });
+      }
+    });
+    return m;
+  }, [availableProjects]);
 
   // Get token from localStorage
   useEffect(() => {
@@ -111,8 +184,8 @@ export default function ProjectsPage() {
     
     const updateItemsPerPage = () => {
       const containerHeight = containerRef.current?.clientHeight || 800;
-      const calculated = Math.floor(containerHeight / CARD_HEIGHT);
-      setItemsPerPage(Math.max(5, calculated)); // Minimum 5 items
+      const calculated = Math.floor(containerHeight / ROW_HEIGHT);
+      setItemsPerPage(Math.max(10, calculated)); // Minimum 10 items
     };
 
     updateItemsPerPage();
@@ -260,11 +333,38 @@ export default function ProjectsPage() {
     setCurrentPage(1);
   }, [selectedUserId, selectedType, selectedStatus, selectedProjectIds, selectedClientIds, dateFrom, dateTo, searchText]);
 
-  const handleLogClick = (log: DailyLog) => {
-    startUiTransition(() => {
-      router.push(`/projects/${log.projectId}`);
-    });
-  };
+  /** Open the read-only detail modal for a daily log. */
+  const handleLogClick = useCallback(async (log: DailyLog) => {
+    if (!token) return;
+    setDetailModal({ open: true, log: null, loading: true });
+    try {
+      const res = await fetch(`${API_BASE}/daily-logs/${log.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const full: DailyLogDetail = await res.json();
+      setDetailModal({ open: true, log: full, loading: false });
+    } catch {
+      // Fallback: show what we have from the list
+      setDetailModal({ open: true, log: log as DailyLogDetail, loading: false });
+    }
+  }, [token]);
+
+  const closeDetailModal = useCallback(() => {
+    setDetailModal({ open: false, log: null, loading: false });
+  }, []);
+
+  const handleMapPinClick = useCallback((e: React.MouseEvent, log: DailyLog) => {
+    e.stopPropagation();
+    const coords = projectCoordsMap.get(log.projectId);
+    if (!coords) return;
+    // Toggle off if same log
+    if (mapPopover?.logId === log.id) {
+      setMapPopover(null);
+    } else {
+      setMapPopover({ logId: log.id, ...coords });
+    }
+  }, [projectCoordsMap, mapPopover]);
 
   const getUserDisplayName = (user: CreatedByUser) => {
     if (user.firstName && user.lastName) {
@@ -639,149 +739,133 @@ export default function ProjectsPage() {
 
         {!loading && !error && filteredLogs.length > 0 && (
           <>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {paginatedLogs.map((log) => (
-              <div
-                key={log.id}
-                className="app-card"
-                onClick={() => handleLogClick(log)}
-                style={{
-                  padding: 16,
-                  cursor: "pointer",
-                  transition: "all 0.2s",
-                  border: "1px solid #e5e7eb",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = "#3b82f6";
-                  e.currentTarget.style.boxShadow = "0 4px 6px -1px rgba(0, 0, 0, 0.1)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = "#e5e7eb";
-                  e.currentTarget.style.boxShadow = "none";
-                }}
-              >
-                {/* Header Row */}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    marginBottom: 8,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  {/* Project Name */}
+            {/* Compact rows */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {paginatedLogs.map((log) => {
+                const coords = projectCoordsMap.get(log.projectId);
+                const ss = STATUS_STYLE[log.status];
+                return (
                   <div
-                    style={{
-                      fontWeight: 600,
-                      fontSize: 15,
-                      color: "#1f2937",
-                    }}
+                    key={log.id}
+                    style={{ position: "relative" }}
                   >
-                    {log.projectName}
-                  </div>
+                    <div
+                      onClick={() => handleLogClick(log)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "8px 12px",
+                        cursor: "pointer",
+                        borderRadius: 4,
+                        border: "1px solid #e5e7eb",
+                        background: "#ffffff",
+                        fontSize: 13,
+                        transition: "background 0.1s",
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = "#f9fafb"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "#ffffff"; }}
+                    >
+                      {/* Map pin */}
+                      <button
+                        type="button"
+                        onClick={(e) => handleMapPinClick(e, log)}
+                        title={coords ? "Show on map" : "No coordinates"}
+                        style={{
+                          flexShrink: 0,
+                          border: "none",
+                          background: "transparent",
+                          cursor: coords ? "pointer" : "default",
+                          padding: 0,
+                          opacity: coords ? 1 : 0.25,
+                          lineHeight: 1,
+                        }}
+                      >
+                        <svg width="18" height="24" viewBox="0 0 18 24" fill="none">
+                          <path d="M9 0C4.03 0 0 4.03 0 9c0 6.75 9 15 9 15s9-8.25 9-15c0-4.97-4.03-9-9-9z" fill={coords ? "#2563eb" : "#9ca3af"} />
+                          <circle cx="9" cy="9" r="3.5" fill="#ffffff" />
+                        </svg>
+                      </button>
 
-                  {/* Log Type Badge */}
-                  <span
-                    style={{
-                      padding: "2px 8px",
-                      borderRadius: 4,
-                      fontSize: 12,
-                      fontWeight: 500,
-                      backgroundColor: "#f3f4f6",
-                      color: "#4b5563",
-                    }}
-                  >
-                    {LOG_TYPE_LABELS[log.type]}
-                  </span>
+                      {/* Project name */}
+                      <span style={{ fontWeight: 600, color: "#1f2937", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 220 }}>
+                        {log.projectName}
+                      </span>
 
-                  {/* Status Badge */}
-                  <span
-                    className={STATUS_COLORS[log.status]}
-                    style={{
-                      padding: "2px 8px",
-                      borderRadius: 4,
-                      fontSize: 12,
-                      fontWeight: 500,
-                    }}
-                  >
-                    {log.status}
-                  </span>
+                      {/* Type badge */}
+                      <span style={{ flexShrink: 0, padding: "1px 6px", borderRadius: 3, fontSize: 11, fontWeight: 500, background: "#f3f4f6", color: "#4b5563" }}>
+                        {LOG_TYPE_LABELS[log.type]}
+                      </span>
 
-                  {/* Date */}
-                  <span style={{ fontSize: 13, color: "#6b7280", marginLeft: "auto" }}>
-                    {formatDate(log.logDate)}
-                  </span>
-                </div>
+                      {/* Status */}
+                      <span style={{ flexShrink: 0, padding: "1px 6px", borderRadius: 3, fontSize: 11, fontWeight: 500, background: ss.bg, color: ss.color }}>
+                        {log.status}
+                      </span>
 
-                {/* Title */}
-                {log.title && (
-                  <div
-                    style={{
-                      fontSize: 14,
-                      color: "#374151",
-                      fontWeight: 500,
-                      marginBottom: 8,
-                    }}
-                  >
-                    {log.title}
-                  </div>
-                )}
+                      {/* Title */}
+                      {log.title && (
+                        <span style={{ color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          <strong style={{ color: "#6b7280", fontWeight: 500 }}>Title:</strong> {log.title}
+                        </span>
+                      )}
 
-                {/* Content Preview */}
-                {(log.workPerformed || log.issues || log.crewOnSite) && (
-                  <div style={{ fontSize: 14, color: "#6b7280", marginBottom: 8 }}>
-                    {log.workPerformed && (
-                      <div style={{ marginBottom: 4 }}>
-                        <strong>Work:</strong>{" "}
-                        {log.workPerformed.length > 150
-                          ? `${log.workPerformed.substring(0, 150)}...`
-                          : log.workPerformed}
+                      {/* Work */}
+                      {log.workPerformed && (
+                        <span style={{ color: "#6b7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          <strong style={{ fontWeight: 500 }}>Work:</strong> {log.workPerformed.length > 60 ? `${log.workPerformed.substring(0, 60)}…` : log.workPerformed}
+                        </span>
+                      )}
+
+                      {/* Flex space */}
+                      <span style={{ flex: 1 }} />
+
+                      {/* Right: author · time · attachments · date */}
+                      <span style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 6, color: "#6b7280", fontSize: 12, whiteSpace: "nowrap" }}>
+                        <span>By: {getUserDisplayName(log.createdByUser)}</span>
+                        <span>·</span>
+                        <span>{formatTime(log.createdAt)}</span>
+                        {log.attachments.length > 0 && (
+                          <>
+                            <span>·</span>
+                            <span>📎 {log.attachments.length}</span>
+                          </>
+                        )}
+                        <span>·</span>
+                        <span>{formatDate(log.logDate)}</span>
+                      </span>
+                    </div>
+
+                    {/* Map popover */}
+                    {mapPopover?.logId === log.id && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: "100%",
+                          left: 12,
+                          zIndex: 50,
+                          marginTop: 4,
+                          borderRadius: 8,
+                          overflow: "hidden",
+                          boxShadow: "0 8px 24px rgba(15,23,42,0.25)",
+                          border: "1px solid #e5e7eb",
+                          background: "#ffffff",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "flex-end", padding: "4px 6px" }}>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setMapPopover(null); }}
+                            style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 14, lineHeight: 1 }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                        <MapComponent lat={mapPopover.lat} lng={mapPopover.lng} label={mapPopover.label} />
                       </div>
                     )}
-                    {log.issues && (
-                      <div style={{ marginBottom: 4 }}>
-                        <strong>Issues:</strong>{" "}
-                        {log.issues.length > 100
-                          ? `${log.issues.substring(0, 100)}...`
-                          : log.issues}
-                      </div>
-                    )}
-                    {log.crewOnSite && (
-                      <div>
-                        <strong>Crew:</strong> {log.crewOnSite}
-                      </div>
-                    )}
                   </div>
-                )}
-
-                {/* Footer */}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    fontSize: 13,
-                    color: "#6b7280",
-                    marginTop: 8,
-                    paddingTop: 8,
-                    borderTop: "1px solid #f3f4f6",
-                  }}
-                >
-                  <span>
-                    <strong>By:</strong> {getUserDisplayName(log.createdByUser)}
-                  </span>
-                  <span>•</span>
-                  <span>{formatTime(log.createdAt)}</span>
-                  {log.attachments.length > 0 && (
-                    <>
-                      <span>•</span>
-                      <span>📎 {log.attachments.length} attachment(s)</span>
-                    </>
-                  )}
-                </div>
-              </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Pagination Controls */}
@@ -870,6 +954,275 @@ export default function ProjectsPage() {
           </>
         )}
       </div>
+
+      {/* Detail Modal */}
+      {detailModal.open && (
+        <div
+          onClick={closeDetailModal}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 100,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: "rgba(15,23,42,0.45)",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 750,
+              maxWidth: "96vw",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              backgroundColor: "#ffffff",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 16px 40px rgba(15,23,42,0.35)",
+              padding: 16,
+              fontSize: 13,
+            }}
+          >
+            {detailModal.loading && (
+              <div style={{ padding: 40, textAlign: "center", color: "#6b7280" }}>Loading details…</div>
+            )}
+            {!detailModal.loading && detailModal.log && (() => {
+              const log = detailModal.log;
+              const ss = STATUS_STYLE[log.status];
+              return (
+                <>
+                  {/* Header */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                    <div style={{ fontSize: 15, fontWeight: 600 }}>Daily Log Details</div>
+                    <button
+                      type="button"
+                      onClick={closeDetailModal}
+                      style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 4 }}
+                      aria-label="Close"
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  {/* Type & Date & Manpower Row */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Type</div>
+                      <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, background: "#f3f4f6", color: "#374151" }}>
+                        {LOG_TYPE_LABELS[log.type]}
+                      </span>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Date</div>
+                      <div style={{ fontSize: 13, fontWeight: 500, padding: "6px 0" }}>
+                        {log.logDate ? new Date(log.logDate).toLocaleDateString() : "—"}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Manpower</div>
+                      <div style={{ fontSize: 13, fontWeight: 500, padding: "6px 0" }}>{log.manpowerOnsite ?? "—"}</div>
+                    </div>
+                  </div>
+
+                  {/* Project */}
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Project</div>
+                    <div style={{ fontSize: 13, fontWeight: 500, padding: "6px 8px", background: "#f9fafb", borderRadius: 4 }}>
+                      {log.projectName}
+                    </div>
+                  </div>
+
+                  {/* Status + Author */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Status</div>
+                      <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 500, background: ss.bg, color: ss.color }}>{log.status}</span>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Created By</div>
+                      <div style={{ fontSize: 13, padding: "6px 0" }}>{getUserDisplayName(log.createdByUser)} · {formatTime(log.createdAt)}</div>
+                    </div>
+                  </div>
+
+                  {/* Title */}
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Title</div>
+                    <div style={{ fontSize: 13, fontWeight: 500, padding: "6px 8px", background: "#f9fafb", borderRadius: 4, minHeight: 32 }}>
+                      {log.title || "—"}
+                    </div>
+                  </div>
+
+                  {/* Receipt/Expense Details */}
+                  {log.type === "RECEIPT_EXPENSE" && (
+                    <div style={{ marginBottom: 12, padding: 10, background: "#fef3c7", borderRadius: 6, border: "1px solid #fcd34d" }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "#92400e", marginBottom: 6 }}>Receipt Details</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8 }}>
+                        <div>
+                          <div style={{ fontSize: 10, color: "#92400e", marginBottom: 2 }}>Vendor</div>
+                          <div style={{ fontSize: 12, fontWeight: 500 }}>{log.expenseVendor || "—"}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10, color: "#92400e", marginBottom: 2 }}>Amount</div>
+                          <div style={{ fontSize: 12, fontWeight: 500 }}>
+                            {log.expenseAmount != null ? `$${Number(log.expenseAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10, color: "#92400e", marginBottom: 2 }}>Expense Date</div>
+                          <div style={{ fontSize: 12, fontWeight: 500 }}>{log.expenseDate ? new Date(log.expenseDate).toLocaleDateString() : "—"}</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* PETL Context */}
+                  {(log.building || log.unit || log.roomParticle || log.sowItem) && (
+                    <div style={{ marginBottom: 12, padding: 10, background: "#eff6ff", borderRadius: 6, border: "1px solid #bfdbfe" }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "#1e40af", marginBottom: 6 }}>PETL Context</div>
+                      <div style={{ fontSize: 11, color: "#374151", display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px" }}>
+                        {log.building && (<><span style={{ fontWeight: 500 }}>Building:</span><span>{log.building.name}{log.building.code ? ` (${log.building.code})` : ""}</span></>)}
+                        {log.unit && (<><span style={{ fontWeight: 500 }}>Unit:</span><span>{log.unit.label}{log.unit.floor != null ? ` (Floor ${log.unit.floor})` : ""}</span></>)}
+                        {log.roomParticle && (<><span style={{ fontWeight: 500 }}>Room:</span><span>{log.roomParticle.fullLabel || log.roomParticle.name}</span></>)}
+                        {log.sowItem && (<><span style={{ fontWeight: 500 }}>SOW Item:</span><span>{log.sowItem.description || "(No description)"}</span></>)}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Work Performed */}
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Work Performed</div>
+                    <div style={{ fontSize: 12, whiteSpace: "pre-wrap", padding: 8, background: "#f9fafb", borderRadius: 4, border: "1px solid #e5e7eb", minHeight: 48 }}>
+                      {log.workPerformed || "—"}
+                    </div>
+                  </div>
+
+                  {/* Crew On Site */}
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Crew On Site</div>
+                    <div style={{ fontSize: 12, whiteSpace: "pre-wrap", padding: 8, background: "#f9fafb", borderRadius: 4, border: "1px solid #e5e7eb", minHeight: 32 }}>
+                      {log.crewOnSite || "—"}
+                    </div>
+                  </div>
+
+                  {/* Weather & Person On Site */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Weather</div>
+                      <div style={{ fontSize: 12, padding: "6px 8px", background: "#f9fafb", borderRadius: 4, minHeight: 32 }}>{log.weatherSummary || "—"}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Person(s) On Site</div>
+                      <div style={{ fontSize: 12, padding: "6px 8px", background: "#f9fafb", borderRadius: 4, minHeight: 32 }}>{log.personOnsite || "—"}</div>
+                    </div>
+                  </div>
+
+                  {/* Issues & Safety */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Issues / Delays</div>
+                      <div style={{ fontSize: 12, whiteSpace: "pre-wrap", padding: 8, background: log.issues ? "#fef2f2" : "#f9fafb", borderRadius: 4, border: log.issues ? "1px solid #fecaca" : "1px solid #e5e7eb", minHeight: 48 }}>
+                        {log.issues || "—"}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#6b7280", marginBottom: 2 }}>
+                        Safety Note
+                        {log.safetyIncidents && (
+                          <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 6px", borderRadius: 4, background: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca" }}>⚠️ Safety</span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 12, whiteSpace: "pre-wrap", padding: 8, background: log.safetyIncidents ? "#fef2f2" : "#f9fafb", borderRadius: 4, border: log.safetyIncidents ? "1px solid #fecaca" : "1px solid #e5e7eb", minHeight: 48 }}>
+                        {log.safetyIncidents || "—"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Confidential Notes */}
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Confidential Notes (NO PRINT)</div>
+                    <div style={{ fontSize: 12, whiteSpace: "pre-wrap", padding: 8, background: log.confidentialNotes ? "#fefce8" : "#f9fafb", borderRadius: 4, border: log.confidentialNotes ? "1px solid #fde047" : "1px solid #e5e7eb", minHeight: 32 }}>
+                      {log.confidentialNotes || "—"}
+                    </div>
+                  </div>
+
+                  {/* Sharing */}
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>Sharing</div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {log.shareInternal && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#dbeafe", color: "#1e40af" }}>Internal</span>}
+                      {log.shareSubs && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#d1fae5", color: "#065f46" }}>Subs</span>}
+                      {log.shareClient && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#fef3c7", color: "#92400e" }}>Client</span>}
+                      {log.sharePrivate && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#f3f4f6", color: "#374151" }}>Private</span>}
+                      {!log.shareInternal && !log.shareSubs && !log.shareClient && !log.sharePrivate && (
+                        <span style={{ fontSize: 10, color: "#9ca3af" }}>No sharing configured</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Attachments */}
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 6 }}>Attachments ({log.attachments?.length || 0})</div>
+                    {log.attachments && log.attachments.length > 0 ? (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                        {log.attachments.map((att: any, idx: number) => {
+                          const url = att.fileUrl || att.storageUrl || "";
+                          const displayUrl = url.startsWith("gs://")
+                            ? `https://storage.googleapis.com/${url.replace("gs://", "")}`
+                            : url;
+                          const isImage = att.mimeType?.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp)$/i.test(att.fileName || "");
+                          return (
+                            <a
+                              key={att.id || idx}
+                              href={displayUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ textAlign: "center", width: 80, textDecoration: "none", color: "inherit" }}
+                            >
+                              {isImage ? (
+                                <img
+                                  src={displayUrl}
+                                  alt={att.fileName || "attachment"}
+                                  style={{ width: 72, height: 52, objectFit: "cover", borderRadius: 4, border: "1px solid #e5e7eb" }}
+                                />
+                              ) : (
+                                <div style={{ width: 72, height: 52, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4, border: "1px solid #e5e7eb", background: "#f9fafb", fontSize: 18 }}>
+                                  📄
+                                </div>
+                              )}
+                              <div style={{ fontSize: 9, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {att.fileName || "file"}
+                              </div>
+                            </a>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 12, color: "#9ca3af" }}>No attachments.</div>
+                    )}
+                  </div>
+
+                  {/* Footer: created timestamp */}
+                  <div style={{ fontSize: 11, color: "#9ca3af", borderTop: "1px solid #e5e7eb", paddingTop: 8 }}>
+                    Created {new Date(log.createdAt).toLocaleString()}
+                  </div>
+
+                  {/* Close button */}
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+                    <button
+                      type="button"
+                      onClick={closeDetailModal}
+                      style={{ padding: "6px 16px", borderRadius: 4, border: "1px solid #d1d5db", background: "#ffffff", fontSize: 12, cursor: "pointer" }}
+                    >
+                      Close
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

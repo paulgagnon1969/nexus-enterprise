@@ -11,9 +11,9 @@ set -euo pipefail
 #   cd ~/nexus-enterprise
 #   ./scripts/db-migrate-prod-with-proxy.sh
 #
-# Or, if you already have DATABASE_URL pointing at 127.0.0.1:5433:
+# Or, if you already have DATABASE_URL pointing at *********:5435:
 #   cd ~/nexus-enterprise
-#   export DATABASE_URL="postgresql://postgres:Nexusprodpass.22@127.0.0.1:5433/nexus_db"
+#   export DATABASE_URL="postgresql://postgres:Nexusprodpass.22@*********:5435/nexus_db"
 #   ./scripts/db-migrate-prod-with-proxy.sh
 #
 # REQUIREMENTS:
@@ -21,7 +21,7 @@ set -euo pipefail
 #   - gcloud authenticated to the project that owns the instance
 
 INSTANCE="nexus-enterprise-480610:us-central1:nexusprod-v2"
-LOCAL_PORT="5433"
+LOCAL_PORT="5435"
 DB_USER="postgres"
 DB_NAME="nexus_db"
 

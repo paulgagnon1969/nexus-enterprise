@@ -13930,4 +13930,70 @@ export class ProjectService {
       nearbyProjects,
     };
   }
+
+  // ── Crew Location Tracking ──────────────────────────────────────────
+
+  /**
+   * Upsert the caller's GPS position for a project.
+   * Uses a @@unique([userId, projectId]) so each user has at most one row per project.
+   */
+  async upsertCrewLocation(
+    projectId: string,
+    userId: string,
+    latitude: number,
+    longitude: number,
+    accuracy: number | null,
+  ) {
+    return this.prisma.crewLocation.upsert({
+      where: { userId_projectId: { userId, projectId } },
+      create: {
+        userId,
+        projectId,
+        latitude,
+        longitude,
+        accuracy,
+        timestamp: new Date(),
+      },
+      update: {
+        latitude,
+        longitude,
+        accuracy,
+        timestamp: new Date(),
+      },
+    });
+  }
+
+  /**
+   * Return the latest position for each crew member who reported
+   * in the last 5 minutes on this project.
+   */
+  async getCrewLocations(projectId: string) {
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+    const locations = await this.prisma.crewLocation.findMany({
+      where: {
+        projectId,
+        timestamp: { gte: fiveMinAgo },
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+      orderBy: { timestamp: "desc" },
+    });
+
+    return locations.map((loc) => ({
+      userId: loc.userId,
+      firstName: loc.user.firstName,
+      lastName: loc.user.lastName,
+      latitude: loc.latitude,
+      longitude: loc.longitude,
+      accuracy: loc.accuracy,
+      timestamp: loc.timestamp.toISOString(),
+    }));
+  }
 }

@@ -220,6 +220,10 @@ model Company {
   tenantModuleSubscriptions TenantModuleSubscription[]
   billingEvents          BillingEvent[]
   projectFeatureUnlocks  ProjectFeatureUnlock[]
+
+  // Banking — Plaid Transactions
+  bankConnections  BankConnection[]
+  bankTransactions BankTransaction[]
 }
 
 model OrganizationTemplate {
@@ -569,6 +573,12 @@ model User {
 
   // Supplier Bidding System
   bidPackagesCreated BidPackage[] @relation("BidPackageCreatedBy")
+
+  // Crew location tracking (foreground-only, for job site maps)
+  crewLocations CrewLocation[]
+
+  // Banking — Plaid Transactions
+  bankConnectionsCreated BankConnection[] @relation("BankConnectionConnectedBy")
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -1260,6 +1270,9 @@ model Project {
   // Per-project feature unlocks (one-time purchases)
   projectFeatureUnlocks ProjectFeatureUnlock[]
 
+  // Crew location tracking (foreground-only, for job site maps)
+  crewLocations CrewLocation[]
+
   /// Building model type (e.g. "A Model", "G Model", "F Model")
   buildingModelType String?
 
@@ -1274,6 +1287,25 @@ model Project {
 /// Shared client contact record at the tenant level.
 /// Multiple projects can link to the same client, enabling
 /// shared contact info and cross-project visibility.
+/// Foreground-only crew location tracking. One row per user per project,
+/// upserted each time the mobile app reports a position.
+model CrewLocation {
+  id        String   @id @default(cuid())
+  userId    String
+  projectId String
+  latitude  Float
+  longitude Float
+  accuracy  Float?
+  timestamp DateTime
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id])
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@unique([userId, projectId])
+  @@index([projectId, timestamp], map: "CrewLocation_project_time_idx")
+}
+
 model TenantClient {
   id               String   @id @default(cuid())
   companyId        String
@@ -7383,4 +7415,75 @@ model ProjectFeatureUnlock {
   @@unique([companyId, projectId, featureCode], name: "ProjectFeatureUnlock_company_project_feature_key")
   @@index([companyId], map: "ProjectFeatureUnlock_company_idx")
   @@index([projectId], map: "ProjectFeatureUnlock_project_idx")
+}
+
+// ===================================================================
+// Banking — Plaid Transactions Integration
+// ===================================================================
+
+enum BankConnectionStatus {
+  ACTIVE
+  REQUIRES_REAUTH
+  DISCONNECTED
+}
+
+/// A linked bank account via Plaid for pulling transactions.
+/// One BankConnection per Plaid account selected during Link.
+model BankConnection {
+  id                String               @id @default(cuid())
+  companyId         String
+  plaidItemId       String
+  plaidAccessToken  String               // encrypted at rest via app-level encryption
+  institutionId     String?
+  institutionName   String?
+  accountId         String               // Plaid account_id selected during Link
+  accountName       String?
+  accountMask       String?              // last 4 digits
+  accountType       String?              // depository, credit, etc.
+  accountSubtype    String?              // checking, savings, credit card, etc.
+  syncCursor        String?              // Plaid transactions/sync cursor; null = initial sync
+  lastSyncedAt      DateTime?
+  status            BankConnectionStatus @default(ACTIVE)
+  connectedByUserId String
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  company     Company           @relation(fields: [companyId], references: [id])
+  connectedBy User              @relation("BankConnectionConnectedBy", fields: [connectedByUserId], references: [id])
+  transactions BankTransaction[]
+
+  @@unique([companyId, accountId], name: "BankConnection_company_account_key")
+  @@index([companyId], map: "BankConnection_company_idx")
+  @@index([plaidItemId], map: "BankConnection_plaid_item_idx")
+}
+
+/// Individual bank transaction pulled from Plaid transactions/sync.
+model BankTransaction {
+  id                   String          @id @default(cuid())
+  companyId            String
+  bankConnectionId     String
+  plaidTransactionId   String          @unique
+  accountId            String          // Plaid account_id
+  date                 DateTime        @db.Date
+  datetime             DateTime?       // Full timestamp when available
+  name                 String          // Transaction description from bank
+  merchantName         String?
+  amount               Float           // Positive = money out (debit), negative = money in (credit)
+  isoCurrencyCode      String?         @default("USD")
+  primaryCategory      String?         // Plaid personal_finance_category primary
+  detailedCategory     String?         // Plaid personal_finance_category detailed
+  pending              Boolean         @default(false)
+  pendingTransactionId String?         // Links to the posted version
+  paymentChannel       String?         // online, in_store, other
+  transactionType      String?         // place, digital, special, unresolved
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  company        Company        @relation(fields: [companyId], references: [id])
+  bankConnection BankConnection @relation(fields: [bankConnectionId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, date], map: "BankTransaction_company_date_idx")
+  @@index([bankConnectionId], map: "BankTransaction_connection_idx")
+  @@index([companyId, primaryCategory], map: "BankTransaction_company_category_idx")
+  @@index([pending], map: "BankTransaction_pending_idx")
 }

@@ -29,7 +29,21 @@ export class PrismaService
   }
 
   async onModuleInit() {
-    await this.$connect();
+    const maxRetries = 5;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await this.$connect();
+        console.log('[prisma] Connected to database');
+        return;
+      } catch (err: any) {
+        const delay = Math.min(2000 * 2 ** (attempt - 1), 15000);
+        console.warn(
+          `[prisma] Connection attempt ${attempt}/${maxRetries} failed: ${err?.message ?? err}. Retrying in ${delay}ms...`,
+        );
+        if (attempt === maxRetries) throw err;
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
   }
 
   async onModuleDestroy() {

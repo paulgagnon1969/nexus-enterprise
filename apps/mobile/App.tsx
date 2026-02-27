@@ -16,6 +16,7 @@ import { getBackgroundAuth, getGeofenceConfig, setupGeofencing } from "./src/ser
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { AppNavigator } from "./src/navigation/AppNavigator";
 import { useAutoHideNavBar } from "./src/hooks/useAutoHideNavBar";
+import { initMapbox } from "./src/map/mapboxConfig";
 import { CallScreen, type CallParams } from "./src/screens/CallScreen";
 import { IncomingCallScreen, type IncomingCallData } from "./src/screens/IncomingCallScreen";
 import { callRingConfig } from "./src/config/callRingConfig";
@@ -41,6 +42,9 @@ async function checkForUpdates() {
     console.log("Update check failed:", e);
   }
 }
+
+// Initialize Mapbox before any MapView renders
+initMapbox();
 
 export default function App() {
   const [ready, setReady] = useState(false);
