@@ -7,7 +7,7 @@ import {
   DailyLogType,
   $Enums,
 } from '@prisma/client';
-import { moveInventoryWithCost } from '@repo/database/src/inventory';
+import { moveInventoryWithCost } from '@repo/database';
 import { VendorLocationService } from '../locations/vendor-location.service';
 import { TaskService } from '../task/task.service';
 import { TaskPriorityEnum } from '../task/dto/task.dto';

@@ -6,7 +6,7 @@ import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateDailyLogDto, DailyLogTypeDto } from "./dto/create-daily-log.dto";
 import { UpdateDailyLogDto } from "./dto/update-daily-log.dto";
 import { Role, DailyLogStatus, DailyLogType, ProjectBillStatus, FulfillmentMethod, InventoryMoveType, InventoryItemType, MaintenanceMeterType, $Enums } from "@prisma/client";
-import { moveInventoryWithCost } from '@repo/database/src/inventory';
+import { moveInventoryWithCost } from '@repo/database';
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { NotificationsService } from "../notifications/notifications.service";
