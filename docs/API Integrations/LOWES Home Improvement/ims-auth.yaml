@@ -1,0 +1,42 @@
+openapi: 3.0.1
+info:
+  title: IMS-Auth
+  description: OAuth Token URL
+  version: '1.0'
+servers:
+  - url: https://apim.lowes.com/auth
+paths:
+  /:
+    post:
+      summary: IMS OAuth Token URL (Deprecated)
+      description: API to request access token for accessing IMS APIs
+      operationId: post
+      parameters:
+        - name: resource
+          in: query
+          description: resource ID
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: "# \n**Following variables are expected in the POST request Body:**\n#\nThe value for resource is: e2ff7410-4e37-45ac-b94b-5bf84d460b94\n#\n**grant_type**: This must be set as 'client_credentials'.\n#\n**client_id**: Provided during initial setup.\n#\n**client_secret**: Provided during initial setup."
+        content:
+          application/x-www-form-urlencoded: { }
+      responses:
+        '200':
+          description: Successful response.
+  /token:
+    post:
+      summary: IMS OAuth Token URL
+      description: API to request access token for accessing IMS APIs
+      operationId: ims-oauth-token
+      requestBody:
+        description: "# \n**Following variables are expected in the POST request Body:**\n#\n**grant_type**: This must be set as 'client_credentials'.\n#\n**client_id**: Provided during initial setup.\n#\n**client_secret**: Provided during initial setup."
+        content:
+          application/x-www-form-urlencoded: { }
+      responses:
+        '200':
+          description: Success
+components:
+  schemas:
+    Body: { }
