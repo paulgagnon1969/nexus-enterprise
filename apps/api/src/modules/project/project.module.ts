@@ -9,9 +9,10 @@ import { OrgTemplateService } from "./org-template.service";
 import { OrgTemplateController } from "./org-template.controller";
 import { SupplierCatalogModule } from "../supplier-catalog/supplier-catalog.module";
 import { NotificationsService } from "../notifications/notifications.service";
+import { GeocodingModule } from "../geocoding/geocoding.module";
 
 @Module({
-  imports: [SupplierCatalogModule],
+  imports: [SupplierCatalogModule, GeocodingModule],
   providers: [ProjectService, ImportJobsService, TaxJurisdictionService, TenantClientService, OrgTemplateService, NotificationsService],
   controllers: [ProjectController, TenantClientController, OrgTemplateController]
 })

@@ -56,6 +56,7 @@ import { importXactCsvForProject, importXactComponentsCsvForEstimate, allocateCo
 import { TaxJurisdictionService } from "./tax-jurisdiction.service";
 import { BigBoxProvider } from "../supplier-catalog/bigbox.provider";
 import { NotificationsService, CreateNotificationParams } from "../notifications/notifications.service";
+import { GeocodingService } from "../geocoding/geocoding.service";
 
 type PetlArchiveBundleV1 = {
   schemaVersion: 1;
@@ -186,6 +187,7 @@ export class ProjectService {
     private readonly taxJurisdictions: TaxJurisdictionService,
     private readonly bigBox: BigBoxProvider,
     private readonly notifications: NotificationsService,
+    private readonly geocoding: GeocodingService,
   ) {}
 
   /**
@@ -249,6 +251,36 @@ export class ProjectService {
 
     this.logger.log(
       `Auto-synced client membership: project=${projectId}, client=${tenantClientId}, user=${tenantClient.userId}`
+    );
+  }
+
+  /**
+   * Geocode a project's address and persist the lat/lng + geocodedAt timestamp.
+   * Intended to be called fire-and-forget (non-blocking).
+   */
+  private async geocodeAndUpdateProject(
+    projectId: string,
+    address: {
+      addressLine1?: string;
+      city?: string;
+      state?: string;
+      postalCode?: string;
+      country?: string;
+    },
+  ): Promise<void> {
+    const result = await this.geocoding.geocode(address);
+    if (!result) return;
+
+    await this.prisma.project.update({
+      where: { id: projectId },
+      data: {
+        latitude: result.latitude,
+        longitude: result.longitude,
+        geocodedAt: new Date(),
+      },
+    });
+    this.logger.log(
+      `Geocoded project ${projectId}: ${result.latitude}, ${result.longitude}`,
     );
   }
 
@@ -364,6 +396,17 @@ export class ProjectService {
     // Auto-register project zipcode with BigBox for localized supplier pricing
     if (project.postalCode) {
       void this.bigBox.ensureZipcode(project.postalCode).catch(() => {});
+    }
+
+    // Auto-geocode if lat/lng not provided
+    if (project.latitude == null || project.longitude == null) {
+      void this.geocodeAndUpdateProject(project.id, {
+        addressLine1: project.addressLine1,
+        city: project.city,
+        state: project.state,
+        postalCode: project.postalCode ?? undefined,
+        country: project.country ?? undefined,
+      }).catch(() => {});
     }
 
     await this.audit.log(actor, "PROJECT_CREATED", {
@@ -590,6 +633,22 @@ export class ProjectService {
     // Auto-register new zipcode with BigBox if address changed
     if (dto.postalCode && dto.postalCode !== project.postalCode) {
       void this.bigBox.ensureZipcode(dto.postalCode).catch(() => {});
+    }
+
+    // Re-geocode if address changed and no explicit lat/lng provided
+    const addressChanged =
+      (dto.addressLine1 && dto.addressLine1 !== project.addressLine1) ||
+      (dto.city && dto.city !== project.city) ||
+      (dto.state && dto.state !== project.state) ||
+      (dto.postalCode && dto.postalCode !== project.postalCode);
+    if (addressChanged && dto.latitude == null && dto.longitude == null) {
+      void this.geocodeAndUpdateProject(updated.id, {
+        addressLine1: updated.addressLine1,
+        city: updated.city,
+        state: updated.state,
+        postalCode: updated.postalCode ?? undefined,
+        country: updated.country ?? undefined,
+      }).catch(() => {});
     }
 
     await this.audit.log(actor, "PROJECT_UPDATED", {

@@ -124,6 +124,45 @@ const STATUS_STYLE: Record<DailyLog["status"], { bg: string; color: string }> = 
 
 const ROW_HEIGHT = 44; // Compact row height in pixels
 
+interface DashboardTask {
+  id: string;
+  title: string;
+  description?: string | null;
+  status: "TODO" | "IN_PROGRESS" | "BLOCKED" | "DONE";
+  priority: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  dueDate: string | null;
+  projectId: string;
+  assigneeId: string | null;
+  assignee?: { id: string; email: string; firstName: string | null; lastName: string | null } | null;
+  createdBy?: { id: string; email: string; firstName: string | null; lastName: string | null } | null;
+  createdAt: string;
+}
+
+interface VoiceJournalNote {
+  id: string;
+  projectId: string | null;
+  project?: { id: string; name: string } | null;
+  aiSummary: string | null;
+  aiText: string | null;
+  status: string;
+  createdAt: string;
+  voiceDurationSecs?: number | null;
+}
+
+const TASK_STATUS_STYLE: Record<string, { bg: string; color: string; label: string }> = {
+  TODO: { bg: "#f3f4f6", color: "#374151", label: "To Do" },
+  IN_PROGRESS: { bg: "#dbeafe", color: "#1e40af", label: "In Progress" },
+  BLOCKED: { bg: "#fee2e2", color: "#991b1b", label: "Blocked" },
+  DONE: { bg: "#d1fae5", color: "#065f46", label: "Done" },
+};
+
+const PRIORITY_STYLE: Record<string, { color: string; label: string }> = {
+  LOW: { color: "#9ca3af", label: "Low" },
+  MEDIUM: { color: "#f59e0b", label: "Med" },
+  HIGH: { color: "#f97316", label: "High" },
+  CRITICAL: { color: "#dc2626", label: "Crit" },
+};
+
 export default function ProjectsPage() {
   const [logs, setLogs] = useState<DailyLog[]>([]);
   const [total, setTotal] = useState(0);
@@ -151,6 +190,12 @@ export default function ProjectsPage() {
   // Map popover
   const [mapPopover, setMapPopover] = useState<{ logId: string; lat: number; lng: number; label: string } | null>(null);
 
+  // Dashboard cards: Tasks + Notes/Journal
+  const [dashTasks, setDashTasks] = useState<DashboardTask[]>([]);
+  const [vjns, setVjns] = useState<VoiceJournalNote[]>([]);
+  const [taskProjectFilter, setTaskProjectFilter] = useState<string>("");
+  const [journalProjectFilter, setJournalProjectFilter] = useState<string>("");
+
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -170,11 +215,30 @@ export default function ProjectsPage() {
     return m;
   }, [availableProjects]);
 
-  // Get token from localStorage
+  // Build project name lookup
+  const projectNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    availableProjects.forEach((p) => m.set(p.id, p.name));
+    return m;
+  }, [availableProjects]);
+
+  // Determine if user is PM+
+  const [isPmPlus, setIsPmPlus] = useState(false);
+
+  // Get token + role from localStorage
   useEffect(() => {
     if (typeof window !== "undefined") {
       const accessToken = localStorage.getItem("accessToken");
       setToken(accessToken);
+
+      const globalRole = localStorage.getItem("globalRole");
+      const companyRole = localStorage.getItem("companyRole");
+      const pmPlus =
+        globalRole === "SUPER_ADMIN" ||
+        companyRole === "OWNER" ||
+        companyRole === "ADMIN" ||
+        companyRole === "PM";
+      setIsPmPlus(pmPlus);
     }
   }, []);
 
@@ -226,7 +290,39 @@ export default function ProjectsPage() {
     fetchProjects();
   }, [token]);
 
-  const fetchLogs = async () => {
+  // Fetch tasks for dashboard card
+  useEffect(() => {
+    if (!token) return;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/tasks`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setDashTasks(Array.isArray(data) ? data : []);
+        }
+      } catch { /* card stays empty */ }
+    })();
+  }, [token]);
+
+  // Fetch VJNs for Notes/Journal card
+  useEffect(() => {
+    if (!token) return;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/vjn`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setVjns(Array.isArray(data) ? data : []);
+        }
+      } catch { /* card stays empty */ }
+    })();
+  }, [token]);
+
+  const fetchLogs
     try {
       setLoading(true);
       setError(null);
@@ -450,7 +546,7 @@ export default function ProjectsPage() {
         }}
       >
         <h2 style={{ marginTop: 0, marginBottom: 12, fontSize: 20, fontWeight: 600 }}>
-          Daily Logs - All Projects
+          All Projects - Dashboard
         </h2>
 
         {/* Search Box */}
@@ -702,8 +798,273 @@ export default function ProjectsPage() {
         </div>
       </div>
 
-      {/* Daily Logs Feed */}
+      {/* Scrollable content: dashboard + daily logs */}
       <div ref={containerRef} style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
+
+        {/* ── Organization Performance Dashboard ─────────────────── */}
+        <div style={{ marginBottom: 16 }}>
+          {/* KPI Row */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+            {/* Work Activity */}
+            <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 14, borderTop: "3px solid #2563eb" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Work Activity</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>Active Projects</div>
+                  <div style={{ fontSize: 22, fontWeight: 700 }}>{availableProjects.length}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>Daily Logs Today</div>
+                  <div style={{ fontSize: 22, fontWeight: 700 }}>
+                    {logs.filter(l => {
+                      const d = new Date(l.logDate);
+                      const today = new Date();
+                      return d.toDateString() === today.toDateString();
+                    }).length}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>Total Logs</div>
+                  <div style={{ fontSize: 22, fontWeight: 700 }}>{total}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>Approved</div>
+                  <div style={{ fontSize: 22, fontWeight: 700 }}>{logs.filter(l => l.status === "APPROVED").length}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Financial Analysis — PM+ only */}
+            {isPmPlus ? (
+              <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 14, borderTop: "3px solid #2563eb" }}>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Financial Analysis</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>Total Billed</div>
+                    <div style={{ fontSize: 22, fontWeight: 700 }}>—</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>Outstanding</div>
+                    <div style={{ fontSize: 22, fontWeight: 700 }}>—</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>Budget Variance</div>
+                    <div style={{ fontSize: 22, fontWeight: 700 }}>—</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>Avg Margin</div>
+                    <div style={{ fontSize: 22, fontWeight: 700 }}>—</div>
+                  </div>
+                </div>
+                <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 6 }}>connects to financial module</div>
+              </div>
+            ) : (
+              <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 14, borderTop: "3px solid #e5e7eb", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ fontSize: 12, color: "#9ca3af" }}>Financial data visible to PM+ roles</span>
+              </div>
+            )}
+
+            {/* Project Efficiency */}
+            <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 14, borderTop: "3px solid #f97316" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Project Efficiency</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>Submitted</div>
+                  <div style={{ fontSize: 22, fontWeight: 700 }}>{logs.filter(l => l.status === "SUBMITTED").length}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>Rejected</div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: logs.filter(l => l.status === "REJECTED").length > 0 ? "#dc2626" : undefined }}>{logs.filter(l => l.status === "REJECTED").length}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>Log Types Used</div>
+                  <div style={{ fontSize: 22, fontWeight: 700 }}>{new Set(logs.map(l => l.type)).size}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>Avg Attachments</div>
+                  <div style={{ fontSize: 22, fontWeight: 700 }}>{logs.length ? Math.round(logs.reduce((s, l) => s + l.attachments.length, 0) / logs.length * 10) / 10 : 0}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Productivity + Recent Events Row */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            {/* Most Active Users */}
+            <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 14, borderTop: "3px solid #16a34a" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Most Active</div>
+              {(() => {
+                const counts = new Map<string, { user: CreatedByUser; count: number }>();
+                logs.forEach(l => {
+                  const key = l.createdByUser.id;
+                  const existing = counts.get(key);
+                  if (existing) existing.count++;
+                  else counts.set(key, { user: l.createdByUser, count: 1 });
+                });
+                const sorted = Array.from(counts.values()).sort((a, b) => b.count - a.count).slice(0, 3);
+                if (!sorted.length) return <div style={{ fontSize: 12, color: "#9ca3af" }}>No data yet</div>;
+                return sorted.map((entry, i) => (
+                  <div key={entry.user.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: i < sorted.length - 1 ? "1px solid #f3f4f6" : undefined }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{getUserDisplayName(entry.user)}</div>
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "#16a34a" }}>{entry.count} logs filed</span>
+                  </div>
+                ));
+              })()}
+            </div>
+
+            {/* Recent Events */}
+            <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Recent Events</div>
+              {logs.slice(0, 5).map((log, i) => {
+                const dotColor = log.status === "APPROVED" ? "#16a34a" : log.status === "REJECTED" ? "#dc2626" : "#3b82f6";
+                const ago = (() => {
+                  const diff = Date.now() - new Date(log.createdAt).getTime();
+                  const mins = Math.floor(diff / 60000);
+                  if (mins < 60) return `${mins} min ago`;
+                  const hrs = Math.floor(mins / 60);
+                  if (hrs < 24) return `${hrs} hr ago`;
+                  return `${Math.floor(hrs / 24)}d ago`;
+                })();
+                return (
+                  <div key={log.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: i < 4 ? "1px solid #f3f4f6" : undefined }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />
+                      <span style={{ fontSize: 12 }}>{LOG_TYPE_LABELS[log.type]} — {log.projectName}</span>
+                    </div>
+                    <span style={{ fontSize: 11, color: "#9ca3af", whiteSpace: "nowrap" }}>{ago}</span>
+                  </div>
+                );
+              })}
+              {logs.length === 0 && <div style={{ fontSize: 12, color: "#9ca3af" }}>No recent events</div>}
+            </div>
+          </div>
+
+          {/* Notes/Journal + ToDo's Row */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            {/* Notes / Journal Card */}
+            <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 14, borderTop: "3px solid #8b5cf6" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>Notes / Journal</div>
+                <select
+                  value={journalProjectFilter}
+                  onChange={(e) => startUiTransition(() => setJournalProjectFilter(e.target.value))}
+                  style={{ padding: "3px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 11, backgroundColor: "white", cursor: "pointer", maxWidth: 180 }}
+                >
+                  <option value="">All Projects</option>
+                  {availableProjects.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+              {(() => {
+                const filtered = vjns.filter((v) => !journalProjectFilter || v.projectId === journalProjectFilter);
+                if (filtered.length === 0) {
+                  return <div style={{ fontSize: 12, color: "#9ca3af", padding: "12px 0" }}>No voice journal notes yet.</div>;
+                }
+                return filtered.slice(0, 6).map((v, i) => (
+                  <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: i < Math.min(filtered.length, 6) - 1 ? "1px solid #f3f4f6" : undefined }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 120 }}>
+                      {v.project?.name || "General"}
+                    </span>
+                    <span style={{ flex: 1, fontSize: 11, color: "#6b7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {v.aiSummary || v.aiText?.slice(0, 80) || "Voice note"}
+                    </span>
+                    <span style={{ flexShrink: 0, fontSize: 10, padding: "1px 5px", borderRadius: 3, background: v.status === "SHARED" ? "#d1fae5" : "#f3f4f6", color: v.status === "SHARED" ? "#065f46" : "#6b7280" }}>
+                      {v.status}
+                    </span>
+                    <span style={{ flexShrink: 0, fontSize: 10, color: "#9ca3af", whiteSpace: "nowrap" }}>
+                      {new Date(v.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    </span>
+                  </div>
+                ));
+              })()}
+              {vjns.filter((v) => !journalProjectFilter || v.projectId === journalProjectFilter).length > 6 && (
+                <div style={{ fontSize: 10, color: "#8b5cf6", marginTop: 6, fontWeight: 500 }}>
+                  +{vjns.filter((v) => !journalProjectFilter || v.projectId === journalProjectFilter).length - 6} more
+                </div>
+              )}
+            </div>
+
+            {/* ToDo's Card */}
+            <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 14, borderTop: "3px solid #ec4899" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>ToDo's</span>
+                  {(() => {
+                    const now = new Date();
+                    const overdue = dashTasks.filter((t) =>
+                      t.status !== "DONE" &&
+                      t.dueDate &&
+                      new Date(t.dueDate) < now &&
+                      (!taskProjectFilter || t.projectId === taskProjectFilter)
+                    ).length;
+                    if (overdue > 0) {
+                      return <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 5px", borderRadius: 3, background: "#fee2e2", color: "#991b1b" }}>{overdue} overdue</span>;
+                    }
+                    return null;
+                  })()}
+                </div>
+                <select
+                  value={taskProjectFilter}
+                  onChange={(e) => startUiTransition(() => setTaskProjectFilter(e.target.value))}
+                  style={{ padding: "3px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 11, backgroundColor: "white", cursor: "pointer", maxWidth: 180 }}
+                >
+                  <option value="">All Projects</option>
+                  {availableProjects.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+              {(() => {
+                const filtered = dashTasks
+                  .filter((t) => !taskProjectFilter || t.projectId === taskProjectFilter)
+                  .filter((t) => t.status !== "DONE");
+                if (filtered.length === 0) {
+                  return <div style={{ fontSize: 12, color: "#9ca3af", padding: "12px 0" }}>No open tasks.</div>;
+                }
+                const now = new Date();
+                return filtered.slice(0, 6).map((t, i) => {
+                  const ts = TASK_STATUS_STYLE[t.status] || TASK_STATUS_STYLE.TODO;
+                  const ps = PRIORITY_STYLE[t.priority] || PRIORITY_STYLE.MEDIUM;
+                  const isOverdue = t.dueDate && new Date(t.dueDate) < now;
+                  return (
+                    <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 0", borderBottom: i < Math.min(filtered.length, 6) - 1 ? "1px solid #f3f4f6" : undefined }}>
+                      <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: ts.color }} />
+                      <span style={{ fontSize: 12, fontWeight: 500, color: "#1f2937", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>
+                        {t.title}
+                      </span>
+                      <span style={{ flexShrink: 0, fontSize: 10, color: "#6b7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 100 }}>
+                        {projectNameById.get(t.projectId) || "—"}
+                      </span>
+                      <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 600, color: ps.color }}>{ps.label}</span>
+                      {t.dueDate && (
+                        <span style={{ flexShrink: 0, fontSize: 10, color: isOverdue ? "#dc2626" : "#9ca3af", fontWeight: isOverdue ? 600 : 400, whiteSpace: "nowrap" }}>
+                          {isOverdue ? "⚠ " : ""}{new Date(t.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        </span>
+                      )}
+                      {t.assignee && (
+                        <span style={{ flexShrink: 0, fontSize: 10, color: "#9ca3af", whiteSpace: "nowrap" }}>
+                          → {t.assignee.firstName || t.assignee.email.split("@")[0]}
+                        </span>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
+              {dashTasks.filter((t) => (!taskProjectFilter || t.projectId === taskProjectFilter) && t.status !== "DONE").length > 6 && (
+                <div style={{ fontSize: 10, color: "#ec4899", marginTop: 6, fontWeight: 500 }}>
+                  +{dashTasks.filter((t) => (!taskProjectFilter || t.projectId === taskProjectFilter) && t.status !== "DONE").length - 6} more
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div style={{ fontSize: 10, color: "#9ca3af", fontStyle: "italic" }}>
+            Dashboard data is live from daily logs — financial KPIs will connect to the financial module.
+          </div>
+        </div>
         {loading && (
           <div style={{ textAlign: "center", padding: 40, color: "#6b7280" }}>
             Loading daily logs...
