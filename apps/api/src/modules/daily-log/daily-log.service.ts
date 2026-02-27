@@ -5,7 +5,7 @@ import { GcsService } from "../../infra/storage/gcs.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateDailyLogDto, DailyLogTypeDto } from "./dto/create-daily-log.dto";
 import { UpdateDailyLogDto } from "./dto/update-daily-log.dto";
-import { Role, DailyLogStatus, DailyLogType, ProjectBillStatus, $Enums } from "@prisma/client";
+import { Role, DailyLogStatus, DailyLogType, ProjectBillStatus, FulfillmentMethod, InventoryMoveType, $Enums } from "@prisma/client";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { NotificationsService } from "../notifications/notifications.service";
@@ -886,6 +886,7 @@ export class DailyLogService {
     // Determine log type (default PUDL)
     const logType = dto.type ? (dto.type as unknown as DailyLogType) : DailyLogType.PUDL;
     const isReceiptExpense = logType === DailyLogType.RECEIPT_EXPENSE;
+    const isInventoryMove = logType === DailyLogType.INVENTORY_MOVE;
 
     // For RECEIPT_EXPENSE, override visibility to private
     const shareInternal = isReceiptExpense ? false : (dto.shareInternal ?? true);
@@ -935,6 +936,24 @@ export class DailyLogService {
         expenseVendor: isReceiptExpense ? (dto.expenseVendor ?? null) : null,
         expenseAmount: isReceiptExpense && dto.expenseAmount != null ? dto.expenseAmount : null,
         expenseDate: isReceiptExpense && dto.expenseDate ? new Date(dto.expenseDate) : null,
+        // Fulfillment & geo fields (receipt purchases)
+        fulfillmentMethod: isReceiptExpense && dto.fulfillmentMethod
+          ? (dto.fulfillmentMethod as unknown as FulfillmentMethod)
+          : null,
+        expectedDeliveryDate: isReceiptExpense && dto.expectedDeliveryDate
+          ? new Date(dto.expectedDeliveryDate)
+          : null,
+        originLocationId: isReceiptExpense ? (dto.originLocationId ?? null) : null,
+        receiptCaptureLat: isReceiptExpense ? (dto.receiptCaptureLat ?? null) : null,
+        receiptCaptureLng: isReceiptExpense ? (dto.receiptCaptureLng ?? null) : null,
+        receiptCaptureGeoAccuracy: isReceiptExpense ? (dto.receiptCaptureGeoAccuracy ?? null) : null,
+        // Inventory move fields
+        moveFromLocationId: isInventoryMove ? (dto.moveFromLocationId ?? null) : null,
+        moveToLocationId: isInventoryMove ? (dto.moveToLocationId ?? null) : null,
+        inventoryMoveItemsJson: isInventoryMove ? (dto.inventoryMoveItemsJson ?? undefined) : undefined,
+        moveType: isInventoryMove && dto.moveType
+          ? (dto.moveType as unknown as InventoryMoveType)
+          : null,
       },
       include: {
         createdBy: {

@@ -1190,6 +1190,7 @@ model Project {
   componentAllocations      SowComponentAllocation[]
   sowLogicalItems           SowLogicalItem[]
   tasks                     Task[]
+  destinationMaterialLots   MaterialLot[] @relation("MaterialLotDestinationProject")
   assetUsages               AssetUsage[]
   assetTransactions         AssetTransaction[]
   taxJurisdiction           TaxJurisdiction?          @relation(fields: [taxJurisdictionId], references: [id])
@@ -2077,17 +2078,28 @@ model ReceiptOcrResult {
   provider String? // "openai", "aws_textract", "google_documentai"
 
   // Extracted fields
-  vendorName    String?
-  vendorAddress String?
-  receiptDate   DateTime?
-  subtotal      Decimal?  @db.Decimal(12, 2)
-  taxAmount     Decimal?  @db.Decimal(12, 2)
-  totalAmount   Decimal?  @db.Decimal(12, 2)
-  currency      String?   @default("USD")
-  paymentMethod String? // "CASH", "CARD", etc.
+  vendorName        String?
+  vendorAddress     String?
+  vendorPhone       String?
+  vendorStoreNumber String? // e.g. "0604" for Home Depot #0604
+  vendorCity        String?
+  vendorState       String?
+  vendorZip         String?
+  receiptDate       DateTime?
+  receiptTime       String? // HH:mm, separate from receiptDate
+  subtotal          Decimal?  @db.Decimal(12, 2)
+  taxAmount         Decimal?  @db.Decimal(12, 2)
+  totalAmount       Decimal?  @db.Decimal(12, 2)
+  currency          String?   @default("USD")
+  paymentMethod     String? // "CASH", "CARD", etc.
 
-  // Line items as JSON array: [{description, qty, unitPrice, amount}]
+  // Line items as JSON array: [{description, sku?, qty, unitPrice, amount, category?}]
   lineItemsJson String?
+
+  // Device geolocation at receipt capture time (ground truth for vendor matching)
+  captureLat         Float?
+  captureLng         Float?
+  captureGeoAccuracy Float? // meters
 
   // Raw response for audit trail
   rawResponseJson String?
@@ -2914,6 +2926,22 @@ model DailyLog {
   expenseDate   DateTime?
   sourceBillId  String?   @unique
 
+  /// Fulfillment method for receipt purchases
+  fulfillmentMethod         FulfillmentMethod?
+  expectedDeliveryDate      DateTime?
+  originLocationId          String? // FK → Location (vendor/store)
+  inventoryLedgerJson       Json?   // snapshot of promoted MaterialLot IDs
+  /// Device geolocation at receipt photo capture
+  receiptCaptureLat         Float?
+  receiptCaptureLng         Float?
+  receiptCaptureGeoAccuracy Float? // meters
+
+  /// Inventory move fields (used when type = INVENTORY_MOVE)
+  moveFromLocationId     String? // FK → Location
+  moveToLocationId       String? // FK → Location
+  inventoryMoveItemsJson Json?   // [{materialLotId, description, quantity, uom}]
+  moveType               InventoryMoveType?
+
   createdBy    User                 @relation(fields: [createdById], references: [id])
   project      Project              @relation(fields: [projectId], references: [id])
   attachments  DailyLogAttachment[]
@@ -2930,6 +2958,12 @@ model DailyLog {
   sourceJsa    DailyLog?            @relation("DailyLogSourceJsa", fields: [sourceJsaId], references: [id])
   seededLogs   DailyLog[]           @relation("DailyLogSourceJsa")
   timeEntries  TimeEntry[]
+  originLocation   Location?  @relation("DailyLogOriginLocation", fields: [originLocationId], references: [id])
+  moveFromLocation Location?  @relation("DailyLogMoveFromLocation", fields: [moveFromLocationId], references: [id])
+  moveToLocation   Location?  @relation("DailyLogMoveToLocation", fields: [moveToLocationId], references: [id])
+
+  /// Material lots created from this daily log (receipt)
+  sourceMaterialLots MaterialLot[] @relation("MaterialLotSourceDailyLog")
 
   @@index([projectId], map: "DailyLog_project_idx")
   @@index([projectId, roomParticleId], map: "DailyLog_project_room_idx")
@@ -3865,6 +3899,20 @@ enum DailyLogType {
   INCIDENT // Safety incident report
   QUALITY // Quality inspection
   TADL // Time Accounting Daily Log
+  INVENTORY_MOVE // Inventory drop, pickup, or transfer
+}
+
+enum FulfillmentMethod {
+  WILL_CALL
+  DELIVERY
+  RETURN
+  UNKNOWN
+}
+
+enum InventoryMoveType {
+  DROP
+  PICKUP
+  TRANSFER
 }
 
 enum OcrStatus {
@@ -4109,6 +4157,7 @@ model Location {
 
   currentAssets       Asset[]             @relation("AssetCurrentLocation")
   currentMaterialLots MaterialLot[]       @relation("MaterialLotCurrentLocation")
+  originMaterialLots  MaterialLot[]       @relation("MaterialLotOriginLocation")
   currentParticles    InventoryParticle[] @relation("InventoryParticleCurrentLocation")
   virtualParticles    InventoryParticle[] @relation("InventoryParticleVirtualLocation")
 
@@ -4119,6 +4168,11 @@ model Location {
 
   // People assigned to this physical/virtual location.
   personLocations PersonLocation[]
+
+  // Daily log references (origin location, move from/to)
+  dailyLogOrigins  DailyLog[] @relation("DailyLogOriginLocation")
+  dailyLogMoveFrom DailyLog[] @relation("DailyLogMoveFromLocation")
+  dailyLogMoveTo   DailyLog[] @relation("DailyLogMoveToLocation")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -4152,15 +4206,27 @@ model MaterialLot {
   currentLocationId String
   currentLocation   Location @relation("MaterialLotCurrentLocation", fields: [currentLocationId], references: [id])
 
+  /// Provenance tracking for receipt-to-inventory pipeline
+  originLocationId     String? // FK → Location (vendor/store where purchased)
+  sourceDailyLogId     String? // FK → DailyLog (receipt that created this lot)
+  destinationProjectId String? // FK → Project (which project materials are intended for)
+  lotKey               String? // Computed: "{originLocationCode}:{sku}" for matching
+
   metadata Json?
 
-  company Company @relation(fields: [companyId], references: [id])
+  company            Company   @relation(fields: [companyId], references: [id])
+  originLocation     Location? @relation("MaterialLotOriginLocation", fields: [originLocationId], references: [id])
+  sourceDailyLog     DailyLog? @relation("MaterialLotSourceDailyLog", fields: [sourceDailyLogId], references: [id])
+  destinationProject Project?  @relation("MaterialLotDestinationProject", fields: [destinationProjectId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([companyId, sku])
   @@index([companyId, currentLocationId])
+  @@index([companyId, originLocationId], map: "MaterialLot_company_origin_location_idx")
+  @@index([companyId, destinationProjectId], map: "MaterialLot_company_project_idx")
+  @@index([lotKey], map: "MaterialLot_lotKey_idx")
 }
 
 model InventoryParticle {

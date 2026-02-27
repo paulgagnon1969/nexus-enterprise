@@ -206,7 +206,7 @@ export class BillingService {
 
   /** Get the current membership state for a tenant. */
   async getCurrentMembership(actor: AuthenticatedUser) {
-    const [subscription, modules, catalog] = await Promise.all([
+    const [subscription, modules, catalog, company] = await Promise.all([
       this.prisma.tenantSubscription.findFirst({
         where: { companyId: actor.companyId },
         orderBy: { createdAt: "desc" },
@@ -218,15 +218,40 @@ export class BillingService {
         where: { active: true },
         orderBy: { sortOrder: "asc" },
       }),
+      this.prisma.company.findUnique({
+        where: { id: actor.companyId },
+        select: {
+          name: true,
+          isTrial: true,
+          trialEndsAt: true,
+          trialStatus: true,
+          isInternal: true,
+        },
+      }),
     ]);
 
     const enabledCodes = new Set(modules.map(m => m.moduleCode));
 
+    // Internal or active-trial tenants have all modules enabled.
+    const isActiveTrial =
+      company?.isTrial &&
+      company.trialStatus === "ACTIVE" &&
+      company.trialEndsAt &&
+      company.trialEndsAt > new Date();
+    const allUnlocked = company?.isInternal || isActiveTrial;
+
     return {
+      company: {
+        name: company?.name ?? null,
+        isInternal: company?.isInternal ?? false,
+        isTrial: company?.isTrial ?? false,
+        trialEndsAt: company?.trialEndsAt ?? null,
+        trialStatus: company?.trialStatus ?? null,
+      },
       subscription,
       modules: catalog.map(c => ({
         ...c,
-        enabled: enabledCodes.has(c.code),
+        enabled: allUnlocked || c.isCore || enabledCodes.has(c.code),
       })),
     };
   }

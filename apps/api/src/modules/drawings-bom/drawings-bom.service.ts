@@ -9,9 +9,11 @@ import Anthropic from "@anthropic-ai/sdk";
 import { PDFParse } from "pdf-parse";
 import * as fs from "fs";
 import * as path from "path";
+import { execFile } from "child_process";
 import { promisify } from "util";
 
 const writeFile = promisify(fs.writeFile);
+const execFileAsync = promisify(execFile);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -319,6 +321,21 @@ export class DrawingsBomService {
     return { localPath: storedPath, isTemp: false };
   }
 
+  /**
+   * Get the actual page count from a PDF using pdfinfo (poppler-utils).
+   * Falls back to 0 if pdfinfo is unavailable or fails.
+   */
+  private async getPdfPageCount(pdfPath: string): Promise<number> {
+    try {
+      const { stdout } = await execFileAsync("pdfinfo", [pdfPath]);
+      const match = stdout.match(/Pages:\s+(\d+)/);
+      return match ? parseInt(match[1], 10) : 0;
+    } catch (err: any) {
+      this.logger.warn(`pdfinfo failed for ${pdfPath}: ${err?.message ?? err}`);
+      return 0;
+    }
+  }
+
   private async extractPdfText(uploadId: string): Promise<ExtractedPage[]> {
     const upload = await this.prisma.projectDrawingUpload.findUnique({
       where: { id: uploadId },
@@ -336,6 +353,9 @@ export class DrawingsBomService {
     if (isGcsTemp && localPath !== tempPath) {
       fs.unlink(localPath, () => {});
     }
+
+    // Get the real page count from PDF metadata (not from text extraction)
+    const actualPageCount = await this.getPdfPageCount(tempPath);
 
     let rawText: string;
     try {
@@ -363,16 +383,23 @@ export class DrawingsBomService {
       pages.push({ page: i + 1, sheetId, text });
     }
 
+    // Use actual PDF page count (from pdfinfo) over text-based count.
+    // Construction drawings are mostly graphical — text extraction often
+    // finds far fewer "pages" than the PDF actually contains.
+    const pageCount = actualPageCount || pages.length || rawPages.length;
+
     // Persist extracted text and page count
     await this.prisma.projectDrawingUpload.update({
       where: { id: uploadId },
       data: {
-        pageCount: pages.length || rawPages.length,
+        pageCount,
         extractedTextJson: pages as any,
       },
     });
 
-    this.logger.log(`Extracted text from ${pages.length} pages for upload ${uploadId}`);
+    this.logger.log(
+      `Extracted text from ${pages.length} pages (PDF has ${actualPageCount} actual pages) for upload ${uploadId}`,
+    );
     return pages;
   }
 

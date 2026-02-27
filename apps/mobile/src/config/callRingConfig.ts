@@ -28,7 +28,7 @@ export const callRingConfig = {
    * Recommended: false (system sound handles it).
    * Set to true only if users report silent rings in the foreground.
    */
-  inAppAudioFallback: false,
+  inAppAudioFallback: true,
 
   /**
    * Force iOS silent-mode override via expo-audio (playsInSilentMode).

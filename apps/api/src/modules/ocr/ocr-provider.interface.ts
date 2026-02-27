@@ -5,15 +5,23 @@
 
 export interface ReceiptLineItem {
   description: string;
+  sku?: string;
   quantity?: number;
   unitPrice?: number;
   amount?: number;
+  category?: string; // e.g. "LUMBER", "ELECTRICAL", "PLUMBING"
 }
 
 export interface ReceiptOcrData {
   vendorName?: string;
   vendorAddress?: string;
+  vendorPhone?: string;
+  vendorStoreNumber?: string; // e.g. "0604" for Home Depot #0604
+  vendorCity?: string;
+  vendorState?: string;
+  vendorZip?: string;
   receiptDate?: string; // ISO date string
+  receiptTime?: string; // HH:mm format
   subtotal?: number;
   taxAmount?: number;
   totalAmount?: number;

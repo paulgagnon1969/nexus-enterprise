@@ -217,4 +217,42 @@ export class TaskService {
 
     return updated;
   }
+
+  /**
+   * Dashboard summary: count tasks by urgency bucket for a project.
+   * - overdue: past dueDate, not DONE
+   * - dueNow: due today, not DONE
+   * - comingDue: due within next 7 days, not DONE
+   * - total: all non-DONE tasks
+   */
+  async getTaskSummary(
+    actor: AuthenticatedUser,
+    projectId: string,
+  ): Promise<{ overdue: number; dueNow: number; comingDue: number; total: number }> {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfToday = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
+    const sevenDaysOut = new Date(endOfToday.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    const baseWhere: any = {
+      companyId: actor.companyId,
+      projectId,
+      status: { not: 'DONE' },
+    };
+
+    const [overdue, dueNow, comingDue, total] = await Promise.all([
+      this.prisma.task.count({
+        where: { ...baseWhere, dueDate: { lt: startOfToday } },
+      }),
+      this.prisma.task.count({
+        where: { ...baseWhere, dueDate: { gte: startOfToday, lt: endOfToday } },
+      }),
+      this.prisma.task.count({
+        where: { ...baseWhere, dueDate: { gte: endOfToday, lt: sevenDaysOut } },
+      }),
+      this.prisma.task.count({ where: baseWhere }),
+    ]);
+
+    return { overdue, dueNow, comingDue, total };
+  }
 }

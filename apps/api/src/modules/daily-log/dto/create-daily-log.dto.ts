@@ -7,6 +7,20 @@ export enum DailyLogTypeDto {
   INCIDENT = 'INCIDENT',
   QUALITY = 'QUALITY',
   TADL = 'TADL',
+  INVENTORY_MOVE = 'INVENTORY_MOVE',
+}
+
+export enum FulfillmentMethodDto {
+  WILL_CALL = 'WILL_CALL',
+  DELIVERY = 'DELIVERY',
+  RETURN = 'RETURN',
+  UNKNOWN = 'UNKNOWN',
+}
+
+export enum InventoryMoveTypeDto {
+  DROP = 'DROP',
+  PICKUP = 'PICKUP',
+  TRANSFER = 'TRANSFER',
 }
 
 export class CreateDailyLogDto {
@@ -111,6 +125,48 @@ export class CreateDailyLogDto {
   @IsOptional()
   @IsDateString()
   expenseDate?: string | null;
+
+  // Fulfillment method for receipt purchases
+  @IsOptional()
+  @IsEnum(FulfillmentMethodDto)
+  fulfillmentMethod?: FulfillmentMethodDto;
+
+  @IsOptional()
+  @IsDateString()
+  expectedDeliveryDate?: string | null;
+
+  @IsOptional()
+  @IsString()
+  originLocationId?: string | null;
+
+  // Device geolocation at receipt photo capture
+  @IsOptional()
+  @IsNumber()
+  receiptCaptureLat?: number | null;
+
+  @IsOptional()
+  @IsNumber()
+  receiptCaptureLng?: number | null;
+
+  @IsOptional()
+  @IsNumber()
+  receiptCaptureGeoAccuracy?: number | null;
+
+  // Inventory move fields (used when type = INVENTORY_MOVE)
+  @IsOptional()
+  @IsString()
+  moveFromLocationId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  moveToLocationId?: string | null;
+
+  @IsOptional()
+  inventoryMoveItemsJson?: any;
+
+  @IsOptional()
+  @IsEnum(InventoryMoveTypeDto)
+  moveType?: InventoryMoveTypeDto;
 
   // Structured personnel onsite (JSON array of PersonnelEntry)
   @IsOptional()

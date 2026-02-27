@@ -160,6 +160,31 @@ export class GcsService {
   }
 
   /**
+   * Delete a file from GCS. Best-effort — does not throw if the file
+   * doesn't exist.
+   */
+  async deleteFile(options: { bucket?: string; key: string }): Promise<void> {
+    const { key } = options;
+    const bucketName =
+      options.bucket || process.env.XACT_UPLOADS_BUCKET || process.env.GCS_UPLOADS_BUCKET;
+
+    if (!bucketName) return;
+
+    try {
+      const bucket = this.storage.bucket(bucketName);
+      const file = bucket.file(key);
+      await file.delete({ ignoreNotFound: true });
+      console.log("[gcs] deleteFile:done", { bucket: bucketName, key });
+    } catch (err: any) {
+      console.warn("[gcs] deleteFile:error", {
+        bucket: bucketName,
+        key,
+        message: err?.message ?? String(err),
+      });
+    }
+  }
+
+  /**
    * Download a gs:// URI to a temporary file and return the local path.
    */
   async downloadToTmp(uri: string): Promise<string> {

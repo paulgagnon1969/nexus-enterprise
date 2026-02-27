@@ -13,15 +13,21 @@ Extract the following data and return ONLY valid JSON (no markdown, no explanati
 
 {
   "vendor_name": "Store/business name (look for logo, header, or printed store name)",
-  "vendor_address": "Full address if visible",
+  "vendor_address": "Full street address if visible",
+  "vendor_phone": "Store phone number if visible",
+  "vendor_store_number": "Store/location number if visible (e.g. '0604' from 'Home Depot #0604')",
+  "vendor_city": "City from address",
+  "vendor_state": "State abbreviation from address (e.g. 'TX')",
+  "vendor_zip": "ZIP code from address",
   "receipt_date": "YYYY-MM-DD format (look for date stamps, transaction date)",
+  "receipt_time": "HH:mm format (24-hour, from timestamp on receipt)",
   "subtotal": 0.00,
   "tax_amount": 0.00,
   "total_amount": 0.00,
   "currency": "USD",
   "payment_method": "CASH or CARD or CHECK or OTHER",
   "line_items": [
-    {"description": "Item name", "quantity": 1, "unit_price": 0.00, "amount": 0.00}
+    {"description": "Item name", "sku": "Item SKU/product code if printed", "quantity": 1, "unit_price": 0.00, "amount": 0.00, "category": "Material category (LUMBER, ELECTRICAL, PLUMBING, PAINT, HARDWARE, HVAC, CONCRETE, DRYWALL, FLOORING, ROOFING, TOOLS, SAFETY, GENERAL)"}
   ],
   "confidence": 0.95,
   "extraction_notes": "Any notes about image quality or partial reads"
@@ -30,8 +36,15 @@ Extract the following data and return ONLY valid JSON (no markdown, no explanati
 Rules:
 - Look carefully at the ENTIRE image, including rotated or angled text
 - All amounts should be numbers (not strings), e.g. 12.99 not "$12.99"
+- For returns, amounts and quantities are NEGATIVE (e.g. -12.99, -1)
 - Date must be ISO format (YYYY-MM-DD). Common formats: MM/DD/YY, MM-DD-YYYY, etc.
-- The TOTAL is usually the largest amount, often at the bottom, sometimes labeled "TOTAL", "AMOUNT DUE", "BALANCE"
+- Time must be 24-hour HH:mm format. Convert from 12-hour if needed.
+- The TOTAL is usually the largest amount, often at the bottom, sometimes labeled "TOTAL", "AMOUNT DUE", "BALANCE". For returns it will be negative.
+- SKU: Look for item/product codes printed next to each line item (often 6-12 digit numbers)
+- Store number: Often printed near the store name or in the header (e.g. "Store #0604", "Loc: 1234")
+- Phone: Usually in the header near the address
+- Break the address into city, state, zip components when possible
+- Category: Classify each item into the most appropriate construction material category
 - If a field is unclear or not visible, set it to null (don't guess)
 - For confidence: 0.9+ = clear/readable, 0.7-0.9 = some blur/glare, 0.5-0.7 = difficult to read, <0.5 = very poor quality
 - If the image is NOT a receipt (e.g., blank, unrelated), set confidence to 0 and note this
@@ -195,7 +208,13 @@ export class OpenAiOcrProvider implements OcrProvider {
       const result: ReceiptOcrData = {
         vendorName: parsed.vendor_name ?? undefined,
         vendorAddress: parsed.vendor_address ?? undefined,
+        vendorPhone: parsed.vendor_phone ?? undefined,
+        vendorStoreNumber: parsed.vendor_store_number ?? undefined,
+        vendorCity: parsed.vendor_city ?? undefined,
+        vendorState: parsed.vendor_state ?? undefined,
+        vendorZip: parsed.vendor_zip ?? undefined,
         receiptDate: parsed.receipt_date ?? undefined,
+        receiptTime: parsed.receipt_time ?? undefined,
         subtotal: typeof parsed.subtotal === 'number' ? parsed.subtotal : undefined,
         taxAmount: typeof parsed.tax_amount === 'number' ? parsed.tax_amount : undefined,
         totalAmount: typeof parsed.total_amount === 'number' ? parsed.total_amount : undefined,
@@ -204,9 +223,11 @@ export class OpenAiOcrProvider implements OcrProvider {
         lineItems: Array.isArray(parsed.line_items)
           ? parsed.line_items.map((item: any) => ({
               description: item.description ?? '',
+              sku: item.sku ?? undefined,
               quantity: typeof item.quantity === 'number' ? item.quantity : undefined,
               unitPrice: typeof item.unit_price === 'number' ? item.unit_price : undefined,
               amount: typeof item.amount === 'number' ? item.amount : undefined,
+              category: item.category ?? undefined,
             }))
           : undefined,
         confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,

@@ -29,7 +29,7 @@ interface PlanSetSummary {
   pageCount: number;
   status: string;
   createdAt: string;
-  sheetCount: number;
+  readySheetCount: number;
   coverThumbPath: string | null;
 }
 
@@ -114,6 +114,10 @@ export function PlanSheetsTab({ projectId }: Props) {
     null,
   );
 
+  // Delete state
+  const [deletingUploadId, setDeletingUploadId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
   // Fetch plan set list
   const loadPlanSets = useCallback(async () => {
     try {
@@ -185,6 +189,34 @@ export function PlanSheetsTab({ projectId }: Props) {
       }
     },
     [projectId, loadPlanSets, loadPlanSetDetail, selectedSet?.id],
+  );
+
+  // Delete an upload (full: sheets + BOM + PDF + record)
+  const deleteUpload = useCallback(
+    async (uploadId: string) => {
+      try {
+        setDeletingUploadId(uploadId);
+        const res = await fetch(
+          `${API_BASE}/projects/${projectId}/plan-sheets/${uploadId}`,
+          { method: "DELETE", headers: authHeaders() },
+        );
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || `Delete failed (${res.status})`);
+        }
+        // If we were viewing this set, go back to list
+        if (selectedSet?.id === uploadId) {
+          setSelectedSet(null);
+        }
+        setConfirmDeleteId(null);
+        await loadPlanSets();
+      } catch (err: any) {
+        setError(err.message ?? "Failed to delete upload");
+      } finally {
+        setDeletingUploadId(null);
+      }
+    },
+    [projectId, loadPlanSets, selectedSet?.id],
   );
 
   // Poll for processing status when there are pending/processing sheets
@@ -268,31 +300,86 @@ export function PlanSheetsTab({ projectId }: Props) {
               {formatBytes(totalSize)} total
             </span>
           </div>
-          {readyCount === 0 && (
-            <button
-              type="button"
-              onClick={() => triggerProcessing(selectedSet.id)}
-              disabled={processingUploadId === selectedSet.id}
-              style={{
-                marginLeft: "auto",
-                padding: "6px 14px",
-                borderRadius: 4,
-                border: "1px solid #2563eb",
-                background: "#2563eb",
-                color: "#fff",
-                fontSize: 12,
-                cursor:
-                  processingUploadId === selectedSet.id
-                    ? "not-allowed"
-                    : "pointer",
-                opacity: processingUploadId === selectedSet.id ? 0.6 : 1,
-              }}
-            >
-              {processingUploadId === selectedSet.id
-                ? "Queuing…"
-                : "Process Sheets"}
-            </button>
-          )}
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            {readyCount < selectedSet.pageCount && (
+              <button
+                type="button"
+                onClick={() => triggerProcessing(selectedSet.id)}
+                disabled={processingUploadId === selectedSet.id}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 4,
+                  border: "1px solid #2563eb",
+                  background: readyCount === 0 ? "#2563eb" : "#eff6ff",
+                  color: readyCount === 0 ? "#fff" : "#1d4ed8",
+                  fontSize: 12,
+                  cursor:
+                    processingUploadId === selectedSet.id
+                      ? "not-allowed"
+                      : "pointer",
+                  opacity: processingUploadId === selectedSet.id ? 0.6 : 1,
+                }}
+              >
+                {processingUploadId === selectedSet.id
+                  ? "Queuing…"
+                  : readyCount === 0
+                    ? "Process Sheets"
+                    : "Reprocess Failed"}
+              </button>
+            )}
+            {confirmDeleteId === selectedSet.id ? (
+              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                <span style={{ fontSize: 11, color: "#b91c1c" }}>Delete this plan?</span>
+                <button
+                  type="button"
+                  onClick={() => deleteUpload(selectedSet.id)}
+                  disabled={deletingUploadId === selectedSet.id}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 4,
+                    border: "1px solid #dc2626",
+                    background: "#dc2626",
+                    color: "#fff",
+                    fontSize: 11,
+                    cursor: deletingUploadId === selectedSet.id ? "not-allowed" : "pointer",
+                    opacity: deletingUploadId === selectedSet.id ? 0.6 : 1,
+                  }}
+                >
+                  {deletingUploadId === selectedSet.id ? "Deleting…" : "Yes, Delete"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteId(null)}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 4,
+                    border: "1px solid #d1d5db",
+                    background: "none",
+                    fontSize: 11,
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteId(selectedSet.id)}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 4,
+                  border: "1px solid #fca5a5",
+                  background: "none",
+                  color: "#dc2626",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                Delete
+              </button>
+            )}
+          </div>
         </div>
 
         {detailLoading && (
@@ -381,12 +468,20 @@ export function PlanSheetsTab({ projectId }: Props) {
                   {sheet.title}
                 </div>
               )}
-              {sheet.status === "READY" && (
+              {sheet.status === "READY" ? (
                 <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>
                   {formatBytes(sheet.standardBytes)} standard ·{" "}
                   {formatBytes(sheet.masterBytes)} HD
                 </div>
-              )}
+              ) : sheet.status === "FAILED" ? (
+                <div style={{ fontSize: 10, color: "#b91c1c", marginTop: 2 }}>
+                  Processing failed — click "Reprocess" above
+                </div>
+              ) : sheet.status === "PROCESSING" ? (
+                <div style={{ fontSize: 10, color: "#1e40af", marginTop: 2 }}>
+                  Processing…
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -511,14 +606,27 @@ export function PlanSheetsTab({ projectId }: Props) {
                 >
                   {ps.fileName}
                 </div>
-                <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
-                  {ps.pageCount} pages · {ps.sheetCount} sheets processed
+              <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+                  {ps.pageCount} pages · {ps.readySheetCount} sheets ready
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {ps.sheetCount > 0 ? (
+                {ps.readySheetCount > 0 && ps.readySheetCount === ps.pageCount ? (
                   <StatusBadge status="READY" />
-                ) : (
+                ) : ps.readySheetCount > 0 ? (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      padding: "2px 6px",
+                      borderRadius: 4,
+                      background: "#fef9c3",
+                      color: "#854d0e",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {ps.readySheetCount}/{ps.pageCount} ready
+                  </span>
+                ) : ps.status === "READY" || ps.status === "COMPLETED" ? (
                   <button
                     type="button"
                     onClick={(e) => {
@@ -542,7 +650,65 @@ export function PlanSheetsTab({ projectId }: Props) {
                   >
                     {processingUploadId === ps.id
                       ? "Queuing…"
-                      : "Process"}
+                      : "Process Sheets"}
+                  </button>
+                ) : (
+                  <StatusBadge status={ps.status} />
+                )}
+                {/* Delete button */}
+                {confirmDeleteId === ps.id ? (
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ display: "flex", gap: 4, alignItems: "center" }}
+                  >
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); deleteUpload(ps.id); }}
+                      disabled={deletingUploadId === ps.id}
+                      style={{
+                        padding: "3px 8px",
+                        borderRadius: 4,
+                        border: "1px solid #dc2626",
+                        background: "#dc2626",
+                        color: "#fff",
+                        fontSize: 10,
+                        cursor: deletingUploadId === ps.id ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      {deletingUploadId === ps.id ? "Deleting…" : "Confirm"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
+                      style={{
+                        padding: "3px 8px",
+                        borderRadius: 4,
+                        border: "1px solid #d1d5db",
+                        background: "none",
+                        fontSize: 10,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(ps.id); }}
+                    title="Delete this plan"
+                    style={{
+                      padding: "3px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #fca5a5",
+                      background: "none",
+                      color: "#dc2626",
+                      fontSize: 11,
+                      cursor: "pointer",
+                      opacity: 0.7,
+                    }}
+                  >
+                    ×
                   </button>
                 )}
               </div>

@@ -1,5 +1,6 @@
 import {
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -74,6 +75,18 @@ export class PlanSheetsController {
       user.companyId,
       user.userId,
     );
+  }
+
+  // ── Delete an entire upload (sheets + BOM + PDF + record) ──────────────
+
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Delete(":uploadId")
+  async deleteUpload(
+    @Req() req: FastifyRequest,
+    @Param("uploadId") uploadId: string,
+  ) {
+    const user = (req as any).user as AuthenticatedUser;
+    return this.service.deleteFullUpload(uploadId, user.companyId);
   }
 }
 

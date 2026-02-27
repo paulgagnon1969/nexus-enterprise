@@ -1264,6 +1264,26 @@ function UserMenu({ onLogout }: { onLogout: () => void }) {
             <button
               type="button"
               onClick={() => {
+                window.location.href = "/settings/billing";
+              }}
+              style={{
+                width: "100%",
+                padding: "6px 8px",
+                fontSize: 13,
+                textAlign: "left",
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+              }}
+            >
+              Subscription &amp; billing
+            </button>
+          )}
+
+          {canManageCompany && (
+            <button
+              type="button"
+              onClick={() => {
                 window.location.href = "/settings/clients";
               }}
               style={{

@@ -139,26 +139,27 @@ function CallUI({
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const lp = room.localParticipant;
 
+    // Set UI state immediately so the interface is responsive
+    setMode(newMode);
+
     if (newMode === "video") {
-      await lp.setCameraEnabled(true);
-      await lp.setMicrophoneEnabled(true);
       setVideoMuted(false);
       setAudioMuted(false);
+      try { await lp.setMicrophoneEnabled(true); } catch (e) { console.warn("[Call] mic enable failed:", e); }
+      try { await lp.setCameraEnabled(true); } catch (e) { console.warn("[Call] camera enable failed:", e); }
     } else if (newMode === "voice") {
-      await lp.setCameraEnabled(false);
-      await lp.setMicrophoneEnabled(true);
       setVideoMuted(true);
       setAudioMuted(false);
+      try { await lp.setCameraEnabled(false); } catch (e) { console.warn("[Call] camera disable failed:", e); }
+      try { await lp.setMicrophoneEnabled(true); } catch (e) { console.warn("[Call] mic enable failed:", e); }
     } else {
       // radio — mic off until PTT held
-      await lp.setCameraEnabled(false);
-      await lp.setMicrophoneEnabled(false);
       setVideoMuted(true);
       setAudioMuted(true);
       setPttActive(false);
+      try { await lp.setCameraEnabled(false); } catch (e) { console.warn("[Call] camera disable failed:", e); }
+      try { await lp.setMicrophoneEnabled(false); } catch (e) { console.warn("[Call] mic disable failed:", e); }
     }
-
-    setMode(newMode);
   }, [mode, room]);
 
   // ── Standard controls ─────────────────────────────────────────────

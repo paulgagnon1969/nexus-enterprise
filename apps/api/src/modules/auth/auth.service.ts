@@ -1321,9 +1321,10 @@ export class AuthService {
   ) {
     const payload = { sub: userId, companyId, role, email, globalRole, profileCode };
 
+    // 86400s = 24 hours. Must match the default in auth.module.ts.
     const accessToken = await this.jwt.signAsync(payload, {
       secret: process.env.JWT_ACCESS_SECRET || "change-me-access",
-      expiresIn: Number(process.env.JWT_ACCESS_TTL) || 900
+      expiresIn: Number(process.env.JWT_ACCESS_TTL) || 86400
     });
 
     const refreshToken = randomUUID();

@@ -57,6 +57,16 @@ export class TaskController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get("summary")
+  summary(
+    @Req() req: any,
+    @Query("projectId") projectId: string,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.tasks.getTaskSummary(actor, projectId);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Patch(":id")
   update(
     @Req() req: any,

@@ -40,7 +40,9 @@ export class PlanSheetsService {
         createdAt: true,
         _count: {
           select: {
-            planSheets: true,
+            planSheets: {
+              where: { status: PlanSheetStatus.READY },
+            },
           },
         },
         planSheets: {
@@ -60,7 +62,7 @@ export class PlanSheetsService {
       pageCount: u.pageCount,
       status: u.status,
       createdAt: u.createdAt,
-      sheetCount: u._count.planSheets,
+      readySheetCount: u._count.planSheets,
       coverThumbPath: u.planSheets[0]?.thumbPath ?? null,
     }));
   }
@@ -163,6 +165,91 @@ export class PlanSheetsService {
     return { url, tier };
   }
 
+  // ── Delete a plan set (sheets + images, keep the upload record) ─────────
+
+  async deletePlanSheets(uploadId: string, companyId: string) {
+    const upload = await this.prisma.projectDrawingUpload.findFirst({
+      where: { id: uploadId, companyId },
+    });
+    if (!upload) {
+      throw new NotFoundException("Plan set not found");
+    }
+
+    // Delete GCS / local images
+    const sheets = await this.prisma.planSheet.findMany({
+      where: { uploadId },
+      select: { thumbPath: true, standardPath: true, masterPath: true },
+    });
+
+    const bucket =
+      this.configService.get<string>("GCS_UPLOADS_BUCKET") ??
+      this.configService.get<string>("XACT_UPLOADS_BUCKET");
+
+    for (const sheet of sheets) {
+      const paths = [sheet.thumbPath, sheet.standardPath, sheet.masterPath].filter(Boolean) as string[];
+      for (const p of paths) {
+        try {
+          if (bucket) {
+            await this.gcsService.deleteFile({ bucket, key: p });
+          } else {
+            // Dev: local file under uploads/plan-sheets/
+            const localPath = require("path").resolve(__dirname, "..", "..", "..", "uploads", "plan-sheets", ...p.replace("plan-sheets/", "").split("/"));
+            const fs = require("fs");
+            if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
+          }
+        } catch {
+          // Best-effort cleanup
+        }
+      }
+    }
+
+    // Delete all PlanSheet records
+    const { count } = await this.prisma.planSheet.deleteMany({
+      where: { uploadId },
+    });
+
+    this.logger.log(`Deleted ${count} plan sheets for upload ${uploadId}`);
+    return { deleted: count };
+  }
+
+  // ── Delete an entire upload (sheets + BOM lines + upload record) ────────
+
+  async deleteFullUpload(uploadId: string, companyId: string) {
+    const upload = await this.prisma.projectDrawingUpload.findFirst({
+      where: { id: uploadId, companyId },
+    });
+    if (!upload) {
+      throw new NotFoundException("Upload not found");
+    }
+
+    // Clean up plan sheet images first
+    await this.deletePlanSheets(uploadId, companyId).catch(() => {});
+
+    // Delete BOM lines
+    await this.prisma.drawingBomLine.deleteMany({ where: { uploadId } });
+
+    // Delete the stored PDF from GCS/local
+    const bucket =
+      this.configService.get<string>("GCS_UPLOADS_BUCKET") ??
+      this.configService.get<string>("XACT_UPLOADS_BUCKET");
+    try {
+      if (bucket && upload.storedPath.startsWith("gs://")) {
+        await this.gcsService.deleteFile({ bucket, key: upload.storedPath.replace(`gs://${bucket}/`, "") });
+      } else if (!bucket) {
+        const fs = require("fs");
+        if (fs.existsSync(upload.storedPath)) fs.unlinkSync(upload.storedPath);
+      }
+    } catch {
+      // Best-effort
+    }
+
+    // Delete the upload record
+    await this.prisma.projectDrawingUpload.delete({ where: { id: uploadId } });
+
+    this.logger.log(`Fully deleted upload ${uploadId} (${upload.fileName})`);
+    return { deleted: true, fileName: upload.fileName };
+  }
+
   // ── Trigger plan sheet processing via worker ───────────────────────────
 
   async enqueueProcessing(
@@ -178,26 +265,22 @@ export class PlanSheetsService {
       throw new NotFoundException("Drawing upload not found");
     }
 
-    // Check if sheets already exist / are being processed
-    const existingSheets = await this.prisma.planSheet.count({
-      where: {
-        uploadId,
-        status: { in: [PlanSheetStatus.PROCESSING, PlanSheetStatus.READY] },
-      },
-    });
-
-    if (existingSheets > 0) {
-      throw new BadRequestException(
-        "Plan sheets are already processed or processing for this upload",
-      );
-    }
-
     // Create placeholder PlanSheet rows (one per page)
     const pageCount = upload.pageCount || 0;
     if (pageCount === 0) {
       throw new BadRequestException(
         "Upload has no pages. Text extraction may still be in progress.",
       );
+    }
+
+    // Clear ALL existing sheets for a clean reprocess
+    // (previously this blocked reprocessing if READY/PROCESSING sheets existed)
+    const existingCount = await this.prisma.planSheet.count({ where: { uploadId } });
+    if (existingCount > 0) {
+      // Clean up GCS/local images from old sheets
+      await this.deletePlanSheets(uploadId, companyId).catch((err) => {
+        this.logger.warn(`Failed to clean old sheets for ${uploadId}: ${err?.message}`);
+      });
     }
 
     // Parse sheet IDs from extractedTextJson if available
@@ -217,14 +300,6 @@ export class PlanSheetsService {
         status: PlanSheetStatus.PENDING,
         sortOrder: i,
       };
-    });
-
-    // Delete any existing FAILED/PENDING sheets before re-creating
-    await this.prisma.planSheet.deleteMany({
-      where: {
-        uploadId,
-        status: { in: [PlanSheetStatus.PENDING, PlanSheetStatus.FAILED] },
-      },
     });
 
     await this.prisma.planSheet.createMany({ data: sheetData });

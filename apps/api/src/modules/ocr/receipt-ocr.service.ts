@@ -3,6 +3,9 @@ import { PrismaService } from '../../infra/prisma/prisma.service';
 import { OcrStatus } from '@prisma/client';
 import { OpenAiOcrProvider } from './openai-ocr.provider';
 import { ReceiptOcrData } from './ocr-provider.interface';
+import { ReceiptInventoryBridgeService } from '../daily-log/receipt-inventory-bridge.service';
+import { AuthenticatedUser } from '../auth/jwt.strategy';
+import { Role, GlobalRole } from '../auth/auth.guards';
 
 @Injectable()
 export class ReceiptOcrService {
@@ -11,6 +14,7 @@ export class ReceiptOcrService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly openAiProvider: OpenAiOcrProvider,
+    private readonly inventoryBridge: ReceiptInventoryBridgeService,
   ) {}
 
   /**
@@ -77,9 +81,15 @@ export class ReceiptOcrService {
           status: OcrStatus.COMPLETED,
           vendorName: extractedData.vendorName ?? null,
           vendorAddress: extractedData.vendorAddress ?? null,
+          vendorPhone: extractedData.vendorPhone ?? null,
+          vendorStoreNumber: extractedData.vendorStoreNumber ?? null,
+          vendorCity: extractedData.vendorCity ?? null,
+          vendorState: extractedData.vendorState ?? null,
+          vendorZip: extractedData.vendorZip ?? null,
           receiptDate: extractedData.receiptDate
             ? new Date(extractedData.receiptDate)
             : null,
+          receiptTime: extractedData.receiptTime ?? null,
           subtotal: extractedData.subtotal ?? null,
           taxAmount: extractedData.taxAmount ?? null,
           totalAmount: extractedData.totalAmount ?? null,
@@ -97,6 +107,9 @@ export class ReceiptOcrService {
       // If linked to a daily log, update the expense fields
       if (ocrResult.dailyLogId) {
         await this.updateDailyLogFromOcr(ocrResult.dailyLogId, extractedData);
+
+        // Auto-promote receipt line items to inventory
+        await this.promoteReceiptInventory(ocrResult.dailyLogId);
       }
 
       this.logger.log(
@@ -160,6 +173,66 @@ export class ReceiptOcrService {
         processedAt: new Date(),
       },
     });
+  }
+
+  /**
+   * After OCR completes, auto-promote receipt line items to MaterialLots
+   * and create InventoryPositions. Reconstructs actor from the DailyLog creator.
+   */
+  private async promoteReceiptInventory(dailyLogId: string): Promise<void> {
+    try {
+      const log = await this.prisma.dailyLog.findUnique({
+        where: { id: dailyLogId },
+      });
+
+      if (!log) {
+        this.logger.warn(`Cannot promote receipt: log ${dailyLogId} not found`);
+        return;
+      }
+
+      // Look up the creator for actor reconstruction
+      const creator = await this.prisma.user.findUnique({
+        where: { id: log.createdById },
+        select: { id: true, email: true, globalRole: true, userType: true },
+      });
+
+      if (!creator) {
+        this.logger.warn(`Cannot promote receipt: creator ${log.createdById} not found`);
+        return;
+      }
+
+      // Get companyId from the project
+      const project = await this.prisma.project.findUnique({
+        where: { id: log.projectId },
+        select: { companyId: true },
+      });
+
+      if (!project) return;
+
+      // Get role from company membership
+      const membership = await this.prisma.companyMembership.findFirst({
+        where: { userId: creator.id, companyId: project.companyId },
+        select: { role: true },
+      });
+
+      // Reconstruct minimal actor from log creator
+      const actor: AuthenticatedUser = {
+        userId: creator.id,
+        companyId: project.companyId,
+        role: (membership?.role ?? 'MEMBER') as unknown as Role,
+        email: creator.email,
+        globalRole: (creator.globalRole ?? 'NONE') as unknown as GlobalRole,
+        userType: creator.userType,
+      };
+
+      const result = await this.inventoryBridge.promoteReceipt(dailyLogId, project.companyId, actor);
+      this.logger.log(
+        `Inventory promotion for log ${dailyLogId}: ${result.materialLotIds.length} lots, vendor match=${result.vendorMatchType}`,
+      );
+    } catch (err: any) {
+      this.logger.warn(`Inventory promotion failed for log ${dailyLogId}: ${err?.message ?? err}`);
+      // Don't throw — promotion is best-effort, should not break OCR flow
+    }
   }
 
   private async updateDailyLogFromOcr(
