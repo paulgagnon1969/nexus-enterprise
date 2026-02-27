@@ -7,9 +7,10 @@ import {
   Query,
   Req,
   Res,
+  UseGuards,
 } from "@nestjs/common";
 import type { FastifyRequest, FastifyReply } from "fastify";
-import { Roles, Role } from "../auth/auth.guards";
+import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { PlanSheetsService } from "./plan-sheets.service";
 import * as path from "path";
@@ -17,6 +18,7 @@ import * as fs from "fs";
 import { RequiresModule } from "../billing/module.guard";
 
 @RequiresModule('DOCUMENTS')
+@UseGuards(JwtAuthGuard)
 @Controller("projects/:id/plan-sheets")
 export class PlanSheetsController {
   constructor(private readonly service: PlanSheetsService) {}

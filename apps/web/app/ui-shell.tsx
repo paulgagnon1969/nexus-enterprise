@@ -595,6 +595,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {h.financial}
           </Link>
           <Link
+            href="/assets"
+            className={
+              "app-nav-link" +
+              (isActive("/assets") ? " app-nav-link-active" : "")
+            }
+          >
+            Assets
+          </Link>
+          <Link
             href="/reports"
             className={
               "app-nav-link" +

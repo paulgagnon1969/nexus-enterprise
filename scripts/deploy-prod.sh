@@ -19,6 +19,7 @@ fi
 # - Ensures PROD_DB_PASSWORD is set (via environment, e.g. .env)
 # - Runs Prisma migrations against prod via Cloud SQL Proxy
 # - Deploys the API to Cloud Run via Cloud Build
+# - Deploys the Worker to Cloud Run via deploy-worker.sh
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
@@ -85,4 +86,7 @@ echo "[deploy-prod] Running Prisma migrations against prod via proxy..."
 echo "[deploy-prod] Deploying API via Cloud Build..."
 ./scripts/deploy-api-cloudbuild.sh
 
-echo "[deploy-prod] Done."
+echo "[deploy-prod] Deploying Worker via Cloud Run..."
+./scripts/deploy-worker.sh
+
+echo "[deploy-prod] Done. Both API and Worker deployed."
