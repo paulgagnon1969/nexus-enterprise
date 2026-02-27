@@ -19,7 +19,8 @@
         "name": "next"
       }
     ],
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "types": ["react", "react-dom", "node", "react-virtualized"]
   },
   "include": [
     "next-env.d.ts",
