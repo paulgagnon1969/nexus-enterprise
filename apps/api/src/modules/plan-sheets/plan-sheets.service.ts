@@ -38,33 +38,32 @@ export class PlanSheetsService {
         pageCount: true,
         status: true,
         createdAt: true,
-        _count: {
-          select: {
-            planSheets: {
-              where: { status: PlanSheetStatus.READY },
-            },
-          },
-        },
         planSheets: {
-          where: { status: PlanSheetStatus.READY },
           orderBy: { sortOrder: "asc" },
-          take: 1,
           select: {
+            status: true,
             thumbPath: true,
           },
         },
       },
     });
 
-    return uploads.map((u) => ({
-      id: u.id,
-      fileName: u.fileName,
-      pageCount: u.pageCount,
-      status: u.status,
-      createdAt: u.createdAt,
-      readySheetCount: u._count.planSheets,
-      coverThumbPath: u.planSheets[0]?.thumbPath ?? null,
-    }));
+    return uploads.map((u) => {
+      const readySheets = u.planSheets.filter((s) => s.status === PlanSheetStatus.READY);
+      const pendingOrProcessing = u.planSheets.filter(
+        (s) => s.status === PlanSheetStatus.PENDING || s.status === PlanSheetStatus.PROCESSING,
+      );
+      return {
+        id: u.id,
+        fileName: u.fileName,
+        pageCount: u.pageCount,
+        status: u.status,
+        createdAt: u.createdAt,
+        readySheetCount: readySheets.length,
+        processingSheetCount: pendingOrProcessing.length,
+        coverThumbPath: readySheets[0]?.thumbPath ?? null,
+      };
+    });
   }
 
   // ── Get a single plan set with all sheets ──────────────────────────────

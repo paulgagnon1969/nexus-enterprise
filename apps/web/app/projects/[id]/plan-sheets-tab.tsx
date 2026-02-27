@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { PlanSheetViewer } from "./plan-sheet-viewer";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -30,6 +30,7 @@ interface PlanSetSummary {
   status: string;
   createdAt: string;
   readySheetCount: number;
+  processingSheetCount: number;
   coverThumbPath: string | null;
 }
 
@@ -118,6 +119,17 @@ export function PlanSheetsTab({ projectId }: Props) {
   const [deletingUploadId, setDeletingUploadId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
+  // Success message (auto-dismiss)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showSuccess = useCallback((msg: string) => {
+    setSuccessMessage(msg);
+    setError(null);
+    if (successTimer.current) clearTimeout(successTimer.current);
+    successTimer.current = setTimeout(() => setSuccessMessage(null), 6000);
+  }, []);
+
   // Fetch plan set list
   const loadPlanSets = useCallback(async () => {
     try {
@@ -168,6 +180,7 @@ export function PlanSheetsTab({ projectId }: Props) {
     async (uploadId: string) => {
       try {
         setProcessingUploadId(uploadId);
+        setError(null);
         const res = await fetch(
           `${API_BASE}/projects/${projectId}/plan-sheets/${uploadId}/process`,
           { method: "POST", headers: authHeaders() },
@@ -176,19 +189,30 @@ export function PlanSheetsTab({ projectId }: Props) {
           const text = await res.text();
           throw new Error(text || `Failed (${res.status})`);
         }
-        // Refresh the list after queueing
-        await loadPlanSets();
-        // If we're in detail view, refresh that too
-        if (selectedSet?.id === uploadId) {
-          await loadPlanSetDetail(uploadId);
+        const data = await res.json();
+
+        // Handle queued: false (e.g. Redis down)
+        if (data && data.queued === false) {
+          throw new Error(
+            data.message || "Processing could not be queued. Please try again later.",
+          );
         }
+
+        // Show success feedback
+        const sheetCount = data?.sheetCount ?? 0;
+        showSuccess(
+          `Processing queued — ${sheetCount} page${sheetCount !== 1 ? "s" : ""} will be rendered. This may take a minute.`,
+        );
+
+        // Navigate to detail view so the user sees progress + polling
+        await loadPlanSetDetail(uploadId);
       } catch (err: any) {
         setError(err.message ?? "Failed to trigger processing");
       } finally {
         setProcessingUploadId(null);
       }
     },
-    [projectId, loadPlanSets, loadPlanSetDetail, selectedSet?.id],
+    [projectId, loadPlanSetDetail, showSuccess],
   );
 
   // Delete an upload (full: sheets + BOM + PDF + record)
@@ -219,7 +243,7 @@ export function PlanSheetsTab({ projectId }: Props) {
     [projectId, loadPlanSets, selectedSet?.id],
   );
 
-  // Poll for processing status when there are pending/processing sheets
+  // Poll for processing status when there are pending/processing sheets (detail view)
   useEffect(() => {
     if (!selectedSet) return;
 
@@ -234,6 +258,19 @@ export function PlanSheetsTab({ projectId }: Props) {
 
     return () => clearInterval(interval);
   }, [selectedSet, loadPlanSetDetail]);
+
+  // Poll list view when any upload has sheets being processed
+  useEffect(() => {
+    if (selectedSet) return; // detail view has its own poll
+    const hasProcessing = planSets.some((ps) => ps.processingSheetCount > 0);
+    if (!hasProcessing) return;
+
+    const interval = setInterval(() => {
+      void loadPlanSets();
+    }, 6000);
+
+    return () => clearInterval(interval);
+  }, [selectedSet, planSets, loadPlanSets]);
 
   // Open viewer
   const openViewer = (index: number) => {
@@ -382,6 +419,53 @@ export function PlanSheetsTab({ projectId }: Props) {
           </div>
         </div>
 
+        {successMessage && (
+          <div
+            style={{
+              fontSize: 12,
+              color: "#166534",
+              background: "#dcfce7",
+              padding: 8,
+              borderRadius: 4,
+              marginBottom: 8,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            {successMessage}
+            <button
+              type="button"
+              onClick={() => setSuccessMessage(null)}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                fontSize: 14,
+                color: "#166534",
+                padding: "0 4px",
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
+
+        {error && (
+          <div
+            style={{
+              fontSize: 12,
+              color: "#b91c1c",
+              background: "#fee2e2",
+              padding: 8,
+              borderRadius: 4,
+              marginBottom: 8,
+            }}
+          >
+            {error}
+          </div>
+        )}
+
         {detailLoading && (
           <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>
             Refreshing…
@@ -525,6 +609,38 @@ export function PlanSheetsTab({ projectId }: Props) {
         </div>
       )}
 
+      {successMessage && (
+        <div
+          style={{
+            fontSize: 12,
+            color: "#166534",
+            background: "#dcfce7",
+            padding: 8,
+            borderRadius: 4,
+            marginBottom: 8,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          {successMessage}
+          <button
+            type="button"
+            onClick={() => setSuccessMessage(null)}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              fontSize: 14,
+              color: "#166534",
+              padding: "0 4px",
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {error && (
         <div
           style={{
@@ -613,6 +729,19 @@ export function PlanSheetsTab({ projectId }: Props) {
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 {ps.readySheetCount > 0 && ps.readySheetCount === ps.pageCount ? (
                   <StatusBadge status="READY" />
+                ) : ps.processingSheetCount > 0 ? (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      padding: "2px 6px",
+                      borderRadius: 4,
+                      background: "#dbeafe",
+                      color: "#1e40af",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Processing… {ps.readySheetCount > 0 ? `${ps.readySheetCount}/${ps.pageCount}` : ""}
+                  </span>
                 ) : ps.readySheetCount > 0 ? (
                   <span
                     style={{
