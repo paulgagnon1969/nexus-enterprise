@@ -53,6 +53,10 @@ gcloud run deploy "$SERVICE" \
   --platform managed \
   --region "$REGION" \
   --project "$PROJECT_ID" \
-  --allow-unauthenticated
+  --allow-unauthenticated \
+  --cpu 2 \
+  --memory 2Gi \
+  --cpu-boost \
+  --port 8080
 
 echo "[deploy-api] Done. Check the Cloud Run URL in the gcloud output above."

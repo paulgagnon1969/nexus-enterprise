@@ -64,7 +64,7 @@ gcloud run deploy "$SERVICE" \
   --timeout 900 \
   --no-allow-unauthenticated \
   --port 8080 \
-  --startup-cpu-boost
+  --cpu-boost
 
 echo "[deploy-worker] Done. Worker service deployed to Cloud Run."
 echo "[deploy-worker] Verify: gcloud run services describe $SERVICE --region=$REGION"

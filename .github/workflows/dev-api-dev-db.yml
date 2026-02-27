@@ -76,7 +76,18 @@ jobs:
       - name: Run Prisma migrations on Cloud SQL dev
         run: |
           cd packages/database
-          npx prisma migrate deploy --schema prisma/schema.prisma
+          if ! npx prisma migrate deploy --schema prisma/schema.prisma; then
+            echo "::group::Cloud SQL Proxy logs"
+            cat /tmp/sql-proxy.log 2>/dev/null || echo "(no proxy log found)"
+            echo "::endgroup::"
+            # Check if proxy is still alive
+            if ! nc -z 127.0.0.1 5432 2>/dev/null; then
+              echo "::error::Cloud SQL Proxy is no longer listening on port 5432"
+            else
+              echo "Proxy still listening — issue is upstream (Cloud SQL instance or credentials)"
+            fi
+            exit 1
+          fi
         env:
           DATABASE_URL: postgresql://postgres:${{ secrets.DEV_DB_PASSWORD }}@127.0.0.1:5432/nexus_db
 
