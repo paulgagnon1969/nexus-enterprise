@@ -1,5 +1,7 @@
-# Node
+# Node — root and all workspace node_modules
 node_modules
+packages/*/node_modules/
+apps/*/node_modules/
 
 # Build artifacts
 **/dist/
@@ -7,9 +9,12 @@ node_modules
 **/.turbo/
 .cache/
 
+# Tauri / Rust build artifacts (can be 2GB+)
+apps/*/src-tauri/target/
+**/target/
+
 # Mobile native builds (1.8GB android + 1.1GB ios)
-apps/mobile/android/
-apps/mobile/ios/
+apps/mobile/
 *.ipa
 *.apk
 
@@ -23,6 +28,10 @@ apps/api/uploads/
 # Infrastructure / scripts not needed for web build
 infra/
 scripts/
+
+# Git / CI
+.git/
+.github/
 
 # Misc
 .DS_Store
