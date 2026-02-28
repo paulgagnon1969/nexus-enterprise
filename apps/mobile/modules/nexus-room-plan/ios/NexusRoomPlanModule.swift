@@ -46,7 +46,7 @@ public class NexusRoomPlanModule: Module {
 #if canImport(RoomPlan)
 @objc(NexusRoomCaptureCoordinator)
 @available(iOS 16.0, *)
-class RoomCaptureCoordinator: NSObject, RoomCaptureViewDelegate, RoomCaptureSessionDelegate {
+class RoomCaptureCoordinator: NSObject, NSCoding, RoomCaptureViewDelegate, RoomCaptureSessionDelegate {
   private let promise: Promise
   private var captureView: RoomCaptureView?
   private var viewController: UIViewController?
@@ -57,8 +57,9 @@ class RoomCaptureCoordinator: NSObject, RoomCaptureViewDelegate, RoomCaptureSess
     super.init()
   }
 
-  // Required by NSCoding via NSObject — not used, but satisfies the compiler in archive builds
+  // NSCoding stubs — never used, but required for @objc NSObject in archive builds
   @objc required init?(coder: NSCoder) { return nil }
+  func encode(with coder: NSCoder) {}
 
   func start() {
     let vc = UIViewController()
