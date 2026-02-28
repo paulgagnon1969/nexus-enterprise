@@ -128,6 +128,7 @@ model Company {
   maintenanceTodos          MaintenanceTodo[]
   maintenanceReviewSettings MaintenanceReviewSettings?
   assetMeterReadings        AssetMeterReading[]
+  maintenancePools          MaintenancePool[]
 
   // Project billing (invoices + payments)
   projectInvoices            ProjectInvoice[]
@@ -586,6 +587,13 @@ model User {
 
   // CSV Transaction Imports
   csvImportBatchesUploaded CsvImportBatch[] @relation("CsvImportBatchUploadedBy")
+
+  // Asset ownership & maintenance
+  ownedAssets                Asset[]                  @relation("AssetOwner")
+  maintenanceAssignedAssets  Asset[]                  @relation("AssetMaintenanceAssignee")
+  maintenancePoolMemberships MaintenancePoolMember[]
+  assetShareGrantsReceived   AssetShareGrant[]        @relation("AssetShareGrantReceiver")
+  assetShareGrantsGiven      AssetShareGrant[]        @relation("AssetShareGrantGiver")
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -4117,6 +4125,19 @@ model Asset {
   year              Int?
   isActive          Boolean @default(true)
 
+  // Ownership & sharing
+  ownershipType     AssetOwnershipType     @default(COMPANY)
+  ownerId           String?
+  owner             User?                  @relation("AssetOwner", fields: [ownerId], references: [id])
+  sharingVisibility AssetSharingVisibility @default(COMPANY)
+  shareGrants       AssetShareGrant[]
+
+  // Maintenance assignment
+  maintenanceAssigneeId String?
+  maintenanceAssignee   User?             @relation("AssetMaintenanceAssignee", fields: [maintenanceAssigneeId], references: [id])
+  maintenancePoolId     String?
+  maintenancePool       MaintenancePool?  @relation(fields: [maintenancePoolId], references: [id])
+
   // Maintenance configuration (per asset)
   maintenanceProfileCode   String?
   maintTriggerStrategy     MaintenanceTriggerStrategy?
@@ -4147,6 +4168,8 @@ model Asset {
 
   @@index([companyId, assetType], map: "Asset_company_type_idx")
   @@index([companyId, currentLocationId])
+  @@index([ownerId])
+  @@index([maintenancePoolId])
 }
 
 model AssetUsage {
@@ -4266,6 +4289,17 @@ enum MaintenanceTodoStatus {
   COMPLETED
   SKIPPED
   CANCELLED
+}
+
+enum AssetOwnershipType {
+  COMPANY
+  PERSONAL
+}
+
+enum AssetSharingVisibility {
+  PRIVATE
+  COMPANY
+  CUSTOM
 }
 
 model Location {
@@ -4556,6 +4590,56 @@ model AssetMeterReading {
   createdAt DateTime @default(now())
 
   @@index([assetId, meterType, recordedAt])
+}
+
+/// Maintenance pool — a named group of users responsible for asset maintenance.
+model MaintenancePool {
+  id          String  @id @default(cuid())
+  companyId   String
+  name        String
+  description String?
+
+  company Company              @relation(fields: [companyId], references: [id])
+  members MaintenancePoolMember[]
+  assets  Asset[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, name], name: "MaintenancePool_company_name_key")
+  @@index([companyId])
+}
+
+/// Junction table linking users to maintenance pools.
+model MaintenancePoolMember {
+  id     String @id @default(cuid())
+  poolId String
+  userId String
+
+  pool MaintenancePool @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  user User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([poolId, userId], name: "MaintenancePoolMember_pool_user_key")
+  @@index([userId])
+}
+
+/// Grants visibility of a personal asset to a specific user.
+model AssetShareGrant {
+  id              String @id @default(cuid())
+  assetId         String
+  grantedToUserId String
+  grantedByUserId String
+
+  asset     Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  grantedTo User  @relation("AssetShareGrantReceiver", fields: [grantedToUserId], references: [id], onDelete: Cascade)
+  grantedBy User  @relation("AssetShareGrantGiver", fields: [grantedByUserId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([assetId, grantedToUserId], name: "AssetShareGrant_asset_user_key")
+  @@index([grantedToUserId])
 }
 
 model InventoryPosition {

@@ -1,6 +1,8 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException, ForbiddenException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
-import { AssetType, BillingMode, UsageStatus } from "@prisma/client";
+import { AssetType, AssetOwnershipType, AssetSharingVisibility, BillingMode, UsageStatus } from "@prisma/client";
+
+export type OwnershipFilter = "ALL" | "COMPANY" | "PERSONAL" | "MY_ASSETS";
 
 export interface CreateAssetInput {
   companyId: string;
@@ -18,6 +20,11 @@ export interface CreateAssetInput {
   isTrackable?: boolean;
   isConsumable?: boolean;
   currentLocationId?: string | null;
+  ownershipType?: AssetOwnershipType;
+  ownerId?: string | null;
+  sharingVisibility?: AssetSharingVisibility;
+  maintenanceAssigneeId?: string | null;
+  maintenancePoolId?: string | null;
 }
 
 export interface UpdateAssetInput {
@@ -37,6 +44,11 @@ export interface UpdateAssetInput {
   isConsumable?: boolean;
   isActive?: boolean;
   currentLocationId?: string | null;
+  ownershipType?: AssetOwnershipType;
+  ownerId?: string | null;
+  sharingVisibility?: AssetSharingVisibility;
+  maintenanceAssigneeId?: string | null;
+  maintenancePoolId?: string | null;
 }
 
 export interface CostSummary {
@@ -51,28 +63,70 @@ export interface CostSummary {
 export class AssetRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  // ── List (with optional filters) ──────────────────────────────────
+  // ── List (with optional filters + visibility) ─────────────────────
 
   async listAssetsForCompany(
     companyId: string,
-    filters?: { assetType?: AssetType; isActive?: boolean; search?: string },
+    userId: string,
+    filters?: {
+      assetType?: AssetType;
+      isActive?: boolean;
+      search?: string;
+      ownershipFilter?: OwnershipFilter;
+    },
   ) {
-    const where: any = { companyId };
-    if (filters?.assetType) where.assetType = filters.assetType;
-    if (filters?.isActive !== undefined) where.isActive = filters.isActive;
+    const ownershipFilter = filters?.ownershipFilter ?? "ALL";
+
+    // Build base conditions
+    const conditions: any[] = [{ companyId }];
+
+    if (filters?.assetType) conditions.push({ assetType: filters.assetType });
+    if (filters?.isActive !== undefined) conditions.push({ isActive: filters.isActive });
     if (filters?.search) {
-      where.OR = [
-        { name: { contains: filters.search, mode: "insensitive" } },
-        { code: { contains: filters.search, mode: "insensitive" } },
-        { serialNumberOrVin: { contains: filters.search, mode: "insensitive" } },
-      ];
+      conditions.push({
+        OR: [
+          { name: { contains: filters.search, mode: "insensitive" } },
+          { code: { contains: filters.search, mode: "insensitive" } },
+          { serialNumberOrVin: { contains: filters.search, mode: "insensitive" } },
+        ],
+      });
+    }
+
+    // Ownership + visibility filter
+    if (ownershipFilter === "COMPANY") {
+      conditions.push({ ownershipType: "COMPANY" });
+    } else if (ownershipFilter === "MY_ASSETS") {
+      conditions.push({ ownershipType: "PERSONAL", ownerId: userId });
+    } else if (ownershipFilter === "PERSONAL") {
+      // Show personal assets user is allowed to see
+      conditions.push({
+        ownershipType: "PERSONAL",
+        OR: [
+          { ownerId: userId },
+          { sharingVisibility: "COMPANY" },
+          { sharingVisibility: "CUSTOM", shareGrants: { some: { grantedToUserId: userId } } },
+        ],
+      });
+    } else {
+      // ALL: company assets + visible personal assets
+      conditions.push({
+        OR: [
+          { ownershipType: "COMPANY" },
+          { ownershipType: "PERSONAL", ownerId: userId },
+          { ownershipType: "PERSONAL", sharingVisibility: "COMPANY" },
+          { ownershipType: "PERSONAL", sharingVisibility: "CUSTOM", shareGrants: { some: { grantedToUserId: userId } } },
+        ],
+      });
     }
 
     return this.prisma.asset.findMany({
-      where,
+      where: { AND: conditions },
       orderBy: { name: "asc" },
       include: {
         currentLocation: { select: { id: true, name: true, type: true } },
+        owner: { select: { id: true, email: true, firstName: true, lastName: true } },
+        maintenanceAssignee: { select: { id: true, email: true, firstName: true, lastName: true } },
+        maintenancePool: { select: { id: true, name: true } },
       },
     });
   }
@@ -84,6 +138,21 @@ export class AssetRepository {
       where: { id: assetId, companyId },
       include: {
         currentLocation: { select: { id: true, name: true, type: true } },
+        owner: { select: { id: true, email: true, firstName: true, lastName: true } },
+        maintenanceAssignee: { select: { id: true, email: true, firstName: true, lastName: true } },
+        maintenancePool: {
+          select: {
+            id: true, name: true,
+            members: {
+              include: { user: { select: { id: true, email: true, firstName: true, lastName: true } } },
+            },
+          },
+        },
+        shareGrants: {
+          include: {
+            grantedTo: { select: { id: true, email: true, firstName: true, lastName: true } },
+          },
+        },
         usages: {
           orderBy: { createdAt: "desc" },
           take: 20,
@@ -134,6 +203,11 @@ export class AssetRepository {
         isTrackable: input.isTrackable ?? false,
         isConsumable: input.isConsumable ?? false,
         currentLocationId: input.currentLocationId ?? null,
+        ownershipType: input.ownershipType ?? "COMPANY",
+        ownerId: input.ownerId ?? null,
+        sharingVisibility: input.sharingVisibility ?? (input.ownershipType === "PERSONAL" ? "PRIVATE" : "COMPANY"),
+        maintenanceAssigneeId: input.maintenanceAssigneeId ?? null,
+        maintenancePoolId: input.maintenancePoolId ?? null,
       },
     });
   }
@@ -163,6 +237,11 @@ export class AssetRepository {
     if (input.isConsumable !== undefined) data.isConsumable = input.isConsumable;
     if (input.isActive !== undefined) data.isActive = input.isActive;
     if (input.currentLocationId !== undefined) data.currentLocationId = input.currentLocationId;
+    if (input.ownershipType !== undefined) data.ownershipType = input.ownershipType;
+    if (input.ownerId !== undefined) data.ownerId = input.ownerId;
+    if (input.sharingVisibility !== undefined) data.sharingVisibility = input.sharingVisibility;
+    if (input.maintenanceAssigneeId !== undefined) data.maintenanceAssigneeId = input.maintenanceAssigneeId;
+    if (input.maintenancePoolId !== undefined) data.maintenancePoolId = input.maintenancePoolId;
 
     return this.prisma.asset.update({
       where: { id: assetId },
@@ -234,6 +313,57 @@ export class AssetRepository {
       })),
       transactionCount: transactions.length,
     };
+  }
+
+  // ── Sharing ────────────────────────────────────────────────────────
+
+  async shareAsset(companyId: string, assetId: string, ownerId: string, grantedToUserId: string) {
+    const asset = await this.prisma.asset.findFirst({
+      where: { id: assetId, companyId, ownerId },
+    });
+    if (!asset) throw new NotFoundException(`Asset ${assetId} not found or you are not the owner`);
+    if (asset.ownershipType !== "PERSONAL") throw new ForbiddenException("Only personal assets can be shared");
+
+    return this.prisma.assetShareGrant.upsert({
+      where: { AssetShareGrant_asset_user_key: { assetId, grantedToUserId } },
+      create: { assetId, grantedToUserId, grantedByUserId: ownerId },
+      update: {},
+      include: {
+        grantedTo: { select: { id: true, email: true, firstName: true, lastName: true } },
+      },
+    });
+  }
+
+  async unshareAsset(companyId: string, assetId: string, ownerId: string, grantedToUserId: string) {
+    const asset = await this.prisma.asset.findFirst({
+      where: { id: assetId, companyId, ownerId },
+    });
+    if (!asset) throw new NotFoundException(`Asset ${assetId} not found or you are not the owner`);
+
+    const grant = await this.prisma.assetShareGrant.findUnique({
+      where: { AssetShareGrant_asset_user_key: { assetId, grantedToUserId } },
+    });
+    if (!grant) throw new NotFoundException("Share grant not found");
+
+    return this.prisma.assetShareGrant.delete({ where: { id: grant.id } });
+  }
+
+  async updateSharingVisibility(
+    companyId: string,
+    assetId: string,
+    ownerId: string,
+    visibility: AssetSharingVisibility,
+  ) {
+    const asset = await this.prisma.asset.findFirst({
+      where: { id: assetId, companyId, ownerId },
+    });
+    if (!asset) throw new NotFoundException(`Asset ${assetId} not found or you are not the owner`);
+    if (asset.ownershipType !== "PERSONAL") throw new ForbiddenException("Only personal assets have sharing visibility");
+
+    return this.prisma.asset.update({
+      where: { id: assetId },
+      data: { sharingVisibility: visibility },
+    });
   }
 
   // ── Usages ────────────────────────────────────────────────────────

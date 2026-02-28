@@ -6,6 +6,12 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
 
 type AssetType = "EQUIPMENT" | "TOOL" | "RENTAL";
 type MeterType = "HOURS" | "MILES" | "RUN_CYCLES" | "GENERATOR_HOURS";
+type OwnershipType = "COMPANY" | "PERSONAL";
+type SharingVisibility = "PRIVATE" | "COMPANY" | "CUSTOM";
+type OwnershipFilter = "ALL" | "COMPANY" | "PERSONAL" | "MY_ASSETS";
+
+interface UserRef { id: string; email: string; firstName: string | null; lastName: string | null }
+interface PoolRef { id: string; name: string; members?: { user: UserRef }[] }
 
 interface Asset {
   id: string;
@@ -22,6 +28,15 @@ interface Asset {
   isActive: boolean;
   isTrackable: boolean;
   isConsumable: boolean;
+  ownershipType: OwnershipType;
+  ownerId: string | null;
+  owner?: UserRef | null;
+  sharingVisibility: SharingVisibility;
+  maintenanceAssigneeId: string | null;
+  maintenanceAssignee?: UserRef | null;
+  maintenancePoolId: string | null;
+  maintenancePool?: PoolRef | null;
+  shareGrants?: { grantedTo: UserRef }[];
   currentLocation?: { id: string; name: string; type: string } | null;
   createdAt: string;
   updatedAt: string;
@@ -70,6 +85,11 @@ export default function AssetsPage() {
   const [filterType, setFilterType] = useState<AssetType | "">("");
   const [filterActive, setFilterActive] = useState<"" | "true" | "false">("");
   const [search, setSearch] = useState("");
+  const [ownershipFilter, setOwnershipFilter] = useState<OwnershipFilter>("ALL");
+
+  // Company users & maintenance pools (for dropdowns)
+  const [companyUsers, setCompanyUsers] = useState<UserRef[]>([]);
+  const [pools, setPools] = useState<PoolRef[]>([]);
 
   // ── Detail state ──────────────────────────────────────────────────────
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
@@ -88,6 +108,10 @@ export default function AssetsPage() {
   const [formSerial, setFormSerial] = useState("");
   const [formYear, setFormYear] = useState("");
   const [formTrackable, setFormTrackable] = useState(true);
+  const [formOwnership, setFormOwnership] = useState<OwnershipType>("COMPANY");
+  const [formSharingVisibility, setFormSharingVisibility] = useState<SharingVisibility>("COMPANY");
+  const [formMaintenanceAssigneeId, setFormMaintenanceAssigneeId] = useState("");
+  const [formMaintenancePoolId, setFormMaintenancePoolId] = useState("");
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -100,6 +124,7 @@ export default function AssetsPage() {
       if (filterType) params.set("assetType", filterType);
       if (filterActive) params.set("isActive", filterActive);
       if (search.trim()) params.set("search", search.trim());
+      if (ownershipFilter !== "ALL") params.set("ownershipFilter", ownershipFilter);
       const q = params.toString();
       const data = await apiFetch<Asset[]>(`/assets${q ? `?${q}` : ""}`);
       setAssets(data);
@@ -108,11 +133,19 @@ export default function AssetsPage() {
     } finally {
       setLoading(false);
     }
-  }, [filterType, filterActive, search]);
+  }, [filterType, filterActive, search, ownershipFilter]);
 
   useEffect(() => {
     void loadAssets();
   }, [loadAssets]);
+
+  // Load company users & pools for dropdowns
+  useEffect(() => {
+    apiFetch<any[]>("/company/members").then((m) => {
+      setCompanyUsers(m.map((x: any) => x.user ?? x).filter(Boolean));
+    }).catch(() => {});
+    apiFetch<PoolRef[]>("/maintenance-pools").then(setPools).catch(() => {});
+  }, []);
 
   // ── Open detail ───────────────────────────────────────────────────────
   const openDetail = useCallback(async (id: string) => {
@@ -139,6 +172,8 @@ export default function AssetsPage() {
     setFormType("EQUIPMENT"); setFormBaseUnit("HR"); setFormBaseRate("");
     setFormManufacturer(""); setFormModel(""); setFormSerial("");
     setFormYear(""); setFormTrackable(true); setEditingId(null);
+    setFormOwnership("COMPANY"); setFormSharingVisibility("COMPANY");
+    setFormMaintenanceAssigneeId(""); setFormMaintenancePoolId("");
   };
 
   const populateForm = (a: Asset) => {
@@ -147,6 +182,10 @@ export default function AssetsPage() {
     setFormManufacturer(a.manufacturer ?? ""); setFormModel(a.model ?? "");
     setFormSerial(a.serialNumberOrVin ?? ""); setFormYear(a.year ? String(a.year) : "");
     setFormTrackable(a.isTrackable); setEditingId(a.id);
+    setFormOwnership(a.ownershipType ?? "COMPANY");
+    setFormSharingVisibility(a.sharingVisibility ?? "COMPANY");
+    setFormMaintenanceAssigneeId(a.maintenanceAssigneeId ?? "");
+    setFormMaintenancePoolId(a.maintenancePoolId ?? "");
   };
 
   const handleSave = async () => {
@@ -165,6 +204,10 @@ export default function AssetsPage() {
         serialNumberOrVin: formSerial.trim() || null,
         year: formYear ? parseInt(formYear, 10) : null,
         isTrackable: formTrackable,
+        ownershipType: formOwnership,
+        sharingVisibility: formOwnership === "PERSONAL" ? formSharingVisibility : "COMPANY",
+        maintenanceAssigneeId: formMaintenanceAssigneeId || null,
+        maintenancePoolId: formMaintenancePoolId || null,
       };
 
       if (editingId) {
@@ -202,6 +245,30 @@ export default function AssetsPage() {
     }
   };
 
+  // ── CSV Template Download ──────────────────────────────────────────
+  const downloadCsvTemplate = () => {
+    const headers = [
+      "name","code","description","assetType","baseUnit","baseRate",
+      "manufacturer","model","serialNumberOrVin","year","isTrackable","isConsumable","isActive",
+      "ownershipType","ownerEmail","maintenanceAssigneeEmail","maintenancePoolName","sharingVisibility",
+    ];
+    const sampleRows = [
+      ["2019 Ford F350 Limited","VEH-F350-19","Crew cab pickup truck","EQUIPMENT","MI","0.65","Ford","F-350 Limited","1FT8W3BT7KEG32154","2019","true","false","true","COMPANY","","","Fleet Maintenance","COMPANY"],
+      ["2018 Iron Bull 40ft Trailer","TRL-IB40-18","40-foot gooseneck flatbed trailer","EQUIPMENT","HR","35","Iron Bull","40ft Gooseneck","50HFL4025J1021012","2018","true","false","true","COMPANY","","fleetmgr@company.com","","COMPANY"],
+      ["Jimmy Scaffold Set A","SCAFFOLD-JM-A","6-section scaffold set","EQUIPMENT","DAY","50","","Scaffold Set","","","true","false","true","PERSONAL","jimmy@company.com","","","COMPANY"],
+      ["Personal Truck - 2022 Ram 2500","VEH-RAM-22","Personal truck used on job sites","EQUIPMENT","MI","0.67","Ram","2500","","2022","true","false","true","PERSONAL","worker@company.com","","","PRIVATE"],
+      ["Hypertherm Powermax 45 SYNC","TOOL-HYPER45","Plasma cutter 45A","TOOL","HR","12","Hypertherm","Powermax 45 SYNC","","","true","false","true","COMPANY","","","Welding Crew","COMPANY"],
+    ];
+    const csvContent = [headers.join(","), ...sampleRows.map((r) => r.map((v) => `"${v}"`).join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "asset-import-template.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // ── Render ────────────────────────────────────────────────────────────
   return (
     <div style={{ padding: "24px 32px", maxWidth: 1200, margin: "0 auto" }}>
@@ -217,12 +284,20 @@ export default function AssetsPage() {
             </button>
           )}
           {tab === "LIST" && (
-            <button
-              onClick={() => { resetForm(); startTransition(() => setTab("CREATE")); }}
-              style={{ padding: "6px 14px", border: "none", borderRadius: 6, background: "#1e3a8a", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}
-            >
-              + New Asset
-            </button>
+            <>
+              <button
+                onClick={downloadCsvTemplate}
+                style={{ padding: "6px 14px", border: "1px solid #d1d5db", borderRadius: 6, background: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600, color: "#374151" }}
+              >
+                ↓ CSV Template
+              </button>
+              <button
+                onClick={() => { resetForm(); startTransition(() => setTab("CREATE")); }}
+                style={{ padding: "6px 14px", border: "none", borderRadius: 6, background: "#1e3a8a", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}
+              >
+                + New Asset
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -237,6 +312,23 @@ export default function AssetsPage() {
       {/* ══════ LIST TAB ══════ */}
       {tab === "LIST" && (
         <>
+          {/* Ownership filter tabs */}
+          <div style={{ display: "flex", gap: 0, marginBottom: 12, borderBottom: "1px solid #e5e7eb" }}>
+            {(["ALL", "COMPANY", "PERSONAL", "MY_ASSETS"] as OwnershipFilter[]).map((f) => (
+              <button
+                key={f}
+                onClick={() => setOwnershipFilter(f)}
+                style={{
+                  padding: "8px 16px", border: "none", borderBottom: ownershipFilter === f ? "2px solid #1e3a8a" : "2px solid transparent",
+                  background: "none", cursor: "pointer", fontSize: 13, fontWeight: ownershipFilter === f ? 700 : 400,
+                  color: ownershipFilter === f ? "#1e3a8a" : "#6b7280",
+                }}
+              >
+                {f === "ALL" ? "All Assets" : f === "COMPANY" ? "Company" : f === "PERSONAL" ? "Personal" : "My Assets"}
+              </button>
+            ))}
+          </div>
+
           {/* Filters */}
           <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
             <input
@@ -281,6 +373,7 @@ export default function AssetsPage() {
                 <thead>
                   <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
                     <th style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600 }}>Name</th>
+                    <th style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600 }}>Owner</th>
                     <th style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600 }}>Code</th>
                     <th style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600 }}>Type</th>
                     <th style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600 }}>Rate</th>
@@ -297,7 +390,27 @@ export default function AssetsPage() {
                       style={{ borderBottom: "1px solid #e5e7eb", cursor: "pointer" }}
                       onClick={() => openDetail(a.id)}
                     >
-                      <td style={{ padding: "8px 12px", fontWeight: 500 }}>{a.name}</td>
+                      <td style={{ padding: "8px 12px", fontWeight: 500 }}>
+                        {a.name}
+                        {a.ownershipType === "PERSONAL" && a.sharingVisibility === "PRIVATE" && (
+                          <span title="Private" style={{ marginLeft: 6, fontSize: 10, color: "#9ca3af" }}>🔒</span>
+                        )}
+                        {a.ownershipType === "PERSONAL" && a.sharingVisibility === "COMPANY" && (
+                          <span title="Shared with company" style={{ marginLeft: 6, fontSize: 10, color: "#059669" }}>🔗</span>
+                        )}
+                        {a.ownershipType === "PERSONAL" && a.sharingVisibility === "CUSTOM" && (
+                          <span title="Shared with select people" style={{ marginLeft: 6, fontSize: 10, color: "#d97706" }}>👥</span>
+                        )}
+                      </td>
+                      <td style={{ padding: "8px 12px", fontSize: 12 }}>
+                        {a.ownershipType === "PERSONAL" ? (
+                          <span style={{ display: "inline-block", padding: "2px 6px", borderRadius: 999, fontSize: 10, fontWeight: 600, background: "#faf5ff", color: "#7c3aed" }}>
+                            {a.owner ? `${a.owner.firstName ?? ""} ${a.owner.lastName ?? ""}`.trim() || a.owner.email : "Personal"}
+                          </span>
+                        ) : (
+                          <span style={{ display: "inline-block", padding: "2px 6px", borderRadius: 999, fontSize: 10, fontWeight: 600, background: "#f0f9ff", color: "#0369a1" }}>Company</span>
+                        )}
+                      </td>
                       <td style={{ padding: "8px 12px", color: "#6b7280" }}>{a.code || "—"}</td>
                       <td style={{ padding: "8px 12px" }}>
                         <span style={{
@@ -353,6 +466,36 @@ export default function AssetsPage() {
               <div style={{ fontSize: 13, color: "#6b7280" }}>
                 {[selectedAsset.manufacturer, selectedAsset.model, selectedAsset.year].filter(Boolean).join(" · ")}
                 {selectedAsset.serialNumberOrVin && ` · S/N: ${selectedAsset.serialNumberOrVin}`}
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                <span style={{
+                  display: "inline-block", padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600,
+                  background: selectedAsset.ownershipType === "PERSONAL" ? "#faf5ff" : "#f0f9ff",
+                  color: selectedAsset.ownershipType === "PERSONAL" ? "#7c3aed" : "#0369a1",
+                }}>
+                  {selectedAsset.ownershipType === "PERSONAL"
+                    ? `Personal · ${selectedAsset.owner ? `${selectedAsset.owner.firstName ?? ""} ${selectedAsset.owner.lastName ?? ""}`.trim() || selectedAsset.owner.email : ""}`
+                    : "Company Asset"}
+                </span>
+                {selectedAsset.maintenanceAssignee && (
+                  <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600, background: "#fef3c7", color: "#92400e" }}>
+                    Maint: {`${selectedAsset.maintenanceAssignee.firstName ?? ""} ${selectedAsset.maintenanceAssignee.lastName ?? ""}`.trim() || selectedAsset.maintenanceAssignee.email}
+                  </span>
+                )}
+                {selectedAsset.maintenancePool && (
+                  <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600, background: "#fef3c7", color: "#92400e" }}>
+                    Pool: {selectedAsset.maintenancePool.name}
+                  </span>
+                )}
+                {selectedAsset.ownershipType === "PERSONAL" && (
+                  <span style={{
+                    display: "inline-block", padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600,
+                    background: selectedAsset.sharingVisibility === "PRIVATE" ? "#f3f4f6" : selectedAsset.sharingVisibility === "COMPANY" ? "#d1fae5" : "#fef3c7",
+                    color: selectedAsset.sharingVisibility === "PRIVATE" ? "#6b7280" : selectedAsset.sharingVisibility === "COMPANY" ? "#065f46" : "#92400e",
+                  }}>
+                    {selectedAsset.sharingVisibility === "PRIVATE" ? "Private" : selectedAsset.sharingVisibility === "COMPANY" ? "Shared w/ Company" : "Custom Sharing"}
+                  </span>
+                )}
               </div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
@@ -583,11 +726,74 @@ export default function AssetsPage() {
             </div>
           </div>
 
-          <div style={{ marginBottom: 20 }}>
+          <div style={{ marginBottom: 12 }}>
             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }}>
               <input type="checkbox" checked={formTrackable} onChange={(e) => setFormTrackable(e.target.checked)} />
               Trackable (GPS / location-aware)
             </label>
+          </div>
+
+          {/* Ownership */}
+          <div style={{ borderTop: "1px solid #e5e7eb", paddingTop: 12, marginBottom: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Ownership</div>
+            <div style={{ display: "flex", gap: 16, marginBottom: 10 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+                <input type="radio" checked={formOwnership === "COMPANY"} onChange={() => { setFormOwnership("COMPANY"); setFormSharingVisibility("COMPANY"); }} />
+                Company Asset
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+                <input type="radio" checked={formOwnership === "PERSONAL"} onChange={() => { setFormOwnership("PERSONAL"); setFormSharingVisibility("PRIVATE"); }} />
+                Personal Asset
+              </label>
+            </div>
+            {formOwnership === "PERSONAL" && (
+              <div style={{ marginBottom: 10 }}>
+                <label style={labelStyle}>Sharing</label>
+                <div style={{ display: "flex", gap: 12 }}>
+                  {(["PRIVATE", "COMPANY", "CUSTOM"] as SharingVisibility[]).map((v) => (
+                    <label key={v} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, cursor: "pointer" }}>
+                      <input type="radio" checked={formSharingVisibility === v} onChange={() => setFormSharingVisibility(v)} />
+                      {v === "PRIVATE" ? "Private" : v === "COMPANY" ? "Share with Company" : "Specific People"}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Maintenance Assignment */}
+          <div style={{ borderTop: "1px solid #e5e7eb", paddingTop: 12, marginBottom: 20 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Maintenance Assignment</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <label style={labelStyle}>Assign to Person</label>
+                <select
+                  value={formMaintenanceAssigneeId}
+                  onChange={(e) => { setFormMaintenanceAssigneeId(e.target.value); if (e.target.value) setFormMaintenancePoolId(""); }}
+                  style={inputStyle}
+                >
+                  <option value="">None</option>
+                  {companyUsers.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {`${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle}>Assign to Pool</label>
+                <select
+                  value={formMaintenancePoolId}
+                  onChange={(e) => { setFormMaintenancePoolId(e.target.value); if (e.target.value) setFormMaintenanceAssigneeId(""); }}
+                  style={inputStyle}
+                >
+                  <option value="">None</option>
+                  {pools.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
           </div>
 
           <div style={{ display: "flex", gap: 10 }}>

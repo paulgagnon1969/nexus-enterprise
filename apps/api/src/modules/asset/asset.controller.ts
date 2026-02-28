@@ -1,9 +1,9 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
-import { AssetRepository } from "../../infra/prisma-v1/asset.repository";
+import { AssetRepository, OwnershipFilter } from "../../infra/prisma-v1/asset.repository";
 import { AssetDeploymentService } from "./asset-deployment.service";
-import { AssetType } from "@prisma/client";
+import { AssetType, AssetOwnershipType, AssetSharingVisibility } from "@prisma/client";
 import { RequiresModule } from "../billing/module.guard";
 
 @RequiresModule('ASSETS')
@@ -21,12 +21,22 @@ export class AssetController {
     @Query("assetType") assetType?: AssetType,
     @Query("isActive") isActive?: string,
     @Query("search") search?: string,
+    @Query("ownershipFilter") ownershipFilter?: OwnershipFilter,
   ) {
     const user = req.user as AuthenticatedUser;
-    return this.assets.listAssetsForCompany(user.companyId, {
+    return this.assets.listAssetsForCompany(user.companyId, user.userId, {
       assetType,
       isActive: isActive !== undefined ? isActive === "true" : undefined,
       search,
+      ownershipFilter,
+    });
+  }
+
+  @Get("my-assets")
+  async myAssets(@Req() req: any) {
+    const user = req.user as AuthenticatedUser;
+    return this.assets.listAssetsForCompany(user.companyId, user.userId, {
+      ownershipFilter: "MY_ASSETS",
     });
   }
 
@@ -69,12 +79,20 @@ export class AssetController {
       isTrackable?: boolean;
       isConsumable?: boolean;
       currentLocationId?: string | null;
+      ownershipType?: AssetOwnershipType;
+      ownerId?: string | null;
+      sharingVisibility?: AssetSharingVisibility;
+      maintenanceAssigneeId?: string | null;
+      maintenancePoolId?: string | null;
     },
   ) {
     const user = req.user as AuthenticatedUser;
+    // If creating a personal asset without explicit ownerId, default to current user
+    const ownerId = body.ownershipType === "PERSONAL" && !body.ownerId ? user.userId : body.ownerId;
     return this.assets.createAsset({
       companyId: user.companyId,
       ...body,
+      ownerId,
     });
   }
 
@@ -99,6 +117,11 @@ export class AssetController {
       isConsumable?: boolean;
       isActive?: boolean;
       currentLocationId?: string | null;
+      ownershipType?: AssetOwnershipType;
+      ownerId?: string | null;
+      sharingVisibility?: AssetSharingVisibility;
+      maintenanceAssigneeId?: string | null;
+      maintenancePoolId?: string | null;
     },
   ) {
     const user = req.user as AuthenticatedUser;
@@ -109,6 +132,38 @@ export class AssetController {
   async deactivate(@Req() req: any, @Param("id") id: string) {
     const user = req.user as AuthenticatedUser;
     return this.assets.deactivateAsset(user.companyId, id);
+  }
+
+  // ── Sharing ───────────────────────────────────────────────────────
+
+  @Post(":id/share")
+  async shareAsset(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() body: { grantedToUserId: string },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.assets.shareAsset(user.companyId, id, user.userId, body.grantedToUserId);
+  }
+
+  @Delete(":id/share/:userId")
+  async unshareAsset(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Param("userId") targetUserId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.assets.unshareAsset(user.companyId, id, user.userId, targetUserId);
+  }
+
+  @Patch(":id/visibility")
+  async updateVisibility(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() body: { sharingVisibility: AssetSharingVisibility },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.assets.updateSharingVisibility(user.companyId, id, user.userId, body.sharingVisibility);
   }
 
   // ── Deployment ─────────────────────────────────────────────────────
