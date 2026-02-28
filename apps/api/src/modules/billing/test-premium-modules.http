@@ -1,0 +1,80 @@
+### Premium Module Purchase Flow Tests
+### BASE_URL should be your API endpoint
+@BASE_URL = http://localhost:8001
+### AUTH_TOKEN should be a valid JWT from your login
+@AUTH_TOKEN = your_jwt_token_here
+
+### 1. List Available Modules
+# Should return MASTER_COSTBOOK ($4,999), GOLDEN_PETL ($2,999), GOLDEN_BOM ($1,999)
+GET {{BASE_URL}}/billing/modules/available
+Authorization: Bearer {{AUTH_TOKEN}}
+
+###
+
+### 2. Check Module Access (before purchase)
+# Should return hasAccess: false
+GET {{BASE_URL}}/billing/modules/MASTER_COSTBOOK/check
+Authorization: Bearer {{AUTH_TOKEN}}
+
+###
+
+### 3. Get Company's Active Modules
+# Should return empty array (or list of purchased modules)
+GET {{BASE_URL}}/billing/modules/company
+Authorization: Bearer {{AUTH_TOKEN}}
+
+###
+
+### 4. Initiate Module Purchase
+# Returns clientSecret for Stripe Elements
+# Use this in your frontend with Stripe.js to confirm payment
+POST {{BASE_URL}}/billing/modules/MASTER_COSTBOOK/purchase
+Authorization: Bearer {{AUTH_TOKEN}}
+
+###
+
+### 5. Grant Module Access (DEV ONLY - bypasses Stripe)
+# In production, this happens automatically via webhook after payment
+POST {{BASE_URL}}/billing/modules/MASTER_COSTBOOK/grant
+Authorization: Bearer {{AUTH_TOKEN}}
+
+###
+
+### 6. Verify Module Access (after purchase)
+# Should return hasAccess: true
+GET {{BASE_URL}}/billing/modules/MASTER_COSTBOOK/check
+Authorization: Bearer {{AUTH_TOKEN}}
+
+###
+
+### Stripe Webhook (POST from Stripe servers)
+# This is called automatically by Stripe after successful payment
+# You can test locally with Stripe CLI:
+#   stripe listen --forward-to localhost:8001/webhooks/stripe
+#   stripe trigger payment_intent.succeeded
+
+POST {{BASE_URL}}/webhooks/stripe
+Content-Type: application/json
+Stripe-Signature: your_stripe_signature
+
+{
+  "id": "evt_test_123",
+  "type": "payment_intent.succeeded",
+  "data": {
+    "object": {
+      "id": "pi_test_123",
+      "amount": 499900,
+      "currency": "usd",
+      "customer": "cus_test_123",
+      "metadata": {
+        "type": "module_purchase",
+        "nexusCompanyId": "cmm0sv0sw00037n7n83z71ln9",
+        "moduleCode": "MASTER_COSTBOOK",
+        "userId": "user_id_here"
+      },
+      "status": "succeeded"
+    }
+  }
+}
+
+###

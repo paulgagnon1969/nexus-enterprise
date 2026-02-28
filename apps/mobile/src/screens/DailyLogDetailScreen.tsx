@@ -12,7 +12,7 @@ import {
   TextInput,
   Modal,
 } from "react-native";
-import { fetchDailyLogDetail, delayPublishLog, publishLog, fetchRevisions } from "../api/dailyLog";
+import { fetchDailyLogDetail, delayPublishLog, publishLog, fetchRevisions, fetchAttachmentDownloadUrl } from "../api/dailyLog";
 import { fetchTasksForDailyLog, createTask, updateTaskStatus } from "../api/tasks";
 import { getCache, setCache } from "../offline/cache";
 import { getApiBaseUrl } from "../api/config";
@@ -231,7 +231,20 @@ export function DailyLogDetailScreen({
     });
   };
 
-  const openAttachment = (url: string) => {
+  const openAttachment = async (url: string, attachmentId?: string) => {
+    // If we have an attachment ID, fetch a fresh signed URL from the API
+    if (attachmentId) {
+      try {
+        const { downloadUrl } = await fetchAttachmentDownloadUrl(log.id, attachmentId);
+        if (downloadUrl) {
+          void Linking.openURL(downloadUrl);
+          return;
+        }
+      } catch (err) {
+        console.warn("[openAttachment] Failed to get signed URL, falling back", err);
+      }
+    }
+    // Fallback to the URL as-is
     const resolved = resolveAttachmentUrl(url);
     if (resolved) void Linking.openURL(resolved);
   };
@@ -463,7 +476,7 @@ export function DailyLogDetailScreen({
                     <Pressable
                       key={att.id}
                       style={styles.photoThumbnailWrapper}
-                      onPress={() => att.fileUrl && openAttachment(att.fileUrl)}
+                      onPress={() => att.fileUrl && openAttachment(att.fileUrl, att.id)}
                     >
                       <Image
                         source={{ uri: imageUri }}
@@ -481,7 +494,7 @@ export function DailyLogDetailScreen({
               <Pressable
                 key={att.id}
                 style={styles.videoRow}
-                onPress={() => att.fileUrl && openAttachment(att.fileUrl)}
+                onPress={() => att.fileUrl && openAttachment(att.fileUrl, att.id)}
               >
                 <Text style={styles.videoIcon}>🎬</Text>
                 <View style={{ flex: 1 }}>
@@ -498,7 +511,7 @@ export function DailyLogDetailScreen({
               <Pressable
                 key={att.id}
                 style={styles.attachmentRow}
-                onPress={() => att.fileUrl && openAttachment(att.fileUrl)}
+                onPress={() => att.fileUrl && openAttachment(att.fileUrl, att.id)}
               >
                 <Text style={styles.attachmentIcon}>📎</Text>
                 <Text style={styles.attachmentName} numberOfLines={1}>

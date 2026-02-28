@@ -53,7 +53,8 @@
     "puppeteer": "^24.37.3",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
-    "stripe": "^20.4.0"
+    "stripe": "^20.4.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

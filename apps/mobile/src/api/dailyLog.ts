@@ -201,6 +201,19 @@ export async function scanReceiptImage(
 }
 
 /**
+ * Fetch a signed download URL for a daily log attachment.
+ * Call this before opening an attachment to avoid GCS access-denied errors.
+ */
+export async function fetchAttachmentDownloadUrl(
+  logId: string,
+  attachmentId: string,
+): Promise<{ downloadUrl: string }> {
+  return apiJson<{ downloadUrl: string }>(
+    `/daily-logs/${encodeURIComponent(logId)}/attachments/${encodeURIComponent(attachmentId)}/download-url`,
+  );
+}
+
+/**
  * Delete an attachment from a daily log.
  */
 export async function deleteAttachment(

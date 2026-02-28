@@ -461,6 +461,87 @@ export class DailyLogService {
     });
   }
 
+  /**
+   * Try to generate a signed read URL for a GCS-hosted file URL.
+   * Returns the original URL if GCS is not configured or the URL isn't GCS.
+   */
+  private async signFileUrl(fileUrl: string): Promise<string> {
+    if (!fileUrl) return fileUrl;
+
+    // Only sign storage.googleapis.com URLs
+    const gcsMatch = fileUrl.match(
+      /^https:\/\/storage\.googleapis\.com\/([^/]+)\/(.+)$/,
+    );
+    if (!gcsMatch) return fileUrl;
+
+    const bucket = gcsMatch[1]!;
+    const key = gcsMatch[2]!;
+
+    try {
+      return await this.gcs.createSignedReadUrl({
+        bucket,
+        key,
+        expiresInSeconds: 60 * 60, // 1 hour for viewing
+      });
+    } catch (err: any) {
+      this.logger.warn(
+        `Failed to sign URL for ${key}: ${err?.message ?? err}`,
+      );
+      return fileUrl;
+    }
+  }
+
+  /**
+   * Replace fileUrl with signed read URLs on an array of attachments.
+   */
+  private async signAttachmentUrls<
+    T extends { fileUrl?: string | null },
+  >(attachments: T[]): Promise<T[]> {
+    return Promise.all(
+      attachments.map(async (att) => {
+        if (!att.fileUrl) return att;
+        const signedUrl = await this.signFileUrl(att.fileUrl);
+        return { ...att, fileUrl: signedUrl };
+      }),
+    );
+  }
+
+  /**
+   * Generate a fresh signed download URL for a single attachment.
+   */
+  async getAttachmentDownloadUrl(
+    dailyLogId: string,
+    attachmentId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+  ): Promise<{ downloadUrl: string }> {
+    const log = await this.prisma.dailyLog.findFirst({
+      where: { id: dailyLogId, project: { companyId } },
+      include: { project: true },
+    });
+
+    if (!log) {
+      throw new NotFoundException("Daily log not found in this company");
+    }
+
+    await this.assertProjectAccess(log.projectId, companyId, actor, null);
+
+    if (!this.canViewDailyLog(actor, log, log.project, companyId)) {
+      throw new ForbiddenException("You do not have access to this daily log");
+    }
+
+    const attachment = await this.prisma.dailyLogAttachment.findFirst({
+      where: { id: attachmentId, dailyLogId },
+    });
+
+    if (!attachment || !attachment.fileUrl) {
+      throw new NotFoundException("Attachment not found");
+    }
+
+    const downloadUrl = await this.signFileUrl(attachment.fileUrl);
+    return { downloadUrl };
+  }
+
   async listAttachments(
     dailyLogId: string,
     companyId: string,
@@ -486,7 +567,7 @@ export class DailyLogService {
       orderBy: { createdAt: "asc" },
     });
 
-    return attachments;
+    return this.signAttachmentUrls(attachments);
   }
 
   /**
@@ -1915,15 +1996,21 @@ export class DailyLogService {
       return true;
     });
 
-    const items = visibleLogs.map((l: any) => {
-      const { createdBy, notifyUserIdsJson: _n, tagsJson: _t, project, ...rest } = l;
-      return {
-        ...rest,
-        projectId: project.id,
-        projectName: project.name,
-        createdByUser: createdBy,
-      };
-    });
+    const items = await Promise.all(
+      visibleLogs.map(async (l: any) => {
+        const { createdBy, notifyUserIdsJson: _n, tagsJson: _t, project, ...rest } = l;
+        const signedAttachments = rest.attachments?.length
+          ? await this.signAttachmentUrls(rest.attachments)
+          : rest.attachments;
+        return {
+          ...rest,
+          attachments: signedAttachments,
+          projectId: project.id,
+          projectName: project.name,
+          createdByUser: createdBy,
+        };
+      }),
+    );
 
     return { items, total, limit, offset };
   }
@@ -1973,8 +2060,15 @@ export class DailyLogService {
     }
 
     const { createdBy, notifyUserIdsJson: _n, tagsJson: _t, project, ...rest } = log as any;
+
+    // Sign attachment URLs so clients can access GCS objects
+    const signedAttachments = rest.attachments
+      ? await this.signAttachmentUrls(rest.attachments)
+      : rest.attachments;
+
     return {
       ...rest,
+      attachments: signedAttachments,
       projectId: project.id,
       projectName: project.name,
       createdByUser: createdBy,

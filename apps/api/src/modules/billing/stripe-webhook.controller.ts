@@ -5,6 +5,7 @@ import Stripe from "stripe";
 import { STRIPE_CLIENT } from "./stripe.provider";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { EntitlementService } from "./entitlement.service";
+import { BillingService } from "./billing.service";
 import { Public } from "../auth/auth.guards";
 
 /**
@@ -24,6 +25,7 @@ export class StripeWebhookController {
     @Inject(STRIPE_CLIENT) private readonly stripe: Stripe | null,
     private readonly prisma: PrismaService,
     private readonly entitlements: EntitlementService,
+    private readonly billing: BillingService,
     private readonly config: ConfigService,
   ) {
     this.webhookSecret = this.config.get<string>("STRIPE_WEBHOOK_SECRET") || "";
@@ -75,6 +77,9 @@ export class StripeWebhookController {
     });
 
     switch (event.type) {
+      case "payment_intent.succeeded":
+        await this.handlePaymentIntentSucceeded(event.data.object as Stripe.PaymentIntent);
+        break;
       case "customer.subscription.updated":
         await this.handleSubscriptionUpdated(event.data.object as Stripe.Subscription);
         break;
@@ -104,6 +109,30 @@ export class StripeWebhookController {
   }
 
   // ─── Event Handlers ─────────────────────────────────
+
+  private async handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent) {
+    const { metadata } = paymentIntent;
+
+    // Check if this is a module purchase
+    if (metadata.type === "module_purchase") {
+      const { nexusCompanyId, moduleCode } = metadata;
+
+      if (!nexusCompanyId || !moduleCode) {
+        console.error("[stripe-webhook] Missing metadata for module purchase:", metadata);
+        return;
+      }
+
+      console.log(`[stripe-webhook] Granting ${moduleCode} to company ${nexusCompanyId}`);
+
+      await this.billing.grantModuleAccessAfterPayment(
+        nexusCompanyId,
+        moduleCode,
+        paymentIntent.id,
+      );
+
+      console.log(`[stripe-webhook] ✅ Module ${moduleCode} access granted to ${nexusCompanyId}`);
+    }
+  }
 
   private async handleSubscriptionUpdated(sub: Stripe.Subscription) {
     const localSub = await this.prisma.tenantSubscription.findUnique({

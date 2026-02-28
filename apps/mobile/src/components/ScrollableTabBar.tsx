@@ -23,6 +23,7 @@ const MODULES: { key: string; icon: string; label: string }[] = [
   { key: "TimecardTab", icon: "⏱️", label: "Timecard" },
   { key: "DirectoryTab", icon: "👥", label: "Directory" },
   { key: "ProjectsTab", icon: "📋", label: "Projects" },
+  { key: "MapTab", icon: "🗺️", label: "Map" },
   { key: "InventoryTab", icon: "📦", label: "Inventory" },
   { key: "OutboxTab", icon: "📤", label: "Outbox" },
 ];
@@ -33,6 +34,7 @@ const TAB_META: Record<string, { icon: string; label: string }> = {
   TimecardTab: { icon: "⏱️", label: "Timecard" },
   DirectoryTab: { icon: "👥", label: "Directory" },
   ProjectsTab: { icon: "📋", label: "Projects" },
+  MapTab: { icon: "🗺️", label: "Map" },
   InventoryTab: { icon: "📦", label: "Inventory" },
   OutboxTab: { icon: "📤", label: "Outbox" },
 };

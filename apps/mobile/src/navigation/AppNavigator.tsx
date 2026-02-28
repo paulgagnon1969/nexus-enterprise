@@ -10,6 +10,7 @@ import appJson from "../../app.json";
 
 import { HomeScreen } from "../screens/HomeScreen";
 import { ProjectsScreen } from "../screens/ProjectsScreen";
+import { MapScreen } from "../screens/MapScreen";
 import { DailyLogsScreen } from "../screens/DailyLogsScreen";
 import { FieldPetlScreen, type PetlSessionChanges } from "../screens/FieldPetlScreen";
 import { DirectoryScreen } from "../screens/DirectoryScreen";
@@ -35,6 +36,7 @@ export type RootTabParamList = {
   TimecardTab: undefined;
   DirectoryTab: undefined;
   ProjectsTab: undefined;
+  MapTab: undefined;
   InventoryTab: undefined;
   OutboxTab: undefined;
 };
@@ -241,6 +243,21 @@ function ProjectsStackNavigator() {
   );
 }
 
+// Wrapper for MapScreen
+function MapTabScreen() {
+  const navigation = useNavigation<any>();
+  return (
+    <MapScreen
+      onSelectProject={(project) => {
+        navigation.navigate("ProjectsTab", {
+          screen: "DailyLogs",
+          params: { project },
+        });
+      }}
+    />
+  );
+}
+
 // Wrapper for InventoryScreen
 function InventoryTabScreen() {
   return <InventoryScreen onBack={() => {}} />;
@@ -395,6 +412,7 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
         <Tab.Screen name="TimecardTab" component={TimecardScreen} />
         <Tab.Screen name="DirectoryTab" component={DirectoryStackNavigator} />
         <Tab.Screen name="ProjectsTab" component={ProjectsStackNavigator} />
+        <Tab.Screen name="MapTab" component={MapTabScreen} />
         <Tab.Screen name="InventoryTab" component={InventoryTabScreen} />
         <Tab.Screen name="OutboxTab" component={OutboxTabScreen} />
       </Tab.Navigator>
@@ -411,6 +429,7 @@ const TAB_KEYS: Record<string, boolean> = {
   TimecardTab: true,
   DirectoryTab: true,
   ProjectsTab: true,
+  MapTab: true,
   InventoryTab: true,
   OutboxTab: true,
 };

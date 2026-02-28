@@ -623,6 +623,113 @@ export class BillingService {
   }
 
   // ───────────────────────────────────────────────
+  // Premium Module Purchases (One-Time)
+  // ───────────────────────────────────────────────
+
+  /**
+   * Create a PaymentIntent for a one-time premium module purchase.
+   * Returns client_secret for Stripe Elements to confirm payment.
+   */
+  async createModulePurchaseIntent(actor: AuthenticatedUser, moduleCode: string) {
+    this.ensureBillingPermission(actor);
+
+    // Validate module exists and is available for purchase
+    const module = await this.prisma.moduleCatalog.findUnique({
+      where: { code: moduleCode },
+    });
+
+    if (!module || !module.active) {
+      throw new NotFoundException(`Module '${moduleCode}' not found`);
+    }
+
+    if (module.pricingModel !== "ONE_TIME_PURCHASE") {
+      throw new BadRequestException(
+        `Module '${moduleCode}' is not a one-time purchase module`,
+      );
+    }
+
+    if (!module.oneTimePurchasePrice || !module.stripePriceId) {
+      throw new BadRequestException(
+        `Module '${moduleCode}' is not properly configured for purchase`,
+      );
+    }
+
+    // Check if already purchased
+    const existing = await this.prisma.tenantModuleSubscription.findUnique({
+      where: {
+        TenantModuleSub_company_module_key: {
+          companyId: actor.companyId,
+          moduleCode,
+        },
+      },
+    });
+
+    if (existing && !existing.disabledAt) {
+      throw new BadRequestException(`You already own ${module.label}`);
+    }
+
+    // Create Stripe PaymentIntent
+    const stripe = this.requireStripe();
+    const customerId = await this.ensureStripeCustomer(actor.companyId);
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: module.oneTimePurchasePrice,
+      currency: "usd",
+      customer: customerId,
+      description: `${module.label} - Lifetime Access`,
+      metadata: {
+        nexusCompanyId: actor.companyId,
+        moduleCode,
+        userId: actor.userId,
+        type: "module_purchase",
+      },
+      // Don't auto-confirm - let frontend confirm via Stripe Elements
+      automatic_payment_methods: {
+        enabled: true,
+      },
+    });
+
+    return {
+      clientSecret: paymentIntent.client_secret,
+      moduleCode,
+      amount: module.oneTimePurchasePrice,
+      formattedAmount: `$${(module.oneTimePurchasePrice / 100).toFixed(2)}`,
+    };
+  }
+
+  /**
+   * Grant module access after successful payment.
+   * Called by Stripe webhook handler.
+   */
+  async grantModuleAccessAfterPayment(
+    companyId: string,
+    moduleCode: string,
+    stripePaymentIntentId: string,
+  ) {
+    await this.prisma.tenantModuleSubscription.upsert({
+      where: {
+        TenantModuleSub_company_module_key: {
+          companyId,
+          moduleCode,
+        },
+      },
+      update: {
+        disabledAt: null, // Re-enable if was disabled
+      },
+      create: {
+        companyId,
+        moduleCode,
+        // No stripeSubscriptionItemId - one-time purchase
+      },
+    });
+
+    // Invalidate cache
+    await this.entitlements.invalidate(companyId);
+
+    console.log(`[Billing] Granted ${moduleCode} access to company ${companyId} (payment: ${stripePaymentIntentId})`);
+  }
+
+  // ───────────────────────────────────────────────
   // Helpers
   // ───────────────────────────────────────────────
 

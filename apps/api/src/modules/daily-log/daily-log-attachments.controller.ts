@@ -101,6 +101,21 @@ export class DailyLogAttachmentsController {
     return this.dailyLogs.triggerOcrForLog(logId, user.companyId, user);
   }
 
+  /**
+   * Generate a time-limited signed download URL for a specific attachment.
+   * Use this instead of opening the raw fileUrl directly.
+   */
+  @UseGuards(CombinedAuthGuard)
+  @Get(":attachmentId/download-url")
+  async getDownloadUrl(
+    @Req() req: any,
+    @Param("logId") logId: string,
+    @Param("attachmentId") attachmentId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.dailyLogs.getAttachmentDownloadUrl(logId, attachmentId, user.companyId, user);
+  }
+
   @UseGuards(CombinedAuthGuard)
   @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
   @Delete(":attachmentId")
