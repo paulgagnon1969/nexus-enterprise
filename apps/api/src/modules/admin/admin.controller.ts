@@ -114,6 +114,24 @@ export class AdminController {
     return this.admin.getAnalyticsOverview(actor, period || "30d");
   }
 
+  @Get("analytics/time-series")
+  getAnalyticsTimeSeries(@Req() req: any, @Query("period") period?: string) {
+    const actor = req.user as AuthenticatedUser;
+    return this.admin.getAnalyticsTimeSeries(actor, period || "30d");
+  }
+
+  @Get("analytics/user-activity")
+  getAnalyticsUserActivity(@Req() req: any, @Query("period") period?: string) {
+    const actor = req.user as AuthenticatedUser;
+    return this.admin.getAnalyticsUserActivity(actor, period || "30d");
+  }
+
+  @Get("analytics/gaming-summary")
+  getAnalyticsGamingSummary(@Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.admin.getAnalyticsGamingSummary(actor);
+  }
+
   @Get("audit-logs")
   listAuditLogs() {
     return this.admin.listAuditLogs(100);

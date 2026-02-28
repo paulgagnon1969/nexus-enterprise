@@ -335,6 +335,28 @@ export default function ProjectsPage() {
   // Dashboard cards: Tasks + Notes/Journal
   const [dashTasks, setDashTasks] = useState<DashboardTask[]>([]);
   const [vjns, setVjns] = useState<VoiceJournalNote[]>([]);
+
+  // TUCKS Personal KPI card
+  const [personalKpis, setPersonalKpis] = useState<{
+    period: string;
+    modules: Record<string, { you: number; companyAvg: number }>;
+    completionRate: { you: number; companyAvg: number };
+    ranking: { dailyLogPercentile: number; label: string };
+  } | null>(null);
+  const [kpiOpen, setKpiOpen] = useState(true);
+
+  // TUCKS Gaming Review Queue (PM+ only)
+  const [gamingFlags, setGamingFlags] = useState<Array<{
+    id: string;
+    flagDate: string;
+    gamingScore: number;
+    scores: { volume: number; burst: number; entropy: number; similarity: number; ratio: number };
+    severity: "RED" | "AMBER";
+    dailyLogCount: number;
+    user: { id: string; email: string; firstName: string | null; lastName: string | null };
+    status: string;
+  }>>([]);
+  const [reviewOpen, setReviewOpen] = useState(true);
   const [taskProjectFilter, setTaskProjectFilter] = useState<string>("");
   const [journalProjectFilter, setJournalProjectFilter] = useState<string>("");
 
@@ -430,6 +452,46 @@ export default function ProjectsPage() {
     };
 
     fetchProjects();
+  }, [token]);
+
+  // Fetch personal KPIs (TUCKS)
+  useEffect(() => {
+    if (!token) return;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/analytics/me?period=30d`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) setPersonalKpis(await res.json());
+      } catch { /* card stays empty */ }
+    })();
+  }, [token]);
+
+  // Fetch gaming review queue (TUCKS, PM+ only)
+  useEffect(() => {
+    if (!token || !isPmPlus) return;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/analytics/gaming-review`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) setGamingFlags(await res.json());
+      } catch { /* card stays empty */ }
+    })();
+  }, [token, isPmPlus]);
+
+  const handleReviewAction = useCallback(async (flagId: string, action: string) => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/analytics/gaming-review/${flagId}/action`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      if (res.ok) {
+        setGamingFlags(prev => prev.filter(f => f.id !== flagId));
+      }
+    } catch { /* ignore */ }
   }, [token]);
 
   // Fetch tasks for dashboard card
@@ -942,6 +1004,118 @@ export default function ProjectsPage() {
 
       {/* Scrollable content: dashboard + daily logs */}
       <div ref={containerRef} style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
+
+        {/* ── TUCKS Personal KPIs ────────────────────────────── */}
+        {personalKpis && (
+          <div style={{ marginBottom: 14, border: "1px solid #e0e7ff", borderRadius: 8, background: "linear-gradient(135deg, #f5f7ff 0%, #eef2ff 100%)" }}>
+            <button
+              onClick={() => startUiTransition(() => setKpiOpen(!kpiOpen))}
+              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", border: "none", background: "transparent", cursor: "pointer", fontSize: 13, fontWeight: 600, color: "#1e40af" }}
+            >
+              <span>Your Performance — {personalKpis.period}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 500, padding: "2px 8px", borderRadius: 4, background: personalKpis.ranking.dailyLogPercentile >= 80 ? "#d1fae5" : personalKpis.ranking.dailyLogPercentile >= 50 ? "#fef3c7" : "#fee2e2", color: personalKpis.ranking.dailyLogPercentile >= 80 ? "#065f46" : personalKpis.ranking.dailyLogPercentile >= 50 ? "#92400e" : "#991b1b" }}>
+                  {personalKpis.ranking.label}
+                </span>
+                <span style={{ fontSize: 16 }}>{kpiOpen ? "▾" : "▸"}</span>
+              </span>
+            </button>
+            {kpiOpen && (
+              <div style={{ padding: "0 14px 14px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10 }}>
+                  {/* Module stats */}
+                  {([
+                    ["Daily Logs", personalKpis.modules.dailyLogs],
+                    ["Tasks", personalKpis.modules.tasks],
+                    ["Messages", personalKpis.modules.messages],
+                    ["Timecards", personalKpis.modules.timecards],
+                  ] as [string, { you: number; companyAvg: number }][]).map(([label, m]) => {
+                    const pct = m.companyAvg > 0 ? Math.round((m.you / m.companyAvg - 1) * 100) : 0;
+                    return (
+                      <div key={label} style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>{label}</div>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: "#1e40af" }}>{m.you}</div>
+                        <div style={{ fontSize: 10, color: "#9ca3af" }}>avg {m.companyAvg}</div>
+                        {pct !== 0 && (
+                          <div style={{ fontSize: 10, fontWeight: 600, color: pct > 0 ? "#16a34a" : "#dc2626", marginTop: 1 }}>
+                            {pct > 0 ? "+" : ""}{pct}%
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {/* Task completion rate */}
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Completion</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: "#1e40af" }}>{personalKpis.completionRate.you}%</div>
+                    <div style={{ fontSize: 10, color: "#9ca3af" }}>avg {personalKpis.completionRate.companyAvg}%</div>
+                  </div>
+                </div>
+                <div style={{ marginTop: 6, fontSize: 9, color: "#9ca3af", textAlign: "right" }}>TUCKS — Telemetry Usage Chart KPI System</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── TUCKS Quality Review Queue (PM+ only) ─────────────── */}
+        {isPmPlus && gamingFlags.length > 0 && (
+          <div style={{ marginBottom: 14, border: "1px solid #fecaca", borderRadius: 8, background: "linear-gradient(135deg, #fef2f2 0%, #fff5f5 100%)" }}>
+            <button
+              onClick={() => startUiTransition(() => setReviewOpen(!reviewOpen))}
+              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", border: "none", background: "transparent", cursor: "pointer", fontSize: 13, fontWeight: 600, color: "#991b1b" }}
+            >
+              <span>Quality Review Queue — {gamingFlags.length} pending</span>
+              <span style={{ fontSize: 16 }}>{reviewOpen ? "▾" : "▸"}</span>
+            </button>
+            {reviewOpen && (
+              <div style={{ padding: "0 14px 14px" }}>
+                {gamingFlags.slice(0, 8).map((flag) => {
+                  const name = flag.user.firstName
+                    ? `${flag.user.firstName} ${flag.user.lastName || ""}`.trim()
+                    : flag.user.email;
+                  const date = new Date(flag.flagDate).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                  return (
+                    <div key={flag.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: "1px solid #fee2e2" }}>
+                      <span style={{
+                        width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+                        background: flag.severity === "RED" ? "#dc2626" : "#f59e0b",
+                      }} />
+                      <span style={{ fontSize: 12, fontWeight: 600, minWidth: 100 }}>{name}</span>
+                      <span style={{ fontSize: 11, color: "#6b7280" }}>{date}</span>
+                      <span style={{ fontSize: 10, color: "#991b1b", fontWeight: 600 }}>{(flag.gamingScore * 100).toFixed(0)}%</span>
+                      <span style={{ fontSize: 10, color: "#9ca3af" }}>{flag.dailyLogCount} logs</span>
+                      <span style={{ flex: 1 }} />
+                      <button
+                        onClick={() => handleReviewAction(flag.id, "DISMISSED")}
+                        style={{ fontSize: 10, padding: "2px 6px", borderRadius: 3, border: "1px solid #d1d5db", background: "white", cursor: "pointer", color: "#6b7280" }}
+                      >
+                        Dismiss
+                      </button>
+                      <button
+                        onClick={() => handleReviewAction(flag.id, "COACHED")}
+                        style={{ fontSize: 10, padding: "2px 6px", borderRadius: 3, border: "1px solid #fbbf24", background: "#fffbeb", cursor: "pointer", color: "#92400e" }}
+                      >
+                        Coach
+                      </button>
+                      <button
+                        onClick={() => handleReviewAction(flag.id, "CONFIRMED")}
+                        style={{ fontSize: 10, padding: "2px 6px", borderRadius: 3, border: "1px solid #fca5a5", background: "#fef2f2", cursor: "pointer", color: "#991b1b" }}
+                      >
+                        Confirm
+                      </button>
+                    </div>
+                  );
+                })}
+                {gamingFlags.length > 8 && (
+                  <div style={{ fontSize: 10, color: "#991b1b", marginTop: 6, fontWeight: 500 }}>
+                    +{gamingFlags.length - 8} more flags
+                  </div>
+                )}
+                <div style={{ marginTop: 6, fontSize: 9, color: "#9ca3af", textAlign: "right" }}>TUCKS Gaming Detection — 5-signal composite scoring</div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Organization Performance Dashboard ─────────────────── */}
         <div style={{ marginBottom: 16 }}>

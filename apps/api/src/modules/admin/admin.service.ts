@@ -1124,6 +1124,149 @@ export class AdminService {
     };
   }
 
+  // ── TUCKS Phase 5: Detailed Analytics ────────────────────────────────
+
+  async getAnalyticsTimeSeries(actor: AuthenticatedUser, period: string) {
+    await this.audit(actor, "ADMIN_VIEW_ANALYTICS_TIMESERIES");
+
+    const days = period === "7d" ? 7 : period === "90d" ? 90 : 30;
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    const [logsByDay, tasksByDay, messagesByDay] = await Promise.all([
+      this.prisma.$queryRaw<{ day: string; cnt: number }[]>`
+        SELECT TO_CHAR("createdAt"::date, 'YYYY-MM-DD') AS day, COUNT(*)::int AS cnt
+        FROM "DailyLog" WHERE "createdAt" >= ${since}
+        GROUP BY "createdAt"::date ORDER BY day
+      `,
+      this.prisma.$queryRaw<{ day: string; cnt: number }[]>`
+        SELECT TO_CHAR("createdAt"::date, 'YYYY-MM-DD') AS day, COUNT(*)::int AS cnt
+        FROM "Task" WHERE "createdAt" >= ${since}
+        GROUP BY "createdAt"::date ORDER BY day
+      `,
+      this.prisma.$queryRaw<{ day: string; cnt: number }[]>`
+        SELECT TO_CHAR("createdAt"::date, 'YYYY-MM-DD') AS day, COUNT(*)::int AS cnt
+        FROM "Message" WHERE "createdAt" >= ${since}
+        GROUP BY "createdAt"::date ORDER BY day
+      `,
+    ]);
+
+    // Build a complete date array
+    const dateMap = new Map<string, { logs: number; tasks: number; messages: number }>();
+    for (let d = 0; d < days; d++) {
+      const dt = new Date(since);
+      dt.setDate(dt.getDate() + d);
+      dateMap.set(dt.toISOString().slice(0, 10), { logs: 0, tasks: 0, messages: 0 });
+    }
+    for (const r of logsByDay) { const e = dateMap.get(r.day); if (e) e.logs = r.cnt; }
+    for (const r of tasksByDay) { const e = dateMap.get(r.day); if (e) e.tasks = r.cnt; }
+    for (const r of messagesByDay) { const e = dateMap.get(r.day); if (e) e.messages = r.cnt; }
+
+    return {
+      period: `${days}d`,
+      series: Array.from(dateMap.entries()).map(([day, counts]) => ({ day, ...counts })),
+    };
+  }
+
+  async getAnalyticsUserActivity(actor: AuthenticatedUser, period: string) {
+    await this.audit(actor, "ADMIN_VIEW_USER_ACTIVITY");
+
+    const days = period === "7d" ? 7 : period === "90d" ? 90 : 30;
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    const rows = await this.prisma.$queryRaw<{
+      userId: string; email: string; firstName: string | null; lastName: string | null;
+      logCount: number; taskCount: number; messageCount: number; timecardCount: number;
+    }[]>`
+      SELECT
+        u.id AS "userId", u.email, u."firstName", u."lastName",
+        COALESCE(dl.cnt, 0)::int AS "logCount",
+        COALESCE(tk.cnt, 0)::int AS "taskCount",
+        COALESCE(msg.cnt, 0)::int AS "messageCount",
+        COALESCE(tc.cnt, 0)::int AS "timecardCount"
+      FROM "User" u
+      LEFT JOIN (
+        SELECT "createdById" AS uid, COUNT(*)::int AS cnt
+        FROM "DailyLog" WHERE "createdAt" >= ${since} GROUP BY "createdById"
+      ) dl ON dl.uid = u.id
+      LEFT JOIN (
+        SELECT "createdByUserId" AS uid, COUNT(*)::int AS cnt
+        FROM "Task" WHERE "createdAt" >= ${since} AND "createdByUserId" IS NOT NULL GROUP BY "createdByUserId"
+      ) tk ON tk.uid = u.id
+      LEFT JOIN (
+        SELECT "senderId" AS uid, COUNT(*)::int AS cnt
+        FROM "Message" WHERE "createdAt" >= ${since} GROUP BY "senderId"
+      ) msg ON msg.uid = u.id
+      LEFT JOIN (
+        SELECT "createdByUserId" AS uid, COUNT(*)::int AS cnt
+        FROM "DailyTimecard" WHERE "createdAt" >= ${since} AND "createdByUserId" IS NOT NULL GROUP BY "createdByUserId"
+      ) tc ON tc.uid = u.id
+      WHERE COALESCE(dl.cnt, 0) + COALESCE(tk.cnt, 0) + COALESCE(msg.cnt, 0) + COALESCE(tc.cnt, 0) > 0
+      ORDER BY (COALESCE(dl.cnt, 0) + COALESCE(tk.cnt, 0) + COALESCE(msg.cnt, 0) + COALESCE(tc.cnt, 0)) DESC
+      LIMIT 100
+    `;
+
+    return {
+      period: `${days}d`,
+      users: rows.map(r => ({
+        userId: r.userId,
+        name: r.firstName ? `${r.firstName} ${r.lastName ?? ""}`.trim() : r.email,
+        email: r.email,
+        logs: Number(r.logCount),
+        tasks: Number(r.taskCount),
+        messages: Number(r.messageCount),
+        timecards: Number(r.timecardCount),
+        total: Number(r.logCount) + Number(r.taskCount) + Number(r.messageCount) + Number(r.timecardCount),
+      })),
+    };
+  }
+
+  async getAnalyticsGamingSummary(actor: AuthenticatedUser) {
+    await this.audit(actor, "ADMIN_VIEW_GAMING_SUMMARY");
+
+    const [pending, confirmed, dismissed, coached, recentFlags] = await Promise.all([
+      this.prisma.gamingFlag.count({ where: { status: "PENDING" } }),
+      this.prisma.gamingFlag.count({ where: { status: "CONFIRMED" } }),
+      this.prisma.gamingFlag.count({ where: { status: "DISMISSED" } }),
+      this.prisma.gamingFlag.count({ where: { status: "COACHED" } }),
+      this.prisma.gamingFlag.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 20,
+        select: {
+          id: true, companyId: true, userId: true, flagDate: true,
+          gamingScore: true, status: true, createdAt: true,
+        },
+      }),
+    ]);
+
+    // Enrich recent flags with user names
+    const userIds = [...new Set(recentFlags.map(f => f.userId))];
+    const users = userIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, email: true, firstName: true, lastName: true },
+        })
+      : [];
+    const userMap = new Map(users.map(u => [u.id, u]));
+
+    return {
+      counts: { pending, confirmed, dismissed, coached, total: pending + confirmed + dismissed + coached },
+      recentFlags: recentFlags.map(f => {
+        const u = userMap.get(f.userId);
+        return {
+          id: f.id,
+          flagDate: f.flagDate,
+          gamingScore: Math.round(f.gamingScore * 100) / 100,
+          severity: f.gamingScore >= 0.6 ? "RED" : "AMBER",
+          status: f.status,
+          userName: u?.firstName ? `${u.firstName} ${u.lastName ?? ""}`.trim() : u?.email ?? "unknown",
+          createdAt: f.createdAt,
+        };
+      }),
+    };
+  }
+
   async createUserWithPassword(
     actor: AuthenticatedUser,
     params: { email: string; password: string; companyId: string; role: string; userType?: string }

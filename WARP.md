@@ -21,7 +21,6 @@ This file provides guidance to WARP (warp.dev) when working with code in this re
     - `dev`: `turbo dev` (runs dev tasks for all apps/packages that define a `dev` script).
     - `dev:api`: `turbo dev --filter=api` (API-only dev).
     - `dev:all`: `turbo dev --parallel` (all dev targets in parallel; noisy but useful during local development).
-    - `dev:clean`: `bash ./scripts/dev-clean.sh` (if present; use for cleaning/refreshing the dev environment).
     - `build`: `turbo build` (build all apps/packages that define a `build` script).
     - `lint`: `turbo lint` (fan-out lint tasks).
     - `check-types`: `turbo run check-types` (TS type checking across the workspace).
@@ -46,7 +45,7 @@ This file provides guidance to WARP (warp.dev) when working with code in this re
   - `tsconfig.json` extends root config, sets `outDir` to `dist`, `rootDir` to `src`, and enables decorators.
   - `tsconfig.build.json` excludes `**/*.spec.ts`, `node_modules`, and `dist` for production builds.
 - Scripts (from `apps/api/package.json`):
-  - `dev`: `ts-node-dev --respawn --transpile-only src/main.ts` (start Nest API in watch mode).
+  - `dev`: `nodemon --watch src --ext ts --exec ts-node src/main.ts` (start Nest API in watch mode via nodemon).
   - `build`: `tsc -p tsconfig.build.json` (compile TS to JS in `dist/`).
   - `start`: `node dist/main.js` (run compiled API).
   - `check-types`: `tsc -p tsconfig.json --noEmit` (type-check API only).
@@ -255,16 +254,16 @@ npm -w packages/database exec -- npx prisma db push
 
 ## Dev Server Stability - CRITICAL RULES
 
-The local dev servers use file-watching auto-reload (`ts-node-dev --respawn` for API, Next.js HMR for web). Warp MUST respect running processes.
+The local dev servers use file-watching auto-reload (`nodemon` for API, Next.js HMR for web). Warp MUST respect running processes.
 
 **NEVER do any of the following:**
-- `kill`, `kill -9`, `killall`, or `pkill` on dev server processes (node, ts-node-dev, next)
+- `kill`, `kill -9`, `killall`, or `pkill` on dev server processes (node, nodemon, ts-node, next)
 - `lsof -ti:<port> | xargs kill` or any variant that kills processes by port
 - Start a competing dev server when one is already running (causes "port in use" errors)
 - Run `npm run dev:api` or `npm run dev` from an agent interactive session (the process dies when the session ends)
 
 **How code changes are picked up (no restart needed):**
-- API (`ts-node-dev --respawn`): Detects file changes in `apps/api/src/` and auto-restarts the NestJS process. Editing service/controller files triggers reload automatically.
+- API (`nodemon --watch src --ext ts`): Detects file changes in `apps/api/src/` and auto-restarts the NestJS process. Editing service/controller files triggers reload automatically.
 - Web (`next dev`): Hot Module Replacement (HMR) picks up changes instantly in the browser.
 
 **When a manual restart IS required (rare):**

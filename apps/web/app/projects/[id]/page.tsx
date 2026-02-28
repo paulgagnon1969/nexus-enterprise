@@ -18758,6 +18758,9 @@ ${htmlBody}
                       const selectedAmountStr = applyAmountByPaymentId[paymentId] ?? "";
                       const applyMsg = applyMessageByPaymentId[paymentId] ?? "";
 
+                      const fullyUnapplied = unappliedAmount > 0 && appliedAmount === 0;
+                      const partiallyUnapplied = unappliedAmount > 0 && appliedAmount > 0;
+
                       return (
                         <div
                           key={paymentId}
@@ -18765,8 +18768,8 @@ ${htmlBody}
                             flex: "0 0 auto",
                             minWidth: 240,
                             borderRadius: 8,
-                            border: "1px solid #e5e7eb",
-                            background: "#f9fafb",
+                            border: fullyUnapplied || partiallyUnapplied ? "1.5px solid #22c55e" : "1px solid #e5e7eb",
+                            background: fullyUnapplied ? "#f0fdf4" : "#f9fafb",
                             padding: 8,
                           }}
                         >

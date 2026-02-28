@@ -1280,7 +1280,8 @@ model Project {
   // Crew location tracking (foreground-only, for job site maps)
   crewLocations CrewLocation[]
 
-  // CSV-imported transactions tagged to this project (reconciliation)
+  // Banking transactions tagged to this project (reconciliation)
+  bankTransactions     BankTransaction[]     @relation("BankTransactionProject")
   importedTransactions ImportedTransaction[] @relation("ImportedTransactionProject")
 
   /// Building model type (e.g. "A Model", "G Model", "F Model")
@@ -1672,6 +1673,32 @@ model ActivityWeeklyRollup {
   @@unique([companyId, userId, weekStart, module, eventType], name: "ActivityWeeklyRollup_unique")
   @@index([companyId, weekStart], map: "ActivityWeeklyRollup_company_week_idx")
   @@index([userId, weekStart], map: "ActivityWeeklyRollup_user_week_idx")
+}
+
+/// TUCKS gaming detection flag. Created by the nightly scoring cron when a
+/// user's daily-log behaviour scores ≥ 0.4 on the composite gaming metric.
+/// PM+ roles review flags and can dismiss, confirm, or coach.
+model GamingFlag {
+  id              String   @id @default(cuid())
+  companyId       String
+  userId          String
+  flagDate        DateTime @db.Date   // the day being flagged
+  gamingScore     Float               // composite 0.0–1.0
+  volumeScore     Float    @default(0)
+  burstScore      Float    @default(0)
+  entropyScore    Float    @default(0)
+  similarityScore Float    @default(0)
+  ratioScore      Float    @default(0)
+  dailyLogIds     Json?               // string[] of DailyLog IDs that triggered the flag
+  status          String   @default("PENDING") // PENDING | DISMISSED | CONFIRMED | COACHED
+  reviewedById    String?
+  reviewedAt      DateTime?
+  reviewNotes     String?
+  createdAt       DateTime @default(now())
+
+  @@unique([companyId, userId, flagDate], name: "GamingFlag_company_user_date_key")
+  @@index([companyId, status, flagDate], map: "GamingFlag_company_status_date_idx")
+  @@index([userId, flagDate], map: "GamingFlag_user_date_idx")
 }
 
 model ProjectFinancialSnapshot {
@@ -7538,16 +7565,22 @@ model BankTransaction {
   pendingTransactionId String?         // Links to the posted version
   paymentChannel       String?         // online, in_store, other
   transactionType      String?         // place, digital, special, unresolved
+
+  // Reconciliation — optional project linkage
+  projectId            String?
+
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
 
   company        Company        @relation(fields: [companyId], references: [id])
   bankConnection BankConnection @relation(fields: [bankConnectionId], references: [id], onDelete: Cascade)
+  project        Project?       @relation("BankTransactionProject", fields: [projectId], references: [id])
 
   @@index([companyId, date], map: "BankTransaction_company_date_idx")
   @@index([bankConnectionId], map: "BankTransaction_connection_idx")
   @@index([companyId, primaryCategory], map: "BankTransaction_company_category_idx")
   @@index([pending], map: "BankTransaction_pending_idx")
+  @@index([companyId, projectId], map: "BankTransaction_company_project_idx")
 }
 
 // ===================================================================

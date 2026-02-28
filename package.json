@@ -13,7 +13,7 @@
     "build:contact-sync": "npm --prefix apps/contact-sync run tauri:build",
     "dev:all": "turbo dev --parallel",
     "dev:worker": "npm -w api run worker:dev",
-    "dev:clean": "bash ./scripts/dev-clean.sh",
+    "dev:nuke": "bash ./scripts/dev-nuke-restart.sh",
     "build": "turbo build",
     "lint": "turbo lint",
     "check-types": "turbo run check-types",

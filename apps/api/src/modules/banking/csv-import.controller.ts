@@ -1,8 +1,10 @@
 import {
+  Body,
   Controller,
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -96,6 +98,12 @@ export class CsvImportController {
     @Query("source") source?: string,
     @Query("connectionId") connectionId?: string,
     @Query("batchId") batchId?: string,
+    @Query("sortBy") sortBy?: string,
+    @Query("sortDir") sortDir?: string,
+    @Query("category") category?: string,
+    @Query("pending") pending?: string,
+    @Query("projectId") projectId?: string,
+    @Query("unassigned") unassigned?: string,
     @Query("page") page?: string,
     @Query("pageSize") pageSize?: string,
   ) {
@@ -107,8 +115,62 @@ export class CsvImportController {
       source,
       connectionId,
       batchId,
+      sortBy: sortBy as any,
+      sortDir: (sortDir === "asc" || sortDir === "desc") ? sortDir : undefined,
+      category,
+      pending: pending !== undefined ? pending === "true" : undefined,
+      projectId,
+      unassigned: unassigned === "true",
       page: page ? parseInt(page, 10) : undefined,
       pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
     });
+  }
+
+  // ─── Assign transaction to project ────────────────────────────────
+
+  @Patch("transactions/:id/assign-project")
+  async assignProject(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() body: { projectId: string | null; source: string },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.csvImport.assignTransactionToProject(
+      actor.companyId,
+      id,
+      body.source,
+      body.projectId,
+    );
+  }
+
+  // ─── Bulk assign transactions to project ──────────────────────────
+
+  @Patch("transactions/bulk-assign-project")
+  async bulkAssignProject(
+    @Req() req: any,
+    @Body() body: { ids: Array<{ id: string; source: string }>; projectId: string | null },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.csvImport.bulkAssignProject(actor.companyId, body.ids, body.projectId);
+  }
+
+  // ─── Distinct categories ──────────────────────────────────────────
+
+  @Get("transactions/categories")
+  async getCategories(@Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.csvImport.getDistinctCategories(actor.companyId);
+  }
+
+  // ─── Per-project summary ──────────────────────────────────────────
+
+  @Get("projects-summary")
+  async getProjectsSummary(
+    @Req() req: any,
+    @Query("startDate") startDate?: string,
+    @Query("endDate") endDate?: string,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.csvImport.getProjectsSummary(actor.companyId, startDate, endDate);
   }
 }

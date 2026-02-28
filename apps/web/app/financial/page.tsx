@@ -39,7 +39,7 @@ type FinancialSection =
 
 /** Card definitions for the Financial landing page grid. */
 const FINANCIAL_CARDS: {
-  id: FinancialSection | "EXT_SUPPLIER_CATALOG";
+  id: FinancialSection | "EXT_SUPPLIER_CATALOG" | "EXT_RECONCILIATION";
   icon: string;
   title: string;
   subtitle: string;
@@ -123,6 +123,13 @@ const FINANCIAL_CARDS: {
     icon: "🏦",
     title: "Banking & Transactions",
     subtitle: "Connect bank accounts, sync & analyze transactions",
+  },
+  {
+    id: "EXT_RECONCILIATION",
+    icon: "🔄",
+    title: "Financial Reconciliation",
+    subtitle: "Aggregate, reconcile & assign transactions across sources",
+    href: "/financial/reconciliation",
   },
 ];
 
@@ -336,6 +343,8 @@ export default function FinancialPage() {
     merchant: string | null;
     category: string | null;
     pending: boolean;
+    projectId: string | null;
+    projectName: string | null;
     extra: Record<string, any>;
   };
   type CsvImportBatchDto = {
@@ -378,7 +387,22 @@ export default function FinancialPage() {
   const [csvUploadSource, setCsvUploadSource] = useState("HD_PRO_XTRA");
   const [csvUploading, setCsvUploading] = useState(false);
 
-  // Last Golden-related import jobs (so we can poll status after enqueue).
+  // Sort / column filters
+  type BankSortField = "date" | "description" | "merchant" | "category" | "amount" | "status" | "project";
+  const [bankSortBy, setBankSortBy] = useState<BankSortField>("date");
+  const [bankSortDir, setBankSortDir] = useState<"asc" | "desc">("desc");
+  const [bankStatusFilter, setBankStatusFilter] = useState(""); // "" | "true" | "false"
+  const [bankProjectFilter, setBankProjectFilter] = useState("");
+  const [bankUnassignedFilter, setBankUnassignedFilter] = useState(false);
+  const [bankCategories, setBankCategories] = useState<string[]>([]);
+  type ProjectPickerItem = { id: string; name: string };
+  const [bankProjects, setBankProjects] = useState<ProjectPickerItem[]>([]);
+
+  // Bulk select
+  const [bankSelectedIds, setBankSelectedIds] = useState<Set<string>>(new Set());
+  const [bankBulkProjectId, setBankBulkProjectId] = useState<string>("");
+
+  // Last Golden-related import jobs
   const [priceListJob, setPriceListJob] = useState<ImportJobDto | null>(null);
   const [componentsJob, setComponentsJob] = useState<ImportJobDto | null>(null);
 
@@ -717,14 +741,21 @@ export default function FinancialPage() {
     if (!token) return;
     setBankLoading(true);
     setBankError(null);
+    setBankSelectedIds(new Set());
     try {
       const params = new URLSearchParams();
       params.set("page", String(page));
       params.set("pageSize", String(bankTxPageSize));
+      params.set("sortBy", bankSortBy);
+      params.set("sortDir", bankSortDir);
       if (bankSearch) params.set("search", bankSearch);
       if (bankStartDate) params.set("startDate", bankStartDate);
       if (bankEndDate) params.set("endDate", bankEndDate);
       if (bankSourceFilter) params.set("source", bankSourceFilter);
+      if (bankCategoryFilter) params.set("category", bankCategoryFilter);
+      if (bankStatusFilter) params.set("pending", bankStatusFilter);
+      if (bankProjectFilter) params.set("projectId", bankProjectFilter);
+      if (bankUnassignedFilter) params.set("unassigned", "true");
       if (bankAccountFilter) {
         if (bankAccountFilter.startsWith("conn:")) params.set("connectionId", bankAccountFilter.slice(5));
         else if (bankAccountFilter.startsWith("batch:")) params.set("batchId", bankAccountFilter.slice(6));
@@ -741,6 +772,77 @@ export default function FinancialPage() {
       setBankError(err?.message ?? "Failed to load transactions");
     } finally {
       setBankLoading(false);
+    }
+  }
+
+  async function fetchBankCategories() {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/banking/transactions/categories`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setBankCategories(await res.json());
+    } catch {}
+  }
+
+  async function fetchBankProjectsList() {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/projects`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const items = (Array.isArray(data) ? data : data.projects ?? []).map((p: any) => ({ id: p.id, name: p.name }));
+        setBankProjects(items);
+      }
+    } catch {}
+  }
+
+  function toggleBankSort(field: BankSortField) {
+    if (bankSortBy === field) {
+      setBankSortDir(bankSortDir === "asc" ? "desc" : "asc");
+    } else {
+      setBankSortBy(field);
+      setBankSortDir(field === "date" ? "desc" : "asc");
+    }
+  }
+
+  async function handleAssignProject(txnId: string, source: string, projectId: string | null) {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/banking/transactions/${txnId}/assign-project`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ projectId, source }),
+      });
+      if (!res.ok) throw new Error(`Failed (${res.status})`);
+      const updated = await res.json();
+      setBankTransactions(prev => prev.map(t => t.id === txnId ? { ...t, projectId: updated.project?.id ?? null, projectName: updated.project?.name ?? null } : t));
+    } catch (err: any) {
+      setBankError(err?.message ?? "Failed to assign project");
+    }
+  }
+
+  async function handleBulkAssignProject() {
+    if (bankSelectedIds.size === 0 || !bankBulkProjectId) return;
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    const ids = bankTransactions.filter(t => bankSelectedIds.has(t.id)).map(t => ({ id: t.id, source: t.source }));
+    try {
+      await fetch(`${API_BASE}/banking/transactions/bulk-assign-project`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ids, projectId: bankBulkProjectId }),
+      });
+      setBankSelectedIds(new Set());
+      setBankBulkProjectId("");
+      await fetchBankTransactions(bankTxPage);
+    } catch (err: any) {
+      setBankError(err?.message ?? "Bulk assign failed");
     }
   }
 
@@ -899,7 +1001,16 @@ export default function FinancialPage() {
     fetchBankTransactions(1);
     fetchBankSummary();
     fetchCsvBatches();
+    fetchBankCategories();
+    fetchBankProjectsList();
   }, [activeSection]);
+
+  // Re-fetch banking transactions when sort or column filters change
+  useEffect(() => {
+    if (activeSection !== "BANKING") return;
+    fetchBankTransactions(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bankSortBy, bankSortDir, bankStatusFilter, bankCategoryFilter, bankProjectFilter, bankUnassignedFilter]);
 
   // Lazy-load Asset Logistics tree when that tab is first opened.
   useEffect(() => {
@@ -3724,6 +3835,39 @@ export default function FinancialPage() {
               onChange={e => setBankEndDate(e.target.value)}
               style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
             />
+            <select
+              value={bankCategoryFilter}
+              onChange={e => setBankCategoryFilter(e.target.value)}
+              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
+            >
+              <option value="">All Categories</option>
+              {bankCategories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select
+              value={bankStatusFilter}
+              onChange={e => setBankStatusFilter(e.target.value)}
+              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
+            >
+              <option value="">All Statuses</option>
+              <option value="true">Pending</option>
+              <option value="false">Posted</option>
+            </select>
+            <select
+              value={bankProjectFilter}
+              onChange={e => { setBankProjectFilter(e.target.value); setBankUnassignedFilter(false); }}
+              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
+            >
+              <option value="">All Projects</option>
+              {bankProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "#374151", cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={bankUnassignedFilter}
+                onChange={e => { setBankUnassignedFilter(e.target.checked); if (e.target.checked) setBankProjectFilter(""); }}
+              />
+              Unassigned only
+            </label>
             <button
               type="button"
               onClick={() => { fetchBankTransactions(1); fetchBankSummary(); }}
@@ -3736,6 +3880,45 @@ export default function FinancialPage() {
             </button>
           </div>
 
+          {/* Bulk assign bar */}
+          {bankSelectedIds.size > 0 && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 8, marginBottom: 12,
+              padding: "8px 12px", borderRadius: 8, background: "#eef2ff", border: "1px solid #c7d2fe",
+            }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "#4338ca" }}>
+                {bankSelectedIds.size} selected
+              </span>
+              <select
+                value={bankBulkProjectId}
+                onChange={e => setBankBulkProjectId(e.target.value)}
+                style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
+              >
+                <option value="">Assign to project…</option>
+                {bankProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <button
+                type="button"
+                onClick={handleBulkAssignProject}
+                disabled={!bankBulkProjectId}
+                style={{
+                  padding: "4px 12px", borderRadius: 6, border: "1px solid #4338ca", background: "#4338ca",
+                  color: "#fff", fontSize: 12, fontWeight: 600,
+                  cursor: bankBulkProjectId ? "pointer" : "not-allowed", opacity: bankBulkProjectId ? 1 : 0.5,
+                }}
+              >
+                Assign
+              </button>
+              <button
+                type="button"
+                onClick={() => { setBankSelectedIds(new Set()); setBankBulkProjectId(""); }}
+                style={{ padding: "4px 12px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12, cursor: "pointer" }}
+              >
+                Clear
+              </button>
+            </div>
+          )}
+
           {bankError && (
             <div style={{ color: "#b91c1c", fontSize: 12, marginBottom: 8 }}>{bankError}</div>
           )}
@@ -3745,21 +3928,57 @@ export default function FinancialPage() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead style={{ background: "#f9fafb" }}>
                 <tr>
-                  <th style={{ textAlign: "left", padding: "8px 10px", whiteSpace: "nowrap" }}>Date</th>
-                  <th style={{ textAlign: "left", padding: "8px 10px", whiteSpace: "nowrap" }}>Source</th>
-                  <th style={{ textAlign: "left", padding: "8px 10px" }}>Description</th>
-                  <th style={{ textAlign: "left", padding: "8px 10px" }}>Merchant / Job</th>
-                  <th style={{ textAlign: "left", padding: "8px 10px" }}>Category</th>
-                  <th style={{ textAlign: "right", padding: "8px 10px", whiteSpace: "nowrap" }}>Amount</th>
-                  <th style={{ textAlign: "center", padding: "8px 10px" }}>Status</th>
+                  <th style={{ padding: "8px 6px", textAlign: "center", width: 32 }}>
+                    <input
+                      type="checkbox"
+                      checked={bankTransactions.length > 0 && bankTransactions.every(t => bankSelectedIds.has(t.id))}
+                      onChange={() => {
+                        if (bankTransactions.length > 0 && bankTransactions.every(t => bankSelectedIds.has(t.id))) {
+                          setBankSelectedIds(new Set());
+                        } else {
+                          setBankSelectedIds(new Set(bankTransactions.map(t => t.id)));
+                        }
+                      }}
+                    />
+                  </th>
+                  {([
+                    { field: "date" as BankSortField, label: "Date", align: "left", nowrap: true },
+                    { field: null, label: "Source", align: "left", nowrap: true },
+                    { field: "description" as BankSortField, label: "Description", align: "left", nowrap: false },
+                    { field: "merchant" as BankSortField, label: "Merchant / Job", align: "left", nowrap: false },
+                    { field: "category" as BankSortField, label: "Category", align: "left", nowrap: false },
+                    { field: "amount" as BankSortField, label: "Amount", align: "right", nowrap: true },
+                    { field: "status" as BankSortField, label: "Status", align: "center", nowrap: false },
+                    { field: "project" as BankSortField, label: "Project", align: "left", nowrap: false },
+                  ] as const).map((col) => (
+                    <th
+                      key={col.label}
+                      onClick={col.field ? () => toggleBankSort(col.field!) : undefined}
+                      style={{
+                        textAlign: col.align as any,
+                        padding: "8px 10px",
+                        whiteSpace: col.nowrap ? "nowrap" : undefined,
+                        cursor: col.field ? "pointer" : "default",
+                        userSelect: "none",
+                        background: col.field && bankSortBy === col.field ? "#eef2ff" : undefined,
+                      }}
+                    >
+                      {col.label}
+                      {col.field && bankSortBy === col.field && (
+                        <span style={{ marginLeft: 4, fontSize: 10 }}>
+                          {bankSortDir === "asc" ? "▲" : "▼"}
+                        </span>
+                      )}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {bankLoading && (
-                  <tr><td colSpan={7} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>Loading…</td></tr>
+                  <tr><td colSpan={9} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>Loading…</td></tr>
                 )}
                 {!bankLoading && bankTransactions.length === 0 && (
-                  <tr><td colSpan={7} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>
+                  <tr><td colSpan={9} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>
                     {bankConnections.length === 0 && csvBatches.length === 0
                       ? "Connect a bank account or import a CSV to see transactions."
                       : "No transactions found."}
@@ -3774,8 +3993,22 @@ export default function FinancialPage() {
                   };
                   const badge = srcBadge[txn.source] ?? { label: txn.source, bg: "#f3f4f6", color: "#6b7280" };
                   const merchantOrJob = txn.extra?.jobName || txn.merchant || "—";
+                  const isSelected = bankSelectedIds.has(txn.id);
                   return (
-                    <tr key={txn.id} style={{ borderTop: "1px solid #e5e7eb" }}>
+                    <tr key={txn.id} style={{ borderTop: "1px solid #e5e7eb", background: isSelected ? "#eef2ff" : undefined }}>
+                      <td style={{ padding: "8px 6px", textAlign: "center" }}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => {
+                            setBankSelectedIds(prev => {
+                              const next = new Set(prev);
+                              if (next.has(txn.id)) next.delete(txn.id); else next.add(txn.id);
+                              return next;
+                            });
+                          }}
+                        />
+                      </td>
                       <td style={{ padding: "8px 10px", whiteSpace: "nowrap" }}>
                         {new Date(txn.date).toLocaleDateString()}
                       </td>
@@ -3815,6 +4048,19 @@ export default function FinancialPage() {
                         }}>
                           {txn.pending ? "PENDING" : "POSTED"}
                         </span>
+                      </td>
+                      <td style={{ padding: "8px 10px" }}>
+                        <select
+                          value={txn.projectId ?? ""}
+                          onChange={e => handleAssignProject(txn.id, txn.source, e.target.value || null)}
+                          style={{
+                            padding: "2px 6px", borderRadius: 4, border: "1px solid #d1d5db",
+                            fontSize: 11, maxWidth: 160, background: txn.projectId ? "#f0fdf4" : "#fff",
+                          }}
+                        >
+                          <option value="">— None —</option>
+                          {bankProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        </select>
                       </td>
                     </tr>
                   );

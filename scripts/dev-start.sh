@@ -112,7 +112,7 @@ echo "[dev-start] Prisma client generated." | tee -a "$LOG_DIR/dev-start.log"
 
 # --- 4) Start API dev server ----------------------------------------------
 
-if pgrep -f "apps/api.*ts-node-dev" >/dev/null 2>&1; then
+if pgrep -f "nodemon.*apps/api" >/dev/null 2>&1 || pgrep -f "apps/api.*nodemon" >/dev/null 2>&1; then
   echo "[dev-start] API dev server already running" | tee -a "$LOG_DIR/dev-start.log"
 else
   echo "[dev-start] Starting API dev server (local Docker Postgres) on API_PORT=8001..." | tee -a "$LOG_DIR/dev-start.log"

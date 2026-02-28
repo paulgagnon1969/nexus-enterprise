@@ -401,8 +401,8 @@ export default function NexusSystemOverviewPage() {
                 justifyContent: "space-between",
               }}
             >
-              <span>TUCKS — Telemetry Usage Chart KPI System · Phase 1</span>
-              <span>Data since {new Date(data.since).toLocaleDateString()}</span>
+              <span>TUCKS — Telemetry Usage Chart KPI System</span>
+              <a href="/system/analytics" style={{ color: "#3b82f6", textDecoration: "none", fontWeight: 500 }}>Full Analytics Dashboard →</a>
             </div>
           </>
         )}

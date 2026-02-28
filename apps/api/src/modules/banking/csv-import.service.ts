@@ -352,9 +352,15 @@ export class CsvImportService {
       startDate?: string;
       endDate?: string;
       search?: string;
-      source?: string; // "PLAID" | "HD_PRO_XTRA" | "CHASE_BANK" | "APPLE_CARD" | undefined (all)
-      connectionId?: string; // Filter Plaid transactions by specific bank connection
-      batchId?: string; // Filter imported transactions by specific CSV batch
+      source?: string;
+      connectionId?: string;
+      batchId?: string;
+      sortBy?: "date" | "description" | "merchant" | "category" | "amount" | "status" | "project";
+      sortDir?: "asc" | "desc";
+      category?: string;
+      pending?: boolean;
+      projectId?: string;
+      unassigned?: boolean;
       page?: number;
       pageSize?: number;
     },
@@ -376,7 +382,7 @@ export class CsvImportService {
     const wantImported =
       !filters.source || ["HD_PRO_XTRA", "CHASE_BANK", "APPLE_CARD"].includes(filters.source);
 
-    const results: Array<{
+    type UnifiedRow = {
       id: string;
       source: string;
       date: Date;
@@ -385,9 +391,12 @@ export class CsvImportService {
       merchant: string | null;
       category: string | null;
       pending: boolean;
+      projectId: string | null;
+      projectName: string | null;
       extra: Record<string, any>;
-    }> = [];
+    };
 
+    const results: UnifiedRow[] = [];
     let totalPlaid = 0;
     let totalImported = 0;
 
@@ -396,6 +405,10 @@ export class CsvImportService {
       const where: any = { companyId };
       if (hasDateFilter) where.date = dateFilter;
       if (filters.connectionId) where.bankConnectionId = filters.connectionId;
+      if (filters.category) where.primaryCategory = { contains: filters.category, mode: "insensitive" };
+      if (filters.pending !== undefined) where.pending = filters.pending;
+      if (filters.projectId) where.projectId = filters.projectId;
+      if (filters.unassigned) where.projectId = null;
       if (filters.search) {
         where.OR = [
           { name: { contains: filters.search, mode: "insensitive" } },
@@ -409,6 +422,7 @@ export class CsvImportService {
           orderBy: { date: "desc" },
           skip: wantImported ? 0 : skip,
           take: wantImported ? 10000 : pageSize,
+          include: { project: { select: { id: true, name: true } } },
         }),
         this.prisma.bankTransaction.count({ where }),
       ]);
@@ -424,6 +438,8 @@ export class CsvImportService {
           merchant: t.merchantName,
           category: t.primaryCategory,
           pending: t.pending,
+          projectId: t.projectId,
+          projectName: (t as any).project?.name ?? null,
           extra: {
             plaidTransactionId: t.plaidTransactionId,
             paymentChannel: t.paymentChannel,
@@ -441,12 +457,27 @@ export class CsvImportService {
       if (filters.source && filters.source !== "PLAID") {
         where.source = filters.source;
       }
-      if (filters.search) {
+      if (filters.category) {
         where.OR = [
+          { category: { contains: filters.category, mode: "insensitive" } },
+          { cardCategory: { contains: filters.category, mode: "insensitive" } },
+        ];
+      }
+      if (filters.projectId) where.projectId = filters.projectId;
+      if (filters.unassigned) where.projectId = null;
+      if (filters.search) {
+        const searchOr = [
           { description: { contains: filters.search, mode: "insensitive" } },
           { merchant: { contains: filters.search, mode: "insensitive" } },
           { jobName: { contains: filters.search, mode: "insensitive" } },
         ];
+        // Merge with existing category OR if present
+        if (where.OR) {
+          where.AND = [{ OR: where.OR }, { OR: searchOr }];
+          delete where.OR;
+        } else {
+          where.OR = searchOr;
+        }
       }
 
       const [importedRows, importedCount] = await Promise.all([
@@ -455,6 +486,7 @@ export class CsvImportService {
           orderBy: { date: "desc" },
           skip: wantPlaid ? 0 : skip,
           take: wantPlaid ? 10000 : pageSize,
+          include: { project: { select: { id: true, name: true } } },
         }),
         this.prisma.importedTransaction.count({ where }),
       ]);
@@ -470,6 +502,8 @@ export class CsvImportService {
           merchant: t.merchant,
           category: t.category ?? t.cardCategory ?? null,
           pending: false,
+          projectId: t.projectId,
+          projectName: (t as any).project?.name ?? null,
           extra: {
             jobNameRaw: t.jobNameRaw,
             jobName: t.jobName,
@@ -488,8 +522,24 @@ export class CsvImportService {
       }
     }
 
-    // Sort combined by date desc and paginate
-    results.sort((a, b) => b.date.getTime() - a.date.getTime());
+    // Sort
+    const dir = filters.sortDir === "asc" ? 1 : -1;
+    const sortKey = filters.sortBy ?? "date";
+    results.sort((a, b) => {
+      switch (sortKey) {
+        case "description": return dir * a.description.localeCompare(b.description);
+        case "merchant": return dir * (a.merchant ?? "").localeCompare(b.merchant ?? "");
+        case "category": return dir * (a.category ?? "").localeCompare(b.category ?? "");
+        case "amount": return dir * (a.amount - b.amount);
+        case "status": return dir * (Number(a.pending) - Number(b.pending));
+        case "project": return dir * (a.projectName ?? "").localeCompare(b.projectName ?? "");
+        case "date":
+        default:
+          return dir * (a.date.getTime() - b.date.getTime());
+      }
+    });
+    // Default sort is date desc when no sortBy specified
+    if (!filters.sortBy) results.reverse();
 
     const total = totalPlaid + totalImported;
     const paged = results.slice(skip, skip + pageSize);
@@ -500,6 +550,199 @@ export class CsvImportService {
       page,
       pageSize,
       totalPages: Math.ceil(total / pageSize),
+    };
+  }
+
+  // ─── Assign transaction to project ────────────────────────────────
+
+  async assignTransactionToProject(
+    companyId: string,
+    transactionId: string,
+    source: string,
+    projectId: string | null,
+  ) {
+    if (source === "PLAID") {
+      const txn = await this.prisma.bankTransaction.findFirst({
+        where: { id: transactionId, companyId },
+      });
+      if (!txn) throw new BadRequestException("Transaction not found.");
+      return this.prisma.bankTransaction.update({
+        where: { id: transactionId },
+        data: { projectId },
+        include: { project: { select: { id: true, name: true } } },
+      });
+    } else {
+      const txn = await this.prisma.importedTransaction.findFirst({
+        where: { id: transactionId, companyId },
+      });
+      if (!txn) throw new BadRequestException("Transaction not found.");
+      return this.prisma.importedTransaction.update({
+        where: { id: transactionId },
+        data: { projectId },
+        include: { project: { select: { id: true, name: true } } },
+      });
+    }
+  }
+
+  // ─── Bulk assign ──────────────────────────────────────────────────
+
+  async bulkAssignProject(
+    companyId: string,
+    ids: Array<{ id: string; source: string }>,
+    projectId: string | null,
+  ) {
+    const plaidIds = ids.filter((i) => i.source === "PLAID").map((i) => i.id);
+    const importedIds = ids.filter((i) => i.source !== "PLAID").map((i) => i.id);
+
+    const ops: Promise<any>[] = [];
+    if (plaidIds.length > 0) {
+      ops.push(
+        this.prisma.bankTransaction.updateMany({
+          where: { id: { in: plaidIds }, companyId },
+          data: { projectId },
+        }),
+      );
+    }
+    if (importedIds.length > 0) {
+      ops.push(
+        this.prisma.importedTransaction.updateMany({
+          where: { id: { in: importedIds }, companyId },
+          data: { projectId },
+        }),
+      );
+    }
+    await Promise.all(ops);
+    return { ok: true, updated: ids.length };
+  }
+
+  // ─── Distinct categories ──────────────────────────────────────────
+
+  async getDistinctCategories(companyId: string) {
+    const [plaidCats, importedCats, appleCats] = await Promise.all([
+      this.prisma.bankTransaction.findMany({
+        where: { companyId, primaryCategory: { not: null } },
+        distinct: ["primaryCategory"],
+        select: { primaryCategory: true },
+      }),
+      this.prisma.importedTransaction.findMany({
+        where: { companyId, category: { not: null } },
+        distinct: ["category"],
+        select: { category: true },
+      }),
+      this.prisma.importedTransaction.findMany({
+        where: { companyId, cardCategory: { not: null } },
+        distinct: ["cardCategory"],
+        select: { cardCategory: true },
+      }),
+    ]);
+
+    const all = new Set<string>();
+    for (const r of plaidCats) if (r.primaryCategory) all.add(r.primaryCategory);
+    for (const r of importedCats) if (r.category) all.add(r.category);
+    for (const r of appleCats) if (r.cardCategory) all.add(r.cardCategory);
+
+    return Array.from(all).sort();
+  }
+
+  // ─── Per-project summary (for reconciliation) ─────────────────────
+
+  async getProjectsSummary(
+    companyId: string,
+    startDate?: string,
+    endDate?: string,
+  ) {
+    const dateGte = startDate ? new Date(startDate) : undefined;
+    const dateLte = endDate ? new Date(endDate) : undefined;
+    const dateFilter: any = {};
+    if (dateGte) dateFilter.gte = dateGte;
+    if (dateLte) dateFilter.lte = dateLte;
+    const hasDate = Object.keys(dateFilter).length > 0;
+
+    // Get all projects for the company
+    const projects = await this.prisma.project.findMany({
+      where: { companyId },
+      select: { id: true, name: true, status: true },
+      orderBy: { name: "asc" },
+    });
+
+    // Aggregate bank transactions by project
+    const bankAgg = await this.prisma.bankTransaction.groupBy({
+      by: ["projectId"],
+      where: {
+        companyId,
+        projectId: { not: null },
+        ...(hasDate ? { date: dateFilter } : {}),
+      },
+      _sum: { amount: true },
+      _count: { id: true },
+    });
+
+    // Aggregate imported transactions by project
+    const importAgg = await this.prisma.importedTransaction.groupBy({
+      by: ["projectId"],
+      where: {
+        companyId,
+        projectId: { not: null },
+        ...(hasDate ? { date: dateFilter } : {}),
+      },
+      _sum: { amount: true },
+      _count: { id: true },
+    });
+
+    // Count unassigned
+    const [unassignedBank, unassignedImported] = await Promise.all([
+      this.prisma.bankTransaction.count({
+        where: { companyId, projectId: null, ...(hasDate ? { date: dateFilter } : {}) },
+      }),
+      this.prisma.importedTransaction.count({
+        where: { companyId, projectId: null, ...(hasDate ? { date: dateFilter } : {}) },
+      }),
+    ]);
+
+    // Build per-project map
+    const projMap = new Map<string, {
+      projectId: string;
+      projectName: string;
+      status: string;
+      totalAmount: number;
+      transactionCount: number;
+    }>();
+
+    for (const p of projects) {
+      projMap.set(p.id, {
+        projectId: p.id,
+        projectName: p.name,
+        status: p.status,
+        totalAmount: 0,
+        transactionCount: 0,
+      });
+    }
+
+    for (const row of bankAgg) {
+      if (!row.projectId) continue;
+      const p = projMap.get(row.projectId);
+      if (p) {
+        p.totalAmount += row._sum.amount ?? 0;
+        p.transactionCount += row._count.id;
+      }
+    }
+    for (const row of importAgg) {
+      if (!row.projectId) continue;
+      const p = projMap.get(row.projectId);
+      if (p) {
+        p.totalAmount += row._sum.amount ?? 0;
+        p.transactionCount += row._count.id;
+      }
+    }
+
+    const projectSummaries = Array.from(projMap.values())
+      .filter((p) => p.transactionCount > 0)
+      .sort((a, b) => b.totalAmount - a.totalAmount);
+
+    return {
+      projects: projectSummaries,
+      unassignedCount: unassignedBank + unassignedImported,
+      totalProjects: projectSummaries.length,
     };
   }
 }
