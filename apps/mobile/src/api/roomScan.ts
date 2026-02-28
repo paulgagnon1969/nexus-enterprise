@@ -103,6 +103,55 @@ export async function createLidarScan(
   });
 }
 
+/**
+ * Submit AR measurement data from a ScanNEX measurement session.
+ */
+export async function createMeasurementScan(
+  projectId: string,
+  measurements: Array<{
+    id: string;
+    distanceMeters: number;
+    distanceFeet: number;
+    distanceFormatted: string;
+    label?: string;
+  }>,
+  opts?: {
+    screenshotUri?: string;
+    usedLiDAR?: boolean;
+    notes?: string;
+    particleId?: string;
+  },
+): Promise<RoomScanResult> {
+  const form = new FormData();
+
+  form.append("scanMode", "MEASUREMENT");
+  form.append("measurements", JSON.stringify(measurements));
+  if (opts?.usedLiDAR != null) form.append("usedLiDAR", String(opts.usedLiDAR));
+  if (opts?.particleId) form.append("particleId", opts.particleId);
+  if (opts?.notes) form.append("notes", opts.notes);
+
+  if (opts?.screenshotUri) {
+    form.append("photos", {
+      uri: opts.screenshotUri,
+      name: `scannex_measure_${Date.now()}.jpg`,
+      type: "image/jpeg",
+    } as any);
+  }
+
+  const res = await apiFetch(`/projects/${projectId}/room-scans/measurement`, {
+    method: "POST",
+    body: form,
+    _skipRetry: true,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Measurement scan failed: ${res.status} ${text}`);
+  }
+
+  return (await res.json()) as RoomScanResult;
+}
+
 /** Fetch a single room scan by ID. */
 export async function getRoomScan(
   projectId: string,
