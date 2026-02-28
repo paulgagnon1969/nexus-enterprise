@@ -66,6 +66,7 @@ import { BillingModule } from "./modules/billing/billing.module";
 import { BankingModule } from "./modules/banking/banking.module";
 import { AnalyticsModule } from "./modules/analytics/analytics.module";
 import { LocalSupplierModule } from "./modules/local-supplier/local-supplier.module";
+import { RoomScanModule } from "./modules/room-scan/room-scan.module";
 
 @Module({
   imports: [
@@ -140,6 +141,7 @@ import { LocalSupplierModule } from "./modules/local-supplier/local-supplier.mod
     BankingModule,
     AnalyticsModule,
     LocalSupplierModule,
+    RoomScanModule,
   ],
   controllers: [DevController]
 })

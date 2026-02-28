@@ -526,16 +526,21 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
                   border: "1px solid #d1d5db",
                 }}
               >
-                {jobStatuses.length > 0 ? (
-                  jobStatuses.map(js => (
-                    <option key={js.id} value={js.label}>
-                      {js.label}
-                    </option>
-                  ))
+              {jobStatuses.length > 0 ? (
+                  <>
+                    <option value="">Select All</option>
+                    {jobStatuses.map(js => (
+                      <option key={js.id} value={js.label}>
+                        {js.label}
+                      </option>
+                    ))}
+                  </>
                 ) : (
                   <>
+                    <option value="">Select All</option>
                     <option value="Open">Open</option>
                     <option value="Closed">Closed</option>
+                    <option value="Completed">Completed</option>
                     <option value="Warranty">Warranty</option>
                   </>
                 )}

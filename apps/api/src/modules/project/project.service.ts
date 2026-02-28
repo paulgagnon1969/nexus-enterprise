@@ -895,16 +895,20 @@ export class ProjectService {
       companyId
     };
 
-    // Status filter: map Open/Closed/Warranty to project.status strings
+    // Status filter: map Open/Closed/Warranty/Completed to project.status strings.
+    // Empty or missing status = no filter (show all).
     if (filters?.status) {
       const s = filters.status.toLowerCase();
       if (s === "open") {
         where.status = { in: ["active", "open"], mode: "insensitive" } as any;
       } else if (s === "closed") {
         where.status = { equals: "closed", mode: "insensitive" } as any;
+      } else if (s === "completed") {
+        where.status = { equals: "completed", mode: "insensitive" } as any;
       } else if (s === "warranty") {
         where.status = { equals: "warranty", mode: "insensitive" } as any;
       }
+      // If status is empty string or unrecognised → no status filter applied
     }
 
     // Tag filter: if tagIds present, restrict to projects that have any of those tags

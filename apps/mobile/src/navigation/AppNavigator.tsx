@@ -24,6 +24,7 @@ import { TodosScreen } from "../screens/TodosScreen";
 import { PlanSheetsScreen } from "../screens/PlanSheetsScreen";
 import { PlanSheetViewerScreen } from "../screens/PlanSheetViewerScreen";
 import { CreateProjectScreen } from "../screens/CreateProjectScreen";
+import { RoomScanScreen } from "../screens/RoomScanScreen";
 import { ScrollableTabBar } from "../components/ScrollableTabBar";
 import { fetchAllTasks } from "../api/tasks";
 import { apiJson } from "../api/client";
@@ -60,6 +61,7 @@ export type ProjectsStackParamList = {
     sheets: PlanSheetItem[];
     initialIndex: number;
   };
+  RoomScan: { project: ProjectListItem };
 };
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
@@ -96,6 +98,7 @@ function DailyLogsWrapper() {
       onBack={() => navigation.goBack()}
       onOpenPetl={() => navigation.navigate("FieldPetl", { project, companyName })}
       onOpenPlanSheets={() => navigation.navigate("PlanSheets", { project })}
+      onOpenRoomScan={() => navigation.navigate("RoomScan", { project })}
       onStartCall={async () => {
         try {
           const res = await apiJson<{ room: any; token: string; livekitUrl: string }>(
@@ -157,6 +160,17 @@ function PlanSheetsWrapper() {
       project={project}
       onBack={() => navigation.goBack()}
       onOpenViewer={(params) => navigation.navigate("PlanSheetViewer", params)}
+    />
+  );
+}
+
+function RoomScanWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
+  const route = useRoute<RouteProp<ProjectsStackParamList, "RoomScan">>();
+  return (
+    <RoomScanScreen
+      project={route.params.project}
+      onBack={() => navigation.goBack()}
     />
   );
 }
@@ -240,6 +254,7 @@ function ProjectsStackNavigator() {
       <ProjectsStack.Screen name="FieldPetl" component={FieldPetlWrapper} />
       <ProjectsStack.Screen name="PlanSheets" component={PlanSheetsWrapper} />
       <ProjectsStack.Screen name="PlanSheetViewer" component={PlanSheetViewerWrapper} />
+      <ProjectsStack.Screen name="RoomScan" component={RoomScanWrapper} />
     </ProjectsStack.Navigator>
   );
 }

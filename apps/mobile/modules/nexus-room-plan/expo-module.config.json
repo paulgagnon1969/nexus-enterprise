@@ -1,0 +1,7 @@
+{
+  "platforms": ["ios"],
+  "ios": {
+    "modules": ["NexusRoomPlanModule"],
+    "podspecPath": "./ios/NexusRoomPlan.podspec"
+  }
+}

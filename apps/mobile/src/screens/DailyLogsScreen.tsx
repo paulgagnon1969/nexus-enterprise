@@ -69,6 +69,7 @@ export function DailyLogsScreen({
   onBack,
   onOpenPetl,
   onOpenPlanSheets,
+  onOpenRoomScan,
   onStartCall,
   onNavigateHome,
   petlChanges,
@@ -79,6 +80,7 @@ export function DailyLogsScreen({
   onBack: () => void;
   onOpenPetl?: () => void;
   onOpenPlanSheets?: () => void;
+  onOpenRoomScan?: () => void;
   onStartCall?: () => void;
   onNavigateHome?: () => void;
   petlChanges?: PetlSessionChanges;
@@ -588,6 +590,11 @@ export function DailyLogsScreen({
           {onOpenPlanSheets && (
             <Pressable style={styles.projectActionBtn} onPress={onOpenPlanSheets}>
               <Text style={styles.projectActionText}>📐 Plans</Text>
+            </Pressable>
+          )}
+          {onOpenRoomScan && (
+            <Pressable style={styles.projectActionBtn} onPress={onOpenRoomScan}>
+              <Text style={styles.projectActionText}>📷 Scan Room</Text>
             </Pressable>
           )}
           {onStartCall && (

@@ -232,6 +232,9 @@ model Company {
 
   // Local Supplier Index (scraped geographic suppliers)
   localSuppliers LocalSupplier[]
+
+  // Room Scanner & Assessment
+  roomScans RoomScan[]
 }
 
 model OrganizationTemplate {
@@ -594,6 +597,9 @@ model User {
   // Local Supplier Index — flag/review relations
   localSuppliersFlagged  LocalSupplier[] @relation("LocalSupplierFlaggedBy")
   localSuppliersReviewed LocalSupplier[] @relation("LocalSupplierReviewedBy")
+
+  // Room Scanner & Assessment
+  roomScansCreated RoomScan[] @relation("RoomScanCreatedBy")
 
   // Asset ownership & maintenance
   ownedAssets                Asset[]                  @relation("AssetOwner")
@@ -1277,6 +1283,9 @@ model Project {
   // Video calling rooms on this project
   videoRooms VideoRoom[]
 
+  // Room Scanner & Assessment
+  roomScans RoomScan[]
+
   // BOM Pricing snapshots
   bomPricingSnapshots BomPricingSnapshot[]
 
@@ -1624,6 +1633,7 @@ model ProjectParticle {
   tasks                     Task[]
   dailyLogs                 DailyLog[]                @relation("ProjectParticleDailyLogs")
   petlReconciliationEntries PetlReconciliationEntry[]
+  roomScans                 RoomScan[]
 }
 
 model AdminAuditLog {
@@ -7803,4 +7813,39 @@ model LocalSupplier {
   @@index([companyId, status], map: "LocalSupplier_company_status_idx")
   @@index([companyId, lat, lng], map: "LocalSupplier_company_geo_idx")
   @@unique([companyId, placeId], map: "LocalSupplier_company_placeId_key")
+}
+
+// ===================================================================
+// Room Scanner & Assessment — LiDAR + AI Vision dual-mode
+// ===================================================================
+
+/// A room scan captured via LiDAR (RoomPlan on iOS) or AI Vision (photo analysis).
+/// Both modes produce a unified assessmentJson with room type, dimensions,
+/// features (doors, windows, fixtures), and condition ratings.
+model RoomScan {
+  id              String   @id @default(cuid())
+  companyId       String
+  projectId       String
+  particleId      String?  /// FK → ProjectParticle (room in org tree)
+  label           String?  /// User-provided room label
+  scanMode        String   @default("AI_VISION") /// AI_VISION | LIDAR
+  status          String   @default("PROCESSING") /// PROCESSING | COMPLETE | FAILED
+  photoUrls       Json?    /// string[] of GCS URLs (photos used for AI Vision or LiDAR screenshots)
+  assessmentJson  Json?    /// Unified structured assessment (same shape for both modes)
+  rawAiResponse   String?  @db.Text /// Raw GPT-4o response (AI_VISION mode only)
+  lidarRoomJson   Json?    /// Raw RoomPlan CapturedRoom data (LIDAR mode only)
+  confidenceScore Float?   /// 0.0–1.0 (high for LiDAR, variable for AI)
+  errorMessage    String?  /// Error details if status = FAILED
+  notes           String?  @db.Text
+  createdById     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company   Company          @relation(fields: [companyId], references: [id])
+  project   Project          @relation(fields: [projectId], references: [id])
+  particle  ProjectParticle? @relation(fields: [particleId], references: [id])
+  createdBy User             @relation("RoomScanCreatedBy", fields: [createdById], references: [id])
+
+  @@index([companyId, projectId], map: "RoomScan_company_project_idx")
+  @@index([projectId, createdAt], map: "RoomScan_project_created_idx")
 }
