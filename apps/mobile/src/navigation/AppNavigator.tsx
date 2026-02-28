@@ -9,6 +9,7 @@ import { colors } from "../theme/colors";
 import appJson from "../../app.json";
 
 import { HomeScreen } from "../screens/HomeScreen";
+import { KpiHomeScreen } from "../screens/KpiHomeScreen";
 import { ProjectsScreen } from "../screens/ProjectsScreen";
 import { MapScreen } from "../screens/MapScreen";
 import { DailyLogsScreen } from "../screens/DailyLogsScreen";
@@ -285,39 +286,17 @@ export function useCurrentCompany() {
 const SetCompanyContext = React.createContext<(company: { id: string; name: string }) => void>(() => {});
 
 function HomeTabScreen() {
-  const onLogout = React.useContext(LogoutContext);
-  const setCompany = React.useContext(SetCompanyContext);
-  const route = useRoute<RouteProp<RootTabParamList, "HomeTab">>();
   const navigation = useNavigation<any>();
-  const triggerSync = route.params?.triggerSync;
-  
+  const company = React.useContext(CompanyContext);
+
   return (
-    <HomeScreen
-      onLogout={onLogout}
-      onGoProjects={() => {}}
-      onGoInventory={() => {}}
-      onGoOutbox={() => {}}
-      onCompanyChange={setCompany}
-      triggerSyncOnMount={triggerSync}
-      onOpenPetl={(project) => {
-        // Navigate to Projects tab and then to FieldPetl
-        navigation.navigate("ProjectsTab", {
-          screen: "FieldPetl",
-          params: { project },
-        });
-      }}
-      onOpenDailyLogCreate={(project, logType) => {
-        // Navigate to Projects tab and then to DailyLogs (which handles creation)
+    <KpiHomeScreen
+      companyName={company.name}
+      onOpenProject={(project) => {
         navigation.navigate("ProjectsTab", {
           screen: "DailyLogs",
-          params: { project, createLogType: logType },
+          params: { project, companyName: company.name ?? undefined },
         });
-      }}
-      onJoinCall={(params) => {
-        const root = navigation.getParent();
-        if (root) {
-          root.navigate("Call", params);
-        }
       }}
       onCreateProject={() => {
         navigation.navigate("ProjectsTab", {
