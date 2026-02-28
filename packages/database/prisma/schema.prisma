@@ -7529,6 +7529,7 @@ model ModuleCatalog {
   monthlyPrice    Int?         // Display price in cents (e.g. 4900 = $49.00)
   pricingModel    PricingModel @default(MONTHLY)
   projectUnlockPrice Int?      // One-time unlock price in cents (PER_PROJECT only)
+  oneTimePurchasePrice Int?    // One-time lifetime access price (ONE_TIME_PURCHASE only)
   isCore          Boolean      @default(false) // CORE modules can't be toggled off
   sortOrder       Int          @default(0)
   active          Boolean      @default(true)
@@ -7564,9 +7565,10 @@ enum PaymentMethodType {
 
 /// Pricing model for a module in the catalog.
 enum PricingModel {
-  MONTHLY      // Standard recurring subscription
-  PER_PROJECT  // One-time unlock fee per project
-  PER_USE      // Pay-per-use (future)
+  MONTHLY           // Standard recurring subscription
+  PER_PROJECT       // One-time unlock fee per project
+  PER_USE           // Pay-per-use (future)
+  ONE_TIME_PURCHASE // One-time purchase for lifetime access (Master Costbook, Golden PETL, Golden BOM)
 }
 
 /// Tracks one-time per-project feature unlocks. When a PM unlocks a

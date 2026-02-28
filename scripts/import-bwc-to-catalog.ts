@@ -11,6 +11,7 @@
  *   npx ts-node scripts/import-bwc-to-catalog.ts
  */
 
+import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import { parse } from "csv-parse/sync";
