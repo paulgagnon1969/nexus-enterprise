@@ -935,6 +935,195 @@ export class AdminService {
    * with the given role. This is used by trusted admins (Paul / superadmin) when
    * they have a known email address and want to hand a password directly to the user.
    */
+  // ── TUCKS Phase 1: Analytics Overview ──────────────────────────────────
+
+  async getAnalyticsOverview(actor: AuthenticatedUser, period: string) {
+    await this.audit(actor, "ADMIN_VIEW_ANALYTICS");
+
+    const days = period === "7d" ? 7 : period === "90d" ? 90 : 30;
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    const [
+      activeProjects,
+      dailyLogCount,
+      openTasks,
+      completedTasks,
+      invoicesIssued,
+      invoicesOutstanding,
+      messageCount,
+      activeThreads,
+      timecardCount,
+      importJobCount,
+      vjnCount,
+      topContributors,
+      recentDailyLogs,
+      recentInvoices,
+      recentTasks,
+    ] = await Promise.all([
+      // Work Activity
+      this.prisma.project.count({ where: { status: "active" } }),
+      this.prisma.dailyLog.count({ where: { createdAt: { gte: since } } }),
+      this.prisma.task.count({ where: { status: { in: ["TODO", "IN_PROGRESS"] } } }),
+      this.prisma.task.count({ where: { status: "DONE", updatedAt: { gte: since } } }),
+
+      // Financial
+      this.prisma.projectInvoice.aggregate({
+        where: { status: "ISSUED", issuedAt: { gte: since } },
+        _sum: { totalAmount: true },
+        _count: true,
+      }),
+      this.prisma.projectInvoice.aggregate({
+        where: { status: { in: ["ISSUED", "PARTIALLY_PAID"] } },
+        _sum: { totalAmount: true },
+        _count: true,
+      }),
+
+      // Messaging
+      this.prisma.message.count({ where: { createdAt: { gte: since } } }),
+      this.prisma.messageThread.count({ where: { updatedAt: { gte: since } } }),
+
+      // Module usage proxies
+      this.prisma.dailyTimecard.count({ where: { createdAt: { gte: since } } }),
+      this.prisma.importJob.count({ where: { createdAt: { gte: since } } }),
+      this.prisma.voiceJournalNote.count({ where: { createdAt: { gte: since } } }),
+
+      // Top contributors (top 5 by daily log + task creation)
+      this.prisma.$queryRaw<{ userId: string; email: string; firstName: string | null; lastName: string | null; logCount: number; taskCount: number; total: number }[]>`
+        SELECT
+          u.id AS "userId",
+          u.email,
+          u."firstName",
+          u."lastName",
+          COALESCE(dl.cnt, 0)::int AS "logCount",
+          COALESCE(tk.cnt, 0)::int AS "taskCount",
+          (COALESCE(dl.cnt, 0) + COALESCE(tk.cnt, 0))::int AS "total"
+        FROM "User" u
+        LEFT JOIN (
+          SELECT "createdById" AS uid, COUNT(*)::int AS cnt
+          FROM "DailyLog"
+          WHERE "createdAt" >= ${since}
+          GROUP BY "createdById"
+        ) dl ON dl.uid = u.id
+        LEFT JOIN (
+          SELECT "createdByUserId" AS uid, COUNT(*)::int AS cnt
+          FROM "Task"
+          WHERE "createdAt" >= ${since} AND "createdByUserId" IS NOT NULL
+          GROUP BY "createdByUserId"
+        ) tk ON tk.uid = u.id
+        WHERE COALESCE(dl.cnt, 0) + COALESCE(tk.cnt, 0) > 0
+        ORDER BY "total" DESC
+        LIMIT 10
+      `,
+
+      // Recent events: daily logs
+      this.prisma.dailyLog.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: {
+          id: true,
+          title: true,
+          type: true,
+          createdAt: true,
+          project: { select: { name: true } },
+          createdBy: { select: { firstName: true, lastName: true, email: true } },
+        },
+      }),
+
+      // Recent events: invoices
+      this.prisma.projectInvoice.findMany({
+        where: { status: { not: "DRAFT" } },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: {
+          id: true,
+          invoiceNo: true,
+          status: true,
+          totalAmount: true,
+          createdAt: true,
+          project: { select: { name: true } },
+        },
+      }),
+
+      // Recent events: tasks
+      this.prisma.task.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          createdAt: true,
+          project: { select: { name: true } },
+        },
+      }),
+    ]);
+
+    // Merge and sort recent events
+    const recentEvents = [
+      ...recentDailyLogs.map(d => ({
+        type: "log" as const,
+        text: `Daily log${d.title ? ` "${d.title}"` : ""} (${d.type}) — ${d.project.name}`,
+        by: d.createdBy.firstName
+          ? `${d.createdBy.firstName} ${d.createdBy.lastName ?? ""}`.trim()
+          : d.createdBy.email,
+        createdAt: d.createdAt,
+      })),
+      ...recentInvoices.map(i => ({
+        type: "financial" as const,
+        text: `Invoice ${i.invoiceNo ?? "(draft)"} ${i.status} — $${(i.totalAmount ?? 0).toLocaleString()} — ${i.project.name}`,
+        by: null,
+        createdAt: i.createdAt,
+      })),
+      ...recentTasks.map(t => ({
+        type: "task" as const,
+        text: `Task "${t.title}" ${t.status} — ${t.project.name}`,
+        by: null,
+        createdAt: t.createdAt,
+      })),
+    ]
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, 10);
+
+    return {
+      period: `${days}d`,
+      since: since.toISOString(),
+      workActivity: {
+        activeProjects,
+        dailyLogsInPeriod: dailyLogCount,
+        openTasks,
+        completedInPeriod: completedTasks,
+      },
+      financial: {
+        totalBilledInPeriod: invoicesIssued._sum.totalAmount ?? 0,
+        invoicesIssuedCount: invoicesIssued._count,
+        outstandingTotal: invoicesOutstanding._sum.totalAmount ?? 0,
+        outstandingCount: invoicesOutstanding._count,
+      },
+      messaging: {
+        messagesInPeriod: messageCount,
+        activeThreads,
+      },
+      moduleUsage: {
+        dailyLogs: dailyLogCount,
+        tasks: completedTasks + openTasks,
+        messages: messageCount,
+        timecards: timecardCount,
+        imports: importJobCount,
+        voiceNotes: vjnCount,
+      },
+      topContributors: topContributors.map(c => ({
+        name: c.firstName
+          ? `${c.firstName} ${c.lastName ?? ""}`.trim()
+          : c.email,
+        logCount: Number(c.logCount),
+        taskCount: Number(c.taskCount),
+        total: Number(c.total),
+      })),
+      recentEvents,
+    };
+  }
+
   async createUserWithPassword(
     actor: AuthenticatedUser,
     params: { email: string; password: string; companyId: string; role: string; userType?: string }

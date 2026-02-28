@@ -64,6 +64,7 @@ import { VjnModule } from "./modules/vjn/vjn.module";
 import { SupplierBiddingModule } from "./modules/supplier-bidding/supplier-bidding.module";
 import { BillingModule } from "./modules/billing/billing.module";
 import { BankingModule } from "./modules/banking/banking.module";
+import { AnalyticsModule } from "./modules/analytics/analytics.module";
 
 @Module({
   imports: [
@@ -136,6 +137,7 @@ import { BankingModule } from "./modules/banking/banking.module";
     SupplierBiddingModule,
     BillingModule,
     BankingModule,
+    AnalyticsModule,
   ],
   controllers: [DevController]
 })

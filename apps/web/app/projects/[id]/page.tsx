@@ -19174,7 +19174,7 @@ ${htmlBody}
                               )}
 
                               {!projectInvoicesLoading && invoiceOptions.length > 0 && (
-                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", maxWidth: "100%" }}>
                                   <select
                                     value={selectedInvoiceId}
                                     onChange={(e) => {
@@ -19183,7 +19183,9 @@ ${htmlBody}
                                       setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: "" }));
                                     }}
                                     style={{
-                                      flex: "1 1 180px",
+                                      flex: "1 1 140px",
+                                      minWidth: 0,
+                                      maxWidth: "100%",
                                       padding: "6px 8px",
                                       borderRadius: 4,
                                       border: "1px solid #d1d5db",

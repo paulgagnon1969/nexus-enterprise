@@ -224,6 +224,10 @@ model Company {
   // Banking — Plaid Transactions
   bankConnections  BankConnection[]
   bankTransactions BankTransaction[]
+
+  // CSV Import — vendor receipts, credit card & bank statement imports
+  csvImportBatches      CsvImportBatch[]
+  importedTransactions  ImportedTransaction[]
 }
 
 model OrganizationTemplate {
@@ -579,6 +583,9 @@ model User {
 
   // Banking — Plaid Transactions
   bankConnectionsCreated BankConnection[] @relation("BankConnectionConnectedBy")
+
+  // CSV Transaction Imports
+  csvImportBatchesUploaded CsvImportBatch[] @relation("CsvImportBatchUploadedBy")
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -1273,6 +1280,9 @@ model Project {
   // Crew location tracking (foreground-only, for job site maps)
   crewLocations CrewLocation[]
 
+  // CSV-imported transactions tagged to this project (reconciliation)
+  importedTransactions ImportedTransaction[] @relation("ImportedTransactionProject")
+
   /// Building model type (e.g. "A Model", "G Model", "F Model")
   buildingModelType String?
 
@@ -1610,6 +1620,58 @@ model AdminAuditLog {
   targetUserId    String?
   metadata        Json?
   createdAt       DateTime   @default(now())
+}
+
+// =============================================================================
+// TUCKS — Telemetry Usage Chart KPI System
+// =============================================================================
+
+/// Raw user activity event. Lives in Postgres for a 14-day rolling window,
+/// then archived to GCS encrypted vault and purged.
+model UserActivityEvent {
+  id        String   @id @default(cuid())
+  companyId String
+  userId    String
+  eventType String   // LOGIN, MODULE_OPEN, RECORD_CREATE, RECORD_UPDATE, RECORD_DELETE, PAGE_VIEW
+  module    String   // projects, financial, daily_logs, messaging, timecards, etc.
+  entityId  String?  // ID of the affected record (optional)
+  metadata  Json?    // Additional context (page path, entity type, etc.)
+  createdAt DateTime @default(now())
+
+  @@index([companyId, createdAt], map: "UserActivityEvent_company_created_idx")
+  @@index([userId, createdAt], map: "UserActivityEvent_user_created_idx")
+  @@index([module, eventType, createdAt], map: "UserActivityEvent_module_event_created_idx")
+}
+
+/// Pre-computed daily rollup of user activity. Permanent storage — powers dashboard queries.
+model ActivityDailyRollup {
+  id         String   @id @default(cuid())
+  companyId  String
+  userId     String
+  date       DateTime @db.Date // truncated to day
+  module     String
+  eventType  String
+  eventCount Int      @default(0)
+  metadata   Json?    // aggregated metadata (e.g., avg content length)
+
+  @@unique([companyId, userId, date, module, eventType], name: "ActivityDailyRollup_unique")
+  @@index([companyId, date], map: "ActivityDailyRollup_company_date_idx")
+  @@index([userId, date], map: "ActivityDailyRollup_user_date_idx")
+}
+
+/// Pre-computed weekly rollup of user activity. Permanent storage.
+model ActivityWeeklyRollup {
+  id         String   @id @default(cuid())
+  companyId  String
+  userId     String
+  weekStart  DateTime @db.Date // Monday of the week
+  module     String
+  eventType  String
+  eventCount Int      @default(0)
+
+  @@unique([companyId, userId, weekStart, module, eventType], name: "ActivityWeeklyRollup_unique")
+  @@index([companyId, weekStart], map: "ActivityWeeklyRollup_company_week_idx")
+  @@index([userId, weekStart], map: "ActivityWeeklyRollup_user_week_idx")
 }
 
 model ProjectFinancialSnapshot {
@@ -7486,4 +7548,86 @@ model BankTransaction {
   @@index([bankConnectionId], map: "BankTransaction_connection_idx")
   @@index([companyId, primaryCategory], map: "BankTransaction_company_category_idx")
   @@index([pending], map: "BankTransaction_pending_idx")
+}
+
+// ===================================================================
+// CSV Transaction Imports — HD, Chase, Apple Card
+// ===================================================================
+
+enum CsvImportSource {
+  HD_PRO_XTRA
+  CHASE_BANK
+  APPLE_CARD
+}
+
+/// A single CSV file upload / import batch.
+model CsvImportBatch {
+  id               String          @id @default(cuid())
+  companyId        String
+  source           CsvImportSource
+  fileName         String
+  rowCount         Int             @default(0)
+  totalAmount      Float           @default(0)
+  dateRangeStart   DateTime?       @db.Date
+  dateRangeEnd     DateTime?       @db.Date
+  uploadedByUserId String
+  createdAt        DateTime        @default(now())
+
+  company    Company              @relation(fields: [companyId], references: [id])
+  uploadedBy User                 @relation("CsvImportBatchUploadedBy", fields: [uploadedByUserId], references: [id])
+  transactions ImportedTransaction[]
+
+  @@index([companyId], map: "CsvImportBatch_company_idx")
+  @@index([companyId, source], map: "CsvImportBatch_company_source_idx")
+}
+
+/// Individual transaction row parsed from an imported CSV.
+model ImportedTransaction {
+  id          String          @id @default(cuid())
+  companyId   String
+  batchId     String
+  source      CsvImportSource
+
+  // Core fields (all sources)
+  date        DateTime        @db.Date
+  description String
+  amount      Float           // Positive = expense/purchase, negative = return/credit
+  merchant    String?
+
+  // HD Pro Xtra fields
+  jobNameRaw  String?
+  jobName     String?         // Normalized via job-name-map
+  sku         String?
+  department  String?
+  category    String?
+  subcategory String?
+  purchaser   String?
+  qty         Float?
+  unitPrice   Float?
+
+  // Chase bank statement fields
+  postingDate     DateTime?   @db.Date
+  txnType         String?     // CHECK_PAID, ACH_CREDIT, DEBIT_CARD, etc.
+  runningBalance  Float?
+  checkOrSlip     String?
+
+  // Apple Card fields
+  clearingDate    DateTime?   @db.Date
+  cardCategory    String?
+  cardHolder      String?
+
+  // Reconciliation — optional project linkage
+  projectId   String?
+
+  createdAt   DateTime        @default(now())
+
+  company Company          @relation(fields: [companyId], references: [id])
+  batch   CsvImportBatch   @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  project Project?         @relation("ImportedTransactionProject", fields: [projectId], references: [id])
+
+  @@index([companyId, date], map: "ImportedTransaction_company_date_idx")
+  @@index([companyId, source], map: "ImportedTransaction_company_source_idx")
+  @@index([batchId], map: "ImportedTransaction_batch_idx")
+  @@index([companyId, jobName], map: "ImportedTransaction_company_jobName_idx")
+  @@index([companyId, merchant], map: "ImportedTransaction_company_merchant_idx")
 }

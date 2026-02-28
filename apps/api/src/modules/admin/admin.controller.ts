@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Req, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Query, Req, Post, UseGuards } from "@nestjs/common";
 import { AdminService } from "./admin.service";
 import { JwtAuthGuard, GlobalRolesGuard, GlobalRoles, GlobalRole } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
@@ -106,6 +106,12 @@ export class AdminController {
   reconcileCompanyTemplate(@Param("id") companyId: string, @Req() req: any) {
     const actor = req.user as AuthenticatedUser;
     return this.admin.reconcileCompanyToLatestTemplate(actor, companyId);
+  }
+
+  @Get("analytics/overview")
+  getAnalyticsOverview(@Req() req: any, @Query("period") period?: string) {
+    const actor = req.user as AuthenticatedUser;
+    return this.admin.getAnalyticsOverview(actor, period || "30d");
   }
 
   @Get("audit-logs")

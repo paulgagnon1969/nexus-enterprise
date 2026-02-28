@@ -327,17 +327,27 @@ export default function FinancialPage() {
     createdAt: string;
     _count: { transactions: number };
   };
-  type BankTransactionDto = {
+  type UnifiedTransactionDto = {
     id: string;
-    plaidTransactionId: string;
+    source: string;
     date: string;
-    name: string;
-    merchantName: string | null;
+    description: string;
     amount: number;
-    primaryCategory: string | null;
-    detailedCategory: string | null;
+    merchant: string | null;
+    category: string | null;
     pending: boolean;
-    paymentChannel: string | null;
+    extra: Record<string, any>;
+  };
+  type CsvImportBatchDto = {
+    id: string;
+    source: string;
+    fileName: string;
+    rowCount: number;
+    totalAmount: number;
+    dateRangeStart: string | null;
+    dateRangeEnd: string | null;
+    createdAt: string;
+    uploadedBy: { id: string; firstName: string | null; lastName: string | null; email: string | null };
   };
   type BankSummaryDto = {
     totalInflow: number;
@@ -347,7 +357,7 @@ export default function FinancialPage() {
     byCategory: Record<string, { inflow: number; outflow: number; count: number }>;
   };
   const [bankConnections, setBankConnections] = useState<BankConnectionDto[]>([]);
-  const [bankTransactions, setBankTransactions] = useState<BankTransactionDto[]>([]);
+  const [bankTransactions, setBankTransactions] = useState<UnifiedTransactionDto[]>([]);
   const [bankSummary, setBankSummary] = useState<BankSummaryDto | null>(null);
   const [bankTxTotal, setBankTxTotal] = useState(0);
   const [bankTxPage, setBankTxPage] = useState(1);
@@ -360,6 +370,13 @@ export default function FinancialPage() {
   const [bankEndDate, setBankEndDate] = useState("");
   const [bankCategoryFilter, setBankCategoryFilter] = useState("");
   const [bankConnecting, setBankConnecting] = useState(false);
+  const [bankSourceFilter, setBankSourceFilter] = useState("");
+  // Account-level filter: "conn:<id>" for Plaid connections, "batch:<id>" for CSV batches
+  const [bankAccountFilter, setBankAccountFilter] = useState("");
+  const [csvBatches, setCsvBatches] = useState<CsvImportBatchDto[]>([]);
+  const [csvUploadOpen, setCsvUploadOpen] = useState(false);
+  const [csvUploadSource, setCsvUploadSource] = useState("HD_PRO_XTRA");
+  const [csvUploading, setCsvUploading] = useState(false);
 
   // Last Golden-related import jobs (so we can poll status after enqueue).
   const [priceListJob, setPriceListJob] = useState<ImportJobDto | null>(null);
@@ -707,8 +724,12 @@ export default function FinancialPage() {
       if (bankSearch) params.set("search", bankSearch);
       if (bankStartDate) params.set("startDate", bankStartDate);
       if (bankEndDate) params.set("endDate", bankEndDate);
-      if (bankCategoryFilter) params.set("category", bankCategoryFilter);
-      const res = await fetch(`${API_BASE}/banking/transactions?${params}`, {
+      if (bankSourceFilter) params.set("source", bankSourceFilter);
+      if (bankAccountFilter) {
+        if (bankAccountFilter.startsWith("conn:")) params.set("connectionId", bankAccountFilter.slice(5));
+        else if (bankAccountFilter.startsWith("batch:")) params.set("batchId", bankAccountFilter.slice(6));
+      }
+      const res = await fetch(`${API_BASE}/banking/transactions/unified?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error(`Failed (${res.status})`);
@@ -721,6 +742,60 @@ export default function FinancialPage() {
     } finally {
       setBankLoading(false);
     }
+  }
+
+  async function fetchCsvBatches() {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/banking/csv-imports`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setCsvBatches(await res.json());
+    } catch {}
+  }
+
+  async function handleCsvUpload(file: File) {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    setCsvUploading(true);
+    setBankError(null);
+    try {
+      const formData = new FormData();
+      formData.append("source", csvUploadSource);
+      formData.append("file", file);
+      const res = await fetch(`${API_BASE}/banking/csv-import`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.message || `Upload failed (${res.status})`);
+      }
+      setCsvUploadOpen(false);
+      await fetchCsvBatches();
+      await fetchBankTransactions(1);
+      await fetchBankSummary();
+    } catch (err: any) {
+      setBankError(err?.message ?? "CSV upload failed");
+    } finally {
+      setCsvUploading(false);
+    }
+  }
+
+  async function handleDeleteBatch(batchId: string) {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    try {
+      await fetch(`${API_BASE}/banking/csv-imports/${batchId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      await fetchCsvBatches();
+      await fetchBankTransactions(1);
+      await fetchBankSummary();
+    } catch {}
   }
 
   async function fetchBankSummary() {
@@ -823,6 +898,7 @@ export default function FinancialPage() {
     fetchBankConnections();
     fetchBankTransactions(1);
     fetchBankSummary();
+    fetchCsvBatches();
   }, [activeSection]);
 
   // Lazy-load Asset Logistics tree when that tab is first opened.
@@ -3420,7 +3496,7 @@ export default function FinancialPage() {
             Banking &amp; Transactions
           </h3>
 
-          {/* Connected accounts banner */}
+          {/* Connected accounts + CSV batches banner */}
           <div style={{ marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
             {bankConnections.filter(c => c.status === "ACTIVE").map(conn => (
               <div
@@ -3450,13 +3526,7 @@ export default function FinancialPage() {
             {bankConnections.filter(c => c.status === "REQUIRES_REAUTH").map(conn => (
               <div
                 key={conn.id}
-                style={{
-                  padding: "8px 12px",
-                  borderRadius: 8,
-                  border: "1px solid #fbbf24",
-                  background: "#fffbeb",
-                  fontSize: 12,
-                }}
+                style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #fbbf24", background: "#fffbeb", fontSize: 12 }}
               >
                 <span style={{ fontWeight: 600, color: "#b45309" }}>
                   {conn.institutionName ?? "Bank"} — Re-authentication required
@@ -3464,20 +3534,43 @@ export default function FinancialPage() {
               </div>
             ))}
 
+            {/* CSV import batch badges */}
+            {csvBatches.map(batch => {
+              const sourceLabels: Record<string, { label: string; color: string; bg: string }> = {
+                HD_PRO_XTRA: { label: "HD", color: "#ea580c", bg: "#fff7ed" },
+                CHASE_BANK: { label: "Chase", color: "#2563eb", bg: "#eff6ff" },
+                APPLE_CARD: { label: "Apple", color: "#6b7280", bg: "#f9fafb" },
+              };
+              const s = sourceLabels[batch.source] ?? { label: batch.source, color: "#6b7280", bg: "#f9fafb" };
+              return (
+                <div
+                  key={batch.id}
+                  style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${s.color}44`, background: s.bg, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}
+                >
+                  <span style={{ fontWeight: 700, color: s.color }}>{s.label}</span>
+                  <span style={{ color: "#374151" }}>{batch.fileName}</span>
+                  <span style={{ color: "#6b7280" }}>{batch.rowCount.toLocaleString()} rows</span>
+                  <span style={{ color: "#6b7280" }}>${Math.abs(batch.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteBatch(batch.id)}
+                    title="Remove this import"
+                    style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 14, padding: 0, lineHeight: 1 }}
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+
             <button
               type="button"
               onClick={handleBankConnect}
               disabled={bankConnecting}
               style={{
-                padding: "8px 16px",
-                borderRadius: 8,
-                border: "1px solid #2563eb",
-                background: "#2563eb",
-                color: "#fff",
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: bankConnecting ? "not-allowed" : "pointer",
-                opacity: bankConnecting ? 0.6 : 1,
+                padding: "8px 16px", borderRadius: 8, border: "1px solid #2563eb", background: "#2563eb",
+                color: "#fff", fontSize: 13, fontWeight: 600,
+                cursor: bankConnecting ? "not-allowed" : "pointer", opacity: bankConnecting ? 0.6 : 1,
               }}
             >
               {bankConnecting ? "Connecting…" : bankConnections.length ? "+ Connect Another" : "Connect Bank Account"}
@@ -3489,47 +3582,72 @@ export default function FinancialPage() {
                 onClick={handleBankSync}
                 disabled={bankSyncing}
                 style={{
-                  padding: "8px 16px",
-                  borderRadius: 8,
-                  border: "1px solid #e5e7eb",
-                  background: "#f9fafb",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: bankSyncing ? "not-allowed" : "pointer",
-                  opacity: bankSyncing ? 0.6 : 1,
+                  padding: "8px 16px", borderRadius: 8, border: "1px solid #e5e7eb", background: "#f9fafb",
+                  fontSize: 13, fontWeight: 600,
+                  cursor: bankSyncing ? "not-allowed" : "pointer", opacity: bankSyncing ? 0.6 : 1,
                 }}
               >
                 {bankSyncing ? "Syncing…" : "Sync Now"}
               </button>
             )}
+
+            <button
+              type="button"
+              onClick={() => setCsvUploadOpen(!csvUploadOpen)}
+              style={{
+                padding: "8px 16px", borderRadius: 8, border: "1px solid #059669", background: csvUploadOpen ? "#059669" : "#f0fdf4",
+                color: csvUploadOpen ? "#fff" : "#059669", fontSize: 13, fontWeight: 600, cursor: "pointer",
+              }}
+            >
+              {csvUploadOpen ? "Cancel" : "Import CSV"}
+            </button>
           </div>
+
+          {/* CSV Upload Panel */}
+          {csvUploadOpen && (
+            <div style={{
+              padding: 16, borderRadius: 8, border: "1px solid #d1d5db", background: "#f9fafb",
+              marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center",
+            }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>Source:</label>
+              <select
+                value={csvUploadSource}
+                onChange={e => setCsvUploadSource(e.target.value)}
+                style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
+              >
+                <option value="HD_PRO_XTRA">Home Depot (Pro Xtra)</option>
+                <option value="CHASE_BANK">Chase Bank</option>
+                <option value="APPLE_CARD">Apple Card</option>
+              </select>
+              <input
+                type="file"
+                accept=".csv"
+                multiple={csvUploadSource === "APPLE_CARD"}
+                disabled={csvUploading}
+                onChange={async (e) => {
+                  const files = e.target.files;
+                  if (!files) return;
+                  for (let i = 0; i < files.length; i++) {
+                    await handleCsvUpload(files[i]);
+                  }
+                  e.target.value = "";
+                }}
+                style={{ fontSize: 12 }}
+              />
+              {csvUploading && <span style={{ fontSize: 12, color: "#6b7280" }}>Uploading…</span>}
+            </div>
+          )}
 
           {/* Summary bar */}
           {bankSummary && (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(4, 1fr)",
-                gap: 12,
-                marginBottom: 16,
-              }}
-            >
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
               {[
                 { label: "Inflow", value: bankSummary.totalInflow, color: "#22c55e", prefix: "+$" },
                 { label: "Outflow", value: bankSummary.totalOutflow, color: "#ef4444", prefix: "-$" },
                 { label: "Net", value: bankSummary.net, color: bankSummary.net >= 0 ? "#22c55e" : "#ef4444", prefix: bankSummary.net >= 0 ? "+$" : "-$" },
                 { label: "Transactions", value: bankSummary.transactionCount, color: "#3b82f6", prefix: "" },
               ].map(s => (
-                <div
-                  key={s.label}
-                  style={{
-                    padding: 14,
-                    borderRadius: 10,
-                    border: "1px solid #e5e7eb",
-                    background: "#ffffff",
-                    textAlign: "center",
-                  }}
-                >
+                <div key={s.label} style={{ padding: 14, borderRadius: 10, border: "1px solid #e5e7eb", background: "#ffffff", textAlign: "center" }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 4 }}>{s.label}</div>
                   <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>
                     {s.prefix}{typeof s.value === "number" && s.label !== "Transactions" ? Math.abs(s.value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : s.value.toLocaleString()}
@@ -3549,6 +3667,50 @@ export default function FinancialPage() {
               onKeyDown={e => { if (e.key === "Enter") { fetchBankTransactions(1); fetchBankSummary(); } }}
               style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12, width: 200 }}
             />
+            <select
+              value={bankSourceFilter}
+              onChange={e => { setBankSourceFilter(e.target.value); setBankAccountFilter(""); }}
+              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
+            >
+              <option value="">All Sources</option>
+              <option value="PLAID">Plaid (Bank)</option>
+              <option value="HD_PRO_XTRA">Home Depot</option>
+              <option value="CHASE_BANK">Chase CSV</option>
+              <option value="APPLE_CARD">Apple Card</option>
+            </select>
+            {(bankConnections.length > 0 || csvBatches.length > 0) && (
+              <select
+                value={bankAccountFilter}
+                onChange={e => {
+                  setBankAccountFilter(e.target.value);
+                  // Auto-set source filter to match the selected account
+                  const v = e.target.value;
+                  if (v.startsWith("conn:")) setBankSourceFilter("");
+                  else if (v.startsWith("batch:")) {
+                    const batch = csvBatches.find(b => b.id === v.slice(6));
+                    if (batch) setBankSourceFilter(batch.source);
+                  } else {
+                    // Cleared — leave source filter as-is
+                  }
+                }}
+                style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
+              >
+                <option value="">All Accounts</option>
+                {bankConnections.filter(c => c.status === "ACTIVE").map(conn => (
+                  <option key={conn.id} value={`conn:${conn.id}`}>
+                    {conn.institutionName ?? "Bank"}{conn.accountName ? ` — ${conn.accountName}` : ""}{conn.accountMask ? ` (••••${conn.accountMask})` : ""}
+                  </option>
+                ))}
+                {csvBatches.map(batch => {
+                  const sourceLabels: Record<string, string> = { HD_PRO_XTRA: "HD", CHASE_BANK: "Chase", APPLE_CARD: "Apple" };
+                  return (
+                    <option key={batch.id} value={`batch:${batch.id}`}>
+                      {sourceLabels[batch.source] ?? batch.source}: {batch.fileName} ({batch.rowCount} rows)
+                    </option>
+                  );
+                })}
+              </select>
+            )}
             <input
               type="date"
               value={bankStartDate}
@@ -3562,25 +3724,12 @@ export default function FinancialPage() {
               onChange={e => setBankEndDate(e.target.value)}
               style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
             />
-            <input
-              type="text"
-              placeholder="Category…"
-              value={bankCategoryFilter}
-              onChange={e => setBankCategoryFilter(e.target.value)}
-              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12, width: 140 }}
-            />
             <button
               type="button"
               onClick={() => { fetchBankTransactions(1); fetchBankSummary(); }}
               style={{
-                padding: "6px 14px",
-                borderRadius: 6,
-                border: "1px solid #e5e7eb",
-                background: "#0f172a",
-                color: "#fff",
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: "pointer",
+                padding: "6px 14px", borderRadius: 6, border: "1px solid #e5e7eb", background: "#0f172a",
+                color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer",
               }}
             >
               Apply
@@ -3591,14 +3740,15 @@ export default function FinancialPage() {
             <div style={{ color: "#b91c1c", fontSize: 12, marginBottom: 8 }}>{bankError}</div>
           )}
 
-          {/* Transaction table */}
+          {/* Unified Transaction table */}
           <div style={{ overflowX: "auto", borderRadius: 8, border: "1px solid #e5e7eb" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead style={{ background: "#f9fafb" }}>
                 <tr>
                   <th style={{ textAlign: "left", padding: "8px 10px", whiteSpace: "nowrap" }}>Date</th>
+                  <th style={{ textAlign: "left", padding: "8px 10px", whiteSpace: "nowrap" }}>Source</th>
                   <th style={{ textAlign: "left", padding: "8px 10px" }}>Description</th>
-                  <th style={{ textAlign: "left", padding: "8px 10px" }}>Merchant</th>
+                  <th style={{ textAlign: "left", padding: "8px 10px" }}>Merchant / Job</th>
                   <th style={{ textAlign: "left", padding: "8px 10px" }}>Category</th>
                   <th style={{ textAlign: "right", padding: "8px 10px", whiteSpace: "nowrap" }}>Amount</th>
                   <th style={{ textAlign: "center", padding: "8px 10px" }}>Status</th>
@@ -3606,54 +3756,69 @@ export default function FinancialPage() {
               </thead>
               <tbody>
                 {bankLoading && (
-                  <tr><td colSpan={6} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>Loading…</td></tr>
+                  <tr><td colSpan={7} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>Loading…</td></tr>
                 )}
                 {!bankLoading && bankTransactions.length === 0 && (
-                  <tr><td colSpan={6} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>
-                    {bankConnections.length === 0 ? "Connect a bank account to see transactions." : "No transactions found."}
+                  <tr><td colSpan={7} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>
+                    {bankConnections.length === 0 && csvBatches.length === 0
+                      ? "Connect a bank account or import a CSV to see transactions."
+                      : "No transactions found."}
                   </td></tr>
                 )}
-                {!bankLoading && bankTransactions.map(txn => (
-                  <tr key={txn.id} style={{ borderTop: "1px solid #e5e7eb" }}>
-                    <td style={{ padding: "8px 10px", whiteSpace: "nowrap" }}>
-                      {new Date(txn.date).toLocaleDateString()}
-                    </td>
-                    <td style={{ padding: "8px 10px", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {txn.name}
-                    </td>
-                    <td style={{ padding: "8px 10px", color: "#374151" }}>
-                      {txn.merchantName ?? "—"}
-                    </td>
-                    <td style={{ padding: "8px 10px" }}>
-                      {txn.primaryCategory ? (
-                        <span style={{ padding: "2px 6px", borderRadius: 4, background: "#f3f4f6", fontSize: 11 }}>
-                          {txn.primaryCategory}
+                {!bankLoading && bankTransactions.map(txn => {
+                  const srcBadge: Record<string, { label: string; bg: string; color: string }> = {
+                    PLAID: { label: "Bank", bg: "#dbeafe", color: "#1d4ed8" },
+                    HD_PRO_XTRA: { label: "HD", bg: "#ffedd5", color: "#c2410c" },
+                    CHASE_BANK: { label: "Chase", bg: "#dbeafe", color: "#2563eb" },
+                    APPLE_CARD: { label: "Apple", bg: "#f3f4f6", color: "#374151" },
+                  };
+                  const badge = srcBadge[txn.source] ?? { label: txn.source, bg: "#f3f4f6", color: "#6b7280" };
+                  const merchantOrJob = txn.extra?.jobName || txn.merchant || "—";
+                  return (
+                    <tr key={txn.id} style={{ borderTop: "1px solid #e5e7eb" }}>
+                      <td style={{ padding: "8px 10px", whiteSpace: "nowrap" }}>
+                        {new Date(txn.date).toLocaleDateString()}
+                      </td>
+                      <td style={{ padding: "8px 10px" }}>
+                        <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700, background: badge.bg, color: badge.color }}>
+                          {badge.label}
                         </span>
-                      ) : "—"}
-                    </td>
-                    <td style={{
-                      padding: "8px 10px",
-                      textAlign: "right",
-                      fontWeight: 600,
-                      color: txn.amount < 0 ? "#22c55e" : "#ef4444",
-                      whiteSpace: "nowrap",
-                    }}>
-                      {txn.amount < 0 ? "+" : "-"}${Math.abs(txn.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </td>
-                    <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                      <span style={{
-                        padding: "2px 8px",
-                        borderRadius: 4,
-                        fontSize: 10,
-                        fontWeight: 600,
-                        background: txn.pending ? "#fef3c7" : "#d1fae5",
-                        color: txn.pending ? "#b45309" : "#065f46",
+                      </td>
+                      <td style={{ padding: "8px 10px", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        title={txn.extra?.sku ? `SKU: ${txn.extra.sku}` : undefined}
+                      >
+                        {txn.description}
+                      </td>
+                      <td style={{ padding: "8px 10px", color: "#374151", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        title={txn.extra?.jobNameRaw || undefined}
+                      >
+                        {merchantOrJob}
+                      </td>
+                      <td style={{ padding: "8px 10px" }}>
+                        {txn.category ? (
+                          <span style={{ padding: "2px 6px", borderRadius: 4, background: "#f3f4f6", fontSize: 11 }}>
+                            {txn.category}
+                          </span>
+                        ) : "—"}
+                      </td>
+                      <td style={{
+                        padding: "8px 10px", textAlign: "right", fontWeight: 600, whiteSpace: "nowrap",
+                        color: txn.amount < 0 ? "#22c55e" : "#ef4444",
                       }}>
-                        {txn.pending ? "PENDING" : "POSTED"}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                        {txn.amount < 0 ? "+" : "-"}${Math.abs(txn.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                        <span style={{
+                          padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600,
+                          background: txn.pending ? "#fef3c7" : "#d1fae5",
+                          color: txn.pending ? "#b45309" : "#065f46",
+                        }}>
+                          {txn.pending ? "PENDING" : "POSTED"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
