@@ -32,7 +32,9 @@ RUN npm run build -- --filter=api
 
 # Copy non-TS assets that tsc doesn't emit (JSON data files loaded at runtime)
 RUN mkdir -p apps/api/dist/modules/banking && \
-    cp apps/api/src/modules/banking/job-name-map.json apps/api/dist/modules/banking/job-name-map.json
+    cp apps/api/src/modules/banking/job-name-map.json apps/api/dist/modules/banking/job-name-map.json && \
+    echo "✅ Copied job-name-map.json" && \
+    ls -la apps/api/dist/modules/banking/job-name-map.json
 
 # Runtime image
 FROM node:22-alpine AS runner
@@ -72,6 +74,10 @@ COPY --from=builder /app/docs/sops-staging ./docs/sops-staging
 
 # Set working directory to the api app
 WORKDIR /app/apps/api
+
+# Verify JSON files were copied correctly
+RUN ls -la dist/modules/banking/job-name-map.json && \
+    echo "✅ job-name-map.json is present in runtime image"
 
 # Expose NestJS default port (Fastify)
 EXPOSE 8000
