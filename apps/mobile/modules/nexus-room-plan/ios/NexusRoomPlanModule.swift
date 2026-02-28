@@ -7,6 +7,13 @@ import RoomPlan
 #endif
 
 public class NexusRoomPlanModule: Module {
+  // Strong reference keeps coordinator alive during capture session.
+  // Without this, ARC deallocates it immediately after start() returns,
+  // causing a black screen (session never starts).
+  #if canImport(RoomPlan)
+  private var activeCoordinator: AnyObject?
+  #endif
+
   public func definition() -> ModuleDefinition {
     Name("NexusRoomPlan")
 
@@ -29,8 +36,12 @@ public class NexusRoomPlanModule: Module {
           return
         }
 
-        DispatchQueue.main.async {
-          let coordinator = RoomCaptureCoordinator(promise: promise)
+        DispatchQueue.main.async { [weak self] in
+          let coordinator = RoomCaptureCoordinator(promise: promise) { [weak self] in
+            // Release coordinator when capture completes
+            self?.activeCoordinator = nil
+          }
+          self?.activeCoordinator = coordinator
           coordinator.start()
         }
         return
@@ -48,12 +59,14 @@ public class NexusRoomPlanModule: Module {
 @available(iOS 16.0, *)
 class RoomCaptureCoordinator: NSObject, NSCoding, RoomCaptureViewDelegate, RoomCaptureSessionDelegate {
   private let promise: Promise
+  private let onCleanup: () -> Void
   private var captureView: RoomCaptureView?
   private var viewController: UIViewController?
   private var finalRoom: CapturedRoom?
 
-  init(promise: Promise) {
+  init(promise: Promise, onCleanup: @escaping () -> Void) {
     self.promise = promise
+    self.onCleanup = onCleanup
     super.init()
   }
 
@@ -136,6 +149,7 @@ class RoomCaptureCoordinator: NSObject, NSCoding, RoomCaptureViewDelegate, RoomC
     captureView?.captureSession.stop()
     viewController?.dismiss(animated: true) { [weak self] in
       self?.promise.reject("CANCELLED", "User cancelled room scan")
+      self?.onCleanup()
     }
   }
 
@@ -163,6 +177,7 @@ class RoomCaptureCoordinator: NSObject, NSCoding, RoomCaptureViewDelegate, RoomC
 
       let result = self.serializeCapturedRoom(processedResult)
       self.promise.resolve(["roomData": result])
+      self.onCleanup()
     }
   }
 
