@@ -42,6 +42,9 @@ RUN npm run prisma:generate --workspace @repo/database
 # Build the API app (TypeScript -> dist) via Turborepo, filtering to the api app
 RUN npm run build -- --filter=api
 
+# Copy non-TS assets that tsc doesn't emit (JSON data files loaded at runtime)
+RUN cp apps/api/src/modules/banking/job-name-map.json apps/api/dist/modules/banking/job-name-map.json
+
 # Ensure our working directory is the API app for runtime
 WORKDIR /app/apps/api
 
