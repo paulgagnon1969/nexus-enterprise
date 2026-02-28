@@ -63,6 +63,9 @@ class RoomCaptureCoordinator: NSObject, NSCoding, RoomCaptureViewDelegate, RoomC
   private var captureView: RoomCaptureView?
   private var viewController: UIViewController?
   private var finalRoom: CapturedRoom?
+  /// Vision AI analyzer — samples AR frames during capture for room classification,
+  /// fixture detection (outlets, switches, vents), text recognition, and materials.
+  private let visionAnalyzer = VisionAnalyzer()
 
   init(promise: Promise, onCleanup: @escaping () -> Void) {
     self.promise = promise
@@ -159,6 +162,14 @@ class RoomCaptureCoordinator: NSObject, NSCoding, RoomCaptureViewDelegate, RoomC
     // This delegate fires when session stops; data is available after processing
   }
 
+  /// Called on every room model update during scanning — use to feed Vision analyzer.
+  func captureSession(_ session: RoomCaptureSession, didUpdate room: CapturedRoom) {
+    // Grab the current AR frame and feed it to Vision analyzer
+    if let arFrame = session.arSession.currentFrame {
+      visionAnalyzer.analyzeFrameIfNeeded(arFrame)
+    }
+  }
+
   // MARK: - RoomCaptureViewDelegate
 
   func captureView(shouldPresent roomDataForProcessing: CapturedRoomData, error: Error?) -> Bool {
@@ -175,8 +186,11 @@ class RoomCaptureCoordinator: NSObject, NSCoding, RoomCaptureViewDelegate, RoomC
         return
       }
 
-      let result = self.serializeCapturedRoom(processedResult)
+      var result = self.serializeCapturedRoom(processedResult)
+      // Merge Vision AI analysis results alongside RoomPlan data
+      result["visionDetections"] = self.visionAnalyzer.getResults()
       self.promise.resolve(["roomData": result])
+      self.visionAnalyzer.reset()
       self.onCleanup()
     }
   }
@@ -186,66 +200,146 @@ class RoomCaptureCoordinator: NSObject, NSCoding, RoomCaptureViewDelegate, RoomC
   private func serializeCapturedRoom(_ room: CapturedRoom) -> [String: Any] {
     var result: [String: Any] = [:]
 
-    result["walls"] = room.walls.map { wall -> [String: Any] in
+    // Serialize walls with IDs for adjacency mapping
+    let wallsData = room.walls.enumerated().map { (i, wall) -> [String: Any] in
+      let pos = positionFromTransform(wall.transform)
       return [
+        "id": "wall_\(i)",
         "dimensions": [
-          "width": wall.dimensions.x,
-          "height": wall.dimensions.y,
-          "length": wall.dimensions.z,
+          "width": wall.dimensions.x,   // length of the wall (meters)
+          "height": wall.dimensions.y,  // height (meters)
+          "length": wall.dimensions.z,  // thickness (meters)
         ],
+        "position": ["x": pos.x, "y": pos.y, "z": pos.z],
         "transform": serializeTransform(wall.transform),
       ]
     }
+    result["walls"] = wallsData
 
-    result["doors"] = room.doors.map { door -> [String: Any] in
+    // Serialize doors with category and wall adjacency
+    result["doors"] = room.doors.enumerated().map { (i, door) -> [String: Any] in
+      let pos = positionFromTransform(door.transform)
+      let nearestWall = findNearestWall(position: pos, walls: room.walls, wallIds: wallsData)
       return [
-        "type": serializeDoorType(door),
+        "id": "door_\(i)",
+        "category": serializeSurfaceCategory(door),
         "dimensions": [
           "width": door.dimensions.x,
           "height": door.dimensions.y,
         ],
+        "position": ["x": pos.x, "y": pos.y, "z": pos.z],
+        "wallId": nearestWall,
         "transform": serializeTransform(door.transform),
       ]
     }
 
-    result["windows"] = room.windows.map { window -> [String: Any] in
+    // Serialize windows with category and wall adjacency
+    result["windows"] = room.windows.enumerated().map { (i, window) -> [String: Any] in
+      let pos = positionFromTransform(window.transform)
+      let nearestWall = findNearestWall(position: pos, walls: room.walls, wallIds: wallsData)
       return [
-        "type": serializeWindowType(window),
+        "id": "window_\(i)",
+        "category": serializeSurfaceCategory(window),
         "dimensions": [
           "width": window.dimensions.x,
           "height": window.dimensions.y,
         ],
+        "position": ["x": pos.x, "y": pos.y, "z": pos.z],
+        "wallId": nearestWall,
         "transform": serializeTransform(window.transform),
       ]
     }
 
-    result["openings"] = room.openings.map { opening -> [String: Any] in
+    // Serialize openings with wall adjacency
+    result["openings"] = room.openings.enumerated().map { (i, opening) -> [String: Any] in
+      let pos = positionFromTransform(opening.transform)
+      let nearestWall = findNearestWall(position: pos, walls: room.walls, wallIds: wallsData)
       return [
+        "id": "opening_\(i)",
+        "category": serializeSurfaceCategory(opening),
         "dimensions": [
           "width": opening.dimensions.x,
           "height": opening.dimensions.y,
         ],
+        "position": ["x": pos.x, "y": pos.y, "z": pos.z],
+        "wallId": nearestWall,
         "transform": serializeTransform(opening.transform),
       ]
     }
 
-    result["objects"] = room.objects.map { obj -> [String: Any] in
+    // Serialize ALL objects — capture everything: sinks, faucets, toilets, cabinets, appliances, furniture
+    result["objects"] = room.objects.enumerated().map { (i, obj) -> [String: Any] in
+      let pos = positionFromTransform(obj.transform)
+      let cat = mapObjectCategory(obj.category)
       return [
-        "category": serializeObjectCategory(obj),
+        "id": "obj_\(i)",
+        "category": cat.mapped,
+        "rawCategory": cat.raw,
+        "label": cat.label,
         "dimensions": [
           "width": obj.dimensions.x,
           "height": obj.dimensions.y,
           "length": obj.dimensions.z,
         ],
+        "position": ["x": pos.x, "y": pos.y, "z": pos.z],
         "transform": serializeTransform(obj.transform),
+        "confidence": 1.0, // RoomPlan detections are high confidence
       ]
     }
+
+    // Derive ceiling height from wall heights
+    let wallHeights = room.walls.map { $0.dimensions.y }
+    let avgCeilingHeight = wallHeights.isEmpty ? 0 : wallHeights.reduce(0, +) / Float(wallHeights.count)
+    let minHeight = wallHeights.min() ?? 0
+    let maxHeight = wallHeights.max() ?? 0
+    result["ceilingHeight"] = Double(avgCeilingHeight)
+    result["ceilingHeightVaries"] = (maxHeight - minHeight) > 0.15 // >6" variation = vaulted/stepped
+
+    // Floor polygon from wall positions (project wall centers onto XZ plane)
+    let floorVertices: [[Double]] = room.walls.map { wall in
+      let p = positionFromTransform(wall.transform)
+      return [Double(p.x), Double(p.z)] // XZ plane = floor plane
+    }
+    result["floorPolygon"] = floorVertices
+
+    // Summary counts for quick access
+    result["summary"] = [
+      "wallCount": room.walls.count,
+      "doorCount": room.doors.count,
+      "windowCount": room.windows.count,
+      "openingCount": room.openings.count,
+      "objectCount": room.objects.count,
+    ]
 
     return result
   }
 
+  // MARK: - Helpers
+
+  private func positionFromTransform(_ t: simd_float4x4) -> SIMD3<Float> {
+    return SIMD3<Float>(t.columns.3.x, t.columns.3.y, t.columns.3.z)
+  }
+
+  /// Find the nearest wall to a door/window/opening based on XZ distance.
+  private func findNearestWall(position: SIMD3<Float>, walls: [CapturedRoom.Surface], wallIds: [[String: Any]]) -> String {
+    var nearestId = ""
+    var nearestDist: Float = .greatestFiniteMagnitude
+
+    for (i, wall) in walls.enumerated() {
+      let wallPos = positionFromTransform(wall.transform)
+      // Use XZ distance (horizontal plane) — Y is height
+      let dx = position.x - wallPos.x
+      let dz = position.z - wallPos.z
+      let dist = sqrt(dx * dx + dz * dz)
+      if dist < nearestDist {
+        nearestDist = dist
+        nearestId = wallIds[i]["id"] as? String ?? "wall_\(i)"
+      }
+    }
+    return nearestId
+  }
+
   private func serializeTransform(_ t: simd_float4x4) -> [Float] {
-    // Column-major 4x4 matrix
     return [
       t.columns.0.x, t.columns.0.y, t.columns.0.z, t.columns.0.w,
       t.columns.1.x, t.columns.1.y, t.columns.1.z, t.columns.1.w,
@@ -254,17 +348,43 @@ class RoomCaptureCoordinator: NSObject, NSCoding, RoomCaptureViewDelegate, RoomC
     ]
   }
 
-  private func serializeDoorType(_ door: CapturedRoom.Surface) -> String {
-    // Door type is inferred from category in CapturedRoom
-    return "standard"
+  /// Extract the real surface category from RoomPlan (doors, windows, openings).
+  private func serializeSurfaceCategory(_ surface: CapturedRoom.Surface) -> String {
+    // CapturedRoom.Surface.Category: .door, .opening, .wall, .window
+    let raw = String(describing: surface.category)
+    return raw.lowercased()
   }
 
-  private func serializeWindowType(_ window: CapturedRoom.Surface) -> String {
-    return "standard"
-  }
-
-  private func serializeObjectCategory(_ obj: CapturedRoom.Object) -> String {
-    return String(describing: obj.category)
+  /// Map every RoomPlan object category to our ScanNEX fixture taxonomy.
+  /// Captures EVERYTHING — sinks, faucets, toilets, appliances, furniture, infrastructure.
+  private func mapObjectCategory(_ category: CapturedRoom.Object.Category) -> (mapped: String, raw: String, label: String) {
+    let raw = String(describing: category)
+    switch category {
+    // Plumbing
+    case .sink:          return ("sink",         raw, "Sink")
+    case .toilet:        return ("toilet",       raw, "Toilet")
+    case .bathtub:       return ("bathtub",      raw, "Bathtub")
+    // Kitchen appliances
+    case .stove:         return ("stove",        raw, "Stove")
+    case .oven:          return ("oven",         raw, "Oven")
+    case .refrigerator:  return ("refrigerator", raw, "Refrigerator")
+    case .dishwasher:    return ("dishwasher",   raw, "Dishwasher")
+    // Laundry
+    case .washerDryer:   return ("washer",       raw, "Washer/Dryer")
+    // Storage
+    case .storage:       return ("cabinet",      raw, "Cabinet/Storage")
+    // Furniture
+    case .table:         return ("table",        raw, "Table")
+    case .chair:         return ("chair",        raw, "Chair")
+    case .sofa:          return ("sofa",         raw, "Sofa")
+    case .bed:           return ("bed",          raw, "Bed")
+    // Infrastructure
+    case .fireplace:     return ("fireplace",    raw, "Fireplace")
+    case .stairs:        return ("stairs",       raw, "Stairs")
+    case .television:    return ("television",   raw, "Television")
+    case .screen:        return ("screen",       raw, "Screen")
+    @unknown default:    return ("other",        raw, raw.capitalized)
+    }
   }
 }
 #endif

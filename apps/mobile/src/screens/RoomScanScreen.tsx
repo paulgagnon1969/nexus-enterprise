@@ -13,12 +13,22 @@ import * as ImagePicker from "expo-image-picker";
 import { colors } from "../theme/colors";
 import { compressForNetwork } from "../utils/mediaCompressor";
 import { isRoomPlanSupported, startRoomCapture } from "../../modules/nexus-room-plan";
-import { createVisionScan, createLidarScan } from "../api/roomScan";
+import type { CapturedRoomData } from "../../modules/nexus-room-plan";
+import { isARMeasureSupported, hasLiDAR, startMeasurement } from "../../modules/nexus-ar-measure";
+import type { ARMeasureResult } from "../../modules/nexus-ar-measure";
+import { createVisionScan, createLidarScan, createMeasurementScan } from "../api/roomScan";
 import type { RoomScanResult } from "../api/roomScan";
 import type { ProjectListItem } from "../types/api";
 import { RoomAssessmentView } from "../components/RoomAssessmentView";
+import { MeasurementResultView } from "../components/MeasurementResultView";
+import { RoomScanResultView } from "../components/RoomScanResultView";
+import { saveMeasurementSession, updateSessionLabels } from "../scannex/storage";
+import type { MeasurementSession } from "../scannex/storage";
+import { buildScanNEXRoomResult } from "../scannex/roomResultBuilder";
+import { saveRoomScan, updateRoomScan } from "../scannex/roomScanStorage";
+import type { ScanNEXRoomResult } from "../scannex/types";
 
-type ScanMode = "SELECT" | "CAPTURING" | "UPLOADING" | "RESULT";
+type ScanMode = "SELECT" | "CAPTURING" | "UPLOADING" | "RESULT" | "MEASURE_RESULT" | "ROOM_RESULT";
 
 export function RoomScanScreen({
   project,
@@ -28,16 +38,23 @@ export function RoomScanScreen({
   onBack: () => void;
 }) {
   const [lidarAvailable, setLidarAvailable] = useState(false);
+  const [arAvailable, setArAvailable] = useState(false);
+  const [deviceHasLidar, setDeviceHasLidar] = useState(false);
   const [mode, setMode] = useState<ScanMode>("SELECT");
   const [status, setStatus] = useState<string | null>(null);
   const [result, setResult] = useState<RoomScanResult | null>(null);
+  const [measureResult, setMeasureResult] = useState<ARMeasureResult | null>(null);
+  const [measureSession, setMeasureSession] = useState<MeasurementSession | null>(null);
+  const [roomScanResult, setRoomScanResult] = useState<ScanNEXRoomResult | null>(null);
   const [capturedPhotos, setCapturedPhotos] = useState<
     Array<{ uri: string; name: string; mimeType: string }>
   >([]);
 
-  // Check LiDAR on mount
+  // Check device capabilities on mount
   useEffect(() => {
     isRoomPlanSupported().then(setLidarAvailable);
+    isARMeasureSupported().then(setArAvailable);
+    hasLiDAR().then(setDeviceHasLidar);
   }, []);
 
   // ── AI Vision: multi-photo capture ──────────────────────────
@@ -152,13 +169,69 @@ export function RoomScanScreen({
       return;
     }
 
-    // Submit LiDAR data to API for normalization
+    // Build ScanNEXRoomResult locally (on-device processing)
     setMode("UPLOADING");
-    setStatus("Processing LiDAR room data…");
+    setStatus("Processing room scan with AI…");
     try {
-      const scan = await createLidarScan(project.id, result.roomData);
-      setResult(scan);
-      setMode("RESULT");
+      const roomData = result.roomData as CapturedRoomData;
+      const scanResult = buildScanNEXRoomResult(
+        roomData,
+        project.id,
+        roomData.visionDetections?.roomType ?? "Unnamed Room",
+      );
+      await saveRoomScan(scanResult);
+      setRoomScanResult(scanResult);
+      setMode("ROOM_RESULT");
+      setStatus(null);
+
+      // Also sync raw data to API in background (non-blocking)
+      createLidarScan(project.id, roomData).catch((err) => {
+        console.warn("[ScanNEX] API sync failed (will retry):", err);
+      });
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : String(err));
+      setMode("SELECT");
+    }
+  }, [project.id]);
+
+  // ── Quick Measure: AR point-to-point ─────────────────────────
+  const startQuickMeasure = useCallback(async () => {
+    setMode("CAPTURING");
+    setStatus("Starting AR measurement…");
+
+    const result = await startMeasurement();
+
+    if (!result.supported) {
+      Alert.alert("Not Supported", result.error || "AR is not available on this device.");
+      setMode("SELECT");
+      setStatus(null);
+      return;
+    }
+
+    if (result.cancelled) {
+      setMode("SELECT");
+      setStatus(null);
+      return;
+    }
+
+    if (result.error) {
+      setStatus(`Measurement error: ${result.error}`);
+      setMode("SELECT");
+      return;
+    }
+
+    if (!result.measurements?.length) {
+      setStatus("No measurements captured");
+      setMode("SELECT");
+      return;
+    }
+
+    // Save to local storage immediately
+    try {
+      const session = await saveMeasurementSession(project.id, result);
+      setMeasureResult(result);
+      setMeasureSession(session);
+      setMode("MEASURE_RESULT");
       setStatus(null);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : String(err));
@@ -166,8 +239,39 @@ export function RoomScanScreen({
     }
   }, [project.id]);
 
+  const handleMeasureSave = useCallback(async (labels: Record<string, string>) => {
+    if (!measureResult || !measureSession) return;
+
+    // Update labels in local storage
+    await updateSessionLabels(project.id, measureSession.sessionId, labels);
+
+    // Sync to API in background (non-blocking)
+    const measurements = (measureResult.measurements ?? []).map((m) => ({
+      id: m.id,
+      distanceMeters: m.distanceMeters,
+      distanceFeet: m.distanceFeet,
+      distanceFormatted: m.distanceFormatted,
+      label: labels[m.id],
+    }));
+
+    createMeasurementScan(project.id, measurements, {
+      screenshotUri: measureSession.screenshotUri ?? undefined,
+      usedLiDAR: measureResult.usedLiDAR,
+    }).catch((err) => {
+      console.warn("[ScanNEX] API sync failed (will retry):", err);
+    });
+  }, [measureResult, measureSession, project.id]);
+
+  const handleRoomScanSave = useCallback(async (updated: ScanNEXRoomResult) => {
+    setRoomScanResult(updated);
+    await updateRoomScan(updated);
+  }, []);
+
   const resetScan = () => {
     setResult(null);
+    setMeasureResult(null);
+    setMeasureSession(null);
+    setRoomScanResult(null);
     setCapturedPhotos([]);
     setMode("SELECT");
     setStatus(null);
@@ -217,6 +321,33 @@ export function RoomScanScreen({
             </View>
           </Pressable>
 
+          {/* Quick Measure — AR point-to-point */}
+          {Platform.OS === "ios" && (
+            <Pressable
+              style={[styles.modeCard, !arAvailable && styles.modeCardDisabled]}
+              onPress={arAvailable ? startQuickMeasure : undefined}
+              disabled={!arAvailable}
+            >
+              <Text style={styles.modeIcon}>📏</Text>
+              <View style={styles.modeInfo}>
+                <Text style={[styles.modeTitle, !arAvailable && styles.textDisabled]}>
+                  Quick Measure
+                </Text>
+                <Text style={[styles.modeDesc, !arAvailable && styles.textDisabled]}>
+                  Tap two points to measure distances. Multiple measurements
+                  per session. Saved with annotated screenshot.
+                </Text>
+                {arAvailable ? (
+                  <Text style={[styles.modeBadge, deviceHasLidar ? styles.lidarBadge : undefined]}>
+                    {deviceHasLidar ? "LiDAR Enhanced ✓" : "AR Available ✓"}
+                  </Text>
+                ) : (
+                  <Text style={styles.modeBadgeDisabled}>Not available on this device</Text>
+                )}
+              </View>
+            </Pressable>
+          )}
+
           {/* LiDAR — only on supported devices */}
           <Pressable
             style={[styles.modeCard, !lidarAvailable && styles.modeCardDisabled]}
@@ -253,6 +384,32 @@ export function RoomScanScreen({
         <RoomAssessmentView
           scan={result}
           photos={capturedPhotos}
+          onNewScan={resetScan}
+          onClose={onBack}
+        />
+      )}
+
+      {/* Measurement Results */}
+      {mode === "MEASURE_RESULT" && measureResult?.measurements && (
+        <MeasurementResultView
+          measurements={measureResult.measurements}
+          screenshotUri={measureSession?.screenshotUri ?? null}
+          usedLiDAR={measureResult.usedLiDAR ?? false}
+          onSave={handleMeasureSave}
+          onNewMeasurement={() => {
+            setMeasureResult(null);
+            setMeasureSession(null);
+            startQuickMeasure();
+          }}
+          onClose={onBack}
+        />
+      )}
+
+      {/* Enhanced Room Scan Results */}
+      {mode === "ROOM_RESULT" && roomScanResult && (
+        <RoomScanResultView
+          scan={roomScanResult}
+          onSave={handleRoomScanSave}
           onNewScan={resetScan}
           onClose={onBack}
         />
