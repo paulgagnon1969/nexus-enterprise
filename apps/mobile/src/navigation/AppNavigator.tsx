@@ -25,6 +25,10 @@ import { PlanSheetsScreen } from "../screens/PlanSheetsScreen";
 import { PlanSheetViewerScreen } from "../screens/PlanSheetViewerScreen";
 import { CreateProjectScreen } from "../screens/CreateProjectScreen";
 import { RoomScanScreen } from "../screens/RoomScanScreen";
+import { ScannerHomeScreen } from "../screens/ScannerHomeScreen";
+import { TagReadScreen } from "../screens/TagReadScreen";
+import { FleetOnboardScreen } from "../screens/FleetOnboardScreen";
+import { ObjectCaptureScreen } from "../screens/ObjectCaptureScreen";
 import { ScrollableTabBar } from "../components/ScrollableTabBar";
 import { fetchAllTasks } from "../api/tasks";
 import { apiJson } from "../api/client";
@@ -39,6 +43,7 @@ export type RootTabParamList = {
   DirectoryTab: undefined;
   ProjectsTab: undefined;
   MapTab: undefined;
+  ScannerTab: undefined;
   InventoryTab: undefined;
   OutboxTab: undefined;
 };
@@ -64,9 +69,17 @@ export type ProjectsStackParamList = {
   RoomScan: { project: ProjectListItem };
 };
 
+export type ScannerStackParamList = {
+  ScannerHome: undefined;
+  TagRead: undefined;
+  FleetOnboard: undefined;
+  ObjectCapture: undefined;
+};
+
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const DirectoryStack = createNativeStackNavigator<DirectoryStackParamList>();
 const ProjectsStack = createNativeStackNavigator<ProjectsStackParamList>();
+const ScannerStack = createNativeStackNavigator<ScannerStackParamList>();
 
 // Projects stack wrappers
 function ProjectsListWrapper() {
@@ -259,6 +272,44 @@ function ProjectsStackNavigator() {
   );
 }
 
+// Scanner stack navigator
+function ScannerStackNavigator() {
+  return (
+    <ScannerStack.Navigator screenOptions={{ headerShown: false }}>
+      <ScannerStack.Screen name="ScannerHome" component={ScannerHomeWrapper} />
+      <ScannerStack.Screen name="TagRead" component={TagReadWrapper} />
+      <ScannerStack.Screen name="FleetOnboard" component={FleetOnboardWrapper} />
+      <ScannerStack.Screen name="ObjectCapture" component={ObjectCaptureWrapper} />
+    </ScannerStack.Navigator>
+  );
+}
+
+function ScannerHomeWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ScannerStackParamList>>();
+  return (
+    <ScannerHomeScreen
+      onStartTagRead={() => navigation.navigate("TagRead")}
+      onStartFleetOnboard={() => navigation.navigate("FleetOnboard")}
+      onStartObjectCapture={() => navigation.navigate("ObjectCapture")}
+    />
+  );
+}
+
+function TagReadWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ScannerStackParamList>>();
+  return <TagReadScreen onBack={() => navigation.goBack()} />;
+}
+
+function FleetOnboardWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ScannerStackParamList>>();
+  return <FleetOnboardScreen onBack={() => navigation.goBack()} />;
+}
+
+function ObjectCaptureWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ScannerStackParamList>>();
+  return <ObjectCaptureScreen onBack={() => navigation.goBack()} />;
+}
+
 // Wrapper for MapScreen
 function MapTabScreen() {
   const navigation = useNavigation<any>();
@@ -407,6 +458,7 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
         <Tab.Screen name="DirectoryTab" component={DirectoryStackNavigator} />
         <Tab.Screen name="ProjectsTab" component={ProjectsStackNavigator} />
         <Tab.Screen name="MapTab" component={MapTabScreen} />
+        <Tab.Screen name="ScannerTab" component={ScannerStackNavigator} />
         <Tab.Screen name="InventoryTab" component={InventoryTabScreen} />
         <Tab.Screen name="OutboxTab" component={OutboxTabScreen} />
       </Tab.Navigator>
@@ -424,6 +476,7 @@ const TAB_KEYS: Record<string, boolean> = {
   DirectoryTab: true,
   ProjectsTab: true,
   MapTab: true,
+  ScannerTab: true,
   InventoryTab: true,
   OutboxTab: true,
 };

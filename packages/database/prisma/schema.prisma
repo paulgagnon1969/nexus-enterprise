@@ -235,6 +235,9 @@ model Company {
 
   // Room Scanner & Assessment
   roomScans RoomScan[]
+
+  // Asset Scanner (3D Object Capture + AI Tag Read)
+  assetScans AssetScan[]
 }
 
 model OrganizationTemplate {
@@ -600,6 +603,9 @@ model User {
 
   // Room Scanner & Assessment
   roomScansCreated RoomScan[] @relation("RoomScanCreatedBy")
+
+  // Asset Scanner (3D Object Capture + AI Tag Read)
+  assetScansCreated AssetScan[] @relation("AssetScanCreatedBy")
 
   // Asset ownership & maintenance
   ownedAssets                Asset[]                  @relation("AssetOwner")
@@ -4171,12 +4177,24 @@ model Asset {
   currentLocationId String?
   currentLocation   Location? @relation("AssetCurrentLocation", fields: [currentLocationId], references: [id])
 
+  // Asset Scanner — template & 3D capture fields
+  isTemplate       Boolean @default(false)  /// Canonical product reference (not a physical unit)
+  templateAssetId  String?                  /// FK → Asset (self-ref). Created-from template link.
+  scanModelUrl     String?                  /// GCS URL to USDZ 3D model from Object Capture
+  scanThumbnailUrl String?                  /// GCS URL to preview image of the 3D scan
+  dimensions       Json?                    /// { length, width, height, unit: "in"|"cm"|"m" }
+  tagPhotoUrl      String?                  /// GCS URL to nameplate/serial plate photo
+
+  templateAsset Asset?  @relation("AssetTemplate", fields: [templateAssetId], references: [id])
+  fleetMembers  Asset[] @relation("AssetTemplate")
+
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
   company       Company            @relation(fields: [companyId], references: [id])
   priceListItem PriceListItem?     @relation(fields: [priceListItemId], references: [id])
   usages        AssetUsage[]
   transactions  AssetTransaction[]
+  scans         AssetScan[]
 
   // Maintenance relations
   maintenanceSchedules AssetMaintenanceSchedule[]
@@ -4187,6 +4205,7 @@ model Asset {
   @@index([companyId, currentLocationId])
   @@index([ownerId])
   @@index([maintenancePoolId])
+  @@index([templateAssetId], map: "Asset_template_idx")
 }
 
 model AssetUsage {
@@ -7848,4 +7867,44 @@ model RoomScan {
 
   @@index([companyId, projectId], map: "RoomScan_company_project_idx")
   @@index([projectId, createdAt], map: "RoomScan_project_created_idx")
+}
+
+// ===================================================================
+// Asset Scanner — 3D Object Capture + AI Tag Read + Fleet Onboarding
+// ===================================================================
+
+/// Records each asset scan event (3D capture, tag read, or fleet serial read).
+/// Stores raw outputs (USDZ model, GPT-4o extractions) and links to the
+/// resulting Asset after creation.
+model AssetScan {
+  id          String   @id @default(cuid())
+  companyId   String
+  assetId     String?  /// Linked to the resulting Asset after creation
+  scanType    String   /// OBJECT_CAPTURE | TAG_READ | FLEET_SERIAL
+  status      String   @default("PROCESSING") /// PROCESSING | COMPLETE | FAILED
+
+  // Object Capture outputs
+  modelUrl     String?  /// GCS URL to USDZ 3D model
+  thumbnailUrl String?  /// GCS URL to preview image
+  boundingBox  Json?    /// { min: [x,y,z], max: [x,y,z] } in meters
+  dimensions   Json?    /// { length, width, height, unit }
+
+  // Tag Read / Serial Read outputs
+  tagPhotoUrl   String?  /// GCS URL to nameplate photo
+  extractedData Json?    /// GPT-4o extracted: { manufacturer, model, serial, specs }
+  rawAiResponse String?  @db.Text /// Raw GPT-4o response text
+
+  // Common
+  errorMessage String?  /// Error details if status = FAILED
+  createdById  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company   Company @relation(fields: [companyId], references: [id])
+  asset     Asset?  @relation(fields: [assetId], references: [id])
+  createdBy User    @relation("AssetScanCreatedBy", fields: [createdById], references: [id])
+
+  @@index([companyId, createdAt], map: "AssetScan_company_created_idx")
+  @@index([companyId, scanType], map: "AssetScan_company_type_idx")
+  @@index([assetId], map: "AssetScan_asset_idx")
 }

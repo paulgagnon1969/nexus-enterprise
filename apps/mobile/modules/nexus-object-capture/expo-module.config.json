@@ -1,0 +1,7 @@
+{
+  "platforms": ["ios"],
+  "ios": {
+    "modules": ["NexusObjectCaptureModule"],
+    "podspecPath": "./ios/NexusObjectCapture.podspec"
+  }
+}
