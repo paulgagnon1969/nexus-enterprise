@@ -22,6 +22,7 @@ import {
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 type FinancialSection =
+  | "COST_BOOK"
   | "PRICELIST_TREE"
   | "GOLDEN_COMPONENTS"
   | "ESTIMATES"
@@ -39,12 +40,18 @@ type FinancialSection =
 
 /** Card definitions for the Financial landing page grid. */
 const FINANCIAL_CARDS: {
-  id: FinancialSection | "EXT_SUPPLIER_CATALOG" | "EXT_RECONCILIATION";
+  id: FinancialSection | "EXT_SUPPLIER_CATALOG" | "EXT_RECONCILIATION" | "COST_BOOK";
   icon: string;
   title: string;
   subtitle: string;
   href?: string;
 }[] = [
+  {
+    id: "COST_BOOK",
+    icon: "📚",
+    title: "Company Cost Book",
+    subtitle: "Search & manage your company's cost book items",
+  },
   {
     id: "PRICELIST_TREE",
     icon: "📋",
@@ -1845,6 +1852,86 @@ export default function FinancialPage() {
             <span aria-hidden="true">&larr;</span> Back to Financial
           </button>
         </>
+      )}
+
+      {/* Cost Book section */}
+      {activeSection === "COST_BOOK" && (
+        <section style={{ marginBottom: 24 }}>
+          <h3 style={{ fontSize: 14, fontWeight: 600, margin: "8px 0" }}>
+            Company Cost Book
+          </h3>
+          <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 16 }}>
+            Search and manage your company's cost book items. This includes items shared from the Master Costbook (like BWC Cabinets) and custom items specific to your company.
+          </p>
+
+          <div
+            style={{
+              padding: 16,
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+            }}
+          >
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>
+              Search Cost Book
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <input
+                type="text"
+                placeholder="Search for items (e.g., 'cabinet', 'shaker', 'SB12')..."
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  fontSize: 14,
+                  border: "1px solid #d1d5db",
+                  borderRadius: 6,
+                }}
+              />
+            </div>
+            <div
+              style={{
+                padding: 16,
+                borderRadius: 8,
+                border: "1px dashed #d1d5db",
+                background: "#f9fafb",
+                textAlign: "center",
+                color: "#6b7280",
+                fontSize: 13,
+              }}
+            >
+              <div style={{ marginBottom: 8 }}>📚</div>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>Cost Book Search Coming Soon</div>
+              <div>For now, use the cost book picker in project detail pages.</div>
+              <div style={{ marginTop: 12 }}>
+                <a
+                  href="/projects"
+                  style={{
+                    display: "inline-block",
+                    padding: "8px 16px",
+                    borderRadius: 6,
+                    border: "1px solid #2563eb",
+                    background: "#2563eb",
+                    color: "#fff",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    textDecoration: "none",
+                  }}
+                >
+                  Go to Projects
+                </a>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 16, fontSize: 12, color: "#6b7280" }}>
+              <strong>Available items:</strong>
+              <ul style={{ marginTop: 8, paddingLeft: 20 }}>
+                <li>BWC Cabinets (406 SKUs) - Shared from Master Costbook</li>
+                <li>Custom company items</li>
+                <li>Golden PETL line items</li>
+              </ul>
+            </div>
+          </div>
+        </section>
       )}
 
       {/* Pricelist Tree section */}
