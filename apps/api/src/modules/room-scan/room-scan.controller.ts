@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -7,8 +8,10 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import type { FastifyRequest } from 'fastify';
 import { CombinedAuthGuard, Roles, Role } from '../auth/auth.guards';
 import { AuthenticatedUser } from '../auth/jwt.strategy';
+import { readMultipleFilesFromMultipart } from '../../infra/uploads/multipart';
 import { RoomScanService } from './room-scan.service';
 
 @Controller('projects/:projectId/room-scans')
@@ -18,20 +21,42 @@ export class RoomScanController {
   /**
    * AI Vision mode: upload 1-4 room photos for GPT-4o analysis.
    * POST /projects/:projectId/room-scans/vision
-   * Note: File uploads handled via Fastify multipart, not Express multer.
+   * Multipart form: field "photos" (1-4 image files), optional string fields.
    */
   @UseGuards(CombinedAuthGuard)
   @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
   @Post('vision')
   async createFromVision(
-    @Req() req: any,
+    @Req() req: FastifyRequest,
     @Param('projectId') projectId: string,
-    @Body() body: { particleId?: string; label?: string; notes?: string; photoUrls?: string[] },
   ) {
-    const user = req.user as AuthenticatedUser;
-    // TODO: Implement Fastify multipart file handling for photo uploads
-    // For now, return a placeholder response
-    return { message: 'Vision endpoint requires Fastify multipart implementation' };
+    const user = (req as any).user as AuthenticatedUser;
+
+    const { files, fields } = await readMultipleFilesFromMultipart(req, {
+      fieldName: 'photos',
+      captureFields: ['particleId', 'label', 'notes'],
+    });
+
+    if (files.length > 4) {
+      throw new BadRequestException('Maximum 4 photos allowed');
+    }
+
+    // Convert Fastify file parts to buffers for the service
+    const photos = await Promise.all(
+      files.map(async (f) => ({
+        buffer: await f.toBuffer(),
+        originalname: f.filename,
+        mimetype: f.mimetype,
+      })),
+    );
+
+    return this.roomScans.createFromPhotos(user.companyId, user, {
+      projectId,
+      particleId: fields.particleId,
+      label: fields.label,
+      notes: fields.notes,
+      photos,
+    });
   }
 
   /**
