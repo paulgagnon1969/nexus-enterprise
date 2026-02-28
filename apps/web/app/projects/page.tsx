@@ -1244,7 +1244,13 @@ export default function ProjectsPage() {
                   return `${Math.floor(hrs / 24)}d ago`;
                 })();
                 return (
-                  <div key={log.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: i < 4 ? "1px solid #f3f4f6" : undefined }}>
+                  <div
+                    key={log.id}
+                    onClick={() => handleLogClick(log)}
+                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: i < 4 ? "1px solid #f3f4f6" : undefined, cursor: "pointer", borderRadius: 3 }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "#f9fafb"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                  >
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{ width: 8, height: 8, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />
                       <span style={{ fontSize: 12 }}>{LOG_TYPE_LABELS[log.type]} — {log.projectName}</span>
@@ -1884,8 +1890,18 @@ export default function ProjectsPage() {
                     Created {new Date(log.createdAt).toLocaleString()}
                   </div>
 
-                  {/* Close button */}
-                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+                  {/* Action buttons */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
+                    <button
+                      type="button"
+                      onClick={() => { closeDetailModal(); window.location.href = `/projects/${log.projectId}?tab=DAILY_LOGS`; }}
+                      style={{
+                        padding: "8px 18px", borderRadius: 6, border: "1px solid #2563eb",
+                        background: "#2563eb", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                      }}
+                    >
+                      Take me to {LOG_TYPE_LABELS[log.type]} &rarr;
+                    </button>
                     <button
                       type="button"
                       onClick={closeDetailModal}
