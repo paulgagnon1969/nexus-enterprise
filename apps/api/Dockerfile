@@ -31,7 +31,8 @@ RUN cd /app/packages/database && npx prisma generate --schema=./prisma/schema.pr
 RUN npm run build -- --filter=api
 
 # Copy non-TS assets that tsc doesn't emit (JSON data files loaded at runtime)
-RUN cp apps/api/src/modules/banking/job-name-map.json apps/api/dist/modules/banking/job-name-map.json 2>/dev/null || true
+RUN mkdir -p apps/api/dist/modules/banking && \
+    cp apps/api/src/modules/banking/job-name-map.json apps/api/dist/modules/banking/job-name-map.json
 
 # Runtime image
 FROM node:22-alpine AS runner
