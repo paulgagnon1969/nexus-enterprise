@@ -30,6 +30,9 @@ RUN cd /app/packages/database && npx prisma generate --schema=./prisma/schema.pr
 # Build only the api (and its dependencies) via Turbo
 RUN npm run build -- --filter=api
 
+# Copy non-TS assets that tsc doesn't emit (JSON data files loaded at runtime)
+RUN cp apps/api/src/modules/banking/job-name-map.json apps/api/dist/modules/banking/job-name-map.json 2>/dev/null || true
+
 # Runtime image
 FROM node:22-alpine AS runner
 
