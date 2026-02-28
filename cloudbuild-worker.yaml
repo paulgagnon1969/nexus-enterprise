@@ -1,0 +1,14 @@
+steps:
+  # Build worker image using the same Dockerfile as the API
+  - name: gcr.io/cloud-builders/docker
+    args:
+      [
+        "build",
+        "-f",
+        "apps/api/Dockerfile",
+        "-t",
+        "us-docker.pkg.dev/$PROJECT_ID/nexus-api/nexus-api",
+        ".",
+      ]
+images:
+  - "us-docker.pkg.dev/$PROJECT_ID/nexus-api/nexus-api"

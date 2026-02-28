@@ -25,9 +25,9 @@ cd "$ROOT_DIR"
 echo "[deploy-worker] Using project: $PROJECT_ID"
 gcloud config set project "$PROJECT_ID" >/dev/null
 
-echo "[deploy-worker] Building image with Cloud Build..."
+echo "[deploy-worker] Building image with Cloud Build (using apps/api/Dockerfile)..."
 BUILD_OP=$(gcloud builds submit \
-  --tag "$IMAGE" \
+  --config=cloudbuild-worker.yaml \
   --project "$PROJECT_ID" \
   --async \
   --format="value(id)")
