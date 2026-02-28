@@ -8,6 +8,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Animated as RNAnimated,
+  Alert,
 } from "react-native";
 import Mapbox from "@rnmapbox/maps";
 
@@ -21,6 +22,13 @@ import { apiJson } from "../api/client";
 import { getCache, setCache } from "../offline/cache";
 import { colors } from "../theme/colors";
 import type { ProjectListItem } from "../types/api";
+import {
+  fetchLocalSuppliers,
+  flagSupplierClosed,
+  approveSupplierRemoval,
+  denySupplierRemoval,
+  type LocalSupplier,
+} from "../api/localSuppliers";
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
@@ -145,6 +153,61 @@ const pinInnerStyle: Mapbox.CircleLayerStyle = {
   circleRadius: 3.5,
 };
 
+// ─── Supplier helpers ─────────────────────────────────────────────────────────
+
+const SUPPLIER_STATUS_COLORS: Record<LocalSupplier["status"], string> = {
+  ACTIVE: "#3b82f6",           // blue
+  PENDING_REMOVAL: "#f59e0b",  // amber
+  PERMANENTLY_CLOSED: "#ef4444", // red
+};
+
+function suppliersToGeoJson(
+  suppliers: LocalSupplier[],
+): GeoJSON.FeatureCollection<GeoJSON.Point> {
+  return {
+    type: "FeatureCollection",
+    features: suppliers.map((s) => ({
+      type: "Feature" as const,
+      id: s.id,
+      geometry: {
+        type: "Point" as const,
+        coordinates: [s.lng, s.lat],
+      },
+      properties: {
+        id: s.id,
+        name: s.name,
+        status: s.status,
+        statusColor: SUPPLIER_STATUS_COLORS[s.status],
+        category: s.category ?? "",
+        address: s.address ?? "",
+        phone: s.phone ?? "",
+      },
+    })),
+  };
+}
+
+/** Supplier pin — square icon style with status color */
+const supplierPinStyle: Mapbox.CircleLayerStyle = {
+  circleColor: ["get", "statusColor"] as any,
+  circleRadius: 9,
+  circleStrokeWidth: 2,
+  circleStrokeColor: "#ffffff",
+};
+
+/** Small icon inside supplier pin */
+const supplierInnerStyle: Mapbox.SymbolLayerStyle = {
+  textField: [
+    "match",
+    ["get", "status"],
+    "ACTIVE", "🏪",
+    "PENDING_REMOVAL", "⚠️",
+    "PERMANENTLY_CLOSED", "❌",
+    "🏪",
+  ] as any,
+  textSize: 11,
+  textAllowOverlap: true,
+};
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -154,6 +217,7 @@ interface Props {
 export function MapScreen({ onSelectProject }: Props) {
   // Data
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
+  const [suppliers, setSuppliers] = useState<LocalSupplier[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Filters
@@ -161,16 +225,27 @@ export function MapScreen({ onSelectProject }: Props) {
   const [statusFilters, setStatusFilters] = useState<Set<StatusKey>>(
     new Set(["active", "pending", "closed"]),
   );
+  const [showSuppliers, setShowSuppliers] = useState(true);
 
   // Selected pin callout
   const [selected, setSelected] = useState<ProjectListItem | null>(null);
+  const [selectedSupplier, setSelectedSupplier] = useState<LocalSupplier | null>(null);
   const calloutSlide = useRef(new RNAnimated.Value(200)).current;
 
   // Map refs
   const shapeRef = useRef<Mapbox.ShapeSource>(null);
   const cameraRef = useRef<Mapbox.Camera>(null);
 
-  // ── Load projects ─────────────────────────────────────────────────────────
+  // ── Load projects & suppliers ──────────────────────────────────────────────
+
+  const loadSuppliers = useCallback(async () => {
+    try {
+      const data = await fetchLocalSuppliers();
+      setSuppliers(data);
+    } catch {
+      // Supplier Index may not be enabled — silently skip
+    }
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -188,8 +263,9 @@ export function MapScreen({ onSelectProject }: Props) {
       } finally {
         setLoading(false);
       }
+      loadSuppliers();
     })();
-  }, []);
+  }, [loadSuppliers]);
 
   // ── Filtering ─────────────────────────────────────────────────────────────
 
@@ -211,9 +287,10 @@ export function MapScreen({ onSelectProject }: Props) {
   }, [projects, search, statusFilters]);
 
   const geoData = useMemo(() => toGeoJson(filtered), [filtered]);
+  const supplierGeo = useMemo(() => suppliersToGeoJson(suppliers), [suppliers]);
   const bounds = useMemo(() => calcBounds(geoData), [geoData]);
 
-  const isFiltered = search.length > 0 || statusFilters.size < 3;
+  const isFiltered = search.length > 0 || statusFilters.size < 3 || !showSuppliers;
 
   const toggleStatus = (key: StatusKey) => {
     setStatusFilters((prev) => {
@@ -230,13 +307,29 @@ export function MapScreen({ onSelectProject }: Props) {
   const clearFilters = () => {
     setSearch("");
     setStatusFilters(new Set(["active", "pending", "closed"]));
+    setShowSuppliers(true);
   };
 
   // ── Pin selection ─────────────────────────────────────────────────────────
 
   const showCallout = useCallback(
     (project: ProjectListItem) => {
+      setSelectedSupplier(null);
       setSelected(project);
+      RNAnimated.spring(calloutSlide, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 80,
+        friction: 12,
+      }).start();
+    },
+    [calloutSlide],
+  );
+
+  const showSupplierCallout = useCallback(
+    (supplier: LocalSupplier) => {
+      setSelected(null);
+      setSelectedSupplier(supplier);
       RNAnimated.spring(calloutSlide, {
         toValue: 0,
         useNativeDriver: true,
@@ -252,7 +345,10 @@ export function MapScreen({ onSelectProject }: Props) {
       toValue: 200,
       duration: 200,
       useNativeDriver: true,
-    }).start(() => setSelected(null));
+    }).start(() => {
+      setSelected(null);
+      setSelectedSupplier(null);
+    });
   }, [calloutSlide]);
 
   // ── Map event handlers ────────────────────────────────────────────────────
@@ -296,9 +392,63 @@ export function MapScreen({ onSelectProject }: Props) {
     [projects, showCallout],
   );
 
+  const handleSupplierPress = useCallback(
+    (e: MapPressEvent) => {
+      const feature = e.features?.[0];
+      if (!feature) return;
+      const sid = feature.properties?.id;
+      const supplier = suppliers.find((s) => s.id === sid);
+      if (supplier) showSupplierCallout(supplier);
+    },
+    [suppliers, showSupplierCallout],
+  );
+
   const handleMapPress = useCallback(() => {
-    if (selected) hideCallout();
-  }, [selected, hideCallout]);
+    if (selected || selectedSupplier) hideCallout();
+  }, [selected, selectedSupplier, hideCallout]);
+
+  // ── Supplier actions ────────────────────────────────────────────────────
+
+  const handleFlagSupplier = useCallback(() => {
+    if (!selectedSupplier) return;
+    Alert.prompt(
+      "Flag Supplier",
+      `Why is "${selectedSupplier.name}" no longer in business?`,
+      async (reason) => {
+        if (!reason?.trim()) return;
+        try {
+          await flagSupplierClosed(selectedSupplier.id, reason.trim());
+          hideCallout();
+          loadSuppliers();
+        } catch (err: any) {
+          Alert.alert("Error", err.message ?? "Failed to flag supplier");
+        }
+      },
+      "plain-text",
+    );
+  }, [selectedSupplier, hideCallout, loadSuppliers]);
+
+  const handleApproveRemoval = useCallback(async () => {
+    if (!selectedSupplier) return;
+    try {
+      await approveSupplierRemoval(selectedSupplier.id, "Approved via mobile map");
+      hideCallout();
+      loadSuppliers();
+    } catch (err: any) {
+      Alert.alert("Error", err.message ?? "Failed to approve removal");
+    }
+  }, [selectedSupplier, hideCallout, loadSuppliers]);
+
+  const handleDenyRemoval = useCallback(async () => {
+    if (!selectedSupplier) return;
+    try {
+      await denySupplierRemoval(selectedSupplier.id, "Denied via mobile map");
+      hideCallout();
+      loadSuppliers();
+    } catch (err: any) {
+      Alert.alert("Error", err.message ?? "Failed to deny removal");
+    }
+  }, [selectedSupplier, hideCallout, loadSuppliers]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -369,6 +519,24 @@ export function MapScreen({ onSelectProject }: Props) {
             style={pinInnerStyle}
           />
         </Mapbox.ShapeSource>
+
+        {/* ── Supplier pins ─────────────────────────────────────────── */}
+        {showSuppliers && suppliers.length > 0 && (
+          <Mapbox.ShapeSource
+            id="suppliers-source"
+            shape={supplierGeo}
+            onPress={handleSupplierPress}
+          >
+            <Mapbox.CircleLayer
+              id="supplier-pin"
+              style={supplierPinStyle}
+            />
+            <Mapbox.SymbolLayer
+              id="supplier-icon"
+              style={supplierInnerStyle}
+            />
+          </Mapbox.ShapeSource>
+        )}
       </Mapbox.MapView>
 
       {/* ── Filter bar ──────────────────────────────────────────────────── */}
@@ -424,6 +592,25 @@ export function MapScreen({ onSelectProject }: Props) {
             );
           })}
 
+          {/* Supplier toggle */}
+          <Pressable
+            style={[
+              styles.chip,
+              showSuppliers && { backgroundColor: "#3b82f6", borderColor: "#3b82f6" },
+            ]}
+            onPress={() => setShowSuppliers((v) => !v)}
+          >
+            <Text style={{ fontSize: 12 }}>🏪</Text>
+            <Text
+              style={[
+                styles.chipLabel,
+                showSuppliers && { color: "#fff" },
+              ]}
+            >
+              Suppliers{suppliers.length > 0 ? ` (${suppliers.length})` : ""}
+            </Text>
+          </Pressable>
+
           {/* Summary count */}
           <View style={styles.countPill}>
             <Text style={styles.countText}>
@@ -444,7 +631,7 @@ export function MapScreen({ onSelectProject }: Props) {
         </View>
       )}
 
-      {/* ── Pin callout ─────────────────────────────────────────────────── */}
+      {/* ── Project callout ──────────────────────────────────────────────── */}
       {selected && (
         <RNAnimated.View
           style={[
@@ -489,6 +676,67 @@ export function MapScreen({ onSelectProject }: Props) {
             >
               <Text style={styles.calloutOpenText}>Open Project ›</Text>
             </Pressable>
+            <Pressable style={styles.calloutCloseBtn} onPress={hideCallout}>
+              <Text style={styles.calloutCloseText}>Dismiss</Text>
+            </Pressable>
+          </View>
+        </RNAnimated.View>
+      )}
+
+      {/* ── Supplier callout ────────────────────────────────────────────── */}
+      {selectedSupplier && (
+        <RNAnimated.View
+          style={[
+            styles.callout,
+            { transform: [{ translateY: calloutSlide }] },
+          ]}
+        >
+          <View style={styles.calloutHandle} />
+          <View style={styles.calloutHeader}>
+            <Text style={{ fontSize: 16, marginRight: 4 }}>
+              {selectedSupplier.status === "ACTIVE"
+                ? "🏪"
+                : selectedSupplier.status === "PENDING_REMOVAL"
+                  ? "⚠️"
+                  : "❌"}
+            </Text>
+            <Text style={styles.calloutTitle} numberOfLines={1}>
+              {selectedSupplier.name}
+            </Text>
+          </View>
+          {selectedSupplier.category && (
+            <Text style={styles.supplierCategory}>{selectedSupplier.category}</Text>
+          )}
+          {selectedSupplier.address && (
+            <Text style={styles.calloutAddress} numberOfLines={1}>
+              {selectedSupplier.address}
+            </Text>
+          )}
+          {selectedSupplier.phone && (
+            <Text style={styles.calloutContact}>📞 {selectedSupplier.phone}</Text>
+          )}
+          {selectedSupplier.status === "PENDING_REMOVAL" && selectedSupplier.flagReason && (
+            <View style={styles.flagReasonBox}>
+              <Text style={styles.flagReasonLabel}>Flagged reason:</Text>
+              <Text style={styles.flagReasonText}>{selectedSupplier.flagReason}</Text>
+            </View>
+          )}
+          <View style={styles.calloutActions}>
+            {selectedSupplier.status === "ACTIVE" && (
+              <Pressable style={styles.calloutFlagBtn} onPress={handleFlagSupplier}>
+                <Text style={styles.calloutFlagText}>⚠️ Flag Closed</Text>
+              </Pressable>
+            )}
+            {selectedSupplier.status === "PENDING_REMOVAL" && (
+              <>
+                <Pressable style={styles.calloutApproveBtn} onPress={handleApproveRemoval}>
+                  <Text style={styles.calloutOpenText}>✓ Approve</Text>
+                </Pressable>
+                <Pressable style={styles.calloutDenyBtn} onPress={handleDenyRemoval}>
+                  <Text style={styles.calloutDenyText}>✗ Deny</Text>
+                </Pressable>
+              </>
+            )}
             <Pressable style={styles.calloutCloseBtn} onPress={hideCallout}>
               <Text style={styles.calloutCloseText}>Dismiss</Text>
             </Pressable>
@@ -696,5 +944,61 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     color: colors.textSecondary,
+  },
+
+  // ── Supplier callout extras ─────────────────────────────────────────────
+  supplierCategory: {
+    fontSize: 12,
+    color: colors.primary,
+    fontWeight: "600",
+    marginBottom: 2,
+    marginLeft: 28,
+  },
+  flagReasonBox: {
+    backgroundColor: "#fef3c7",
+    borderRadius: 8,
+    padding: 10,
+    marginVertical: 6,
+  },
+  flagReasonLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#92400e",
+    marginBottom: 2,
+  },
+  flagReasonText: {
+    fontSize: 13,
+    color: "#78350f",
+  },
+  calloutFlagBtn: {
+    flex: 1,
+    backgroundColor: "#f59e0b",
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  calloutFlagText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  calloutApproveBtn: {
+    flex: 1,
+    backgroundColor: "#ef4444",
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  calloutDenyBtn: {
+    flex: 1,
+    backgroundColor: "#22c55e",
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  calloutDenyText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
   },
 });

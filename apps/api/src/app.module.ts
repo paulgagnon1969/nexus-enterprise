@@ -65,6 +65,7 @@ import { SupplierBiddingModule } from "./modules/supplier-bidding/supplier-biddi
 import { BillingModule } from "./modules/billing/billing.module";
 import { BankingModule } from "./modules/banking/banking.module";
 import { AnalyticsModule } from "./modules/analytics/analytics.module";
+import { LocalSupplierModule } from "./modules/local-supplier/local-supplier.module";
 
 @Module({
   imports: [
@@ -138,6 +139,7 @@ import { AnalyticsModule } from "./modules/analytics/analytics.module";
     BillingModule,
     BankingModule,
     AnalyticsModule,
+    LocalSupplierModule,
   ],
   controllers: [DevController]
 })

@@ -34,6 +34,7 @@ interface ModuleDef {
   description: string;
   monthlyPrice: number; // cents (e.g. 4900 = $49)
   pricingModel: "MONTHLY" | "PER_PROJECT" | "PER_USE";
+  billingInterval?: "month" | "year"; // Stripe recurring interval; defaults to "month"
   projectUnlockPrice?: number; // cents — PER_PROJECT only
   isCore: boolean;
   sortOrder: number;
@@ -142,6 +143,18 @@ const MODULES: ModuleDef[] = [
     sortOrder: 9,
   },
 
+  {
+    code: "SUPPLIER_INDEX",
+    label: "Supplier Index",
+    description:
+      "Local supplier discovery and lifecycle management. Geographic supplier scraping, status tracking, and map integration.",
+    monthlyPrice: 20000, // $200/yr billed as recurring annual
+    pricingModel: "MONTHLY",
+    billingInterval: "year",
+    isCore: false,
+    sortOrder: 11,
+  },
+
   // ── Per-project unlock features ───────────────────────────────────
   {
     code: "XACT_IMPORT",
@@ -227,15 +240,17 @@ async function main() {
           stripePriceId = prices.data[0].id;
           console.log(`    ↳ Stripe Price exists: ${stripePriceId}`);
         } else {
+          const interval = mod.billingInterval ?? "month";
           const price = await stripe.prices.create({
             product: product.id,
             unit_amount: mod.monthlyPrice,
             currency: "usd",
-            recurring: { interval: "month" },
+            recurring: { interval },
             metadata: { nexus_module_code: mod.code },
           });
           stripePriceId = price.id;
-          console.log(`    ↳ Created Stripe Price: ${price.id} ($${(mod.monthlyPrice / 100).toFixed(2)}/mo)`);
+          const label = interval === "year" ? `$${(mod.monthlyPrice / 100).toFixed(2)}/yr` : `$${(mod.monthlyPrice / 100).toFixed(2)}/mo`;
+          console.log(`    ↳ Created Stripe Price: ${price.id} (${label})`);
         }
       } else {
         console.log(`    ↳ PER_PROJECT feature — one-time charges via PaymentIntent ($${((mod.projectUnlockPrice || 0) / 100).toFixed(2)}/project)`);

@@ -229,6 +229,9 @@ model Company {
   // CSV Import — vendor receipts, credit card & bank statement imports
   csvImportBatches      CsvImportBatch[]
   importedTransactions  ImportedTransaction[]
+
+  // Local Supplier Index (scraped geographic suppliers)
+  localSuppliers LocalSupplier[]
 }
 
 model OrganizationTemplate {
@@ -587,6 +590,10 @@ model User {
 
   // CSV Transaction Imports
   csvImportBatchesUploaded CsvImportBatch[] @relation("CsvImportBatchUploadedBy")
+
+  // Local Supplier Index — flag/review relations
+  localSuppliersFlagged  LocalSupplier[] @relation("LocalSupplierFlaggedBy")
+  localSuppliersReviewed LocalSupplier[] @relation("LocalSupplierReviewedBy")
 
   // Asset ownership & maintenance
   ownedAssets                Asset[]                  @relation("AssetOwner")
@@ -7749,4 +7756,51 @@ model ImportedTransaction {
   @@index([batchId], map: "ImportedTransaction_batch_idx")
   @@index([companyId, jobName], map: "ImportedTransaction_company_jobName_idx")
   @@index([companyId, merchant], map: "ImportedTransaction_company_merchant_idx")
+}
+
+// ===================================================================
+// Local Supplier Index — scraped geographic suppliers
+// ===================================================================
+
+enum LocalSupplierStatus {
+  ACTIVE
+  PENDING_REMOVAL
+  PERMANENTLY_CLOSED
+}
+
+/// A scraped or manually-added local supplier associated with a company.
+/// Records are never hard-deleted; status transitions track the full lifecycle.
+model LocalSupplier {
+  id          String              @id @default(cuid())
+  companyId   String
+  name        String
+  address     String?
+  phone       String?
+  website     String?
+  lat         Float
+  lng         Float
+  category    String?             // e.g. "Lumber", "Roofing", "Electrical"
+  source      String?             // e.g. "google_places", "manual"
+  placeId     String?             // Google Places ID for de-duplication
+
+  status      LocalSupplierStatus @default(ACTIVE)
+
+  // Flag / review audit trail
+  flaggedByUserId  String?
+  flaggedAt        DateTime?
+  flagReason       String?
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+  reviewNote       String?
+
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  company    Company @relation(fields: [companyId], references: [id])
+  flaggedBy  User?   @relation("LocalSupplierFlaggedBy", fields: [flaggedByUserId], references: [id])
+  reviewedBy User?   @relation("LocalSupplierReviewedBy", fields: [reviewedByUserId], references: [id])
+
+  @@index([companyId, status], map: "LocalSupplier_company_status_idx")
+  @@index([companyId, lat, lng], map: "LocalSupplier_company_geo_idx")
+  @@unique([companyId, placeId], map: "LocalSupplier_company_placeId_key")
 }
