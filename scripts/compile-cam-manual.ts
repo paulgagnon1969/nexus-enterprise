@@ -219,17 +219,30 @@ This manual is organized into **${areas.size} Areas of Influence**, representing
 
   manual += `\n---\n\n`;
 
-  // Chapters
+  // Chapters - use flat structure for cleaner TOC
   chapterNum = 1;
+  let sectionNum = 1;
+  
   for (const [title, area] of areas.entries()) {
     if (area.cams.length === 0) continue;
 
-    manual += `## Chapter ${chapterNum}: ${area.icon} ${title}\n\n`;
+    // Area introduction (no TOC entry - using bold text instead of header)
+    manual += `**Chapter ${chapterNum}: ${area.icon} ${title}**\n\n`;
     manual += `${area.description}\n\n`;
-    manual += `**CAMs in this chapter**: ${area.cams.length}\n\n`;
+    manual += `*${area.cams.length} CAM${area.cams.length === 1 ? '' : 's'} in this chapter*\n\n`;
+    manual += `---\n\n`;
 
     for (const cam of area.cams) {
-      manual += `### ${cam.frontmatter.cam_id}: ${cam.frontmatter.title}\n\n`;
+      // Single h2 per CAM - creates clean TOC entry
+      manual += `## Section ${sectionNum} - ${cam.frontmatter.cam_id}: ${cam.frontmatter.title}`;
+      
+      // Add revision info if available (format as date only)
+      const revision = cam.frontmatter.updated || cam.frontmatter.created;
+      if (revision) {
+        const revDate = typeof revision === 'string' ? revision.split('T')[0] : new Date(revision).toISOString().split('T')[0];
+        manual += ` (Rev ${revDate})`;
+      }
+      manual += `\n\n`;
       
       // Scores
       if (cam.frontmatter.competitive_score || cam.frontmatter.value_score) {
@@ -244,6 +257,8 @@ This manual is organized into **${areas.size} Areas of Influence**, representing
       
       manual += content + '\n\n';
       manual += `---\n\n`;
+      
+      sectionNum++;
     }
 
     chapterNum++;

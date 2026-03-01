@@ -50,13 +50,15 @@ This manual is organized into **7 Areas of Influence**, representing the major f
 
 ---
 
-## Chapter 1: 💰 Pricing & Estimation Excellence
+**Chapter 1: 💰 Pricing & Estimation Excellence**
 
 Advanced pricing engines, cost book management, and estimating workflows that deliver faster, more accurate quotes.
 
-**CAMs in this chapter**: 2
+*2 CAMs in this chapter*
 
-### EST-INTG-0001: Estimating - Multi-Provider BOM Pricing Pipeline
+---
+
+## Section 1 - EST-INTG-0001: Estimating - Multi-Provider BOM Pricing Pipeline (Rev 2026-02-26)
 
 **Competitive Score**: 8/10 | **Value Score**: 9/10
 
@@ -141,7 +143,7 @@ Built during the Feb 26, 2026 session as a complete end-to-end pipeline: SSE str
 
 ---
 
-### EST-SPD-0001: Estimating - Instant Price List Access via Redis Caching
+## Section 2 - EST-SPD-0001: Estimating - Instant Price List Access via Redis Caching (Rev 2026-02-21)
 
 **Competitive Score**: 7/10 | **Value Score**: 8/10
 
@@ -208,13 +210,15 @@ During Redis infrastructure setup for production, we identified that the Golden 
 
 ---
 
-## Chapter 2: 📊 Financial Operations & Intelligence
+**Chapter 2: 📊 Financial Operations & Intelligence**
 
 Automated billing, invoice generation, receipt processing, and real-time financial visibility.
 
-**CAMs in this chapter**: 1
+*1 CAM in this chapter*
 
-### FIN-AUTO-0001: Inline Receipt OCR — Snap, Scan, Auto-Fill
+---
+
+## Section 3 - FIN-AUTO-0001: Inline Receipt OCR — Snap, Scan, Auto-Fill (Rev 2026-02-21)
 
 ## Competitive Advantage
 Field crews capture dozens of receipts per week across job sites. Nexus Mobile uses GPT-4 Vision to instantly read any photographed receipt and auto-fill the vendor, total amount, date, tax, and line items — right in the daily log form. No manual entry, no separate expense app, no waiting. The scan happens inline while the user is still editing, so they can review and adjust before submitting. If connectivity is poor, the log saves anyway and the user enters data manually — zero data loss.
@@ -261,13 +265,15 @@ Field crews capture dozens of receipts per week across job sites. Nexus Mobile u
 
 ---
 
-## Chapter 3: 🏗️ Project Operations & Visibility
+**Chapter 3: 🏗️ Project Operations & Visibility**
 
 Real-time project tracking, task management, daily logs, and predictive analytics for field operations.
 
-**CAMs in this chapter**: 2
+*2 CAMs in this chapter*
 
-### OPS-VIS-0001: Field Qty Discrepancy Pipeline
+---
+
+## Section 4 - OPS-VIS-0001: Field Qty Discrepancy Pipeline (Rev 2026-02-22)
 
 ## Elevator Pitch
 Field crews flag incorrect estimate quantities in real time from the job site. The discrepancy—along with the field-reported quantity and an explanatory note—surfaces instantly in the PM's PETL Reconciliation Panel as a prominent alert banner, enabling faster, more accurate supplement and change order decisions without switching views or chasing down verbal reports.
@@ -314,7 +320,7 @@ In restoration, estimate quantities frequently don't match field reality. Drywal
 
 ---
 
-### OPS-VIS-0002: Urgency-Based Task Dashboard with Daily Log Integration
+## Section 5 - OPS-VIS-0002: Urgency-Based Task Dashboard with Daily Log Integration (Rev 2026-02-22)
 
 ## What It Is
 A mobile ToDo's tab that organizes all project tasks into color-coded urgency buckets (🛑 Overdue, ⚠️ Due Soon, ✅ Upcoming) with real-time badge counts and one-tap status toggling. Tasks can be created directly from daily log detail screens and are automatically linked back to the originating log.
@@ -351,13 +357,15 @@ In construction, missed follow-ups on daily log action items lead to schedule sl
 
 ---
 
-## Chapter 4: ✅ Compliance & Documentation
+**Chapter 4: ✅ Compliance & Documentation**
 
 Automated compliance tracking, OSHA integration, and audit-ready documentation.
 
-**CAMs in this chapter**: 1
+*1 CAM in this chapter*
 
-### CMP-INTG-0001: Live OSHA Construction Standards (29 CFR 1926) — Auto-Synced from eCFR
+---
+
+## Section 6 - CMP-INTG-0001: Live OSHA Construction Standards (29 CFR 1926) — Auto-Synced from eCFR (Rev 2026-02-21)
 
 ## Elevator Pitch
 NEXUS is the only construction management platform that automatically imports and continuously synchronizes the complete OSHA Construction Safety Standards (29 CFR Part 1926) directly from the official U.S. Government Electronic Code of Federal Regulations. Every section, every subpart, always current — with zero manual data entry.
@@ -424,13 +432,15 @@ The eCFR API is public, so the data source isn't proprietary. However, the XML p
 
 ---
 
-## Chapter 5: ⚡ Technology Infrastructure
+**Chapter 5: ⚡ Technology Infrastructure**
 
 High-performance architecture, graceful degradation, and enterprise-grade integrations.
 
-**CAMs in this chapter**: 3
+*3 CAMs in this chapter*
 
-### TECH-ACC-0001: Technology - Graceful Synchronous Fallback for Infrastructure Resilience
+---
+
+## Section 7 - TECH-ACC-0001: Technology - Graceful Synchronous Fallback for Infrastructure Resilience (Rev 2026-02-21)
 
 **Competitive Score**: 6/10 | **Value Score**: 9/10
 
@@ -530,7 +540,7 @@ This pattern emerged when production showed 500 errors on Golden PETL imports du
 
 ---
 
-### TECH-INTL-0001: TUCKS — Telemetry Usage Chart KPI System with Gaming Detection
+## Section 8 - TECH-INTL-0001: TUCKS — Telemetry Usage Chart KPI System with Gaming Detection (Rev 2026-02-28)
 
 ## What It Is
 A full telemetry and analytics platform built into Nexus that tracks every meaningful user action, computes workforce efficiency metrics, provides personal KPI dashboards with anonymous benchmarking, and automatically detects users who "game" the system by inflating activity counts. Includes a three-tier storage architecture (live → rollup → encrypted vault) designed to scale from 1K to 100K users at under $1,700/year in infrastructure cost.
@@ -594,7 +604,7 @@ Raw telemetry lives in Postgres for 2 weeks (for debugging and real-time queries
 
 ---
 
-### TECH-SPD-0003: Smart Media Upload — Network-Aware Compression & Video
+## Section 9 - TECH-SPD-0003: Smart Media Upload — Network-Aware Compression & Video (Rev 2026-02-21)
 
 ## Competitive Advantage
 Field crews on job sites often have unreliable cellular connectivity. Nexus automatically detects the network tier and adjusts image compression, video quality, and upload concurrency in real time — no user intervention required. Videos are WiFi-gated so they never stall critical metadata syncs on cellular. This means daily logs sync faster, use less data, and field teams never lose captured media.
@@ -652,4 +662,4 @@ Field crews on job sites often have unreliable cellular connectivity. Nexus auto
 ---
 
 *This manual is automatically generated from CAM documents in `docs/cams/`.*
-*Last compiled: 2026-03-01T17:00:51.440Z*
+*Last compiled: 2026-03-01T17:21:07.116Z*
