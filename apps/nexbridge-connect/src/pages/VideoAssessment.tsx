@@ -104,7 +104,9 @@ export default function VideoAssessment() {
       setStage("analyzing");
       await runAnalysis(result);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Extraction failed");
+      const msg = err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
+      console.error("[extract_frames] error:", err);
+      setError(`Extraction failed: ${msg}`);
       setStage("pick");
     }
   }

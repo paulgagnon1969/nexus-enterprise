@@ -17,10 +17,13 @@
     "fs:allow-read-dir",
     "fs:allow-read-file",
     "fs:allow-write-file",
-    "http:default",
-    "http:allow-fetch",
-    "http:allow-fetch-send",
-    "http:allow-fetch-read-body",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://**" },
+        { "url": "http://**" }
+      ]
+    },
     "shell:default",
     "shell:allow-open",
     "store:default",

@@ -22,6 +22,7 @@ export default function Login({ onLogin }: Props) {
   const [rememberMe, setRememberMe] = useState(true);
   const [apiStatus, setApiStatus] = useState<ApiStatus>("checking");
   const [apiLatency, setApiLatency] = useState<number | null>(null);
+  const [apiError, setApiError] = useState<string | null>(null);
 
   // Load saved credentials on mount
   useEffect(() => {
@@ -46,6 +47,7 @@ export default function Login({ onLogin }: Props) {
     async function checkHealth() {
       setApiStatus("checking");
       setApiLatency(null);
+      setApiError(null);
       const url = apiUrl.replace(/\/$/, "");
       try {
         const start = Date.now();
@@ -55,11 +57,17 @@ export default function Login({ onLogin }: Props) {
         if (res.ok) {
           setApiStatus("online");
           setApiLatency(ms);
+          setApiError(null);
         } else {
           setApiStatus("error");
+          setApiError(`HTTP ${res.status}`);
         }
-      } catch {
-        if (!cancelled) setApiStatus("offline");
+      } catch (err: unknown) {
+        if (!cancelled) {
+          const msg = err instanceof Error ? err.message : String(err);
+          setApiStatus("offline");
+          setApiError(msg);
+        }
       }
     }
     const timer = setTimeout(checkHealth, 300); // debounce
@@ -95,8 +103,8 @@ export default function Login({ onLogin }: Props) {
   const statusLabel = {
     checking: "Checking…",
     online: `Online${apiLatency ? ` (${apiLatency}ms)` : ""}`,
-    offline: "Unreachable",
-    error: "Error",
+    offline: `Unreachable${apiError ? `: ${apiError}` : ""}`,
+    error: `Error${apiError ? `: ${apiError}` : ""}`,
   }[apiStatus];
 
   return (

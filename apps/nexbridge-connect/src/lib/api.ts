@@ -13,21 +13,38 @@ export function getAccessToken() {
   return accessToken;
 }
 
+async function parseJson<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  if (!text || text.trim() === "") return [] as unknown as T;
+  return JSON.parse(text) as T;
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const res = await fetch(`${baseUrl}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-      ...(options.headers as Record<string, string>),
-    },
-  });
+  console.log(`[api] request: ${options.method || "GET"} ${baseUrl}${path}`);
+  console.log(`[api] token present: ${!!accessToken}, length: ${accessToken.length}`);
+
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        ...(options.headers as Record<string, string>),
+      },
+    });
+  } catch (fetchErr) {
+    console.error(`[api] fetch() threw:`, fetchErr);
+    throw fetchErr;
+  }
+
+  console.log(`[api] response status: ${res.status}`);
 
   if (res.status === 401) {
-    // Try refresh
+    console.log(`[api] 401 — attempting token refresh`);
     const refreshed = await refreshAccessToken();
     if (refreshed) {
       const retry = await fetch(`${baseUrl}${path}`, {
@@ -39,18 +56,26 @@ async function request<T>(
         },
       });
       if (!retry.ok) throw new Error(`API error: ${retry.status}`);
-      return retry.json() as T;
+      return parseJson<T>(retry);
     }
     await clearAuth();
     throw new Error("Session expired");
   }
 
   if (!res.ok) {
-    const body = await res.text();
+    let body = "";
+    try { body = await res.text(); } catch { /* ignore */ }
     throw new Error(`API error ${res.status}: ${body}`);
   }
 
-  return res.json() as T;
+  try {
+    const result = await parseJson<T>(res);
+    console.log(`[api] parseJson success`);
+    return result;
+  } catch (parseErr) {
+    console.error(`[api] parseJson threw:`, parseErr);
+    throw parseErr;
+  }
 }
 
 // ---------- Auth ----------
@@ -75,11 +100,13 @@ export async function login(
   });
 
   if (!res.ok) {
-    const body = await res.text();
+    let body = "";
+    try { body = await res.text(); } catch { /* ignore */ }
     throw new Error(res.status === 401 ? "Invalid credentials" : `Login failed: ${body}`);
   }
 
-  const data = (await res.json()) as LoginResponse;
+  const text = await res.text();
+  const data = JSON.parse(text) as LoginResponse;
 
   // Persist
   setApiConfig(url, data.accessToken);
@@ -107,7 +134,8 @@ async function refreshAccessToken(): Promise<boolean> {
 
     if (!res.ok) return false;
 
-    const data = (await res.json()) as { accessToken: string; refreshToken: string };
+    const txt = await res.text();
+    const data = JSON.parse(txt) as { accessToken: string; refreshToken: string };
     accessToken = data.accessToken;
 
     await saveAuth({

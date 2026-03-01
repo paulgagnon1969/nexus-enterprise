@@ -168,8 +168,8 @@ async fn extract_frames(
             &video_path,
             "-vf",
             &vf,
-            "-vsync",
-            "vfn",
+            "-fps_mode",
+            "vfr",
             "-q:v",
             "2", // High quality JPEG
             output_pattern.to_str().unwrap(),

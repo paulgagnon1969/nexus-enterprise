@@ -10,8 +10,17 @@ export default function Dashboard() {
 
   useEffect(() => {
     listAssessments()
-      .then(setAssessments)
-      .catch((err) => setError(err.message))
+      .then((data) => {
+        console.log("[Dashboard] assessments loaded:", data);
+        setAssessments(data);
+      })
+      .catch((err) => {
+        const msg = err instanceof Error
+          ? `${err.name}: ${err.message}`
+          : JSON.stringify(err);
+        console.error("[Dashboard] listAssessments error:", err);
+        setError(msg);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -30,7 +39,12 @@ export default function Dashboard() {
       </div>
 
       {loading && <p className="text-sm text-gray-500">Loading…</p>}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && (
+        <div className="rounded bg-red-50 p-4">
+          <p className="text-sm font-medium text-red-700">Dashboard Error</p>
+          <pre className="mt-1 whitespace-pre-wrap text-xs text-red-600">{error}</pre>
+        </div>
+      )}
 
       {!loading && assessments.length === 0 && (
         <div className="rounded-lg border-2 border-dashed border-gray-200 p-12 text-center">
