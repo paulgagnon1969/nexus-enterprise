@@ -259,9 +259,19 @@ export class AuthService {
     const activeMemberships = ((user as any).memberships || []).filter(
       (m: any) => m && m.isActive && !m.company?.deletedAt,
     );
-    const membership = activeMemberships[0];
-    if (!membership) {
+    if (!activeMemberships.length) {
       throw new UnauthorizedException("User does not have an active company membership");
+    }
+
+    // For SUPER_ADMIN: prefer a real tenant over the "Nexus System" placeholder.
+    // The placeholder company is created during bootstrap and typically has no
+    // projects, which causes empty dashboards on mobile.
+    let membership = activeMemberships[0];
+    if (user.globalRole === GlobalRole.SUPER_ADMIN && activeMemberships.length > 1) {
+      const realCompany = activeMemberships.find(
+        (m: any) => m.company?.name && m.company.name !== "Nexus System",
+      );
+      if (realCompany) membership = realCompany;
     }
 
     const profileCode =

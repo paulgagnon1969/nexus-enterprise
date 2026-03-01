@@ -248,12 +248,33 @@ export function KpiHomeScreen({ onOpenProject, onCreateProject, onCompanyChange,
     }
   }, []);
 
+  // Track whether we've already attempted an auto-switch so we don't loop.
+  const autoSwitchAttempted = useRef(false);
+
   useEffect(() => {
     (async () => {
       await Promise.all([loadDataInner(), loadCompanies(), loadLocation()]);
       setLoading(false);
     })();
   }, [loadDataInner, loadCompanies, loadLocation]);
+
+  // Auto-switch: if the initial company returned zero projects and the user
+  // has other companies available, silently switch to the first real one.
+  useEffect(() => {
+    if (autoSwitchAttempted.current) return;
+    if (loading) return; // wait for initial load
+    if (projects.length > 0) return; // current company has data — no switch needed
+    if (companies.length <= 1) return; // single tenant — nothing to switch to
+
+    // Find a different company to try (skip current + "Nexus System")
+    const alt = companies.find(
+      (c) => c.id !== currentCompanyId && c.name !== "Nexus System",
+    );
+    if (!alt) return;
+
+    autoSwitchAttempted.current = true;
+    void handleSwitchCompany(alt.id);
+  }, [loading, projects, companies, currentCompanyId, handleSwitchCompany]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
