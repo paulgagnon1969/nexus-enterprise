@@ -25,6 +25,7 @@ import { PlanSheetsScreen } from "../screens/PlanSheetsScreen";
 import { PlanSheetViewerScreen } from "../screens/PlanSheetViewerScreen";
 import { CreateProjectScreen } from "../screens/CreateProjectScreen";
 import { RoomScanScreen } from "../screens/RoomScanScreen";
+import { ReceiptCaptureScreen } from "../screens/ReceiptCaptureScreen";
 import { ScannerHomeScreen } from "../screens/ScannerHomeScreen";
 import { TagReadScreen } from "../screens/TagReadScreen";
 import { FleetOnboardScreen } from "../screens/FleetOnboardScreen";
@@ -69,6 +70,7 @@ export type ProjectsStackParamList = {
     initialIndex: number;
   };
   RoomScan: { project: ProjectListItem };
+  ReceiptCapture: { project: ProjectListItem };
 };
 
 export type ScannerStackParamList = {
@@ -116,6 +118,7 @@ function DailyLogsWrapper() {
       onOpenPetl={() => navigation.navigate("FieldPetl", { project, companyName })}
       onOpenPlanSheets={() => navigation.navigate("PlanSheets", { project })}
       onOpenRoomScan={() => navigation.navigate("RoomScan", { project })}
+      onOpenReceiptCapture={() => navigation.navigate("ReceiptCapture", { project })}
       onStartCall={async () => {
         try {
           const res = await apiJson<{ room: any; token: string; livekitUrl: string }>(
@@ -186,6 +189,17 @@ function RoomScanWrapper() {
   const route = useRoute<RouteProp<ProjectsStackParamList, "RoomScan">>();
   return (
     <RoomScanScreen
+      project={route.params.project}
+      onBack={() => navigation.goBack()}
+    />
+  );
+}
+
+function ReceiptCaptureWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
+  const route = useRoute<RouteProp<ProjectsStackParamList, "ReceiptCapture">>();
+  return (
+    <ReceiptCaptureScreen
       project={route.params.project}
       onBack={() => navigation.goBack()}
     />
@@ -272,6 +286,7 @@ function ProjectsStackNavigator() {
       <ProjectsStack.Screen name="PlanSheets" component={PlanSheetsWrapper} />
       <ProjectsStack.Screen name="PlanSheetViewer" component={PlanSheetViewerWrapper} />
       <ProjectsStack.Screen name="RoomScan" component={RoomScanWrapper} />
+      <ProjectsStack.Screen name="ReceiptCapture" component={ReceiptCaptureWrapper} />
     </ProjectsStack.Navigator>
   );
 }

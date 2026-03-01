@@ -83,4 +83,32 @@ export async function initDb(): Promise<void> {
     );
   `);
   await d.execAsync(`CREATE INDEX IF NOT EXISTS tab_events_ts_idx ON tab_events(ts);`);
+
+  // Receipt capture: local receipts accumulated before consolidation into a Daily Log.
+  await d.execAsync(`
+    CREATE TABLE IF NOT EXISTS receipts (
+      id TEXT PRIMARY KEY NOT NULL,
+      projectId TEXT NOT NULL,
+      imageUri TEXT NOT NULL,
+      imageName TEXT NOT NULL,
+      vendor TEXT,
+      amount REAL,
+      subtotal REAL,
+      taxAmount REAL,
+      receiptDate TEXT,
+      currency TEXT DEFAULT 'USD',
+      paymentMethod TEXT,
+      lineItemsJson TEXT,
+      ocrConfidence REAL,
+      ocrRaw TEXT,
+      notes TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      dailyLogId TEXT,
+      createdAt INTEGER NOT NULL,
+      updatedAt INTEGER NOT NULL
+    );
+  `);
+  await d.execAsync(`CREATE INDEX IF NOT EXISTS receipts_project_idx ON receipts(projectId);`);
+  await d.execAsync(`CREATE INDEX IF NOT EXISTS receipts_status_idx ON receipts(status);`);
+  await d.execAsync(`CREATE INDEX IF NOT EXISTS receipts_date_idx ON receipts(createdAt);`);
 }
