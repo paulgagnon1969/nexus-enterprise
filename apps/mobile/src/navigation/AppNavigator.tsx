@@ -392,10 +392,12 @@ const SetCompanyContext = React.createContext<(company: { id: string; name: stri
 function HomeTabScreen() {
   const navigation = useNavigation<any>();
   const company = React.useContext(CompanyContext);
+  const setCompany = React.useContext(SetCompanyContext);
 
   return (
     <KpiHomeScreen
       companyName={company.name}
+      onCompanyChange={setCompany}
       onOpenProject={(project) => {
         navigation.navigate("ProjectsTab", {
           screen: "DailyLogs",

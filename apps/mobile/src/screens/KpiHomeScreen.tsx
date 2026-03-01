@@ -19,6 +19,8 @@ import * as Haptics from "expo-haptics";
 import { apiJson } from "../api/client";
 import { fetchMyKpis, type PersonalKpis } from "../api/analytics";
 import { fetchDailyLogFeed } from "../api/dailyLog";
+import { getUserMe, getUserCompanyMe } from "../api/user";
+import { switchCompany as apiSwitchCompany } from "../api/company";
 import { getCache, setCache } from "../offline/cache";
 import { colors } from "../theme/colors";
 import type { ProjectListItem, DailyLogListItem } from "../types/api";
@@ -120,10 +122,11 @@ const NEARBY_RADIUS_MILES = 15;
 interface Props {
   onOpenProject: (project: ProjectListItem) => void;
   onCreateProject?: () => void;
+  onCompanyChange?: (company: { id: string; name: string }) => void;
   companyName?: string | null;
 }
 
-export function KpiHomeScreen({ onOpenProject, onCreateProject, companyName }: Props) {
+export function KpiHomeScreen({ onOpenProject, onCreateProject, onCompanyChange, companyName }: Props) {
   const { width } = useWindowDimensions();
   const isLandscape = width > 600;
 
@@ -134,6 +137,13 @@ export function KpiHomeScreen({ onOpenProject, onCreateProject, companyName }: P
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Multi-tenant
+  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
+  const [currentCompanyId, setCurrentCompanyId] = useState<string | null>(null);
+  const [localCompanyName, setLocalCompanyName] = useState<string | null>(companyName ?? null);
+  const [showCompanyPicker, setShowCompanyPicker] = useState(false);
+  const [switchingCompanyId, setSwitchingCompanyId] = useState<string | null>(null);
+
   // Location
   const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(null);
 
@@ -142,9 +152,39 @@ export function KpiHomeScreen({ onOpenProject, onCreateProject, companyName }: P
   const calloutSlide = useRef(new RNAnimated.Value(200)).current;
   const cameraRef = useRef<Mapbox.Camera>(null);
 
+  // ── Load tenant context ────────────────────────────────────────────────────
+
+  const loadCompanies = useCallback(async () => {
+    try {
+      const me = await getUserMe();
+      const list = (me.memberships ?? []).map((m) => ({
+        id: m.companyId,
+        name: m.company?.name ?? m.companyId,
+      }));
+      // Deduplicate
+      const seen = new Set<string>();
+      const unique = list.filter((c) => {
+        if (seen.has(c.id)) return false;
+        seen.add(c.id);
+        return true;
+      });
+      setCompanies(unique);
+
+      // Determine current company
+      const companyMe = await getUserCompanyMe();
+      if (companyMe?.id) {
+        setCurrentCompanyId(companyMe.id);
+        setLocalCompanyName(companyMe.name ?? null);
+        onCompanyChange?.({ id: companyMe.id, name: companyMe.name ?? companyMe.id });
+      }
+    } catch {
+      // Non-fatal — single-tenant users won't need the picker
+    }
+  }, [onCompanyChange]);
+
   // ── Data loading ──────────────────────────────────────────────────────────
 
-  const loadData = useCallback(async () => {
+  const loadDataInner = useCallback(async () => {
     const [kpiResult, projectsResult, logsResult] = await Promise.allSettled([
       fetchMyKpis("30d").catch(() => null),
       (async () => {
@@ -165,6 +205,36 @@ export function KpiHomeScreen({ onOpenProject, onCreateProject, companyName }: P
     if (logsResult.status === "fulfilled") setRecentLogs(logsResult.value.items);
   }, []);
 
+  const handleSwitchCompany = useCallback(async (companyId: string) => {
+    if (companyId === currentCompanyId) {
+      setShowCompanyPicker(false);
+      return;
+    }
+    setSwitchingCompanyId(companyId);
+    try {
+      const res = await apiSwitchCompany(companyId);
+      if (res.company) {
+        setCurrentCompanyId(res.company.id);
+        setLocalCompanyName(res.company.name);
+        onCompanyChange?.(res.company);
+      }
+      setShowCompanyPicker(false);
+      // Reload everything for the new tenant
+      setLoading(true);
+      await loadDataInner();
+      setLoading(false);
+    } catch {
+      // stay on current company
+    } finally {
+      setSwitchingCompanyId(null);
+    }
+  }, [currentCompanyId, onCompanyChange, loadDataInner]);
+
+  // Wrapper that also loads companies on first call
+  const loadData = useCallback(async () => {
+    await Promise.all([loadDataInner(), loadCompanies()]);
+  }, [loadDataInner, loadCompanies]);
+
   const loadLocation = useCallback(async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -180,16 +250,16 @@ export function KpiHomeScreen({ onOpenProject, onCreateProject, companyName }: P
 
   useEffect(() => {
     (async () => {
-      await Promise.all([loadData(), loadLocation()]);
+      await Promise.all([loadDataInner(), loadCompanies(), loadLocation()]);
       setLoading(false);
     })();
-  }, [loadData, loadLocation]);
+  }, [loadDataInner, loadCompanies, loadLocation]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadData();
+    await loadDataInner();
     setRefreshing(false);
-  }, [loadData]);
+  }, [loadDataInner]);
 
   // ── Nearby filtering ──────────────────────────────────────────────────────
 
@@ -308,9 +378,17 @@ export function KpiHomeScreen({ onOpenProject, onCreateProject, companyName }: P
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle} numberOfLines={1}>
-          {companyName ?? "Dashboard"}
-        </Text>
+        <Pressable
+          style={styles.headerTitleRow}
+          onPress={companies.length > 1 ? () => setShowCompanyPicker(true) : undefined}
+        >
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {localCompanyName ?? companyName ?? "Dashboard"}
+          </Text>
+          {companies.length > 1 && (
+            <Text style={styles.headerChevron}>▾</Text>
+          )}
+        </Pressable>
         {onCreateProject && (
           <Pressable
             style={styles.addBtn}
@@ -323,6 +401,50 @@ export function KpiHomeScreen({ onOpenProject, onCreateProject, companyName }: P
           </Pressable>
         )}
       </View>
+
+      {/* Company picker modal */}
+      {showCompanyPicker && (
+        <View style={styles.pickerOverlay}>
+          <Pressable style={styles.pickerBackdrop} onPress={() => setShowCompanyPicker(false)} />
+          <View style={styles.pickerSheet}>
+            <Text style={styles.pickerTitle}>Switch Organization</Text>
+            <ScrollView style={{ maxHeight: 300 }}>
+              {companies.map((c) => (
+                <Pressable
+                  key={c.id}
+                  style={[
+                    styles.pickerRow,
+                    c.id === currentCompanyId && styles.pickerRowActive,
+                  ]}
+                  onPress={() => void handleSwitchCompany(c.id)}
+                >
+                  <Text
+                    style={[
+                      styles.pickerRowText,
+                      c.id === currentCompanyId && styles.pickerRowTextActive,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {c.name}
+                  </Text>
+                  {switchingCompanyId === c.id && (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  )}
+                  {c.id === currentCompanyId && switchingCompanyId !== c.id && (
+                    <Text style={styles.pickerCheck}>✓</Text>
+                  )}
+                </Pressable>
+              ))}
+            </ScrollView>
+            <Pressable
+              style={styles.pickerCloseBtn}
+              onPress={() => setShowCompanyPicker(false)}
+            >
+              <Text style={styles.pickerCloseBtnText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
 
       <ScrollView
         style={styles.scroll}
@@ -537,11 +659,22 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.borderMuted,
   },
+  headerTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    gap: 4,
+  },
   headerTitle: {
     fontSize: 18,
     fontWeight: "800",
     color: colors.textPrimary,
-    flex: 1,
+    flexShrink: 1,
+  },
+  headerChevron: {
+    fontSize: 16,
+    color: colors.textMuted,
+    marginTop: 1,
   },
   addBtn: {
     backgroundColor: colors.primary,
@@ -789,5 +922,74 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: colors.textMuted,
     marginLeft: 8,
+  },
+
+  // ── Company picker ──────────────────────────────────────────────────────
+  pickerOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 100,
+    justifyContent: "flex-end",
+  },
+  pickerBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.4)",
+  },
+  pickerSheet: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 32,
+  },
+  pickerTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: colors.textPrimary,
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  pickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginBottom: 4,
+  },
+  pickerRowActive: {
+    backgroundColor: colors.backgroundTertiary,
+  },
+  pickerRowText: {
+    fontSize: 15,
+    color: colors.textPrimary,
+    flex: 1,
+  },
+  pickerRowTextActive: {
+    fontWeight: "700",
+    color: colors.primary,
+  },
+  pickerCheck: {
+    fontSize: 16,
+    color: colors.primary,
+    fontWeight: "700",
+    marginLeft: 8,
+  },
+  pickerCloseBtn: {
+    marginTop: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderRadius: 10,
+    backgroundColor: colors.backgroundSecondary,
+  },
+  pickerCloseBtnText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: colors.textMuted,
   },
 });
