@@ -889,11 +889,12 @@ export class ProjectService {
     userId: string,
     companyId: string,
     companyRole: Role,
-    filters?: { status?: string; tagIds?: string[] }
+    filters?: { status?: string; tagIds?: string[]; globalRole?: string }
   ) {
-    const where: any = {
-      companyId
-    };
+    const isSuperAdmin = filters?.globalRole === "SUPER_ADMIN";
+
+    // SUPER_ADMIN sees all projects across all companies
+    const where: any = isSuperAdmin ? {} : { companyId };
 
     // Status filter: map Open/Closed/Warranty/Completed to project.status strings.
     // Empty or missing status = no filter (show all).
@@ -930,8 +931,12 @@ export class ProjectService {
       where.id = { in: projectIds };
     }
 
-    if (companyRole === Role.OWNER || companyRole === Role.ADMIN) {
-      return this.prisma.project.findMany({ where });
+    if (isSuperAdmin || companyRole === Role.OWNER || companyRole === Role.ADMIN) {
+      return this.prisma.project.findMany({
+        where,
+        // For super admin seeing all projects, include company name for context
+        ...(isSuperAdmin ? { include: { company: { select: { id: true, name: true } } } } : {}),
+      });
     }
 
     return this.prisma.project.findMany({

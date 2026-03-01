@@ -120,7 +120,8 @@ export class ProjectController {
       user.role,
       {
         status: status || undefined,
-        tagIds: tagIds.length ? tagIds : undefined
+        tagIds: tagIds.length ? tagIds : undefined,
+        globalRole: user.globalRole,
       }
     );
   }
