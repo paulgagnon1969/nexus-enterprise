@@ -26,6 +26,8 @@ interface Props {
   onStartTagRead: () => void;
   onStartFleetOnboard: () => void;
   onStartObjectCapture: () => void;
+  onStartNexiEnroll: () => void;
+  onOpenNexiCatalog: () => void;
 }
 
 const MODE_CARDS = [
@@ -50,9 +52,23 @@ const MODE_CARDS = [
     subtitle: "Apple Object Capture — get precise dimensions & 3D model",
     color: "#7C3AED",
   },
+  {
+    key: "nexi-enroll",
+    icon: "🔍",
+    title: "NEXI Capture",
+    subtitle: "Scan once, recognize forever — create object fingerprints",
+    color: "#D97706",
+  },
+  {
+    key: "nexi-catalog",
+    icon: "📚",
+    title: "NEXI Catalog",
+    subtitle: "Browse & manage your identified object library",
+    color: "#92400E",
+  },
 ] as const;
 
-export function ScannerHomeScreen({ onStartTagRead, onStartFleetOnboard, onStartObjectCapture }: Props) {
+export function ScannerHomeScreen({ onStartTagRead, onStartFleetOnboard, onStartObjectCapture, onStartNexiEnroll, onOpenNexiCatalog }: Props) {
   const [recentScans, setRecentScans] = useState<ScanRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -88,6 +104,12 @@ export function ScannerHomeScreen({ onStartTagRead, onStartFleetOnboard, onStart
         break;
       case "object-capture":
         onStartObjectCapture();
+        break;
+      case "nexi-enroll":
+        onStartNexiEnroll();
+        break;
+      case "nexi-catalog":
+        onOpenNexiCatalog();
         break;
     }
   };

@@ -252,6 +252,13 @@ class ObjectCaptureCoordinator: NSObject {
       "modelPath": modelURL.path,
     ]
 
+    // Preserve up to 10 reference images for NEXI enrollment.
+    // Select evenly-spaced images from the capture directory.
+    if let imagesDir = imagesDirectory {
+      let refPaths = Self.preserveReferenceImages(from: imagesDir, maxCount: 10)
+      result["referenceImagePaths"] = refPaths
+    }
+
     // Load the model to extract bounding box
     if let entity = try? ModelEntity.load(contentsOf: modelURL) {
       let bounds = entity.visualBounds(relativeTo: nil)
@@ -310,6 +317,51 @@ class ObjectCaptureCoordinator: NSObject {
         try? FileManager.default.removeItem(at: imagesDir)
       }
     }
+  }
+
+  /// Copy up to `maxCount` evenly-spaced HEIC/JPG images from the capture directory
+  /// to a persistent location so they survive the temp cleanup.
+  /// Returns an array of file paths for the preserved images.
+  private static func preserveReferenceImages(from imagesDir: URL, maxCount: Int) -> [String] {
+    let fm = FileManager.default
+    guard let allFiles = try? fm.contentsOfDirectory(at: imagesDir, includingPropertiesForKeys: nil) else {
+      return []
+    }
+
+    // Filter to image files only
+    let imageExts: Set<String> = ["heic", "jpg", "jpeg", "png"]
+    let imageFiles = allFiles
+      .filter { imageExts.contains($0.pathExtension.lowercased()) }
+      .sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+    guard !imageFiles.isEmpty else { return [] }
+
+    // Select evenly-spaced indices
+    let count = min(maxCount, imageFiles.count)
+    let step = max(1, imageFiles.count / count)
+    var selected: [URL] = []
+    for i in stride(from: 0, to: imageFiles.count, by: step) {
+      if selected.count >= count { break }
+      selected.append(imageFiles[i])
+    }
+
+    // Copy to a persistent directory within Documents
+    let docsDir = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
+    let refDir = docsDir.appendingPathComponent("nexi-reference-\(UUID().uuidString)")
+    try? fm.createDirectory(at: refDir, withIntermediateDirectories: true)
+
+    var paths: [String] = []
+    for (i, src) in selected.enumerated() {
+      let dest = refDir.appendingPathComponent("ref_\(i).\(src.pathExtension)")
+      do {
+        try fm.copyItem(at: src, to: dest)
+        paths.append(dest.path)
+      } catch {
+        print("[NexusObjectCapture] Failed to copy reference image: \(error)")
+      }
+    }
+
+    return paths
   }
 
   private func findPresentingViewController() -> UIViewController? {

@@ -29,6 +29,8 @@ import { ScannerHomeScreen } from "../screens/ScannerHomeScreen";
 import { TagReadScreen } from "../screens/TagReadScreen";
 import { FleetOnboardScreen } from "../screens/FleetOnboardScreen";
 import { ObjectCaptureScreen } from "../screens/ObjectCaptureScreen";
+import { NexiEnrollScreen } from "../screens/NexiEnrollScreen";
+import { NexiCatalogScreen } from "../screens/NexiCatalogScreen";
 import { ScrollableTabBar } from "../components/ScrollableTabBar";
 import { fetchAllTasks } from "../api/tasks";
 import { apiJson } from "../api/client";
@@ -74,6 +76,8 @@ export type ScannerStackParamList = {
   TagRead: undefined;
   FleetOnboard: undefined;
   ObjectCapture: undefined;
+  NexiEnroll: undefined;
+  NexiCatalog: undefined;
 };
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
@@ -280,6 +284,8 @@ function ScannerStackNavigator() {
       <ScannerStack.Screen name="TagRead" component={TagReadWrapper} />
       <ScannerStack.Screen name="FleetOnboard" component={FleetOnboardWrapper} />
       <ScannerStack.Screen name="ObjectCapture" component={ObjectCaptureWrapper} />
+      <ScannerStack.Screen name="NexiEnroll" component={NexiEnrollWrapper} />
+      <ScannerStack.Screen name="NexiCatalog" component={NexiCatalogWrapper} />
     </ScannerStack.Navigator>
   );
 }
@@ -291,6 +297,8 @@ function ScannerHomeWrapper() {
       onStartTagRead={() => navigation.navigate("TagRead")}
       onStartFleetOnboard={() => navigation.navigate("FleetOnboard")}
       onStartObjectCapture={() => navigation.navigate("ObjectCapture")}
+      onStartNexiEnroll={() => navigation.navigate("NexiEnroll")}
+      onOpenNexiCatalog={() => navigation.navigate("NexiCatalog")}
     />
   );
 }
@@ -308,6 +316,21 @@ function FleetOnboardWrapper() {
 function ObjectCaptureWrapper() {
   const navigation = useNavigation<NativeStackNavigationProp<ScannerStackParamList>>();
   return <ObjectCaptureScreen onBack={() => navigation.goBack()} />;
+}
+
+function NexiEnrollWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ScannerStackParamList>>();
+  return <NexiEnrollScreen onBack={() => navigation.goBack()} />;
+}
+
+function NexiCatalogWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ScannerStackParamList>>();
+  return (
+    <NexiCatalogScreen
+      onBack={() => navigation.goBack()}
+      onEnrollNew={() => navigation.navigate("NexiEnroll")}
+    />
+  );
 }
 
 // Wrapper for MapScreen

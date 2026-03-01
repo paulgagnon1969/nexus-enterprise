@@ -1,0 +1,7 @@
+{
+  "platforms": ["ios"],
+  "ios": {
+    "modules": ["NexusNexiModule"],
+    "podspecPath": "./ios/NexusNexi.podspec"
+  }
+}
