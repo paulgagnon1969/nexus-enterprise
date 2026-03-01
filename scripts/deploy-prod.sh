@@ -57,14 +57,8 @@ if [[ -f "$ROOT_DIR/.env" ]]; then
   set +a
 fi
 
-echo "[deploy-prod] Ensuring GCP Application Default Credentials via gcloud..."
-if [[ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" && -f "$GOOGLE_APPLICATION_CREDENTIALS" ]]; then
-  echo "[deploy-prod] Using GOOGLE_APPLICATION_CREDENTIALS from environment..."
-  gcloud auth application-default login --cred-file="$GOOGLE_APPLICATION_CREDENTIALS"
-else
-  echo "[deploy-prod] Using interactive gcloud auth application-default login..."
-  gcloud auth application-default login
-fi
+echo "[deploy-prod] Ensuring GCP Application Default Credentials..."
+source "$ROOT_DIR/scripts/gcp-ensure-auth.sh"
 
 # Ensure PROD_DB_PASSWORD is available (must come from env / .env)
 if [[ -z "${PROD_DB_PASSWORD:-}" ]]; then

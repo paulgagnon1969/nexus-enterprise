@@ -102,11 +102,8 @@ if ! command -v cloud-sql-proxy >/dev/null 2>&1; then
 fi
 
 # Ensure ADC exists (cloud-sql-proxy uses this by default).
-if ! gcloud auth application-default print-access-token >/dev/null 2>&1; then
-  echo "[prod-db-run-with-proxy] ERROR: Application Default Credentials are invalid or missing." >&2
-  echo "[prod-db-run-with-proxy] Run: gcloud auth application-default login" >&2
-  exit 1
-fi
+# This will silently pass if valid, or auto-refresh if expired.
+source "$(dirname "${BASH_SOURCE[0]}")/gcp-ensure-auth.sh"
 
 # If port is in use, either fail or kill it.
 EXISTING_PIDS=$(lsof -ti tcp:"$LOCAL_PORT" || true)
