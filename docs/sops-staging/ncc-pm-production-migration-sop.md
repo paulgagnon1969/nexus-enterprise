@@ -105,9 +105,7 @@ DATABASE_URL="postgresql://postgres:${PROD_DB_PASS}@127.0.0.1:5434/nexus_db" npx
 #### 9. Commit and Push
 ```bash
 git add packages/database/prisma/migrations/
-git commit -m "fix(db): add missing column description
-
-Co-Authored-By: Warp <agent@warp.dev>"
+git commit -m "fix(db): add missing column description"
 git push origin main
 ```
 

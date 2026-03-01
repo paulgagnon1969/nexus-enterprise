@@ -102,9 +102,7 @@ git commit -m "Add public app support page for app store submission
 
 - Created /support page with contact info and help resources
 - Made support page publicly accessible (no login required)
-- URL: https://ncc.nfsgrp.com/support
-
-Co-Authored-By: Warp <agent@warp.dev>"
+- URL: https://ncc.nfsgrp.com/support"
 ```
 
 #### 4. Deploy to Production

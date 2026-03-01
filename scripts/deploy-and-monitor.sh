@@ -61,7 +61,7 @@ if [[ -n "$(git status --porcelain)" ]]; then
   
   echo "   Committing: $COMMIT_MSG"
   git add -A
-  git commit -m "$COMMIT_MSG" -m "Co-Authored-By: Oz <oz-agent@warp.dev>" || {
+  git commit -m "$COMMIT_MSG" || {
     echo "❌ Git commit failed"
     exit 1
   }

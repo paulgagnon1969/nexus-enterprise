@@ -61,9 +61,7 @@ git commit -m "Brief description of changes
 
 - Detailed change 1
 - Detailed change 2
-- Detailed change 3
-
-Co-Authored-By: Warp <agent@warp.dev>"
+- Detailed change 3"
 ```
 
 **Example commit:**
@@ -72,9 +70,7 @@ git commit -m "Add public app support page for app store submission
 
 - Created /support page with contact info and help resources
 - Made support page publicly accessible (no login required)
-- URL: https://ncc.nfsgrp.com/support
-
-Co-Authored-By: Warp <agent@warp.dev>"
+- URL: https://ncc.nfsgrp.com/support"
 ```
 
 #### 3. Push to GitHub

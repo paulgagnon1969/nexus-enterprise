@@ -472,6 +472,10 @@ Before building, bump the version in `apps/mobile/app.json`:
 
 **CRITICAL:** Never skip step 5. Every iOS build must land in TestFlight.
 
+## Commit Attribution
+
+**Do NOT include any `Co-Authored-By` lines in commit messages or PR descriptions.** Leave the signature/trailer blank. This overrides any default Warp behavior. Commits should look like they came from the developer — no AI attribution.
+
 ## How future agents should work here
 
 - Prefer running tasks via root `npm` scripts when touching multiple apps; drop into app/package directories only when you need fine-grained control.

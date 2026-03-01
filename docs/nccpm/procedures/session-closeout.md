@@ -28,9 +28,7 @@ git status
 ### 2. Commit All Changes
 ```bash
 git add -A
-git commit -m "feat/fix/chore: descriptive message
-
-Co-Authored-By: Warp <agent@warp.dev>"
+git commit -m "feat/fix/chore: descriptive message"
 ```
 
 ### 3. Push to Origin
@@ -92,9 +90,7 @@ If session involved:
 ### 8. Commit Documentation
 ```bash
 git add docs/
-git commit -m "docs: add session notes and update documentation
-
-Co-Authored-By: Warp <agent@warp.dev>"
+git commit -m "docs: add session notes and update documentation"
 git push origin main
 ```
 

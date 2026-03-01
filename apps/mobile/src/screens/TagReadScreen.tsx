@@ -86,18 +86,31 @@ export function TagReadScreen({ onBack, onAssetCreated }: Props) {
   const [createdAsset, setCreatedAsset] = useState<any>(null);
   const [assigningPlacard, setAssigningPlacard] = useState(false);
 
-  const pickPhotos = useCallback(async () => {
+  const takePhoto = useCallback(async () => {
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ["images"],
       quality: 0.9,
       allowsMultipleSelection: true,
-      selectionLimit: 4,
+      selectionLimit: 4 - photos.length,
     });
 
     if (!result.canceled && result.assets?.length) {
       setPhotos((prev) => [...prev, ...result.assets!].slice(0, 4));
     }
-  }, []);
+  }, [photos.length]);
+
+  const pickFromLibrary = useCallback(async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.9,
+      allowsMultipleSelection: true,
+      selectionLimit: 4 - photos.length,
+    });
+
+    if (!result.canceled && result.assets?.length) {
+      setPhotos((prev) => [...prev, ...result.assets!].slice(0, 4));
+    }
+  }, [photos.length]);
 
   const removePhoto = (index: number) => {
     setPhotos((prev) => prev.filter((_, i) => i !== index));
@@ -219,7 +232,7 @@ export function TagReadScreen({ onBack, onAssetCreated }: Props) {
         <>
           {/* Photo capture section */}
           <Text style={styles.instructions}>
-            Take 1-4 photos of the equipment nameplate, data plate, or serial tag.
+            Capture or select 1-4 photos of the equipment nameplate, data plate, or serial tag.
             Include close-ups of text for best results.
           </Text>
 
@@ -233,12 +246,16 @@ export function TagReadScreen({ onBack, onAssetCreated }: Props) {
               </View>
             ))}
             {photos.length < 4 && (
-              <Pressable style={styles.addPhotoBtn} onPress={pickPhotos}>
-                <Text style={styles.addPhotoIcon}>📷</Text>
-                <Text style={styles.addPhotoText}>
-                  {photos.length === 0 ? "Take Photo" : "Add More"}
-                </Text>
-              </Pressable>
+              <>
+                <Pressable style={styles.addPhotoBtn} onPress={takePhoto}>
+                  <Text style={styles.addPhotoIcon}>📷</Text>
+                  <Text style={styles.addPhotoText}>Camera</Text>
+                </Pressable>
+                <Pressable style={styles.addPhotoBtn} onPress={pickFromLibrary}>
+                  <Text style={styles.addPhotoIcon}>🖼️</Text>
+                  <Text style={styles.addPhotoText}>Library</Text>
+                </Pressable>
+              </>
             )}
           </View>
 

@@ -35,7 +35,7 @@ if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     if [[ -n "$(git status --porcelain)" ]]; then
       echo "[deploy-prod] Auto-committing and pushing local changes to main..."
       git add -A
-      git commit -m "Prod deploy $(date -u +'%Y-%m-%d %H:%M:%S UTC')" -m "Co-Authored-By: Warp <agent@warp.dev>" || echo "[deploy-prod] git commit failed or no changes to commit."
+      git commit -m "Prod deploy $(date -u +'%Y-%m-%d %H:%M:%S UTC')" || echo "[deploy-prod] git commit failed or no changes to commit."
       git push origin main || echo "[deploy-prod] git push failed; continuing with deploy using local working tree."
     else
       echo "[deploy-prod] Working tree clean; nothing to commit."
