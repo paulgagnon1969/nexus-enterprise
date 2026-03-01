@@ -153,6 +153,11 @@ export default function DocumentImportPage() {
   const [systemDocsExpanded, setSystemDocsExpanded] = useState(false);
   const [systemDocsLoading, setSystemDocsLoading] = useState(false);
   const [publishModal, setPublishModal] = useState<{ doc: SystemDocument } | null>(null);
+  
+  // System Documents filtering and sorting
+  const [systemDocsSearch, setSystemDocsSearch] = useState("");
+  const [systemDocsShowAll, setSystemDocsShowAll] = useState(true);
+  const [systemDocsSortBy, setSystemDocsSortBy] = useState<"newest" | "title" | "status">("newest");
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem("accessToken");
@@ -285,6 +290,43 @@ export default function DocumentImportPage() {
       setSystemDocsLoading(false);
     }
   }, []);
+
+  // Filtered and sorted system documents
+  const filteredSystemDocs = useMemo(() => {
+    let filtered = systemDocs;
+
+    // Apply "Show All" filter (show all vs published only)
+    if (!systemDocsShowAll) {
+      filtered = filtered.filter(
+        (doc) => doc.publicationStatus === "published_all" || doc.publicationStatus === "published_some"
+      );
+    }
+
+    // Apply search filter
+    if (systemDocsSearch.trim()) {
+      const query = systemDocsSearch.toLowerCase();
+      filtered = filtered.filter(
+        (doc) =>
+          doc.title.toLowerCase().includes(query) ||
+          doc.code.toLowerCase().includes(query) ||
+          doc.description?.toLowerCase().includes(query) ||
+          doc.tags.some((tag) => tag.toLowerCase().includes(query))
+      );
+    }
+
+    // Apply sorting
+    const sorted = [...filtered];
+    if (systemDocsSortBy === "newest") {
+      sorted.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    } else if (systemDocsSortBy === "title") {
+      sorted.sort((a, b) => a.title.localeCompare(b.title));
+    } else if (systemDocsSortBy === "status") {
+      const statusOrder = { published_all: 1, published_some: 2, unpublished: 3 };
+      sorted.sort((a, b) => statusOrder[a.publicationStatus] - statusOrder[b.publicationStatus]);
+    }
+
+    return sorted;
+  }, [systemDocs, systemDocsShowAll, systemDocsSearch, systemDocsSortBy]);
 
   const handlePublishDoc = async (docId: string, targetType: "ALL_TENANTS" | "SINGLE_TENANT", targetCompanyId?: string) => {
     try {
@@ -733,12 +775,15 @@ export default function DocumentImportPage() {
                   fontSize: 12,
                   padding: "2px 8px",
                   borderRadius: 10,
-                  backgroundColor: systemDocs.length > 0 ? "#dbeafe" : "#d1d5db",
-                  color: systemDocs.length > 0 ? "#1e40af" : "#6b7280",
+                  backgroundColor: filteredSystemDocs.length > 0 ? "#dbeafe" : "#d1d5db",
+                  color: filteredSystemDocs.length > 0 ? "#1e40af" : "#6b7280",
                   fontWeight: 500,
                 }}
               >
-                {systemDocs.length} document{systemDocs.length !== 1 ? "s" : ""}
+                {filteredSystemDocs.length} document{filteredSystemDocs.length !== 1 ? "s" : ""}
+                {filteredSystemDocs.length !== systemDocs.length && (
+                  <span style={{ opacity: 0.6 }}> / {systemDocs.length}</span>
+                )}
               </span>
               <span style={{ fontSize: 14, color: "#0c4a6e" }}>
                 {systemDocsExpanded ? "▼" : "▶"}
@@ -746,8 +791,86 @@ export default function DocumentImportPage() {
             </button>
           </div>
 
+          {/* Search and Filter Controls */}
           {systemDocsExpanded && (
-            <div style={{ padding: "0 16px 16px", borderTop: "1px solid #bae6fd" }}>
+            <div
+              style={{
+                padding: "12px 16px",
+                borderTop: "1px solid #bae6fd",
+                backgroundColor: "#ffffff",
+                display: "flex",
+                flexDirection: "column",
+                gap: 12,
+              }}
+            >
+              {/* Search Box */}
+              <div>
+                <input
+                  type="text"
+                  placeholder="Search documents (title, code, tags, description)..."
+                  value={systemDocsSearch}
+                  onChange={(e) => setSystemDocsSearch(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    fontSize: 14,
+                    border: "1px solid #d1d5db",
+                    borderRadius: 6,
+                  }}
+                />
+              </div>
+
+              {/* Controls Row */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                {/* Show All Checkbox */}
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    fontSize: 13,
+                    cursor: "pointer",
+                    userSelect: "none",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={systemDocsShowAll}
+                    onChange={(e) => setSystemDocsShowAll(e.target.checked)}
+                    style={{ accentColor: "#2563eb" }}
+                  />
+                  <span style={{ fontWeight: 500 }}>Show All</span>
+                  <span style={{ color: "#6b7280", fontSize: 12 }}>
+                    (includes unpublished)
+                  </span>
+                </label>
+
+                {/* Sort Dropdown */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 13, color: "#6b7280" }}>Sort by:</span>
+                  <select
+                    value={systemDocsSortBy}
+                    onChange={(e) => setSystemDocsSortBy(e.target.value as "newest" | "title" | "status")}
+                    style={{
+                      padding: "6px 10px",
+                      fontSize: 13,
+                      border: "1px solid #d1d5db",
+                      borderRadius: 6,
+                      backgroundColor: "#ffffff",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <option value="newest">Newest First</option>
+                    <option value="title">Title (A-Z)</option>
+                    <option value="status">Status</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {systemDocsExpanded && (
+            <div style={{ padding: "0 16px 16px" }}>
               {systemDocsLoading ? (
                 <p style={{ fontSize: 13, color: "#0c4a6e", padding: "12px 0" }}>Loading documents...</p>
               ) : systemDocs.length === 0 ? (
@@ -759,9 +882,15 @@ export default function DocumentImportPage() {
                     Sync SOPs from the "Staged SOPs" section above to create system documents.
                   </p>
                 </div>
+              ) : filteredSystemDocs.length === 0 ? (
+                <div style={{ padding: "16px 0", textAlign: "center" }}>
+                  <p style={{ fontSize: 13, color: "#6b7280" }}>
+                    No documents match your search/filter
+                  </p>
+                </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
-                  {systemDocs.map((doc) => (
+                  {filteredSystemDocs.map((doc) => (
                     <div
                       key={doc.id}
                       style={{
