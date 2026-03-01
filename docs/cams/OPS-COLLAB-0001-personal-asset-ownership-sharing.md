@@ -1,12 +1,12 @@
 ---
 cam_id: OPS-COLLAB-0001
-title: "Personal Asset Ownership, Maintenance Pools & Sharing Controls"
+title: "Nexus Phantom-Fleet — Making Visible What's Already There"
 mode: OPS
 category: COLLAB
-revision: "1.0"
+revision: "1.1"
 status: draft
 created: 2026-02-28
-updated: 2026-02-28
+updated: 2026-03-01
 author: Warp
 website: false
 scores:
@@ -19,13 +19,15 @@ visibility:
   public: false
   internal: true
   roles: [admin, exec, pm]
-tags: [cam, ops, collaboration, asset-management, personal-assets, maintenance-pools, sharing]
+tags: [cam, ops, collaboration, asset-management, personal-assets, maintenance-pools, sharing, phantom-fleet]
 ---
 
-# OPS-COLLAB-0001: Personal Asset Ownership, Maintenance Pools & Sharing Controls
+# OPS-COLLAB-0001: Nexus Phantom-Fleet
+
+> *Making visible what's already there.*
 
 ## Elevator Pitch
-Employees track personal assets (vehicles, scaffolding, tools) alongside company inventory in a single system. Privacy-first controls let owners decide what the company sees, while maintenance pools decouple "who maintains it" from "who owns it" — enabling shared equipment utilization with clear economic accountability.
+Every GC sits on top of a phantom fleet — vehicles, scaffold sets, generators, and specialty tools owned by their contractors and subs that the company can't see, can't schedule, and can't leverage. Nexus Phantom-Fleet surfaces this hidden inventory with privacy-first controls that let owners decide what the company sees, while maintenance pools decouple "who maintains it" from "who owns it" — turning invisible personal equipment into a discoverable, rentable, trackable resource pool.
 
 ## Problem
 In restoration and construction, workers routinely bring personal equipment to job sites — scaffold sets, vehicles, specialty tools. Today this creates several pain points:
@@ -43,19 +45,21 @@ In restoration and construction, workers routinely bring personal equipment to j
 5. **CSV import** — Ownership columns in the template allow bulk onboarding of both company and personal inventories.
 
 ## Competitive Differentiation
+- **The phantom fleet problem is universal** — every GC has contractors with personal equipment they don't know about. No platform solves this.
 - **Most construction platforms** track only company-owned assets. Personal assets are invisible to the system.
 - **No competitor** offers privacy-first personal asset sharing where the owner controls visibility granularity (private → company → specific users).
 - **Maintenance pools** decouple responsibility from ownership — unique in the restoration space where a field crew might maintain equipment owned by another employee or the company.
 - **Notification resolution chain** (assignee → pool → owner → admins) ensures maintenance never falls through the cracks regardless of ownership structure.
+- **Tagline resonance** — "Making visible what's already there" immediately communicates the value without technical jargon.
 
 ## Demo Script
-1. Show the Assets page with company assets listed.
-2. Switch to "My Assets" tab — show a personal inventory (e.g., 6 scaffold sets, a pickup truck).
-3. Open a personal asset → show the Sharing Visibility control set to "Private."
-4. Change sharing to "Company" → switch to the "All" tab and show the asset now visible with a sharing badge.
-5. Create a Maintenance Pool ("Fleet Maintenance Team") → add two members.
+1. Open the Assets page — show company-owned equipment. Ask: *"How many scaffold sets does your crew actually have access to?"*
+2. Switch to "My Assets" tab — reveal a personal inventory (6 scaffold sets, a pickup truck, a generator). *"This is Jimmy's phantom fleet."*
+3. Open a personal asset → show the Sharing Visibility control set to "Private." *"Jimmy controls what you see."*
+4. Change sharing to "Company" → switch to the "All" tab and show the asset now visible with a sharing badge. *"Now the GC knows it exists — and can schedule it."*
+5. Create a Maintenance Pool ("Fleet Maintenance Team") → add two members. *"Ownership and maintenance are separate. Jimmy owns it, but your crew maintains it."*
 6. Assign the pool to a company vehicle → explain the notification chain.
-7. Download the CSV template → point out the ownership columns for bulk import.
+7. Download the CSV template → point out the ownership columns for bulk onboarding. *"Every sub uploads their phantom fleet in one CSV."*
 
 ## Metrics / Value Indicators
 - **Equipment utilization** — personal assets become discoverable, reducing unnecessary rentals
@@ -73,3 +77,4 @@ In restoration and construction, workers routinely bring personal equipment to j
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-02-28 | Initial draft — personal ownership, maintenance pools, sharing controls |
+| 1.1 | 2026-03-01 | Branded as Nexus Phantom-Fleet; added tagline, refined elevator pitch and demo script |
