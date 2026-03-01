@@ -12,12 +12,11 @@ export default function Dashboard() {
     listAssessments()
       .then((data) => {
         console.log("[Dashboard] assessments loaded:", data);
-        setAssessments(data);
+        setAssessments(data.items);
       })
       .catch((err) => {
-        const msg = err instanceof Error
-          ? `${err.name}: ${err.message}`
-          : JSON.stringify(err);
+        const msg =
+          err instanceof Error ? `${err.name}: ${err.message}` : JSON.stringify(err);
         console.error("[Dashboard] listAssessments error:", err);
         setError(msg);
       })
@@ -57,31 +56,48 @@ export default function Dashboard() {
 
       {assessments.length > 0 && (
         <div className="space-y-3">
-          {assessments.map((a) => (
-            <div
-              key={a.id}
-              className="flex items-center justify-between rounded-lg border bg-white px-5 py-4 shadow-sm"
-            >
-              <div>
-                <p className="font-medium text-gray-800">{a.videoFileName}</p>
-                <p className="mt-0.5 text-xs text-gray-500">
-                  {a.sourceType} · {a.findingsCount} findings ·{" "}
-                  {new Date(a.createdAt).toLocaleDateString()}
-                </p>
-              </div>
-              <span
-                className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                  a.status === "COMPLETED"
-                    ? "bg-green-100 text-green-700"
-                    : a.status === "PROCESSING"
-                      ? "bg-yellow-100 text-yellow-700"
-                      : "bg-gray-100 text-gray-700"
-                }`}
+          {assessments.map((a) => {
+            const findingsCount = a.findings?.length ?? 0;
+            const narrative =
+              (a.assessmentJson as any)?.summary?.narrative ??
+              (a.assessmentJson as any)?.summary?.narrative ??
+              null;
+
+            return (
+              <div
+                key={a.id}
+                className="flex items-center justify-between rounded-lg border bg-white px-5 py-4 shadow-sm"
               >
-                {a.status}
-              </span>
-            </div>
-          ))}
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-gray-800">
+                    {a.videoFileName ?? "(untitled video)"}
+                  </p>
+                  <p className="mt-0.5 text-xs text-gray-500">
+                    {a.sourceType} · {findingsCount} findings ·{" "}
+                    {new Date(a.createdAt).toLocaleDateString()}
+                  </p>
+                  {narrative && (
+                    <p className="mt-1 line-clamp-2 text-xs text-gray-400">
+                      {String(narrative)}
+                    </p>
+                  )}
+                </div>
+                <span
+                  className={`ml-4 shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                    a.status === "COMPLETE"
+                      ? "bg-green-100 text-green-700"
+                      : a.status === "PROCESSING"
+                        ? "bg-yellow-100 text-yellow-700"
+                        : a.status === "FAILED"
+                          ? "bg-red-100 text-red-700"
+                          : "bg-gray-100 text-gray-700"
+                  }`}
+                >
+                  {a.status}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

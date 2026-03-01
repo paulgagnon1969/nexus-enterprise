@@ -3,7 +3,7 @@
     "name": "Nexus Mobile",
     "slug": "nexus-mobile",
     "version": "2.16.1",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {

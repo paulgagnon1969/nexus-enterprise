@@ -10,9 +10,9 @@ import {
   Linking,
   Platform,
   Animated as RNAnimated,
-  useWindowDimensions,
 } from "react-native";
 import Mapbox from "@rnmapbox/maps";
+import { useOrientation } from "../hooks/useOrientation";
 import * as Location from "expo-location";
 import * as Haptics from "expo-haptics";
 
@@ -127,8 +127,7 @@ interface Props {
 }
 
 export function KpiHomeScreen({ onOpenProject, onCreateProject, onCompanyChange, companyName }: Props) {
-  const { width } = useWindowDimensions();
-  const isLandscape = width > 600;
+  const { isLandscape } = useOrientation();
 
   // Data
   const [kpis, setKpis] = useState<PersonalKpis | null>(null);
@@ -467,191 +466,368 @@ export function KpiHomeScreen({ onOpenProject, onCreateProject, onCompanyChange,
         </View>
       )}
 
-      <ScrollView
-        style={styles.scroll}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
-        {/* ── KPI Cards ──────────────────────────────────────────────── */}
-        {kpis && (
-          <>
-            <View style={styles.kpiGrid}>
-              {kpiCards.map((card) => (
-                <View key={card.label} style={styles.kpiCard}>
-                  <View style={styles.kpiCardHeader}>
-                    <Text style={styles.kpiIcon}>{card.icon}</Text>
-                    <Text style={styles.kpiLabel}>{card.label}</Text>
-                  </View>
-                  <Text style={[styles.kpiYou, { color: kpiColor(card.you, card.companyAvg) }]}>
-                    {card.you}
-                  </Text>
-                  <Text style={styles.kpiAvg}>avg {card.companyAvg}</Text>
-                </View>
-              ))}
-            </View>
-
-            {/* ── Ranking & Completion ────────────────────────────────── */}
-            <View style={styles.rankingRow}>
-              <View style={[styles.rankingPill, { backgroundColor: kpis.ranking.dailyLogPercentile >= 70 ? "#dcfce7" : kpis.ranking.dailyLogPercentile >= 40 ? "#fef9c3" : "#fee2e2" }]}>
-                <Text style={styles.rankingIcon}>🏆</Text>
-                <Text style={[styles.rankingText, { color: kpis.ranking.dailyLogPercentile >= 70 ? "#166534" : kpis.ranking.dailyLogPercentile >= 40 ? "#854d0e" : "#991b1b" }]}>
-                  {kpis.ranking.label}
-                </Text>
-              </View>
-              <View style={styles.completionBox}>
-                <Text style={styles.completionLabel}>Task Completion</Text>
-                <Text style={styles.completionValues}>
-                  <Text style={{ fontWeight: "800", color: kpiColor(kpis.completionRate.you, kpis.completionRate.companyAvg) }}>
-                    {kpis.completionRate.you}%
-                  </Text>
-                  {" vs "}
-                  <Text style={{ color: colors.textMuted }}>{kpis.completionRate.companyAvg}% avg</Text>
-                </Text>
-              </View>
-            </View>
-          </>
-        )}
-
-        {/* ── Nearby Projects Map ────────────────────────────────────── */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>
-            📍 Nearby Projects
-          </Text>
-          <Text style={styles.sectionCount}>
-            {nearbyProjects.length} within {NEARBY_RADIUS_MILES} mi
-          </Text>
-        </View>
-
-        <View style={styles.mapContainer}>
-          <Mapbox.MapView
-            style={styles.map}
-            styleURL={Mapbox.StyleURL.Street}
-            logoEnabled={false}
-            attributionEnabled={false}
-            scaleBarEnabled={false}
-            onPress={() => { if (selectedProject) hideCallout(); }}
+      {/* ── Main content: side-by-side in landscape, stacked in portrait ── */}
+      {isLandscape ? (
+        <View style={styles.landscapeRow}>
+          {/* Left panel: KPI cards + ranking + activity (scrollable) */}
+          <ScrollView
+            style={styles.landscapeLeft}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            }
           >
-            <Mapbox.Camera
-              ref={cameraRef}
-              bounds={mapBounds}
-              animationDuration={600}
-            />
+            {kpis && (
+              <>
+                <View style={styles.kpiGrid}>
+                  {kpiCards.map((card) => (
+                    <View key={card.label} style={styles.kpiCard}>
+                      <View style={styles.kpiCardHeader}>
+                        <Text style={styles.kpiIcon}>{card.icon}</Text>
+                        <Text style={styles.kpiLabel}>{card.label}</Text>
+                      </View>
+                      <Text style={[styles.kpiYou, { color: kpiColor(card.you, card.companyAvg) }]}>
+                        {card.you}
+                      </Text>
+                      <Text style={styles.kpiAvg}>avg {card.companyAvg}</Text>
+                    </View>
+                  ))}
+                </View>
 
-            <Mapbox.LocationPuck puckBearingEnabled pulsing={{ isEnabled: true }} />
+                <View style={styles.rankingRow}>
+                  <View style={[styles.rankingPill, { backgroundColor: kpis.ranking.dailyLogPercentile >= 70 ? "#dcfce7" : kpis.ranking.dailyLogPercentile >= 40 ? "#fef9c3" : "#fee2e2" }]}>
+                    <Text style={styles.rankingIcon}>🏆</Text>
+                    <Text style={[styles.rankingText, { color: kpis.ranking.dailyLogPercentile >= 70 ? "#166534" : kpis.ranking.dailyLogPercentile >= 40 ? "#854d0e" : "#991b1b" }]}>
+                      {kpis.ranking.label}
+                    </Text>
+                  </View>
+                  <View style={styles.completionBox}>
+                    <Text style={styles.completionLabel}>Task Completion</Text>
+                    <Text style={styles.completionValues}>
+                      <Text style={{ fontWeight: "800", color: kpiColor(kpis.completionRate.you, kpis.completionRate.companyAvg) }}>
+                        {kpis.completionRate.you}%
+                      </Text>
+                      {" vs "}
+                      <Text style={{ color: colors.textMuted }}>{kpis.completionRate.companyAvg}% avg</Text>
+                    </Text>
+                  </View>
+                </View>
+              </>
+            )}
 
-            <Mapbox.ShapeSource
-              id="nearby-projects"
-              shape={geoData}
-              onPress={handlePinPress}
-            >
-              <Mapbox.CircleLayer id="nearby-pin" style={pinStyle} />
-              <Mapbox.CircleLayer id="nearby-pin-inner" style={pinInnerStyle} />
-            </Mapbox.ShapeSource>
-          </Mapbox.MapView>
-
-          {nearbyProjects.length === 0 && (
-            <View style={styles.mapEmptyOverlay}>
-              <Text style={styles.mapEmptyText}>
-                No projects within {NEARBY_RADIUS_MILES} miles
-              </Text>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>📋 Recent Activity</Text>
             </View>
-          )}
 
-          {/* Pin callout */}
-          {selectedProject && (
-            <RNAnimated.View
-              style={[
-                styles.callout,
-                { transform: [{ translateY: calloutSlide }] },
-              ]}
-            >
-              <View style={styles.calloutHandle} />
-              <Text style={styles.calloutName} numberOfLines={1}>
-                {selectedProject.name}
-              </Text>
-              {getAddress(selectedProject) ? (
-                <Text style={styles.calloutAddress} numberOfLines={1}>
-                  {getAddress(selectedProject)}
-                </Text>
-              ) : null}
-              <View style={styles.calloutActions}>
+            {recentLogs.length === 0 ? (
+              <View style={styles.emptyActivity}>
+                <Text style={styles.emptyActivityText}>No recent daily logs</Text>
+              </View>
+            ) : (
+              recentLogs.map((log) => (
                 <Pressable
-                  style={styles.calloutDirectionsBtn}
+                  key={log.id}
+                  style={styles.activityRow}
                   onPress={() => {
-                    if (selectedProject.latitude != null && selectedProject.longitude != null) {
-                      openDirections(
-                        selectedProject.latitude,
-                        selectedProject.longitude,
-                        getAddress(selectedProject) || null,
-                      );
+                    const proj = projects.find((p) => p.id === log.projectId);
+                    if (proj) {
+                      void Haptics.selectionAsync();
+                      onOpenProject(proj);
                     }
                   }}
                 >
-                  <Text style={styles.calloutDirectionsText}>🧭 Directions</Text>
+                  <View style={styles.activityLeft}>
+                    <Text style={styles.activityDate}>{formatDate(log.logDate)}</Text>
+                    {log.type && log.type !== "PUDL" && (
+                      <Text style={styles.activityType}>
+                        {log.type === "RECEIPT_EXPENSE" ? "🧾" : log.type === "JSA" ? "⚠️" : log.type === "INCIDENT" ? "🚨" : "🔍"}
+                      </Text>
+                    )}
+                  </View>
+                  <View style={styles.activityCenter}>
+                    <Text style={styles.activityProject} numberOfLines={1}>
+                      {log.projectName}
+                    </Text>
+                    <Text style={styles.activitySummary} numberOfLines={1}>
+                      {log.workPerformed || log.title || "Daily log"}
+                    </Text>
+                  </View>
+                  <Text style={styles.activityChevron}>›</Text>
                 </Pressable>
-                <Pressable
-                  style={styles.calloutOpenBtn}
-                  onPress={() => {
-                    hideCallout();
-                    onOpenProject(selectedProject);
-                  }}
+              ))
+            )}
+
+            <View style={{ height: 32 }} />
+          </ScrollView>
+
+          {/* Right panel: map (full height) */}
+          <View style={styles.landscapeRight}>
+            <View style={styles.landscapeMapHeader}>
+              <Text style={styles.sectionTitle}>📍 Nearby</Text>
+              <Text style={styles.sectionCount}>
+                {nearbyProjects.length} within {NEARBY_RADIUS_MILES} mi
+              </Text>
+            </View>
+            <View style={styles.landscapeMapContainer}>
+              <Mapbox.MapView
+                style={styles.map}
+                styleURL={Mapbox.StyleURL.Street}
+                logoEnabled={false}
+                attributionEnabled={false}
+                scaleBarEnabled={false}
+                onPress={() => { if (selectedProject) hideCallout(); }}
+              >
+                <Mapbox.Camera
+                  ref={cameraRef}
+                  bounds={mapBounds}
+                  animationDuration={600}
+                />
+                <Mapbox.LocationPuck puckBearingEnabled pulsing={{ isEnabled: true }} />
+                <Mapbox.ShapeSource
+                  id="nearby-projects"
+                  shape={geoData}
+                  onPress={handlePinPress}
                 >
-                  <Text style={styles.calloutOpenText}>Open Project ›</Text>
-                </Pressable>
-                <Pressable style={styles.calloutDismissBtn} onPress={hideCallout}>
-                  <Text style={styles.calloutDismissText}>✕</Text>
-                </Pressable>
-              </View>
-            </RNAnimated.View>
-          )}
-        </View>
+                  <Mapbox.CircleLayer id="nearby-pin" style={pinStyle} />
+                  <Mapbox.CircleLayer id="nearby-pin-inner" style={pinInnerStyle} />
+                </Mapbox.ShapeSource>
+              </Mapbox.MapView>
 
-        {/* ── Recent Activity ────────────────────────────────────────── */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>📋 Recent Activity</Text>
-        </View>
-
-        {recentLogs.length === 0 ? (
-          <View style={styles.emptyActivity}>
-            <Text style={styles.emptyActivityText}>No recent daily logs</Text>
-          </View>
-        ) : (
-          recentLogs.map((log) => (
-            <Pressable
-              key={log.id}
-              style={styles.activityRow}
-              onPress={() => {
-                const proj = projects.find((p) => p.id === log.projectId);
-                if (proj) {
-                  void Haptics.selectionAsync();
-                  onOpenProject(proj);
-                }
-              }}
-            >
-              <View style={styles.activityLeft}>
-                <Text style={styles.activityDate}>{formatDate(log.logDate)}</Text>
-                {log.type && log.type !== "PUDL" && (
-                  <Text style={styles.activityType}>
-                    {log.type === "RECEIPT_EXPENSE" ? "🧾" : log.type === "JSA" ? "⚠️" : log.type === "INCIDENT" ? "🚨" : "🔍"}
+              {nearbyProjects.length === 0 && (
+                <View style={styles.mapEmptyOverlay}>
+                  <Text style={styles.mapEmptyText}>
+                    No projects within {NEARBY_RADIUS_MILES} miles
                   </Text>
-                )}
-              </View>
-              <View style={styles.activityCenter}>
-                <Text style={styles.activityProject} numberOfLines={1}>
-                  {log.projectName}
-                </Text>
-                <Text style={styles.activitySummary} numberOfLines={1}>
-                  {log.workPerformed || log.title || "Daily log"}
-                </Text>
-              </View>
-              <Text style={styles.activityChevron}>›</Text>
-            </Pressable>
-          ))
-        )}
+                </View>
+              )}
 
-        <View style={{ height: 32 }} />
-      </ScrollView>
+              {selectedProject && (
+                <RNAnimated.View
+                  style={[
+                    styles.callout,
+                    { transform: [{ translateY: calloutSlide }] },
+                  ]}
+                >
+                  <View style={styles.calloutHandle} />
+                  <Text style={styles.calloutName} numberOfLines={1}>
+                    {selectedProject.name}
+                  </Text>
+                  {getAddress(selectedProject) ? (
+                    <Text style={styles.calloutAddress} numberOfLines={1}>
+                      {getAddress(selectedProject)}
+                    </Text>
+                  ) : null}
+                  <View style={styles.calloutActions}>
+                    <Pressable
+                      style={styles.calloutDirectionsBtn}
+                      onPress={() => {
+                        if (selectedProject.latitude != null && selectedProject.longitude != null) {
+                          openDirections(
+                            selectedProject.latitude,
+                            selectedProject.longitude,
+                            getAddress(selectedProject) || null,
+                          );
+                        }
+                      }}
+                    >
+                      <Text style={styles.calloutDirectionsText}>🧭 Directions</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.calloutOpenBtn}
+                      onPress={() => {
+                        hideCallout();
+                        onOpenProject(selectedProject);
+                      }}
+                    >
+                      <Text style={styles.calloutOpenText}>Open ›</Text>
+                    </Pressable>
+                    <Pressable style={styles.calloutDismissBtn} onPress={hideCallout}>
+                      <Text style={styles.calloutDismissText}>✕</Text>
+                    </Pressable>
+                  </View>
+                </RNAnimated.View>
+              )}
+            </View>
+          </View>
+        </View>
+      ) : (
+        /* ── Portrait: original stacked layout ── */
+        <ScrollView
+          style={styles.scroll}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+        >
+          {kpis && (
+            <>
+              <View style={styles.kpiGrid}>
+                {kpiCards.map((card) => (
+                  <View key={card.label} style={styles.kpiCard}>
+                    <View style={styles.kpiCardHeader}>
+                      <Text style={styles.kpiIcon}>{card.icon}</Text>
+                      <Text style={styles.kpiLabel}>{card.label}</Text>
+                    </View>
+                    <Text style={[styles.kpiYou, { color: kpiColor(card.you, card.companyAvg) }]}>
+                      {card.you}
+                    </Text>
+                    <Text style={styles.kpiAvg}>avg {card.companyAvg}</Text>
+                  </View>
+                ))}
+              </View>
+
+              <View style={styles.rankingRow}>
+                <View style={[styles.rankingPill, { backgroundColor: kpis.ranking.dailyLogPercentile >= 70 ? "#dcfce7" : kpis.ranking.dailyLogPercentile >= 40 ? "#fef9c3" : "#fee2e2" }]}>
+                  <Text style={styles.rankingIcon}>🏆</Text>
+                  <Text style={[styles.rankingText, { color: kpis.ranking.dailyLogPercentile >= 70 ? "#166534" : kpis.ranking.dailyLogPercentile >= 40 ? "#854d0e" : "#991b1b" }]}>
+                    {kpis.ranking.label}
+                  </Text>
+                </View>
+                <View style={styles.completionBox}>
+                  <Text style={styles.completionLabel}>Task Completion</Text>
+                  <Text style={styles.completionValues}>
+                    <Text style={{ fontWeight: "800", color: kpiColor(kpis.completionRate.you, kpis.completionRate.companyAvg) }}>
+                      {kpis.completionRate.you}%
+                    </Text>
+                    {" vs "}
+                    <Text style={{ color: colors.textMuted }}>{kpis.completionRate.companyAvg}% avg</Text>
+                  </Text>
+                </View>
+              </View>
+            </>
+          )}
+
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>📍 Nearby Projects</Text>
+            <Text style={styles.sectionCount}>
+              {nearbyProjects.length} within {NEARBY_RADIUS_MILES} mi
+            </Text>
+          </View>
+
+          <View style={styles.mapContainer}>
+            <Mapbox.MapView
+              style={styles.map}
+              styleURL={Mapbox.StyleURL.Street}
+              logoEnabled={false}
+              attributionEnabled={false}
+              scaleBarEnabled={false}
+              onPress={() => { if (selectedProject) hideCallout(); }}
+            >
+              <Mapbox.Camera
+                ref={cameraRef}
+                bounds={mapBounds}
+                animationDuration={600}
+              />
+              <Mapbox.LocationPuck puckBearingEnabled pulsing={{ isEnabled: true }} />
+              <Mapbox.ShapeSource
+                id="nearby-projects"
+                shape={geoData}
+                onPress={handlePinPress}
+              >
+                <Mapbox.CircleLayer id="nearby-pin" style={pinStyle} />
+                <Mapbox.CircleLayer id="nearby-pin-inner" style={pinInnerStyle} />
+              </Mapbox.ShapeSource>
+            </Mapbox.MapView>
+
+            {nearbyProjects.length === 0 && (
+              <View style={styles.mapEmptyOverlay}>
+                <Text style={styles.mapEmptyText}>
+                  No projects within {NEARBY_RADIUS_MILES} miles
+                </Text>
+              </View>
+            )}
+
+            {selectedProject && (
+              <RNAnimated.View
+                style={[
+                  styles.callout,
+                  { transform: [{ translateY: calloutSlide }] },
+                ]}
+              >
+                <View style={styles.calloutHandle} />
+                <Text style={styles.calloutName} numberOfLines={1}>
+                  {selectedProject.name}
+                </Text>
+                {getAddress(selectedProject) ? (
+                  <Text style={styles.calloutAddress} numberOfLines={1}>
+                    {getAddress(selectedProject)}
+                  </Text>
+                ) : null}
+                <View style={styles.calloutActions}>
+                  <Pressable
+                    style={styles.calloutDirectionsBtn}
+                    onPress={() => {
+                      if (selectedProject.latitude != null && selectedProject.longitude != null) {
+                        openDirections(
+                          selectedProject.latitude,
+                          selectedProject.longitude,
+                          getAddress(selectedProject) || null,
+                        );
+                      }
+                    }}
+                  >
+                    <Text style={styles.calloutDirectionsText}>🧭 Directions</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.calloutOpenBtn}
+                    onPress={() => {
+                      hideCallout();
+                      onOpenProject(selectedProject);
+                    }}
+                  >
+                    <Text style={styles.calloutOpenText}>Open Project ›</Text>
+                  </Pressable>
+                  <Pressable style={styles.calloutDismissBtn} onPress={hideCallout}>
+                    <Text style={styles.calloutDismissText}>✕</Text>
+                  </Pressable>
+                </View>
+              </RNAnimated.View>
+            )}
+          </View>
+
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>📋 Recent Activity</Text>
+          </View>
+
+          {recentLogs.length === 0 ? (
+            <View style={styles.emptyActivity}>
+              <Text style={styles.emptyActivityText}>No recent daily logs</Text>
+            </View>
+          ) : (
+            recentLogs.map((log) => (
+              <Pressable
+                key={log.id}
+                style={styles.activityRow}
+                onPress={() => {
+                  const proj = projects.find((p) => p.id === log.projectId);
+                  if (proj) {
+                    void Haptics.selectionAsync();
+                    onOpenProject(proj);
+                  }
+                }}
+              >
+                <View style={styles.activityLeft}>
+                  <Text style={styles.activityDate}>{formatDate(log.logDate)}</Text>
+                  {log.type && log.type !== "PUDL" && (
+                    <Text style={styles.activityType}>
+                      {log.type === "RECEIPT_EXPENSE" ? "🧾" : log.type === "JSA" ? "⚠️" : log.type === "INCIDENT" ? "🚨" : "🔍"}
+                    </Text>
+                  )}
+                </View>
+                <View style={styles.activityCenter}>
+                  <Text style={styles.activityProject} numberOfLines={1}>
+                    {log.projectName}
+                  </Text>
+                  <Text style={styles.activitySummary} numberOfLines={1}>
+                    {log.workPerformed || log.title || "Daily log"}
+                  </Text>
+                </View>
+                <Text style={styles.activityChevron}>›</Text>
+              </Pressable>
+            ))
+          )}
+
+          <View style={{ height: 32 }} />
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -796,6 +972,35 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontSize: 16, fontWeight: "700", color: colors.textPrimary },
   sectionCount: { fontSize: 12, color: colors.textMuted },
+
+  // ── Landscape layout ────────────────────────────────────────────────────
+  landscapeRow: {
+    flex: 1,
+    flexDirection: "row",
+  },
+  landscapeLeft: {
+    width: "50%",
+    borderRightWidth: 1,
+    borderRightColor: "#e5e7eb",
+  },
+  landscapeRight: {
+    width: "50%",
+  },
+  landscapeMapHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  landscapeMapContainer: {
+    flex: 1,
+    marginHorizontal: 8,
+    marginBottom: 8,
+    borderRadius: 14,
+    overflow: "hidden",
+    position: "relative",
+  },
 
   // ── Map ─────────────────────────────────────────────────────────────────
   mapContainer: {

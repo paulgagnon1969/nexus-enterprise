@@ -15,7 +15,7 @@ export function getAccessToken() {
 
 async function parseJson<T>(res: Response): Promise<T> {
   const text = await res.text();
-  if (!text || text.trim() === "") return [] as unknown as T;
+  if (!text || text.trim() === "") return null as unknown as T;
   return JSON.parse(text) as T;
 }
 
@@ -152,29 +152,43 @@ async function refreshAccessToken(): Promise<boolean> {
 
 // ---------- Video Assessment ----------
 
-export interface AnalyzeFramesPayload {
-  frames: { base64: string; mimeType: string; timestampSecs: number }[];
-  promptType: "EXTERIOR" | "INTERIOR" | "DRONE_ROOF" | "TARGETED";
-  videoFileName: string;
-  durationSecs: number;
-}
+export type AssessmentType = "EXTERIOR" | "INTERIOR" | "DRONE_ROOF" | "TARGETED";
 
-export interface AnalyzeFramesResponse {
+export interface GeminiAssessmentResult {
+  summary: {
+    narrative: string;
+    overallCondition: number;
+    confidence: number; // 0.0–1.0
+    materialIdentified: string[];
+    zonesAssessed: string[];
+    primaryCausation: string;
+    estimatedAge?: string;
+  };
   findings: Array<{
     zone: string;
     category: string;
     severity: string;
     causation: string;
     description: string;
-    confidence: number;
-    timestampSecs: number;
-    costbookItemCode: string | null;
-    suggestedQuantity: number | null;
-    suggestedUnit: string | null;
     frameIndex: number;
+    boundingBox?: { x: number; y: number; w: number; h: number } | null;
+    costbookItemCode?: string | null;
+    estimatedQuantity?: number | null;
+    estimatedUnit?: string | null;
+    confidence: number; // 0.0–1.0
   }>;
-  summary: string;
-  tokenUsage: { promptTokens: number; completionTokens: number; totalTokens: number };
+}
+
+export interface AnalyzeFramesPayload {
+  frames: Array<{ base64?: string; gcsUri?: string; mimeType: string }>;
+  assessmentType: AssessmentType;
+  weatherContext?: string;
+  captureDate?: string;
+}
+
+export interface AnalyzeFramesResponse {
+  assessment: GeminiAssessmentResult;
+  rawResponse: string;
 }
 
 export async function analyzeFrames(
@@ -186,26 +200,77 @@ export async function analyzeFrames(
   });
 }
 
+export async function getPresignedUploadUrl(opts: {
+  fileName: string;
+  contentType: string;
+}): Promise<{ uploadUrl: string; fileUri: string }> {
+  return request<{ uploadUrl: string; fileUri: string }>(
+    "/video-assessment/presigned-upload",
+    {
+      method: "POST",
+      body: JSON.stringify(opts),
+    },
+  );
+}
+
 export interface CreateAssessmentPayload {
-  sourceType: "DRONE" | "HANDHELD" | "UPLOAD" | "SECURITY_CAM";
-  videoFileName: string;
-  videoDurationSecs: number;
-  videoResolution: string;
-  frameCount: number;
-  promptType: string;
-  findings: AnalyzeFramesResponse["findings"];
-  aiSummary: string;
   projectId?: string;
+  sourceType: "DRONE" | "HANDHELD" | "OTHER";
+  videoFileName?: string;
+  videoDurationSecs?: number;
+  videoResolution?: string;
+  frameCount?: number;
+  thumbnailUrls?: string[];
+  assessmentJson: GeminiAssessmentResult;
+  rawAiResponse?: string;
+  confidenceScore?: number;
+  weatherContext?: string;
+  captureDate?: string;
+  notes?: string;
+  findings: Array<{
+    zone: string;
+    category: string;
+    severity: string;
+    causation?: string;
+    description?: string;
+    frameTimestamp?: number;
+    thumbnailUrl?: string;
+    boundingBoxJson?: any;
+    costbookItemCode?: string;
+    estimatedQuantity?: number;
+    estimatedUnit?: string;
+    confidenceScore?: number;
+    sortOrder?: number;
+  }>;
+}
+
+export interface VideoAssessmentFinding {
+  id: string;
+  zone: string;
+  category: string;
+  severity: string;
+  causation: string;
+  description: string | null;
+  frameTimestamp: number | null;
+  thumbnailUrl: string | null;
+  confidenceScore: number | null;
+  sortOrder: number;
 }
 
 export interface VideoAssessmentRecord {
   id: string;
   status: string;
   sourceType: string;
-  videoFileName: string;
+  videoFileName: string | null;
   createdAt: string;
-  aiSummary: string | null;
-  findingsCount: number;
+  confidenceScore: number | null;
+  assessmentJson: any | null;
+  findings: VideoAssessmentFinding[];
+}
+
+export interface ListAssessmentsResponse {
+  items: VideoAssessmentRecord[];
+  total: number;
 }
 
 export async function createAssessment(
@@ -217,6 +282,6 @@ export async function createAssessment(
   });
 }
 
-export async function listAssessments(): Promise<VideoAssessmentRecord[]> {
-  return request<VideoAssessmentRecord[]>("/video-assessment");
+export async function listAssessments(): Promise<ListAssessmentsResponse> {
+  return request<ListAssessmentsResponse>("/video-assessment");
 }

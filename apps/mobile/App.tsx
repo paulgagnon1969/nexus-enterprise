@@ -15,7 +15,6 @@ import { apiJson, setOnAuthExhausted } from "./src/api/client";
 import { getBackgroundAuth, getGeofenceConfig, setupGeofencing } from "./src/services/geofencing";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { AppNavigator } from "./src/navigation/AppNavigator";
-import { useAutoHideNavBar } from "./src/hooks/useAutoHideNavBar";
 import { initMapbox } from "./src/map/mapboxConfig";
 import { CallScreen, type CallParams } from "./src/screens/CallScreen";
 import { IncomingCallScreen, type IncomingCallData } from "./src/screens/IncomingCallScreen";
@@ -56,9 +55,9 @@ export default function App() {
   const notificationReceivedListener = useRef<Notifications.EventSubscription | null>(null);
   const incomingCallTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Android: hide system nav bar (sticky immersive). Any touch dismisses it;
-  // it re-hides after 3 s so bottom-of-screen buttons stay reachable.
-  useAutoHideNavBar(3000);
+  // Android: nav bar is configured natively via expo-navigation-bar plugin
+  // in app.json (position: absolute, visibility: hidden, behavior: overlay-swipe).
+  // No runtime hook needed — the native config handles everything.
 
   // Auto-logout when the API client exhausts all auth (JWT + refresh + DeviceSync)
   useEffect(() => {

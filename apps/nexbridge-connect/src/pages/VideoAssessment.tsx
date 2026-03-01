@@ -3,15 +3,25 @@ import { useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import {
   analyzeFrames,
   createAssessment,
+  getPresignedUploadUrl,
   type AnalyzeFramesResponse,
+  type AssessmentType,
 } from "../lib/api";
 
-type Stage = "pick" | "extracting" | "analyzing" | "review" | "saving" | "done";
+type Stage =
+  | "pick"
+  | "extracting"
+  | "uploading"
+  | "analyzing"
+  | "review"
+  | "saving"
+  | "done";
 type SourceType = "DRONE" | "HANDHELD" | "UPLOAD" | "SECURITY_CAM";
-type PromptType = "EXTERIOR" | "INTERIOR" | "DRONE_ROOF" | "TARGETED";
+type PromptType = AssessmentType;
 
 interface VideoMeta {
   duration_secs: number;
@@ -96,8 +106,8 @@ export default function VideoAssessment() {
     try {
       const result = await invoke<ExtractionResult>("extract_frames", {
         videoPath,
-        intervalSecs: sourceType === "DRONE" ? 5 : 10,
-        maxFrames: 120,
+        intervalSecs: sourceType === "DRONE" ? 6 : 12,
+        maxFrames: 24,
         useSceneDetection: false,
       });
       setExtraction(result);
@@ -111,24 +121,99 @@ export default function VideoAssessment() {
     }
   }
 
+  function safeFileName(name: string) {
+    return name.replace(/[^a-zA-Z0-9_.-]/g, "_");
+  }
+
+  function base64ToBytes(b64: string): Uint8Array {
+    const raw = atob(b64);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    return bytes;
+  }
+
+  async function uploadFramesToGcs(ext: ExtractionResult) {
+    const frames = ext.frames;
+    const results: Array<{ gcsUri: string; mimeType: string; timestampSecs: number }> =
+      new Array(frames.length);
+
+    let completed = 0;
+    const concurrency = Math.min(4, frames.length);
+    let nextIndex = 0;
+
+    const worker = async () => {
+      while (true) {
+        const idx = nextIndex++;
+        if (idx >= frames.length) break;
+
+        const frame = frames[idx]!;
+        const fileName = safeFileName(
+          `${ext.metadata.file_name || "video"}-frame_${String(idx).padStart(4, "0")}.jpg`
+        );
+
+        const { uploadUrl, fileUri } = await getPresignedUploadUrl({
+          fileName,
+          contentType: frame.mime_type || "image/jpeg",
+        });
+
+        // Decode the base64 frame data to binary and upload to GCS.
+        const bytes = base64ToBytes(frame.base64);
+        const putRes = await tauriFetch(uploadUrl, {
+          method: "PUT",
+          headers: {
+            "Content-Type": frame.mime_type || "image/jpeg",
+          },
+          body: bytes as unknown as BodyInit,
+        });
+
+        if (!putRes.ok) {
+          const errText = await putRes.text().catch(() => "");
+          throw new Error(`GCS upload failed (${putRes.status}): ${errText}`);
+        }
+
+        results[idx] = {
+          gcsUri: fileUri,
+          mimeType: frame.mime_type || "image/jpeg",
+          timestampSecs: frame.timestamp_secs,
+        };
+
+        completed += 1;
+        setProgress(`Uploading frames… (${completed}/${frames.length})`);
+      }
+    };
+
+    await Promise.all(Array.from({ length: concurrency }, worker));
+    return results;
+  }
+
   // Step 3: Send frames to NCC API → Gemini
   async function runAnalysis(ext: ExtractionResult) {
-    setProgress("Sending frames to NCC for AI analysis…");
     try {
+      setStage("uploading");
+      setProgress(`Uploading ${ext.frames.length} frames…`);
+      const uploaded = await uploadFramesToGcs(ext);
+
+      setStage("analyzing");
+      setProgress("Sending frames to NCC for AI analysis…");
+
       const resp = await analyzeFrames({
-        frames: ext.frames.map((f) => ({
-          base64: f.base64,
-          mimeType: f.mime_type,
-          timestampSecs: f.timestamp_secs,
+        frames: uploaded.map((f) => ({
+          gcsUri: f.gcsUri,
+          mimeType: f.mimeType,
         })),
-        promptType,
-        videoFileName: ext.metadata.file_name,
-        durationSecs: ext.metadata.duration_secs,
+        assessmentType: promptType,
       });
+
       setAnalysis(resp);
       setStage("review");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Analysis failed");
+      const msg =
+        err instanceof Error
+          ? err.message
+          : typeof err === "string"
+            ? err
+            : JSON.stringify(err);
+      setError(msg);
       setStage("pick");
     }
   }
@@ -140,22 +225,46 @@ export default function VideoAssessment() {
     setError(null);
 
     try {
+      const sourceTypeForApi =
+        sourceType === "DRONE" ? "DRONE" : sourceType === "HANDHELD" ? "HANDHELD" : "OTHER";
+
       await createAssessment({
-        sourceType,
+        sourceType: sourceTypeForApi,
         videoFileName: extraction.metadata.file_name,
         videoDurationSecs: extraction.metadata.duration_secs,
         videoResolution: `${extraction.metadata.width}x${extraction.metadata.height}`,
         frameCount: extraction.frames.length,
-        promptType,
-        findings: analysis.findings,
-        aiSummary: analysis.summary,
+        assessmentJson: analysis.assessment,
+        rawAiResponse: analysis.rawResponse,
+        confidenceScore: analysis.assessment.summary?.confidence,
+        findings: analysis.assessment.findings.map((f, i) => ({
+          zone: f.zone,
+          category: f.category,
+          severity: f.severity,
+          causation: f.causation,
+          description: f.description,
+          frameTimestamp:
+            extraction.frames[f.frameIndex]?.timestamp_secs ?? undefined,
+          boundingBoxJson: f.boundingBox ?? undefined,
+          costbookItemCode: f.costbookItemCode ?? undefined,
+          estimatedQuantity: f.estimatedQuantity ?? undefined,
+          estimatedUnit: f.estimatedUnit ?? undefined,
+          confidenceScore: f.confidence,
+          sortOrder: i,
+        })),
       });
 
       // Cleanup temp frames
       await invoke("cleanup_frames", { tempDir: extraction.temp_dir });
       setStage("done");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Save failed");
+      const msg =
+        err instanceof Error
+          ? err.message
+          : typeof err === "string"
+            ? err
+            : JSON.stringify(err);
+      setError(msg);
       setStage("review");
     }
   }
@@ -257,12 +366,16 @@ export default function VideoAssessment() {
         </div>
       )}
 
-      {/* Stage: Extracting / Analyzing */}
-      {(stage === "extracting" || stage === "analyzing") && (
+      {/* Stage: Extracting / Uploading / Analyzing */}
+      {(stage === "extracting" || stage === "uploading" || stage === "analyzing") && (
         <div className="flex flex-col items-center py-16">
           <div className="mb-4 h-10 w-10 animate-spin rounded-full border-4 border-nexus-200 border-t-nexus-600" />
           <p className="text-sm font-medium text-gray-700">
-            {stage === "extracting" ? "Extracting Frames" : "AI Analysis"}
+            {stage === "extracting"
+              ? "Extracting Frames"
+              : stage === "uploading"
+                ? "Uploading Frames"
+                : "AI Analysis"}
           </p>
           <p className="mt-1 text-xs text-gray-500">{progress}</p>
         </div>
@@ -273,53 +386,61 @@ export default function VideoAssessment() {
         <div className="space-y-6">
           <div className="rounded-lg border bg-white p-5 shadow-sm">
             <h3 className="mb-2 font-medium text-gray-800">AI Summary</h3>
-            <p className="text-sm text-gray-600">{analysis.summary}</p>
+            <p className="text-sm text-gray-600">
+              {analysis.assessment.summary.narrative}
+            </p>
             <p className="mt-2 text-xs text-gray-400">
-              {analysis.findings.length} findings ·{" "}
-              {analysis.tokenUsage.totalTokens.toLocaleString()} tokens
+              {analysis.assessment.findings.length} findings · overall condition{" "}
+              {analysis.assessment.summary.overallCondition}/5 · confidence{" "}
+              {Math.round((analysis.assessment.summary.confidence ?? 0) * 100)}%
             </p>
           </div>
 
           {/* Findings list */}
           <div className="space-y-2">
             <h3 className="font-medium text-gray-800">
-              Findings ({analysis.findings.length})
+              Findings ({analysis.assessment.findings.length})
             </h3>
-            {analysis.findings.map((f, i) => (
-              <div
-                key={i}
-                className="rounded-lg border bg-white px-4 py-3 shadow-sm"
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <span
-                      className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${
-                        f.severity === "CRITICAL"
-                          ? "bg-red-100 text-red-700"
-                          : f.severity === "MAJOR"
-                            ? "bg-orange-100 text-orange-700"
-                            : f.severity === "MODERATE"
-                              ? "bg-yellow-100 text-yellow-700"
-                              : "bg-green-100 text-green-700"
-                      }`}
-                    >
-                      {f.severity}
-                    </span>
-                    <span className="ml-2 text-xs text-gray-500">
-                      {f.zone} · {f.category}
+            {analysis.assessment.findings.map((f, i) => {
+              const ts = extraction?.frames[f.frameIndex]?.timestamp_secs ?? null;
+              const confidencePct = Math.round((f.confidence ?? 0) * 100);
+
+              return (
+                <div
+                  key={i}
+                  className="rounded-lg border bg-white px-4 py-3 shadow-sm"
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <span
+                        className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${
+                          f.severity === "CRITICAL"
+                            ? "bg-red-100 text-red-700"
+                            : f.severity === "SEVERE"
+                              ? "bg-orange-100 text-orange-700"
+                              : f.severity === "MODERATE"
+                                ? "bg-yellow-100 text-yellow-700"
+                                : "bg-green-100 text-green-700"
+                        }`}
+                      >
+                        {f.severity}
+                      </span>
+                      <span className="ml-2 text-xs text-gray-500">
+                        {f.zone} · {f.category}
+                      </span>
+                    </div>
+                    <span className="text-xs text-gray-400">
+                      {confidencePct}% confidence
                     </span>
                   </div>
-                  <span className="text-xs text-gray-400">
-                    {f.confidence}% confidence
-                  </span>
+                  <p className="mt-1 text-sm text-gray-700">{f.description}</p>
+                  <p className="mt-1 text-xs text-gray-400">
+                    Causation: {f.causation} · Frame {f.frameIndex}
+                    {ts != null ? ` (${Math.round(ts)}s)` : ""}
+                  </p>
                 </div>
-                <p className="mt-1 text-sm text-gray-700">{f.description}</p>
-                <p className="mt-1 text-xs text-gray-400">
-                  Causation: {f.causation} · Frame {f.frameIndex} (
-                  {f.timestampSecs.toFixed(0)}s)
-                </p>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="flex gap-3">
