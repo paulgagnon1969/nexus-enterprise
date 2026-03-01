@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,12 +10,20 @@ import {
   Alert,
   Image,
   Platform,
+  FlatList,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system/legacy";
 import { colors } from "../theme/colors";
 import { apiFetch, apiJson } from "../api/client";
 import { compressImage } from "../utils/image";
 import { printPlacardLabel } from "../utils/placard-print";
+import {
+  TagReadDraft,
+  getDrafts,
+  saveDraft,
+  deleteDraft,
+} from "../storage/tag-drafts";
 
 type Extraction = {
   manufacturer: string | null;
@@ -85,6 +93,104 @@ export function TagReadScreen({ onBack, onAssetCreated }: Props) {
   const [saving, setSaving] = useState(false);
   const [createdAsset, setCreatedAsset] = useState<any>(null);
   const [assigningPlacard, setAssigningPlacard] = useState(false);
+
+  // Draft system
+  const [drafts, setDrafts] = useState<TagReadDraft[]>([]);
+  const [showDrafts, setShowDrafts] = useState(false);
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
+
+  // Load drafts on mount
+  useEffect(() => {
+    getDrafts().then(setDrafts).catch(() => {});
+  }, []);
+
+  const refreshDrafts = useCallback(async () => {
+    const d = await getDrafts();
+    setDrafts(d);
+  }, []);
+
+  /** Copy photo to app documents dir so it survives cache cleanup */
+  const persistPhotoUri = async (uri: string): Promise<string> => {
+    const dir = `${FileSystem.documentDirectory}tag-drafts/`;
+    const info = await FileSystem.getInfoAsync(dir);
+    if (!info.exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+    const filename = `draft-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.jpg`;
+    const dest = `${dir}${filename}`;
+    await FileSystem.copyAsync({ from: uri, to: dest });
+    return dest;
+  };
+
+  const handleBack = useCallback(async () => {
+    // Nothing to save — just go back
+    if (!photos.length && !name && !manufacturer && !model && !serialNumber) {
+      onBack();
+      return;
+    }
+
+    Alert.alert("Save Draft?", "You have unsaved work. Save as draft before leaving?", [
+      { text: "Discard", style: "destructive", onPress: onBack },
+      {
+        text: "Save Draft",
+        onPress: async () => {
+          try {
+            // Persist photos to documents dir
+            const persistedUris = await Promise.all(photos.map((p) => persistPhotoUri(p.uri)));
+            const label =
+              [manufacturer, model].filter(Boolean).join(" ") ||
+              name ||
+              `${photos.length} photo${photos.length !== 1 ? "s" : ""}`;
+            await saveDraft({
+              photoUris: persistedUris,
+              name,
+              manufacturer,
+              model,
+              serialNumber,
+              year,
+              isTemplate,
+              label,
+            });
+          } catch (err: any) {
+            console.warn("[TagRead] Failed to save draft:", err?.message);
+          }
+          onBack();
+        },
+      },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  }, [photos, name, manufacturer, model, serialNumber, year, isTemplate, onBack]);
+
+  const resumeDraft = useCallback(async (draft: TagReadDraft) => {
+    // Verify photos still exist on disk
+    const validUris: string[] = [];
+    for (const uri of draft.photoUris) {
+      const info = await FileSystem.getInfoAsync(uri);
+      if (info.exists) validUris.push(uri);
+    }
+
+    const assets: ImagePicker.ImagePickerAsset[] = validUris.map((uri) => ({
+      uri,
+      width: 0,
+      height: 0,
+      type: "image" as const,
+    }));
+
+    setPhotos(assets);
+    setName(draft.name);
+    setManufacturer(draft.manufacturer);
+    setModel(draft.model);
+    setSerialNumber(draft.serialNumber);
+    setYear(draft.year);
+    setIsTemplate(draft.isTemplate);
+    setScanResult(null);
+    setCreatedAsset(null);
+    setActiveDraftId(draft.id);
+    setShowDrafts(false);
+  }, []);
+
+  const handleDeleteDraft = useCallback(async (id: string) => {
+    await deleteDraft(id);
+    await refreshDrafts();
+  }, [refreshDrafts]);
 
   const takePhoto = useCallback(async () => {
     const result = await ImagePicker.launchCameraAsync({
@@ -207,6 +313,13 @@ export function TagReadScreen({ onBack, onAssetCreated }: Props) {
 
       setCreatedAsset(asset);
       onAssetCreated?.(asset);
+
+      // Clean up draft if we were resuming one
+      if (activeDraftId) {
+        deleteDraft(activeDraftId).catch(() => {});
+        setActiveDraftId(null);
+        refreshDrafts();
+      }
     } catch (err: any) {
       Alert.alert("Error", err?.message || "Failed to create asset.");
     } finally {
@@ -222,13 +335,72 @@ export function TagReadScreen({ onBack, onAssetCreated }: Props) {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={onBack} style={styles.backBtn}>
+        <Pressable onPress={handleBack} style={styles.backBtn}>
           <Text style={styles.backText}>‹ Back</Text>
         </Pressable>
         <Text style={styles.title}>Read Equipment Tag</Text>
+        {drafts.length > 0 && !showDrafts && (
+          <Pressable
+            style={styles.draftsBtn}
+            onPress={() => setShowDrafts(true)}
+          >
+            <Text style={styles.draftsBtnText}>Drafts ({drafts.length})</Text>
+          </Pressable>
+        )}
       </View>
 
-      {!scanResult ? (
+      {/* Drafts list */}
+      {showDrafts ? (
+        <View style={styles.draftsContainer}>
+          <View style={styles.draftsHeader}>
+            <Text style={styles.draftsTitle}>Saved Drafts</Text>
+            <Pressable onPress={() => setShowDrafts(false)}>
+              <Text style={styles.draftsClose}>✕ Close</Text>
+            </Pressable>
+          </View>
+          {drafts.map((draft) => (
+            <View key={draft.id} style={styles.draftRow}>
+              <Pressable style={styles.draftInfo} onPress={() => resumeDraft(draft)}>
+                {draft.photoUris.length > 0 && (
+                  <Image source={{ uri: draft.photoUris[0] }} style={styles.draftThumb} />
+                )}
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.draftLabel} numberOfLines={1}>
+                    {draft.label}
+                  </Text>
+                  <Text style={styles.draftMeta}>
+                    {draft.photoUris.length} photo{draft.photoUris.length !== 1 ? "s" : ""}
+                    {" · "}
+                    {new Date(draft.updatedAt).toLocaleDateString()}
+                  </Text>
+                </View>
+              </Pressable>
+              <View style={styles.draftActions}>
+                <Pressable
+                  style={styles.draftResumeBtn}
+                  onPress={() => resumeDraft(draft)}
+                >
+                  <Text style={styles.draftResumeBtnText}>Resume</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    Alert.alert("Delete Draft?", "This cannot be undone.", [
+                      { text: "Cancel", style: "cancel" },
+                      {
+                        text: "Delete",
+                        style: "destructive",
+                        onPress: () => handleDeleteDraft(draft.id),
+                      },
+                    ]);
+                  }}
+                >
+                  <Text style={styles.draftDeleteText}>Delete</Text>
+                </Pressable>
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : !scanResult ? (
         <>
           {/* Photo capture section */}
           <Text style={styles.instructions}>
@@ -469,4 +641,46 @@ const styles = StyleSheet.create({
   },
   placardCardTitle: { color: "#059669", fontSize: 14, fontWeight: "800", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 },
   placardCardName: { color: "#fff", fontSize: 20, fontWeight: "700", textAlign: "center", marginBottom: 4 },
+  // Drafts button in header
+  draftsBtn: {
+    marginLeft: "auto",
+    backgroundColor: "#1E293B",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: "#334155",
+  },
+  draftsBtnText: { color: "#F59E0B", fontSize: 13, fontWeight: "700" },
+  // Drafts list
+  draftsContainer: { flex: 1 },
+  draftsHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  draftsTitle: { color: "#CBD5E1", fontSize: 16, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 },
+  draftsClose: { color: "#60A5FA", fontSize: 14 },
+  draftRow: {
+    backgroundColor: "#1E293B",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  draftInfo: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12 },
+  draftThumb: { width: 48, height: 48, borderRadius: 6 },
+  draftLabel: { color: "#fff", fontSize: 15, fontWeight: "600" },
+  draftMeta: { color: "#64748B", fontSize: 12, marginTop: 2 },
+  draftActions: { flexDirection: "row", alignItems: "center", gap: 12, marginLeft: 8 },
+  draftResumeBtn: {
+    backgroundColor: "#2563EB",
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  draftResumeBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  draftDeleteText: { color: "#DC2626", fontSize: 13 },
 });
