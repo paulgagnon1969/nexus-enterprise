@@ -27,7 +27,8 @@
     "cams:sync": "ts-node scripts/import-sops.ts --all --dir docs/cams",
     "docs:sync": "npm run sops:sync && npm run cams:sync",
     "api-token:generate": "ts-node scripts/generate-api-token.ts",
-    "seed:checklist": "ts-node scripts/seed-checklist-costbook.ts"
+    "seed:checklist": "ts-node scripts/seed-checklist-costbook.ts",
+    "compile:cam-manual": "ts-node scripts/compile-cam-manual.ts"
   },
   "workspaces": [
     "apps/*",
