@@ -431,6 +431,44 @@ export class AssetScanService {
     return asset;
   }
 
+  // ── Upload Originals (hi-res, post-verification) ────────────────────
+
+  /**
+   * Upload original hi-res tag photos after the user verifies AI extraction.
+   * These are stored separately for daily-log review / audit trail.
+   */
+  async uploadOriginals(
+    companyId: string,
+    scanId: string,
+    photos: Array<{ buffer: Buffer; originalname: string; mimetype: string }>,
+  ) {
+    const scan = await this.prisma.assetScan.findFirst({
+      where: { id: scanId, companyId, status: 'COMPLETE' },
+    });
+    if (!scan) throw new NotFoundException('Completed scan not found');
+
+    const photoUrls: string[] = [];
+    for (let i = 0; i < photos.length; i++) {
+      const photo = photos[i]!;
+      const ext = photo.originalname?.match(/\.\w+$/)?.[0] || '.jpg';
+      const gcsKey = `asset-scans/${companyId}/${scanId}/original-${i}${ext}`;
+      const gsUri = await this.gcs.uploadBuffer({
+        key: gcsKey,
+        buffer: photo.buffer,
+        contentType: photo.mimetype || 'image/jpeg',
+      });
+      photoUrls.push(this.gcs.getPublicUrlFromUri(gsUri));
+    }
+
+    await this.prisma.assetScan.update({
+      where: { id: scanId },
+      data: { originalPhotoUrls: photoUrls },
+    });
+
+    this.logger.log(`Uploaded ${photoUrls.length} original photos for scan ${scanId}`);
+    return { scanId, originalPhotoUrls: photoUrls };
+  }
+
   // ── List / Get ─────────────────────────────────────────────────────
 
   async listScans(companyId: string, limit = 20) {
@@ -466,7 +504,7 @@ export class AssetScanService {
     const imageContent: OpenAI.Chat.Completions.ChatCompletionContentPart[] =
       photoUrls.map((url) => ({
         type: 'image_url' as const,
-        image_url: { url, detail: 'high' as const },
+        image_url: { url, detail: 'auto' as const },
       }));
 
     const response = await client.chat.completions.create({

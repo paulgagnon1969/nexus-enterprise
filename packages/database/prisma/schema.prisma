@@ -239,6 +239,10 @@ model Company {
   // Asset Scanner (3D Object Capture + AI Tag Read)
   assetScans AssetScan[]
 
+  // Nex-Plac QR Placards
+  assetPlacards   AssetPlacard[]
+  placardCounters PlacardCounter[]
+
   // Email Receipt Capture (supplier receipts from email)
   emailReceipts EmailReceipt[]
   emailReceiptConnectors EmailReceiptConnector[]
@@ -246,6 +250,12 @@ model Company {
   // NexLevelIntegration — Video Property Assessments
   videoAssessments        VideoAssessment[]
   videoAssessmentFindings VideoAssessmentFinding[]
+
+  // Nex-LevelIntelligence (NLI) — device fleet, watch folders, file scanning, sync
+  nliDevices       NliDevice[]
+  nliWatchFolders  NliWatchFolder[]
+  nliScannedFiles  NliScannedFile[]
+  nliSyncJobs      NliSyncJob[]
 }
 
 model OrganizationTemplate {
@@ -632,6 +642,14 @@ model User {
   videoAssessmentsCreated  VideoAssessment[] @relation("VideoAssessmentCreatedBy")
   videoAssessmentsAssigned VideoAssessment[] @relation("VideoAssessmentAssignedBy")
   videoFindingsOverridden  VideoAssessmentFinding[] @relation("VideoFindingOverriddenBy")
+
+  // Nex-LevelIntelligence (NLI)
+  nliDevicesRegistered NliDevice[]      @relation("NliDeviceRegisteredBy")
+  nliSyncJobsCreated   NliSyncJob[]     @relation("NliSyncJobCreatedBy")
+
+  // Nex-Plac QR Placards
+  placardsAssigned AssetPlacard[] @relation("PlacardAssignedBy")
+  placardsVoided   AssetPlacard[] @relation("PlacardVoidedBy")
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -1339,7 +1357,11 @@ model Project {
   // NexLevelIntegration — Video Property Assessments
   videoAssessments VideoAssessment[]
 
-  /// Building model type (e.g. "A Model", "G Model", "F Model")
+  // Nex-LevelIntelligence (NLI)
+  nliScannedFiles NliScannedFile[]
+  nliSyncJobs     NliSyncJob[]
+
+  /// Building model type
   buildingModelType String?
 
   /// Org template applied to this project (provenance tracking)
@@ -4235,6 +4257,7 @@ model Asset {
   maintenanceSchedules AssetMaintenanceSchedule[]
   maintenanceTodos     MaintenanceTodo[]
   meterReadings        AssetMeterReading[]
+  placards             AssetPlacard[]
 
   @@index([companyId, assetType], map: "Asset_company_type_idx")
   @@index([companyId, currentLocationId])
@@ -4332,6 +4355,47 @@ enum TransactionKind {
   TIME_PUNCH
   MAINTENANCE
   ADJUSTMENT
+}
+
+enum PlacardStatus {
+  ACTIVE
+  VOID
+  LOST
+}
+
+/// Nex-Plac QR placard assigned to a physical asset.
+/// The QR payload contains a signed URI for instant, tamper-proof identification.
+model AssetPlacard {
+  id               String        @id @default(cuid())
+  companyId        String
+  assetId          String
+  code             String        /// Human-readable serial e.g. NP-000123
+  qrPayload        String        /// Full signed URI: nexplac://a/<assetId>?co=<companyId>&sig=<hmac>
+  status           PlacardStatus @default(ACTIVE)
+  assignedAt       DateTime      @default(now())
+  assignedByUserId String
+  voidedAt         DateTime?
+  voidedByUserId   String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  company    Company @relation(fields: [companyId], references: [id])
+  asset      Asset   @relation(fields: [assetId], references: [id])
+  assignedBy User    @relation("PlacardAssignedBy", fields: [assignedByUserId], references: [id])
+  voidedBy   User?   @relation("PlacardVoidedBy", fields: [voidedByUserId], references: [id])
+
+  @@unique([companyId, code], map: "AssetPlacard_company_code_key")
+  @@index([companyId, assetId], map: "AssetPlacard_company_asset_idx")
+  @@index([companyId, status], map: "AssetPlacard_company_status_idx")
+}
+
+/// Per-company atomic counter for placard serial numbers.
+model PlacardCounter {
+  id         String @id @default(cuid())
+  companyId  String @unique
+  nextSerial Int    @default(1)
+
+  company Company @relation(fields: [companyId], references: [id])
 }
 
 enum MaintenanceTriggerStrategy {
@@ -7925,9 +7989,10 @@ model AssetScan {
   dimensions   Json?    /// { length, width, height, unit }
 
   // Tag Read / Serial Read outputs
-  tagPhotoUrl   String?  /// GCS URL to nameplate photo
-  extractedData Json?    /// GPT-4o extracted: { manufacturer, model, serial, specs }
-  rawAiResponse String?  @db.Text /// Raw GPT-4o response text
+  tagPhotoUrl       String?  /// GCS URL to compressed nameplate photo (used for AI analysis)
+  originalPhotoUrls Json?    /// string[] of GCS URLs for original hi-res tag photos (uploaded after user verification)
+  extractedData     Json?    /// GPT-4o extracted: { manufacturer, model, serial, specs }
+  rawAiResponse     String?  @db.Text /// Raw GPT-4o response text
 
   // Common
   errorMessage String?  /// Error details if status = FAILED
@@ -8168,15 +8233,22 @@ model VideoAssessment {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  company    Company  @relation(fields: [companyId], references: [id])
-  project    Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  createdBy  User     @relation("VideoAssessmentCreatedBy", fields: [createdById], references: [id])
-  assignedBy User?    @relation("VideoAssessmentAssignedBy", fields: [assignedById], references: [id])
-  findings   VideoAssessmentFinding[]
+  /// NLI provenance — which device and scanned file produced this assessment
+  nliDeviceId      String?
+  nliScannedFileId String?
+
+  company       Company         @relation(fields: [companyId], references: [id])
+  project       Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdBy     User            @relation("VideoAssessmentCreatedBy", fields: [createdById], references: [id])
+  assignedBy    User?           @relation("VideoAssessmentAssignedBy", fields: [assignedById], references: [id])
+  nliDevice     NliDevice?      @relation(fields: [nliDeviceId], references: [id], onDelete: SetNull)
+  nliScannedFile NliScannedFile? @relation(fields: [nliScannedFileId], references: [id], onDelete: SetNull)
+  findings      VideoAssessmentFinding[]
 
   @@index([companyId, status], map: "VideoAssessment_company_status_idx")
   @@index([companyId, projectId], map: "VideoAssessment_company_project_idx")
   @@index([companyId, createdAt], map: "VideoAssessment_company_created_idx")
+  @@index([nliDeviceId], map: "VideoAssessment_nli_device_idx")
 }
 
 /// An individual damage finding within a video assessment.
@@ -8219,4 +8291,201 @@ model VideoAssessmentFinding {
   @@index([assessmentId], map: "VideoAssessmentFinding_assessment_idx")
   @@index([companyId, zone], map: "VideoAssessmentFinding_company_zone_idx")
   @@index([companyId, category], map: "VideoAssessmentFinding_company_category_idx")
+}
+
+// ===================================================================
+// Nex-LevelIntelligence (NLI) — Device Fleet, Watch Folders, File
+// Scanning & Sync Queue. Extends ScanNEX patterns to desktop.
+// ===================================================================
+
+enum NliDeviceStatus {
+  ONLINE
+  OFFLINE
+  SYNCING
+}
+
+enum NliDevicePlatform {
+  MACOS
+  WINDOWS
+  LINUX
+}
+
+enum NliScannedFileStatus {
+  DISCOVERED
+  QUEUED
+  PROCESSING
+  SYNCED
+  SKIPPED
+  ERROR
+}
+
+enum NliSyncJobType {
+  VIDEO_ASSESSMENT
+  FILE_UPLOAD
+  DOCUMENT_SCAN
+  PHOTO_CATALOG
+  BATCH_IMPORT
+}
+
+enum NliSyncJobStatus {
+  QUEUED
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+/// A registered NexBRIDGE Connect installation. Each physical device that
+/// runs the desktop app registers itself with the tenant. Device
+/// capabilities (FFmpeg version, disk space, OS) are reported at heartbeat.
+model NliDevice {
+  id          String            @id @default(cuid())
+  companyId   String
+  userId      String            /// User who registered/owns this device
+
+  deviceName  String            /// User-provided or hostname (e.g. "Paul's MacBook")
+  platform    NliDevicePlatform
+  osVersion   String?           /// e.g. "macOS 15.3", "Windows 11 23H2"
+  arch        String?           /// e.g. "arm64", "x86_64"
+  appVersion  String?           /// NexBRIDGE Connect version
+
+  status      NliDeviceStatus   @default(OFFLINE)
+  lastSeenAt  DateTime?
+
+  /// Capability reporting (updated at heartbeat)
+  ffmpegVersion        String?
+  storageAvailableBytes BigInt?
+  storageTotalBytes    BigInt?
+
+  /// Auth fingerprint — unique per installation to prevent duplicates
+  installId   String            @unique
+
+  active      Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  company      Company          @relation(fields: [companyId], references: [id])
+  registeredBy User             @relation("NliDeviceRegisteredBy", fields: [userId], references: [id])
+  watchFolders NliWatchFolder[]
+  scannedFiles NliScannedFile[]
+  syncJobs     NliSyncJob[]
+  videoAssessments VideoAssessment[]
+
+  @@index([companyId, status], map: "NliDevice_company_status_idx")
+  @@index([companyId, userId], map: "NliDevice_company_user_idx")
+}
+
+/// A monitored directory on a registered device. NexBRIDGE Connect watches
+/// this folder for new video, photo, and document files. When new files
+/// appear they are cataloged as NliScannedFile and optionally auto-processed.
+model NliWatchFolder {
+  id          String   @id @default(cuid())
+  deviceId    String
+  companyId   String
+
+  folderPath  String            /// Absolute path on the device (e.g. "/Users/pg/NexBRIDGE/Inbox")
+  label       String?           /// Friendly name (e.g. "Drone SD Card", "Desktop Drop Zone")
+
+  /// Processing flags — what should NexBRIDGE do with new files?
+  autoProcessVideo  Boolean     @default(true)
+  autoProcessPhoto  Boolean     @default(false)
+  autoUploadDocs    Boolean     @default(false)
+
+  /// Optional auto-assignment: files from this folder → this project
+  projectId   String?
+
+  active      Boolean           @default(true)
+  lastScanAt  DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  device       NliDevice        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  company      Company          @relation(fields: [companyId], references: [id])
+  scannedFiles NliScannedFile[]
+
+  @@index([deviceId], map: "NliWatchFolder_device_idx")
+  @@index([companyId, active], map: "NliWatchFolder_company_active_idx")
+}
+
+/// A file discovered locally on a device, either through a watch folder
+/// or via manual scan / drag-and-drop. Tracks the full lifecycle from
+/// discovery through processing to sync. Stores a file hash for
+/// deduplication — won't re-process the same footage twice.
+model NliScannedFile {
+  id             String                @id @default(cuid())
+  deviceId       String
+  companyId      String
+  watchFolderId  String?               /// null if added manually (not from watch folder)
+  projectId      String?               /// auto-assigned from watch folder, or manual
+
+  filePath       String                /// Absolute path on device
+  fileName       String
+  fileSizeBytes  BigInt
+  mimeType       String?               /// e.g. "video/mp4", "image/jpeg", "application/pdf"
+  fileHash       String?               /// SHA-256 for deduplication
+
+  status         NliScannedFileStatus  @default(DISCOVERED)
+  errorMessage   String?
+
+  /// Output linkage — what did processing produce?
+  videoAssessmentId String?            /// If this file was processed as a video assessment
+
+  discoveredAt   DateTime              @default(now())
+  processedAt    DateTime?
+  syncedAt       DateTime?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  device         NliDevice             @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  company        Company               @relation(fields: [companyId], references: [id])
+  watchFolder    NliWatchFolder?       @relation(fields: [watchFolderId], references: [id], onDelete: SetNull)
+  project        Project?              @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  videoAssessments VideoAssessment[]
+  syncJobs       NliSyncJob[]
+
+  @@unique([deviceId, fileHash], name: "NliScannedFile_device_hash_key")
+  @@index([companyId, status], map: "NliScannedFile_company_status_idx")
+  @@index([deviceId, status], map: "NliScannedFile_device_status_idx")
+  @@index([companyId, projectId], map: "NliScannedFile_company_project_idx")
+}
+
+/// An offline-capable sync operation. Jobs are queued on the device and
+/// executed when connectivity is available. Mirrors ScanNEX's proven
+/// WiFi-background-sync pattern (JSON first, media last).
+model NliSyncJob {
+  id             String            @id @default(cuid())
+  deviceId       String
+  companyId      String
+  projectId      String?
+
+  type           NliSyncJobType
+  status         NliSyncJobStatus  @default(QUEUED)
+  priority       Int               @default(0) /// Higher = process first
+
+  /// What to sync (request payload, stored as JSON)
+  scannedFileId  String?
+  payloadJson    Json?             /// Flexible payload per job type
+
+  /// Result tracking
+  resultJson     Json?             /// Response/output from the operation
+  errorMessage   String?           /// Error details if status = FAILED
+  retryCount     Int               @default(0)
+  maxRetries     Int               @default(3)
+
+  createdById    String
+  queuedAt       DateTime          @default(now())
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  device       NliDevice       @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  company      Company         @relation(fields: [companyId], references: [id])
+  project      Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  scannedFile  NliScannedFile? @relation(fields: [scannedFileId], references: [id], onDelete: SetNull)
+  createdBy    User            @relation("NliSyncJobCreatedBy", fields: [createdById], references: [id])
+
+  @@index([deviceId, status], map: "NliSyncJob_device_status_idx")
+  @@index([companyId, status], map: "NliSyncJob_company_status_idx")
+  @@index([companyId, type], map: "NliSyncJob_company_type_idx")
 }

@@ -14,6 +14,8 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import { colors } from "../theme/colors";
 import { apiFetch, apiJson } from "../api/client";
+import { compressImage } from "../utils/image";
+import { printPlacardLabel } from "../utils/placard-print";
 
 type Extraction = {
   manufacturer: string | null;
@@ -36,6 +38,38 @@ interface Props {
   onAssetCreated?: (asset: any) => void;
 }
 
+/** Upload original hi-res photos in the background after user verifies. Fire-and-forget. */
+function uploadOriginalsInBackground(
+  scanId: string,
+  originalUris: string[],
+) {
+  (async () => {
+    try {
+      const formData = new FormData();
+      for (const uri of originalUris) {
+        const filename = uri.split("/").pop() || "original.jpg";
+        const ext = filename.split(".").pop()?.toLowerCase() || "jpg";
+        const mimeType = ext === "png" ? "image/png" : "image/jpeg";
+        formData.append("photos", {
+          uri: Platform.OS === "ios" ? uri.replace("file://", "") : uri,
+          name: filename,
+          type: mimeType,
+        } as any);
+      }
+
+      await apiFetch(`/assets/scan/${scanId}/originals`, {
+        method: "POST",
+        body: formData,
+        _skipRetry: true,
+      });
+      console.log(`[TagRead] Original photos uploaded for scan ${scanId}`);
+    } catch (err: any) {
+      // Non-blocking — originals are nice-to-have, not critical path
+      console.warn(`[TagRead] Background original upload failed: ${err?.message}`);
+    }
+  })();
+}
+
 export function TagReadScreen({ onBack, onAssetCreated }: Props) {
   const [photos, setPhotos] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -49,6 +83,8 @@ export function TagReadScreen({ onBack, onAssetCreated }: Props) {
   const [year, setYear] = useState("");
   const [isTemplate, setIsTemplate] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [createdAsset, setCreatedAsset] = useState<any>(null);
+  const [assigningPlacard, setAssigningPlacard] = useState(false);
 
   const pickPhotos = useCallback(async () => {
     const result = await ImagePicker.launchCameraAsync({
@@ -75,25 +111,31 @@ export function TagReadScreen({ onBack, onAssetCreated }: Props) {
 
     setUploading(true);
     try {
+      // Compress photos for fast AI analysis (800px, quality 0.6)
+      // Originals stay on-device until user verifies the extraction
       const formData = new FormData();
       for (const photo of photos) {
-        const uri = photo.uri;
-        const filename = uri.split("/").pop() || "tag.jpg";
-        const ext = filename.split(".").pop()?.toLowerCase() || "jpg";
-        const mimeType = ext === "png" ? "image/png" : "image/jpeg";
+        const compressed = await compressImage(photo.uri, "high");
+        const filename = compressed.uri.split("/").pop() || "tag.jpg";
 
         formData.append("photos", {
-          uri: Platform.OS === "ios" ? uri.replace("file://", "") : uri,
+          uri: Platform.OS === "ios" ? compressed.uri.replace("file://", "") : compressed.uri,
           name: filename,
-          type: mimeType,
+          type: "image/jpeg",
         } as any);
       }
+
+      // 120s timeout — compressed images are small but GPT-4o still needs time
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120_000);
 
       const res = await apiFetch("/assets/scan/tag-read", {
         method: "POST",
         body: formData,
+        signal: controller.signal,
         _skipRetry: true,
       });
+      clearTimeout(timeout);
 
       if (!res.ok) {
         const text = await res.text().catch(() => "");
@@ -104,18 +146,21 @@ export function TagReadScreen({ onBack, onAssetCreated }: Props) {
       setScanResult(scan);
 
       // Populate editable fields from extraction
-      const ext2 = scan.extractedData;
-      if (ext2) {
-        setManufacturer(ext2.manufacturer ?? "");
-        setModel(ext2.model ?? "");
-        setSerialNumber(ext2.serialNumber ?? "");
-        setYear(ext2.year?.toString() ?? "");
+      const ext = scan.extractedData;
+      if (ext) {
+        setManufacturer(ext.manufacturer ?? "");
+        setModel(ext.model ?? "");
+        setSerialNumber(ext.serialNumber ?? "");
+        setYear(ext.year?.toString() ?? "");
         // Auto-generate a name
-        const parts = [ext2.manufacturer, ext2.model].filter(Boolean);
+        const parts = [ext.manufacturer, ext.model].filter(Boolean);
         setName(parts.join(" ") || "Scanned Equipment");
       }
     } catch (err: any) {
-      Alert.alert("Scan Failed", err?.message || "Could not analyze tag photos.");
+      const msg = err?.name === "AbortError"
+        ? "Analysis timed out. Try with fewer photos or better lighting."
+        : err?.message || "Could not analyze tag photos.";
+      Alert.alert("Scan Failed", msg);
     } finally {
       setUploading(false);
     }
@@ -143,9 +188,12 @@ export function TagReadScreen({ onBack, onAssetCreated }: Props) {
         }),
       });
 
-      Alert.alert("Asset Created", `${asset.name} has been added to your inventory.`);
+      // Fire-and-forget: upload original hi-res photos for daily log / audit
+      const originalUris = photos.map((p) => p.uri);
+      uploadOriginalsInBackground(scanResult.id, originalUris);
+
+      setCreatedAsset(asset);
       onAssetCreated?.(asset);
-      onBack();
     } catch (err: any) {
       Alert.alert("Error", err?.message || "Failed to create asset.");
     } finally {
@@ -281,6 +329,54 @@ export function TagReadScreen({ onBack, onAssetCreated }: Props) {
           </Pressable>
         </>
       )}
+
+      {/* Placard assignment after asset creation */}
+      {createdAsset && (
+        <View style={styles.placardOverlay}>
+          <View style={styles.placardCard}>
+            <Text style={styles.placardCardTitle}>Asset Created</Text>
+            <Text style={styles.placardCardName}>{createdAsset.name}</Text>
+
+            <Pressable
+              style={[styles.primaryBtn, { marginTop: 16 }]}
+              onPress={async () => {
+                setAssigningPlacard(true);
+                try {
+                  const result = await apiJson<any>("/placards/assign", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ assetId: createdAsset.id }),
+                  });
+                  await printPlacardLabel({
+                    qrDataUrl: result.qrDataUrl,
+                    placardCode: result.placard.code,
+                    assetName: result.asset.name,
+                    manufacturer: result.asset.manufacturer,
+                    model: result.asset.model,
+                  });
+                  Alert.alert("Placard Printed", `${result.placard.code} assigned and printed.`);
+                  onBack();
+                } catch (err: any) {
+                  Alert.alert("Placard Error", err?.message || "Failed to assign placard.");
+                } finally {
+                  setAssigningPlacard(false);
+                }
+              }}
+              disabled={assigningPlacard}
+            >
+              {assigningPlacard ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.primaryBtnText}>Assign Placard & Print Label</Text>
+              )}
+            </Pressable>
+
+            <Pressable style={styles.secondaryBtn} onPress={onBack}>
+              <Text style={styles.secondaryBtnText}>Skip — Done</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -339,4 +435,21 @@ const styles = StyleSheet.create({
   checkmark: { color: "#fff", fontSize: 14, fontWeight: "700" },
   toggleLabel: { color: "#fff", fontSize: 15, fontWeight: "600" },
   toggleHint: { color: "#64748B", fontSize: 12 },
+  placardOverlay: {
+    position: "absolute",
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.85)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  placardCard: {
+    backgroundColor: "#1E293B",
+    borderRadius: 16,
+    padding: 24,
+    width: "100%",
+    alignItems: "center",
+  },
+  placardCardTitle: { color: "#059669", fontSize: 14, fontWeight: "800", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 },
+  placardCardName: { color: "#fff", fontSize: 20, fontWeight: "700", textAlign: "center", marginBottom: 4 },
 });

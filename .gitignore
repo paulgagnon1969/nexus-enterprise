@@ -58,6 +58,9 @@ promotion/
 # Plan sheet images (large webp files)
 /docs/plan-sheets/
 
+# Tauri build artifacts (Rust target directory — huge, never commit)
+**/src-tauri/target/
+
 # Build / tool caches (should never be committed)
 .cache/
 

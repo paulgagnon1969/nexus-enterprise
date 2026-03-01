@@ -25,6 +25,7 @@ apps/mobile/
 apps/ncc/
 apps/mobile-legacy/
 apps/nexus-applet/
+apps/nexbridge-connect/
 apps/web/tmp_uploads/
 .vercel
 

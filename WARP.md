@@ -186,10 +186,29 @@ Production secrets live in `~/.nexus-prod-env` (git-ignored). This file contains
 4. **For deploy scripts**, `deploy-prod.sh` loads from the repo-root `.env` automatically — no extra sourcing needed.
 5. **For seed/migration scripts that need both DB + Stripe/Plaid**, export the needed vars from `~/.nexus-prod-env` before running through the proxy wrapper.
 
+**CRITICAL: `~/.nexus-prod-env` variable requirements.**
+The proxy script (`prod-db-run-with-proxy.sh`) expects `PROD_DB_PASSWORD` as a **standalone exported variable** — it does NOT parse it out of `DATABASE_URL`. If `PROD_DB_PASSWORD` is missing or only embedded inside another variable, the script will hang waiting for an interactive password prompt (which fails in non-interactive agent sessions).
+
+`~/.nexus-prod-env` MUST contain at minimum:
+```bash
+export PROD_DB_PASSWORD="<the-password>"
+```
+
+Warp MUST always pass `--no-prompt` when running non-interactively to fail fast instead of hanging:
+```bash
+source ~/.nexus-prod-env && /Users/pg/nexus-enterprise/scripts/prod-db-run-with-proxy.sh --allow-kill-port --no-prompt -- <command>
+```
+
+**Production Prisma migrations** must run from `packages/database` so Prisma 7 picks up `prisma.config.ts` (the schema no longer contains a `url` property):
+```bash
+source ~/.nexus-prod-env && /Users/pg/nexus-enterprise/scripts/prod-db-run-with-proxy.sh --allow-kill-port --no-prompt -- \
+  bash -c 'cd /Users/pg/nexus-enterprise/packages/database && npx prisma migrate deploy'
+```
+
 **Example — seed module catalog against prod:**
 ```bash
 source ~/.nexus-prod-env && STRIPE_SECRET_KEY=$STRIPE_SECRET_KEY \
-  /Users/pg/nexus-enterprise/scripts/prod-db-run-with-proxy.sh --allow-kill-port -- \
+  /Users/pg/nexus-enterprise/scripts/prod-db-run-with-proxy.sh --allow-kill-port --no-prompt -- \
   npx ts-node /Users/pg/nexus-enterprise/apps/api/src/scripts/seed-module-catalog.ts
 ```
 

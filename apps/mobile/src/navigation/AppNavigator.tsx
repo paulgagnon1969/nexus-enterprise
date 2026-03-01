@@ -32,6 +32,7 @@ import { FleetOnboardScreen } from "../screens/FleetOnboardScreen";
 import { ObjectCaptureScreen } from "../screens/ObjectCaptureScreen";
 import { NexiEnrollScreen } from "../screens/NexiEnrollScreen";
 import { NexiCatalogScreen } from "../screens/NexiCatalogScreen";
+import { PlacardScanScreen } from "../screens/PlacardScanScreen";
 import { ScrollableTabBar } from "../components/ScrollableTabBar";
 import { fetchAllTasks } from "../api/tasks";
 import { apiJson } from "../api/client";
@@ -75,6 +76,7 @@ export type ProjectsStackParamList = {
 
 export type ScannerStackParamList = {
   ScannerHome: undefined;
+  PlacardScan: undefined;
   TagRead: undefined;
   FleetOnboard: undefined;
   ObjectCapture: undefined;
@@ -296,6 +298,7 @@ function ScannerStackNavigator() {
   return (
     <ScannerStack.Navigator screenOptions={{ headerShown: false }}>
       <ScannerStack.Screen name="ScannerHome" component={ScannerHomeWrapper} />
+      <ScannerStack.Screen name="PlacardScan" component={PlacardScanWrapper} />
       <ScannerStack.Screen name="TagRead" component={TagReadWrapper} />
       <ScannerStack.Screen name="FleetOnboard" component={FleetOnboardWrapper} />
       <ScannerStack.Screen name="ObjectCapture" component={ObjectCaptureWrapper} />
@@ -309,6 +312,7 @@ function ScannerHomeWrapper() {
   const navigation = useNavigation<NativeStackNavigationProp<ScannerStackParamList>>();
   return (
     <ScannerHomeScreen
+      onStartPlacardScan={() => navigation.navigate("PlacardScan")}
       onStartTagRead={() => navigation.navigate("TagRead")}
       onStartFleetOnboard={() => navigation.navigate("FleetOnboard")}
       onStartObjectCapture={() => navigation.navigate("ObjectCapture")}
@@ -316,6 +320,11 @@ function ScannerHomeWrapper() {
       onOpenNexiCatalog={() => navigation.navigate("NexiCatalog")}
     />
   );
+}
+
+function PlacardScanWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ScannerStackParamList>>();
+  return <PlacardScanScreen onBack={() => navigation.goBack()} />;
 }
 
 function TagReadWrapper() {

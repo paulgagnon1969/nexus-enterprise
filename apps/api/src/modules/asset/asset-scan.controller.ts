@@ -153,6 +153,37 @@ export class AssetScanController {
     return this.scanService.createAssetFromScan(user.companyId, user, body);
   }
 
+  /**
+   * Upload original hi-res tag photos after user verifies AI extraction.
+   * POST /assets/scan/:id/originals
+   * Multipart: field "photos" (1-4 image files)
+   */
+  @Post(':id/originals')
+  async uploadOriginals(
+    @Req() req: FastifyRequest,
+    @Param('id') scanId: string,
+  ) {
+    const user = (req as any).user as AuthenticatedUser;
+
+    const { files } = await readMultipleFilesFromMultipart(req, {
+      fieldName: 'photos',
+    });
+
+    if (files.length > 4) {
+      throw new BadRequestException('Maximum 4 photos allowed');
+    }
+
+    const photos = await Promise.all(
+      files.map(async (f) => ({
+        buffer: await f.toBuffer(),
+        originalname: f.filename,
+        mimetype: f.mimetype,
+      })),
+    );
+
+    return this.scanService.uploadOriginals(user.companyId, scanId, photos);
+  }
+
   /** List recent scans for the company. */
   @Get()
   async listScans(

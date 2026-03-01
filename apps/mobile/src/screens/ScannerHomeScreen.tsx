@@ -28,9 +28,17 @@ interface Props {
   onStartObjectCapture: () => void;
   onStartNexiEnroll: () => void;
   onOpenNexiCatalog: () => void;
+  onStartPlacardScan: () => void;
 }
 
 const MODE_CARDS = [
+  {
+    key: "placard-scan",
+    icon: "🔲",
+    title: "Scan Placard",
+    subtitle: "Scan a Nex-Plac QR code — instant verified asset lookup",
+    color: "#0891B2",
+  },
   {
     key: "tag-read",
     icon: "📷",
@@ -68,7 +76,7 @@ const MODE_CARDS = [
   },
 ] as const;
 
-export function ScannerHomeScreen({ onStartTagRead, onStartFleetOnboard, onStartObjectCapture, onStartNexiEnroll, onOpenNexiCatalog }: Props) {
+export function ScannerHomeScreen({ onStartTagRead, onStartFleetOnboard, onStartObjectCapture, onStartNexiEnroll, onOpenNexiCatalog, onStartPlacardScan }: Props) {
   const [recentScans, setRecentScans] = useState<ScanRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -96,6 +104,9 @@ export function ScannerHomeScreen({ onStartTagRead, onStartFleetOnboard, onStart
 
   const handleCardPress = (key: string) => {
     switch (key) {
+      case "placard-scan":
+        onStartPlacardScan();
+        break;
       case "tag-read":
         onStartTagRead();
         break;
