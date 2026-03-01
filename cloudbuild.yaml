@@ -36,7 +36,7 @@ steps:
     ]
 
 options:
-  machineType: E2_HIGHCPU_8
+  machineType: E2_HIGHCPU_32
 
 images:
   - "gcr.io/$PROJECT_ID/nexus-api:$BUILD_ID"
