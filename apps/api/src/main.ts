@@ -52,7 +52,7 @@ async function bootstrap() {
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter()
+    new FastifyAdapter({ bodyLimit: 100 * 1024 * 1024 }), // 100 MB for video frame payloads
   );
 
   app.enableCors({
