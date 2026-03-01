@@ -68,6 +68,7 @@ import { AnalyticsModule } from "./modules/analytics/analytics.module";
 import { LocalSupplierModule } from "./modules/local-supplier/local-supplier.module";
 import { RoomScanModule } from "./modules/room-scan/room-scan.module";
 import { ReceiptEmailModule } from "./modules/receipt-email/receipt-email.module";
+import { VideoAssessmentModule } from "./modules/video-assessment/video-assessment.module";
 
 @Module({
   imports: [
@@ -144,6 +145,7 @@ import { ReceiptEmailModule } from "./modules/receipt-email/receipt-email.module
     LocalSupplierModule,
     RoomScanModule,
     ReceiptEmailModule,
+    VideoAssessmentModule,
   ],
   controllers: [DevController]
 })

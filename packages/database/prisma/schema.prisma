@@ -242,6 +242,10 @@ model Company {
   // Email Receipt Capture (supplier receipts from email)
   emailReceipts EmailReceipt[]
   emailReceiptConnectors EmailReceiptConnector[]
+
+  // NexLevelIntegration — Video Property Assessments
+  videoAssessments        VideoAssessment[]
+  videoAssessmentFindings VideoAssessmentFinding[]
 }
 
 model OrganizationTemplate {
@@ -623,6 +627,11 @@ model User {
 
   // Email Receipt Connectors (configured mailboxes)
   emailReceiptConnectorsCreated EmailReceiptConnector[] @relation("EmailReceiptConnectorConnectedBy")
+
+  // NexLevelIntegration — Video Property Assessments
+  videoAssessmentsCreated  VideoAssessment[] @relation("VideoAssessmentCreatedBy")
+  videoAssessmentsAssigned VideoAssessment[] @relation("VideoAssessmentAssignedBy")
+  videoFindingsOverridden  VideoAssessmentFinding[] @relation("VideoFindingOverriddenBy")
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -1326,6 +1335,9 @@ model Project {
 
   // Email Receipt Capture (supplier receipts from email)
   emailReceipts EmailReceipt[]
+
+  // NexLevelIntegration — Video Property Assessments
+  videoAssessments VideoAssessment[]
 
   /// Building model type (e.g. "A Model", "G Model", "F Model")
   buildingModelType String?
@@ -8028,4 +8040,183 @@ model EmailReceiptConnector {
 
   @@unique([companyId, imapUser, imapMailbox], name: "EmailReceiptConnector_company_user_mailbox_key")
   @@index([companyId, status], map: "EmailReceiptConnector_company_status_idx")
+}
+
+// ===================================================================
+// NexLevelIntegration — AI-powered Video Property Assessments
+// ===================================================================
+
+enum VideoAssessmentSourceType {
+  DRONE
+  HANDHELD
+  OTHER
+}
+
+enum VideoAssessmentStatus {
+  PROCESSING
+  COMPLETE
+  FAILED
+  REVIEWED
+}
+
+enum FindingZone {
+  ROOF
+  SIDING
+  WINDOWS
+  GUTTERS
+  FASCIA_SOFFIT
+  FOUNDATION
+  DECK_PATIO
+  FENCING
+  LANDSCAPING
+  INTERIOR_WALLS
+  INTERIOR_CEILING
+  INTERIOR_FLOOR
+  INTERIOR_CABINETS
+  INTERIOR_FIXTURES
+  PLUMBING
+  ELECTRICAL
+  HVAC
+  OTHER
+}
+
+enum FindingCategory {
+  MISSING_SHINGLES
+  CURLING
+  GRANULE_LOSS
+  HAIL_IMPACT
+  WIND_LIFT
+  ALGAE_MOSS
+  FLASHING
+  RIDGE_CAP
+  VALLEY
+  UNDERLAYMENT
+  DRAINAGE
+  CRACKING
+  PEELING
+  ROT
+  WATER_STAIN
+  MOLD
+  WARPING
+  BROKEN_SEAL
+  MISSING_CAULK
+  STRUCTURAL_SHIFT
+  CORROSION
+  INSECT_DAMAGE
+  EFFLORESCENCE
+  SPALLING
+  OTHER
+}
+
+enum FindingSeverity {
+  LOW
+  MODERATE
+  SEVERE
+  CRITICAL
+}
+
+enum FindingCausation {
+  HAIL
+  WIND
+  AGE
+  WATER
+  FIRE
+  IMPACT
+  THERMAL
+  IMPROPER_INSTALL
+  SETTLING
+  PEST
+  UNKNOWN
+}
+
+/// A video-based property assessment created by the NexLevelIntegration sync
+/// client. The video itself stays on the local machine; only extracted frames,
+/// AI-generated findings, and metadata are synced to the server.
+/// When projectId is null the assessment sits in the unassigned bucket.
+model VideoAssessment {
+  id        String  @id @default(cuid())
+  companyId String
+  projectId String? /// nullable — unassigned bucket until linked to a project
+
+  sourceType      VideoAssessmentSourceType @default(OTHER)
+  status          VideoAssessmentStatus     @default(PROCESSING)
+
+  /// Video metadata (video stays local — only metadata stored)
+  videoFileName   String?
+  videoDurationSecs Int?
+  videoResolution String?  /// e.g. "3840x2160"
+  frameCount      Int?     /// number of frames analyzed by AI
+
+  /// AI analysis outputs
+  thumbnailUrls   Json?    /// string[] of GCS URLs for key frame thumbnails
+  assessmentJson  Json?    /// structured output: narrative + summary + costbook items
+  rawAiResponse   String?  @db.Text /// full Gemini response for audit trail
+  confidenceScore Float?   /// 0.0–1.0 overall confidence
+
+  /// Context for causation analysis
+  weatherContext  String?  /// optional weather at time of capture
+  captureDate     DateTime? /// when the video was recorded
+
+  errorMessage    String?  /// error details if status = FAILED
+  notes           String?  @db.Text
+
+  /// Assignment tracking (bucket → project)
+  assignedById    String?
+  assignedAt      DateTime?
+
+  createdById     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company    Company  @relation(fields: [companyId], references: [id])
+  project    Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdBy  User     @relation("VideoAssessmentCreatedBy", fields: [createdById], references: [id])
+  assignedBy User?    @relation("VideoAssessmentAssignedBy", fields: [assignedById], references: [id])
+  findings   VideoAssessmentFinding[]
+
+  @@index([companyId, status], map: "VideoAssessment_company_status_idx")
+  @@index([companyId, projectId], map: "VideoAssessment_company_project_idx")
+  @@index([companyId, createdAt], map: "VideoAssessment_company_created_idx")
+}
+
+/// An individual damage finding within a video assessment.
+/// Each finding maps to a specific frame timestamp and includes
+/// zone, category, severity, causation, and optional NCC costbook mapping.
+model VideoAssessmentFinding {
+  id           String  @id @default(cuid())
+  assessmentId String
+  companyId    String
+
+  zone         FindingZone
+  category     FindingCategory
+  severity     FindingSeverity
+  causation    FindingCausation @default(UNKNOWN)
+
+  description     String?  @db.Text /// AI-generated narrative for this finding
+  frameTimestamp  Float?   /// seconds into video where damage was spotted
+  thumbnailUrl    String?  /// GCS URL of the specific frame
+  boundingBoxJson Json?    /// optional { x, y, w, h } of damage area in frame
+
+  /// NCC costbook mapping
+  costbookItemCode  String?  /// NCC costbook item code for estimating
+  estimatedQuantity Float?
+  estimatedUnit     String?  /// e.g. "SQ", "LF", "SF", "EA"
+
+  confidenceScore Float?   /// 0.0–1.0 for this individual finding
+  sortOrder       Int      @default(0)
+
+  /// Human override tracking
+  overriddenByUserId String?
+  overriddenAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assessment   VideoAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  company      Company         @relation(fields: [companyId], references: [id])
+  overriddenBy User?           @relation("VideoFindingOverriddenBy", fields: [overriddenByUserId], references: [id])
+
+  @@index([assessmentId], map: "VideoAssessmentFinding_assessment_idx")
+  @@index([companyId, zone], map: "VideoAssessmentFinding_company_zone_idx")
+  @@index([companyId, category], map: "VideoAssessmentFinding_company_category_idx")
 }
