@@ -18,6 +18,7 @@ import {
   type Holdings as AssetHoldings,
   type LocationMovement as AssetLocationMovement,
 } from "../../lib/api/locations";
+import { CostBookPickerModal } from "../components/cost-book-picker-modal";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -39,42 +40,60 @@ type FinancialSection =
   | "BANKING";
 
 /** Card definitions for the Financial landing page grid. */
-const FINANCIAL_CARDS: {
+type FinancialCardGroup = "Pricing & Estimation" | "Contracts & Changes" | "Financial Operations" | "Resources & Logistics";
+
+type FinancialCardDef = {
   id: FinancialSection | "EXT_SUPPLIER_CATALOG" | "EXT_RECONCILIATION" | "COST_BOOK";
   icon: string;
   title: string;
   subtitle: string;
+  group: FinancialCardGroup;
   href?: string;
-}[] = [
+};
+
+const FINANCIAL_CARDS_RAW: FinancialCardDef[] = [
+  // Pricing & Estimation
   {
     id: "COST_BOOK",
     icon: "📚",
     title: "Company Cost Book",
     subtitle: "Search & manage your company's cost book items",
+    group: "Pricing & Estimation",
   },
   {
-    id: "PRICELIST_TREE",
-    icon: "📋",
-    title: "Pricelist Tree",
-    subtitle: "Golden PETL line items, unit prices & uploads",
-  },
-  {
-    id: "GOLDEN_COMPONENTS",
-    icon: "🧩",
-    title: "Golden Components",
-    subtitle: "Material, labor & equipment breakdowns per line",
+    id: "DIVISION_CODES_LOOKUP",
+    icon: "🏗️",
+    title: "Division Codes Lookup",
+    subtitle: "CSI-16 divisions & Xactimate category mapping",
+    group: "Pricing & Estimation",
   },
   {
     id: "ESTIMATES",
     icon: "📐",
     title: "Estimates / Quotations",
     subtitle: "Imported estimates, versions & comparison",
+    group: "Pricing & Estimation",
   },
   {
-    id: "ASSET_LOGISTICS",
-    icon: "🚛",
-    title: "Asset Logistics",
-    subtitle: "Locations, holdings & inventory movements",
+    id: "FORECASTING",
+    icon: "📈",
+    title: "Forecasting",
+    subtitle: "PETL-driven material requirements & order timing",
+    group: "Pricing & Estimation",
+  },
+  {
+    id: "GOLDEN_COMPONENTS",
+    icon: "🧩",
+    title: "Golden Components",
+    subtitle: "Material, labor & equipment breakdowns per line",
+    group: "Pricing & Estimation",
+  },
+  {
+    id: "PRICELIST_TREE",
+    icon: "📋",
+    title: "Pricelist Tree",
+    subtitle: "Golden PETL line items, unit prices & uploads",
+    group: "Pricing & Estimation",
   },
   {
     id: "EXT_SUPPLIER_CATALOG",
@@ -82,54 +101,44 @@ const FINANCIAL_CARDS: {
     title: "Supplier Catalog",
     subtitle: "Search HD, Lowe's & compare with CostBook",
     href: "/tools/supplier-catalog",
+    group: "Pricing & Estimation",
   },
-  {
-    id: "FORECASTING",
-    icon: "📈",
-    title: "Forecasting",
-    subtitle: "PETL-driven material requirements & order timing",
-  },
-  {
-    id: "ORIGINAL_CONTRACT",
-    icon: "📄",
-    title: "Original Contract",
-    subtitle: "Baseline contract value & schedule of values",
-  },
+  // Contracts & Changes
   {
     id: "CHANGES",
     icon: "🔀",
     title: "Changes",
     subtitle: "Change orders, approved vs pending",
+    group: "Contracts & Changes",
   },
   {
     id: "CURRENT_CONTRACT_TOTAL",
     icon: "💰",
     title: "Current Contract Total",
     subtitle: "Rollup of contract, changes & adjustments",
+    group: "Contracts & Changes",
   },
   {
-    id: "PAYROLL",
-    icon: "💵",
-    title: "Payroll",
-    subtitle: "Time, labor costs & payroll allocations",
+    id: "ORIGINAL_CONTRACT",
+    icon: "📄",
+    title: "Original Contract",
+    subtitle: "Baseline contract value & schedule of values",
+    group: "Contracts & Changes",
+  },
+  // Financial Operations
+  {
+    id: "BANKING",
+    icon: "🏦",
+    title: "Banking & Transactions",
+    subtitle: "Connect bank accounts, sync & analyze transactions",
+    group: "Financial Operations",
   },
   {
     id: "FINANCIAL_ALLOCATION",
     icon: "📊",
     title: "Financial Allocation",
     subtitle: "Revenue & cost allocation rules across projects",
-  },
-  {
-    id: "DIVISION_CODES_LOOKUP",
-    icon: "🏗️",
-    title: "Division Codes Lookup",
-    subtitle: "CSI-16 divisions & Xactimate category mapping",
-  },
-  {
-    id: "BANKING",
-    icon: "🏦",
-    title: "Banking & Transactions",
-    subtitle: "Connect bank accounts, sync & analyze transactions",
+    group: "Financial Operations",
   },
   {
     id: "EXT_RECONCILIATION",
@@ -137,8 +146,42 @@ const FINANCIAL_CARDS: {
     title: "Financial Reconciliation",
     subtitle: "Aggregate, reconcile & assign transactions across sources",
     href: "/financial/reconciliation",
+    group: "Financial Operations",
+  },
+  {
+    id: "PAYROLL",
+    icon: "💵",
+    title: "Payroll",
+    subtitle: "Time, labor costs & payroll allocations",
+    group: "Financial Operations",
+  },
+  // Resources & Logistics
+  {
+    id: "ASSET_LOGISTICS",
+    icon: "🚛",
+    title: "Asset Logistics",
+    subtitle: "Locations, holdings & inventory movements",
+    group: "Resources & Logistics",
   },
 ];
+
+// Group cards and sort alphabetically within each group
+const FINANCIAL_CARDS_GROUPED = FINANCIAL_CARDS_RAW.reduce(
+  (acc, card) => {
+    if (!acc[card.group]) acc[card.group] = [];
+    acc[card.group].push(card);
+    return acc;
+  },
+  {} as Record<FinancialCardGroup, FinancialCardDef[]>
+);
+
+// Sort each group alphabetically by title
+for (const group in FINANCIAL_CARDS_GROUPED) {
+  FINANCIAL_CARDS_GROUPED[group as FinancialCardGroup].sort((a, b) => a.title.localeCompare(b.title));
+}
+
+// Flatten back to array for backward compatibility (for now)
+const FINANCIAL_CARDS = FINANCIAL_CARDS_RAW.sort((a, b) => a.title.localeCompare(b.title));
 
 type Division = {
   code: string;
@@ -443,6 +486,9 @@ export default function FinancialPage() {
   const [assetPeopleSearch, setAssetPeopleSearch] = useState<string>('');
 
   const [assetPendingMoveAssetId, setAssetPendingMoveAssetId] = useState<string | null>(null);
+
+  // Cost Book browser modal
+  const [costBookBrowserOpen, setCostBookBrowserOpen] = useState(false);
 
   // Helper: refresh Golden price list-related views after a job completes.
   async function refreshGoldenPriceListViews() {
@@ -1769,60 +1815,78 @@ export default function FinancialPage() {
             </div>
           )}
 
-          {/* Card grid */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
-              gap: 16,
-            }}
-          >
-            {FINANCIAL_CARDS.map((card) => (
-              <button
-                key={card.id}
-                type="button"
-                onClick={() => {
-                  if (card.href) {
-                    window.location.href = card.href;
-                  } else {
-                    startUiTransition(() => setActiveSection(card.id as FinancialSection));
-                  }
-                }}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "flex-start",
-                  gap: 6,
-                  padding: 16,
-                  borderRadius: 12,
-                  border: "1px solid #e5e7eb",
-                  background: "#ffffff",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  transition: "box-shadow 0.15s, border-color 0.15s",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = "#0f172a";
-                  e.currentTarget.style.boxShadow = "0 2px 8px rgba(15,23,42,0.10)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = "#e5e7eb";
-                  e.currentTarget.style.boxShadow = "none";
-                }}
-              >
-                <span style={{ fontSize: 28 }}>{card.icon}</span>
-                <span style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>
-                  {card.title}
-                </span>
-                <span style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.4 }}>
-                  {card.subtitle}
-                </span>
-                {card.href && (
-                  <span style={{ fontSize: 10, color: "#2563eb", marginTop: 2 }}>
-                    External page &rarr;
-                  </span>
-                )}
-              </button>
+          {/* Grouped card grid - 3 columns on desktop, stacks on mobile */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
+            {Object.entries(FINANCIAL_CARDS_GROUPED).map(([group, cards]) => (
+              <div key={group}>
+                <h3
+                  style={{
+                    fontSize: 16,
+                    fontWeight: 700,
+                    color: "#0f172a",
+                    marginBottom: 16,
+                    paddingBottom: 8,
+                    borderBottom: "2px solid #e5e7eb",
+                  }}
+                >
+                  {group}
+                </h3>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+                    gap: 16,
+                  }}
+                >
+                  {cards.map((card) => (
+                    <button
+                      key={card.id}
+                      type="button"
+                      onClick={() => {
+                        if (card.href) {
+                          window.location.href = card.href;
+                        } else {
+                          startUiTransition(() => setActiveSection(card.id as FinancialSection));
+                        }
+                      }}
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "flex-start",
+                        gap: 6,
+                        padding: 16,
+                        borderRadius: 12,
+                        border: "1px solid #e5e7eb",
+                        background: "#ffffff",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        transition: "box-shadow 0.15s, border-color 0.15s",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = "#0f172a";
+                        e.currentTarget.style.boxShadow = "0 2px 8px rgba(15,23,42,0.10)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = "#e5e7eb";
+                        e.currentTarget.style.boxShadow = "none";
+                      }}
+                    >
+                      <span style={{ fontSize: 28 }}>{card.icon}</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>
+                        {card.title}
+                      </span>
+                      <span style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.4 }}>
+                        {card.subtitle}
+                      </span>
+                      {card.href && (
+                        <span style={{ fontSize: 10, color: "#2563eb", marginTop: 2 }}>
+                          External page &rarr;
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </>
@@ -1861,7 +1925,7 @@ export default function FinancialPage() {
             Company Cost Book
           </h3>
           <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 16 }}>
-            Search and manage your company's cost book items. This includes items shared from the Master Costbook (like BWC Cabinets) and custom items specific to your company.
+            Search and browse your company's cost book items. This includes items shared from the Master Costbook (like BWC Cabinets) and custom items specific to your company.
           </p>
 
           <div
@@ -1872,54 +1936,31 @@ export default function FinancialPage() {
               background: "#ffffff",
             }}
           >
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>
-              Search Cost Book
-            </div>
-            <div style={{ marginBottom: 12 }}>
-              <input
-                type="text"
-                placeholder="Search for items (e.g., 'cabinet', 'shaker', 'SB12')..."
-                style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  fontSize: 14,
-                  border: "1px solid #d1d5db",
-                  borderRadius: 6,
-                }}
-              />
-            </div>
-            <div
-              style={{
-                padding: 16,
-                borderRadius: 8,
-                border: "1px dashed #d1d5db",
-                background: "#f9fafb",
-                textAlign: "center",
-                color: "#6b7280",
-                fontSize: 13,
-              }}
-            >
-              <div style={{ marginBottom: 8 }}>📚</div>
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>Cost Book Search Coming Soon</div>
-              <div>For now, use the cost book picker in project detail pages.</div>
-              <div style={{ marginTop: 12 }}>
-                <a
-                  href="/projects"
-                  style={{
-                    display: "inline-block",
-                    padding: "8px 16px",
-                    borderRadius: 6,
-                    border: "1px solid #2563eb",
-                    background: "#2563eb",
-                    color: "#fff",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    textDecoration: "none",
-                  }}
-                >
-                  Go to Projects
-                </a>
+            <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>
+                  Browse Cost Book
+                </div>
+                <div style={{ fontSize: 13, color: "#6b7280" }}>
+                  Search and view all available cost book items
+                </div>
               </div>
+              <button
+                type="button"
+                onClick={() => setCostBookBrowserOpen(true)}
+                style={{
+                  padding: "10px 20px",
+                  borderRadius: 6,
+                  border: "1px solid #0f172a",
+                  background: "#0f172a",
+                  color: "#fff",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Open Cost Book Browser
+              </button>
             </div>
 
             <div style={{ marginTop: 16, fontSize: 12, color: "#6b7280" }}>
@@ -1932,6 +1973,15 @@ export default function FinancialPage() {
             </div>
           </div>
         </section>
+      )}
+
+      {/* Cost Book Browser Modal */}
+      {costBookBrowserOpen && (
+        <CostBookPickerModal
+          title="Company Cost Book Browser"
+          subtitle="Browse all available cost book items. This is view-only mode."
+          onClose={() => setCostBookBrowserOpen(false)}
+        />
       )}
 
       {/* Pricelist Tree section */}
