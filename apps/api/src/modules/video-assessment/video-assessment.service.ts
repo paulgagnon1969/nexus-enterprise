@@ -292,7 +292,7 @@ export class VideoAssessmentService {
 
     await this.audit.log(actor, 'VIDEO_ASSESSMENT_UPDATED', {
       companyId,
-      projectId: updated.projectId,
+      projectId: updated.projectId || undefined,
       metadata: {
         assessmentId,
         changes: Object.keys(data),

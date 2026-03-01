@@ -138,7 +138,7 @@ export class GeminiService {
       throw new Error(`Gemini API error: ${response.status} - ${errText.substring(0, 500)}`);
     }
 
-    const json = await response.json();
+    const json: any = await response.json();
     const content = json?.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!content) {
@@ -174,7 +174,7 @@ export class GeminiService {
         { headers: { 'Metadata-Flavor': 'Google' } },
       );
       if (metadataResponse.ok) {
-        const tokenData = await metadataResponse.json();
+        const tokenData: any = await metadataResponse.json();
         return tokenData.access_token;
       }
     } catch {
