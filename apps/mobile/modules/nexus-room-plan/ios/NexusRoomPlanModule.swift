@@ -382,7 +382,6 @@ class RoomCaptureCoordinator: NSObject, NSCoding, RoomCaptureViewDelegate, RoomC
     case .fireplace:     return ("fireplace",    raw, "Fireplace")
     case .stairs:        return ("stairs",       raw, "Stairs")
     case .television:    return ("television",   raw, "Television")
-    case .screen:        return ("screen",       raw, "Screen")
     @unknown default:    return ("other",        raw, raw.capitalized)
     }
   }
