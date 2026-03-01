@@ -118,7 +118,7 @@ export class GeminiService {
       contents: [{ role: 'user', parts }],
       generationConfig: {
         temperature: 0.1,
-        maxOutputTokens: 4096,
+        maxOutputTokens: 8192,
         responseMimeType: 'application/json',
       },
     };
