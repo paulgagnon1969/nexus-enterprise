@@ -14,7 +14,7 @@ import {
   importGoldenComponentsFromFile,
   importBiaWorkers,
 } from "@repo/database";
-import { ImportJobStatus, ImportJobType, Role as DbRole } from "@prisma/client";
+import { ImportJobStatus, ImportJobType, EmailReceiptStatus, Role as DbRole } from "@prisma/client";
 import type { AuthenticatedUser } from "./modules/auth/jwt.strategy";
 import { GlobalRole as AuthGlobalRole, Role as AuthRole } from "./modules/auth/auth.guards";
 import { ProjectService } from "./modules/project/project.service";
@@ -46,7 +46,14 @@ type ChunkJobPayload = {
   payload: any;
 };
 
-type ImportJobPayload = ParentJobPayload | ChunkJobPayload;
+type ReceiptEmailOcrPayload = {
+  kind?: "receipt-email-ocr";
+  emailReceiptId: string;
+  companyId: string;
+  attachmentUrls: string[];
+};
+
+type ImportJobPayload = ParentJobPayload | ChunkJobPayload | ReceiptEmailOcrPayload;
 
 // BullMQ: lower numeric priority value means higher priority.
 const PRIORITY_DEFAULT = 5;
@@ -2121,6 +2128,381 @@ async function processImportChunk(prisma: PrismaService, payload: ChunkJobPayloa
   throw new Error(`Unsupported chunk strategy: ${strategy}`);
 }
 
+// ── Receipt Email OCR + Auto-Match ───────────────────────────────────
+
+/**
+ * Haversine distance in km between two lat/lng points.
+ */
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+async function processReceiptEmailOcr(
+  prisma: PrismaService,
+  payload: ReceiptEmailOcrPayload,
+) {
+  const { emailReceiptId, companyId, attachmentUrls } = payload;
+
+  const receipt = await prisma.emailReceipt.findUnique({
+    where: { id: emailReceiptId },
+  });
+  if (!receipt) {
+    console.error("[worker] EmailReceipt not found:", emailReceiptId);
+    return;
+  }
+
+  console.log("[worker] RECEIPT_EMAIL_OCR start", {
+    emailReceiptId,
+    companyId,
+    attachments: attachmentUrls.length,
+  });
+
+  // ── 1. Run OCR on the first image attachment ─────────────────────────
+  // For MVP, we OCR the first image. Future: merge results from multiple.
+  let ocrData: any = null;
+  let ocrResultId: string | null = null;
+
+  for (const url of attachmentUrls) {
+    try {
+      // Create a lightweight ProjectFile record for the OCR pipeline
+      const pf = await prisma.projectFile.create({
+        data: {
+          companyId,
+          projectId: companyId, // Placeholder — will be updated if matched
+          storageUrl: url,
+          fileName: url.split("/").pop() || "receipt",
+          mimeType: url.endsWith(".pdf") ? "application/pdf" : "image/jpeg",
+        },
+      });
+
+      // Create ReceiptOcrResult record
+      const ocrResult = await prisma.receiptOcrResult.create({
+        data: {
+          projectFileId: pf.id,
+          status: "PROCESSING",
+          provider: "openai",
+        },
+      });
+
+      ocrResultId = ocrResult.id;
+
+      // We call the OpenAI OCR provider directly to avoid circular DI
+      // In the worker context, we use the same extraction logic.
+      const OpenAI = (await import("openai")).default;
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey) {
+        console.warn("[worker] OPENAI_API_KEY not set; skipping OCR");
+        await prisma.receiptOcrResult.update({
+          where: { id: ocrResult.id },
+          data: { status: "FAILED", errorMessage: "OPENAI_API_KEY not configured" },
+        });
+        break;
+      }
+
+      const openai = new OpenAI({ apiKey });
+
+      // Prepare image URL — convert gs:// to public URL
+      let imageUrl = url;
+      if (url.startsWith("gs://")) {
+        const match = url.match(/^gs:\/\/([^/]+)\/(.+)$/);
+        if (match) {
+          // Download from GCS to tmp and base64 encode
+          const localPath = await downloadGcsToTmp(url);
+          const buffer = await fs.promises.readFile(localPath);
+          const base64 = buffer.toString("base64");
+          const ext = path.extname(localPath).toLowerCase();
+          const mime =
+            ext === ".png" ? "image/png" : ext === ".pdf" ? "application/pdf" : "image/jpeg";
+          imageUrl = `data:${mime};base64,${base64}`;
+          await fs.promises.unlink(localPath).catch(() => {});
+        }
+      }
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: `Extract receipt data as JSON: {vendor_name, vendor_address, vendor_phone, vendor_store_number, vendor_city, vendor_state, vendor_zip, receipt_date (YYYY-MM-DD), receipt_time (HH:mm), subtotal, tax_amount, total_amount, currency, payment_method, line_items: [{description, sku, quantity, unit_price, amount, category}], confidence}. Return ONLY valid JSON.`,
+              },
+              { type: "image_url", image_url: { url: imageUrl, detail: "high" } },
+            ],
+          },
+        ],
+        max_tokens: 1500,
+        temperature: 0.1,
+      });
+
+      const content = response.choices[0]?.message?.content;
+      if (content) {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try {
+            ocrData = JSON.parse(jsonMatch[0]);
+          } catch {
+            console.warn("[worker] Failed to parse OCR JSON response");
+          }
+        }
+      }
+
+      // Update the OCR result record
+      if (ocrData) {
+        await prisma.receiptOcrResult.update({
+          where: { id: ocrResult.id },
+          data: {
+            status: "COMPLETED",
+            vendorName: ocrData.vendor_name ?? null,
+            vendorAddress: ocrData.vendor_address ?? null,
+            vendorPhone: ocrData.vendor_phone ?? null,
+            vendorStoreNumber: ocrData.vendor_store_number ?? null,
+            vendorCity: ocrData.vendor_city ?? null,
+            vendorState: ocrData.vendor_state ?? null,
+            vendorZip: ocrData.vendor_zip ?? null,
+            receiptDate: ocrData.receipt_date ? new Date(ocrData.receipt_date) : null,
+            receiptTime: ocrData.receipt_time ?? null,
+            subtotal: ocrData.subtotal ?? null,
+            taxAmount: ocrData.tax_amount ?? null,
+            totalAmount: ocrData.total_amount ?? null,
+            currency: ocrData.currency ?? "USD",
+            paymentMethod: ocrData.payment_method ?? null,
+            lineItemsJson: ocrData.line_items ? JSON.stringify(ocrData.line_items) : null,
+            rawResponseJson: content ?? null,
+            confidence: ocrData.confidence ?? null,
+            processedAt: new Date(),
+          },
+        });
+
+        // Link OCR result to the EmailReceipt
+        await prisma.emailReceipt.update({
+          where: { id: emailReceiptId },
+          data: { ocrResultId: ocrResult.id },
+        });
+      } else {
+        await prisma.receiptOcrResult.update({
+          where: { id: ocrResult.id },
+          data: { status: "FAILED", errorMessage: "No parseable OCR data" },
+        });
+      }
+
+      break; // Only process first attachment for now
+    } catch (err: any) {
+      console.error("[worker] Receipt email OCR failed:", err?.message ?? err);
+    }
+  }
+
+  // ── 2. Auto-match heuristic ──────────────────────────────────────────
+  let matchedProjectId: string | null = null;
+  let matchConfidence = 0;
+  let matchReason = "";
+
+  if (ocrData) {
+    // Fetch active projects for this company with geocoded addresses
+    const projects = await prisma.project.findMany({
+      where: {
+        companyId,
+        status: { in: ["active", "Active", "ACTIVE"] },
+      },
+      select: {
+        id: true,
+        name: true,
+        addressLine1: true,
+        city: true,
+        state: true,
+        postalCode: true,
+        latitude: true,
+        longitude: true,
+        teamTreeJson: true,
+      },
+    });
+
+    // Strategy A: Match by vendor store location proximity to project address
+    if (ocrData.vendor_city && ocrData.vendor_state) {
+      for (const proj of projects) {
+        if (!proj.latitude || !proj.longitude) continue;
+
+        // Simple city/state match first
+        const cityMatch =
+          proj.city?.toLowerCase() === ocrData.vendor_city?.toLowerCase() &&
+          proj.state?.toLowerCase() === ocrData.vendor_state?.toLowerCase();
+
+        if (cityMatch) {
+          const confidence = 0.6;
+          if (confidence > matchConfidence) {
+            matchedProjectId = proj.id;
+            matchConfidence = confidence;
+            matchReason = `Vendor in ${ocrData.vendor_city}, ${ocrData.vendor_state} matches project "${proj.name}" location`;
+          }
+        }
+
+        // If we have vendor zip and project zip, tighter match
+        if (ocrData.vendor_zip && proj.postalCode) {
+          const zipMatch = ocrData.vendor_zip?.slice(0, 5) === proj.postalCode?.slice(0, 5);
+          if (zipMatch) {
+            const confidence = 0.75;
+            if (confidence > matchConfidence) {
+              matchedProjectId = proj.id;
+              matchConfidence = confidence;
+              matchReason = `Vendor ZIP ${ocrData.vendor_zip} matches project "${proj.name}" ZIP ${proj.postalCode}`;
+            }
+          }
+        }
+      }
+    }
+
+    // Strategy B: Match by sender email against project team members
+    if (receipt.senderEmail && !matchedProjectId) {
+      const senderLower = receipt.senderEmail.toLowerCase();
+      const user = await prisma.user.findFirst({
+        where: { email: senderLower },
+        select: { id: true },
+      });
+
+      if (user) {
+        // Find projects this user is a member of
+        const memberships = await prisma.projectMembership.findMany({
+          where: {
+            userId: user.id,
+            companyId,
+            project: { status: { in: ["active", "Active", "ACTIVE"] } },
+          },
+          select: { projectId: true, project: { select: { name: true } } },
+          take: 1,
+          orderBy: { createdAt: "desc" },
+        });
+
+        if (memberships.length === 1) {
+          matchedProjectId = memberships[0].projectId;
+          matchConfidence = 0.7;
+          matchReason = `Sender ${receipt.senderEmail} is a member of project "${memberships[0].project.name}"`;
+        }
+      }
+    }
+
+    // Strategy C: Match by vendor store number against known vendor locations
+    if (ocrData.vendor_store_number && ocrData.vendor_name && !matchedProjectId) {
+      // Look up the vendor location in our system
+      const vendorLoc = await prisma.location.findFirst({
+        where: {
+          companyId,
+          name: { contains: ocrData.vendor_name, mode: "insensitive" },
+          code: { contains: ocrData.vendor_store_number },
+        },
+        select: { id: true, latitude: true, longitude: true },
+      });
+
+      if (vendorLoc?.latitude && vendorLoc?.longitude) {
+        // Find closest project
+        let closestDist = Infinity;
+        for (const proj of projects) {
+          if (!proj.latitude || !proj.longitude) continue;
+          const dist = haversineKm(vendorLoc.latitude, vendorLoc.longitude, proj.latitude, proj.longitude);
+          if (dist < closestDist && dist < 50) {
+            closestDist = dist;
+            matchedProjectId = proj.id;
+            matchConfidence = Math.min(0.9, 1 - dist / 100);
+            matchReason = `${ocrData.vendor_name} #${ocrData.vendor_store_number} is ${dist.toFixed(1)}km from project "${proj.name}"`;
+          }
+        }
+      }
+    }
+  }
+
+  // ── 3. Update EmailReceipt status ────────────────────────────────────
+  const newStatus = matchedProjectId
+    ? EmailReceiptStatus.MATCHED
+    : ocrData
+      ? EmailReceiptStatus.PENDING_MATCH
+      : EmailReceiptStatus.PENDING_MATCH;
+
+  await prisma.emailReceipt.update({
+    where: { id: emailReceiptId },
+    data: {
+      status: newStatus,
+      projectId: matchedProjectId,
+      matchConfidence: matchConfidence || null,
+      matchReason: matchReason || null,
+    },
+  });
+
+  // ── 4. If matched → create group Task for project team ──────────────
+  if (matchedProjectId) {
+    const project = await prisma.project.findUnique({
+      where: { id: matchedProjectId },
+      select: { name: true, teamTreeJson: true },
+    });
+
+    const vendorName = ocrData?.vendor_name || "Unknown vendor";
+    const totalAmount = ocrData?.total_amount
+      ? `$${Number(ocrData.total_amount).toFixed(2)}`
+      : "";
+    const dateStr = ocrData?.receipt_date || receipt.receivedAt.toISOString().slice(0, 10);
+
+    // Create a task for the project team
+    await prisma.task.create({
+      data: {
+        companyId,
+        projectId: matchedProjectId,
+        title: `Review receipt: ${vendorName} ${totalAmount} (${dateStr})`,
+        description: `An email receipt from ${vendorName} was auto-matched to this project (${matchReason}). Please review and confirm or reassign.\n\nReceipt ID: ${emailReceiptId}`,
+        status: "TODO",
+        priority: "MEDIUM",
+        relatedEntityType: "EMAIL_RECEIPT",
+        relatedEntityId: emailReceiptId,
+      },
+    });
+
+    // Send notifications to all project team members
+    const teamTree = (project?.teamTreeJson as Record<string, string[]>) ?? {};
+    const teamUserIds = new Set<string>();
+    for (const userIds of Object.values(teamTree)) {
+      if (Array.isArray(userIds)) {
+        for (const uid of userIds) teamUserIds.add(uid);
+      }
+    }
+
+    for (const userId of teamUserIds) {
+      await prisma.notification.create({
+        data: {
+          userId,
+          companyId,
+          projectId: matchedProjectId,
+          kind: "GENERIC",
+          channel: "IN_APP",
+          title: `Receipt matched: ${vendorName} ${totalAmount}`,
+          body: `A receipt from ${receipt.senderEmail} was matched to "${project?.name}". Review and confirm assignment.`,
+          metadata: { emailReceiptId, matchReason },
+        },
+      });
+    }
+
+    console.log("[worker] RECEIPT_EMAIL_OCR matched", {
+      emailReceiptId,
+      projectId: matchedProjectId,
+      matchConfidence,
+      matchReason,
+      notifiedUsers: teamUserIds.size,
+    });
+  } else {
+    console.log("[worker] RECEIPT_EMAIL_OCR no match found", {
+      emailReceiptId,
+      vendor: ocrData?.vendor_name,
+      city: ocrData?.vendor_city,
+      state: ocrData?.vendor_state,
+    });
+  }
+}
+
 export async function startWorker() {
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ["log", "warn", "error"],
@@ -2134,6 +2516,13 @@ export async function startWorker() {
     IMPORT_QUEUE_NAME,
     async (bullJob: Job<ImportJobPayload>) => {
       const data = bullJob.data;
+
+      // Receipt email OCR jobs use a different payload shape
+      if (bullJob.name === "receipt-email-ocr" || (data as ReceiptEmailOcrPayload).emailReceiptId) {
+        await processReceiptEmailOcr(prisma, data as ReceiptEmailOcrPayload);
+        return;
+      }
+
       if ((data as ChunkJobPayload).kind === "chunk") {
         await processImportChunk(prisma, data as ChunkJobPayload);
       } else {
@@ -2153,12 +2542,13 @@ export async function startWorker() {
 
   worker.on("failed", async (j, err) => {
     console.error(`[worker] failed bull job ${j?.id}`, err);
-    if (j?.data?.importJobId) {
+    const jobData = j?.data as any;
+    if (jobData?.importJobId) {
       const detail = err instanceof Error ? err.message : String(err);
       const message = detail && detail.trim() ? `Import failed: ${detail}` : "Import failed";
 
       await prisma.importJob.update({
-        where: { id: j.data.importJobId },
+        where: { id: jobData.importJobId },
         data: {
           status: ImportJobStatus.FAILED,
           finishedAt: new Date(),

@@ -43,7 +43,7 @@ type FinancialSection =
 type FinancialCardGroup = "Pricing & Estimation" | "Contracts & Changes" | "Financial Operations" | "Resources & Logistics";
 
 type FinancialCardDef = {
-  id: FinancialSection | "EXT_SUPPLIER_CATALOG" | "EXT_RECONCILIATION" | "COST_BOOK";
+  id: FinancialSection | "EXT_SUPPLIER_CATALOG" | "EXT_RECONCILIATION" | "EXT_RECEIPTS" | "COST_BOOK";
   icon: string;
   title: string;
   subtitle: string;
@@ -146,6 +146,14 @@ const FINANCIAL_CARDS_RAW: FinancialCardDef[] = [
     title: "Financial Reconciliation",
     subtitle: "Aggregate, reconcile & assign transactions across sources",
     href: "/financial/reconciliation",
+    group: "Financial Operations",
+  },
+  {
+    id: "EXT_RECEIPTS",
+    icon: "🧾",
+    title: "Email Receipts",
+    subtitle: "Captured receipts from supplier emails (HD, Lowe's)",
+    href: "/financial/receipts",
     group: "Financial Operations",
   },
   {

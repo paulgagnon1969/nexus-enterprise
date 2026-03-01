@@ -10,6 +10,9 @@
     "worker": "node dist/worker.js",
     "email-poller:dev": "ts-node src/email-inbound-poller.ts",
     "email-poller": "node dist/email-inbound-poller.js",
+    "receipt-poller:dev": "ts-node src/receipt-email-poller.ts",
+    "receipt-poller": "node dist/receipt-email-poller.js",
+    "nexfetch:import": "ts-node src/scripts/nexfetch-import.ts",
     "check-types": "tsc -p tsconfig.json --noEmit",
     "lint": "echo 'lint disabled'"
   },

@@ -238,6 +238,10 @@ model Company {
 
   // Asset Scanner (3D Object Capture + AI Tag Read)
   assetScans AssetScan[]
+
+  // Email Receipt Capture (supplier receipts from email)
+  emailReceipts EmailReceipt[]
+  emailReceiptConnectors EmailReceiptConnector[]
 }
 
 model OrganizationTemplate {
@@ -613,6 +617,12 @@ model User {
   maintenancePoolMemberships MaintenancePoolMember[]
   assetShareGrantsReceived   AssetShareGrant[]        @relation("AssetShareGrantReceiver")
   assetShareGrantsGiven      AssetShareGrant[]        @relation("AssetShareGrantGiver")
+
+  // Email Receipt Capture (supplier receipts from email)
+  emailReceiptsAssigned EmailReceipt[] @relation("EmailReceiptAssignedBy")
+
+  // Email Receipt Connectors (configured mailboxes)
+  emailReceiptConnectorsCreated EmailReceiptConnector[] @relation("EmailReceiptConnectorConnectedBy")
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -1313,6 +1323,9 @@ model Project {
   // Banking transactions tagged to this project (reconciliation)
   bankTransactions     BankTransaction[]     @relation("BankTransactionProject")
   importedTransactions ImportedTransaction[] @relation("ImportedTransactionProject")
+
+  // Email Receipt Capture (supplier receipts from email)
+  emailReceipts EmailReceipt[]
 
   /// Building model type (e.g. "A Model", "G Model", "F Model")
   buildingModelType String?
@@ -2261,9 +2274,10 @@ model ReceiptOcrResult {
   processedAt  DateTime?
   createdAt    DateTime  @default(now())
 
-  dailyLog    DailyLog?    @relation(fields: [dailyLogId], references: [id], onDelete: Cascade)
-  bill        ProjectBill? @relation(fields: [billId], references: [id], onDelete: Cascade)
-  projectFile ProjectFile  @relation(fields: [projectFileId], references: [id], onDelete: Cascade)
+  dailyLog      DailyLog?     @relation(fields: [dailyLogId], references: [id], onDelete: Cascade)
+  bill          ProjectBill?  @relation(fields: [billId], references: [id], onDelete: Cascade)
+  projectFile   ProjectFile   @relation(fields: [projectFileId], references: [id], onDelete: Cascade)
+  emailReceipt  EmailReceipt?
 
   @@index([status], map: "ReceiptOcrResult_status_idx")
   @@index([projectFileId], map: "ReceiptOcrResult_project_file_idx")
@@ -3947,6 +3961,15 @@ enum ImportJobType {
   PROJECT_PETL_PERCENT
   MASTER_COSTBOOK
   PLAN_SHEETS
+  RECEIPT_EMAIL_OCR
+}
+
+enum EmailReceiptStatus {
+  PENDING_OCR
+  PENDING_MATCH
+  MATCHED
+  ASSIGNED
+  UNASSIGNED
 }
 
 enum ImportJobStatus {
@@ -7907,4 +7930,102 @@ model AssetScan {
   @@index([companyId, createdAt], map: "AssetScan_company_created_idx")
   @@index([companyId, scanType], map: "AssetScan_company_type_idx")
   @@index([assetId], map: "AssetScan_asset_idx")
+}
+
+// ===================================================================
+// Email Receipt Capture — supplier receipts from email
+// ===================================================================
+
+/// A receipt ingested from a monitored email inbox (e.g. ncc-email@nfsgrp.com).
+/// Tracks the full lifecycle: email ingestion → OCR → auto-match → PM review.
+model EmailReceipt {
+  id                 String             @id @default(cuid())
+  companyId          String
+  tenantEmailAddress String             /// The inbox this was received on (e.g. ncc-email@nfsgrp.com)
+
+  // Email metadata
+  senderEmail  String
+  subject      String?
+  receivedAt   DateTime
+  messageId    String?   @unique /// IMAP Message-ID for de-duplication
+  rawEmailJson Json?     /// Full parsed email for audit trail
+
+  // Attachment storage
+  attachmentUrls Json?   /// JSON string[] of GCS URLs for receipt images/PDFs
+
+  // Processing status
+  status EmailReceiptStatus @default(PENDING_OCR)
+
+  // OCR linkage (populated after OCR completes)
+  ocrResultId String? @unique
+
+  // Auto-match results
+  projectId       String?   /// Set when matched or assigned to a project
+  matchConfidence Float?    /// 0-1 confidence score from auto-match heuristic
+  matchReason     String?   /// Human-readable explanation (e.g. "Store #0604 near 123 Main St")
+
+  // Manual assignment by PM
+  assignedByUserId String?
+  assignedAt       DateTime?
+
+  // Connector linkage (which configured mailbox this came from)
+  connectorId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company    Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project    Project?               @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  ocrResult  ReceiptOcrResult?      @relation(fields: [ocrResultId], references: [id], onDelete: SetNull)
+  assignedBy User?                  @relation("EmailReceiptAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  connector  EmailReceiptConnector? @relation(fields: [connectorId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, status], map: "EmailReceipt_company_status_idx")
+  @@index([companyId, projectId], map: "EmailReceipt_company_project_idx")
+  @@index([companyId, receivedAt], map: "EmailReceipt_company_received_idx")
+  @@index([connectorId], map: "EmailReceipt_connector_idx")
+}
+
+// ===================================================================
+// Email Receipt Connectors — tenant-configurable mailbox connections
+// ===================================================================
+
+enum EmailReceiptConnectorStatus {
+  ACTIVE
+  PAUSED
+  ERROR
+  DISCONNECTED
+}
+
+/// A configured IMAP mailbox that the receipt poller reads from.
+/// Tenants can add multiple connectors to monitor several inboxes.
+model EmailReceiptConnector {
+  id          String                       @id @default(cuid())
+  companyId   String
+  label       String                       /// Friendly name (e.g. "HD Receipts Inbox")
+
+  // IMAP connection details
+  imapHost              String             /// e.g. imap.gmail.com
+  imapPort              Int                @default(993)
+  imapUser              String             /// e.g. ncc-email@nfsgrp.com
+  imapPasswordEncrypted Bytes              /// AES-256-GCM encrypted password
+  imapMailbox           String             @default("INBOX")
+
+  // Status & tracking
+  status                EmailReceiptConnectorStatus @default(ACTIVE)
+  lastPolledAt          DateTime?
+  lastPollError         String?            /// Last error message if poll failed
+  totalReceiptsIngested Int                @default(0)
+
+  // Audit
+  connectedByUserId String
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  company     Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  connectedBy User           @relation("EmailReceiptConnectorConnectedBy", fields: [connectedByUserId], references: [id])
+  receipts    EmailReceipt[]
+
+  @@unique([companyId, imapUser, imapMailbox], name: "EmailReceiptConnector_company_user_mailbox_key")
+  @@index([companyId, status], map: "EmailReceiptConnector_company_status_idx")
 }
