@@ -9,19 +9,22 @@ import {
   SecurityInspectorProvider,
   SecurityInspectorOverlay,
 } from "./components/security-inspector";
+import { FieldPoliciesProvider } from "./hooks/use-field-policies";
 
 export default function Providers({ children }: { children: React.ReactNode }) {
   return (
     <ViewRoleProvider>
       <RoleAuditProvider>
-        <SecurityInspectorProvider>
-          <BusyOverlayProvider>
-            {children}
-            <ViewRoleSwitcher />
-            <RoleAuditLegend />
-            <SecurityInspectorOverlay />
-          </BusyOverlayProvider>
-        </SecurityInspectorProvider>
+        <FieldPoliciesProvider>
+          <SecurityInspectorProvider>
+            <BusyOverlayProvider>
+              {children}
+              <ViewRoleSwitcher />
+              <RoleAuditLegend />
+              <SecurityInspectorOverlay />
+            </BusyOverlayProvider>
+          </SecurityInspectorProvider>
+        </FieldPoliciesProvider>
       </RoleAuditProvider>
     </ViewRoleProvider>
   );

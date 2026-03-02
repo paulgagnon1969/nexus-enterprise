@@ -1,22 +1,38 @@
 "use client";
 
-import React, { type ReactNode, type CSSProperties } from "react";
+import React, { useEffect, type ReactNode, type CSSProperties } from "react";
 import {
   ROLE_COLORS,
   ROLE_LABELS,
+  CLIENT_ROLE,
   VIEW_ROLE_TO_VISIBILITY,
   canRoleSee,
   useRoleAuditSafe,
   type VisibilityRole,
 } from "./role-audit-context";
 import { useViewRoleSafe } from "../view-as-role-context";
+import { useFieldPoliciesSafe } from "../hooks/use-field-policies";
 
 interface RoleVisibleProps {
   /**
-   * The minimum role required to see this content.
+   * The minimum internal role required to see this content (hardcoded fallback).
    * e.g., "PM" means PM and above can see it.
+   * When `secKey` is provided, the DB policy overrides this.
    */
   minRole: VisibilityRole;
+
+  /**
+   * Optional security resource key (e.g., "project.address").
+   * When set, the component fetches the DB policy and uses the DB-defined
+   * minRole + client access flag instead of the hardcoded props.
+   */
+  secKey?: string;
+
+  /**
+   * Static fallback for client visibility (only used when secKey is NOT set).
+   * Defaults to false — clients cannot see unless explicitly granted.
+   */
+  clientVisible?: boolean;
   
   /**
    * The content to wrap. In audit mode, it will be highlighted.
@@ -43,17 +59,19 @@ interface RoleVisibleProps {
 }
 
 /**
- * Wrapper component that highlights content based on role visibility in audit mode.
+ * Wrapper component that controls field visibility based on role.
  * 
- * Usage:
- * ```tsx
- * <RoleVisible minRole="PM">
- *   <span>Sensitive financial data</span>
- * </RoleVisible>
- * ```
+ * Supports two modes:
+ * 1. **Static** (no `secKey`): Uses the hardcoded `minRole` prop.
+ * 2. **Dynamic** (with `secKey`): Fetches the DB policy and uses that.
+ *    The hardcoded `minRole` is used as a fallback until the policy loads.
+ * 
+ * CLIENT is always independent from the internal hierarchy.
  */
 export function RoleVisible({
   minRole,
+  secKey,
+  clientVisible = false,
   children,
   label,
   display = "inline",
@@ -61,27 +79,51 @@ export function RoleVisible({
 }: RoleVisibleProps) {
   const { auditMode } = useRoleAuditSafe();
   const { viewAs } = useViewRoleSafe();
+  const fieldPolicies = useFieldPoliciesSafe();
+
+  // Register this secKey so the provider fetches the policy
+  useEffect(() => {
+    if (secKey && fieldPolicies) {
+      fieldPolicies.register(secKey);
+    }
+  }, [secKey, fieldPolicies]);
+
+  // Resolve effective minRole and clientCanView from DB policy or fallback
+  const dbPolicy = secKey ? fieldPolicies?.getPolicy(secKey) : null;
+  const effectiveMinRole: VisibilityRole = (dbPolicy?.minRole as VisibilityRole) ?? minRole;
+  const effectiveClientVisible = dbPolicy ? dbPolicy.clientCanView : clientVisible;
 
   // Check if we should hide this content based on viewAs role
   const mappedRole = VIEW_ROLE_TO_VISIBILITY[viewAs] ?? "ACTUAL";
   
   if (mappedRole !== "ACTUAL") {
-    // We're simulating a different role - check if it can see this content
-    const canSee = canRoleSee(mappedRole as VisibilityRole, minRole);
-    if (!canSee) {
-      // Hide the content entirely when viewing as a role that can't see it
-      return null;
+    if (mappedRole === CLIENT_ROLE) {
+      // Viewing as CLIENT — check independent client flag
+      if (!effectiveClientVisible) return null;
+    } else {
+      // Viewing as an internal role — check hierarchy
+      const canSee = canRoleSee(mappedRole as VisibilityRole, effectiveMinRole);
+      if (!canSee) return null;
     }
   }
 
+  // Compute data-sec-key for the security inspector
+  const secKeyAttr = secKey ? { "data-sec-key": secKey } : {};
+
   if (!auditMode) {
     // When not in audit mode, just render children directly
-    return <>{children}</>;
+    // Still attach data-sec-key so inspector can target it
+    return secKey
+      ? <span {...secKeyAttr} style={{ display: "contents" }}>{children}</span>
+      : <>{children}</>;
   }
 
-  const colors = ROLE_COLORS[minRole];
-  const roleLabel = ROLE_LABELS[minRole];
-  const tooltipText = label ? `${label}: ${roleLabel}` : roleLabel;
+  const colors = ROLE_COLORS[effectiveMinRole];
+  const roleLabel = ROLE_LABELS[effectiveMinRole];
+  const clientNote = effectiveClientVisible ? " · Client ✓" : "";
+  const tooltipText = label
+    ? `${label}: ${roleLabel}${clientNote}`
+    : `${roleLabel}${clientNote}`;
 
   const baseStyles: CSSProperties = {
     background: colors.bg,
@@ -98,14 +140,17 @@ export function RoleVisible({
         ? { display: "flex", alignItems: "center", gap: 8, padding: "8px 12px" }
         : { display: "flex", alignItems: "center", gap: 8, padding: "4px 8px" };
 
+  const clientColors = ROLE_COLORS[CLIENT_ROLE];
+
   return (
     <span
       style={{ ...baseStyles, ...displayStyles }}
       title={tooltipText}
-      data-role-audit={minRole}
+      data-role-audit={effectiveMinRole}
+      {...secKeyAttr}
     >
       <span style={{ flex: 1 }}>{children}</span>
-      {/* Colored dot indicator - always visible at right side */}
+      {/* Internal role dot */}
       <span
         style={{
           width: 14,
@@ -117,6 +162,22 @@ export function RoleVisible({
         }}
         aria-hidden="true"
       />
+      {/* Client access indicator (orange dot when client can see) */}
+      {effectiveClientVisible && (
+        <span
+          style={{
+            width: 10,
+            height: 10,
+            borderRadius: "50%",
+            background: clientColors.border,
+            flexShrink: 0,
+            boxShadow: `0 0 0 2px ${clientColors.bg}`,
+            marginLeft: -2,
+          }}
+          title="Client can view"
+          aria-hidden="true"
+        />
+      )}
     </span>
   );
 }

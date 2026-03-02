@@ -18,6 +18,8 @@ import {
   PolicyUpdateInput,
   BatchCheckRequest,
   FIELD_SECURITY_ROLE_HIERARCHY,
+  INTERNAL_ROLE_HIERARCHY,
+  CLIENT_ROLE,
 } from "./field-security.service";
 import { RedisService, CACHE_KEY, CACHE_TTL } from "../../infra/redis/redis.service";
 
@@ -215,10 +217,27 @@ export class FieldSecurityController {
     const userRole = this.fieldSecurity.getEffectiveRoleCode(user);
     const maxModifiableIndex = this.fieldSecurity.getMaxModifiableRoleIndex(userRole);
 
+    // Internal hierarchy roles the user can modify
+    const canModifyInternal = INTERNAL_ROLE_HIERARCHY.filter(
+      (_, i) => i <= maxModifiableIndex
+    );
+
+    // Any internal user can modify the CLIENT flag
+    const canModifyClient = userRole !== CLIENT_ROLE;
+
     return {
+      /** @deprecated Use internalHierarchy + clientRole instead */
       hierarchy: FIELD_SECURITY_ROLE_HIERARCHY,
+      /** Internal hierarchy (Crew → … → Superuser). CLIENT is separate. */
+      internalHierarchy: INTERNAL_ROLE_HIERARCHY,
+      /** CLIENT role code — independent from hierarchy */
+      clientRole: CLIENT_ROLE,
       userRole,
-      canModify: FIELD_SECURITY_ROLE_HIERARCHY.filter((_, i) => i <= maxModifiableIndex),
+      canModify: [
+        ...(canModifyClient ? [CLIENT_ROLE] : []),
+        ...canModifyInternal,
+      ],
+      canModifyClient,
     };
   }
 

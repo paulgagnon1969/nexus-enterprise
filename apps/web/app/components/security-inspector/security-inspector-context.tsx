@@ -10,11 +10,10 @@ import React, {
 } from "react";
 
 /**
- * Role hierarchy for field-level security.
- * Matches the backend FIELD_SECURITY_ROLE_HIERARCHY.
+ * Internal role hierarchy for field-level security (Crew+ format).
+ * CLIENT is an independent flag — not part of this hierarchy.
  */
-export const FIELD_SECURITY_ROLE_HIERARCHY = [
-  "CLIENT",
+export const INTERNAL_ROLE_HIERARCHY = [
   "CREW",
   "FOREMAN",
   "SUPER",
@@ -25,7 +24,20 @@ export const FIELD_SECURITY_ROLE_HIERARCHY = [
   "SUPER_ADMIN",
 ] as const;
 
-export type FieldSecurityRoleCode = (typeof FIELD_SECURITY_ROLE_HIERARCHY)[number];
+export type InternalRoleCode = (typeof INTERNAL_ROLE_HIERARCHY)[number];
+
+/** CLIENT is a standalone access flag. */
+export const CLIENT_ROLE = "CLIENT" as const;
+export type ClientRoleCode = typeof CLIENT_ROLE;
+
+/** Union of all role codes. */
+export type FieldSecurityRoleCode = InternalRoleCode | ClientRoleCode;
+
+/** @deprecated Use INTERNAL_ROLE_HIERARCHY + CLIENT_ROLE instead. */
+export const FIELD_SECURITY_ROLE_HIERARCHY = [
+  "CLIENT",
+  ...INTERNAL_ROLE_HIERARCHY,
+] as const;
 
 export interface FieldPermission {
   roleCode: FieldSecurityRoleCode;
@@ -219,16 +231,20 @@ export function SecurityInspectorProvider({ children }: { children: ReactNode })
       setOriginalPolicy(JSON.parse(JSON.stringify(data)));
     } catch (err: any) {
       setError(err?.message ?? "Failed to load policy");
-      // Set default policy on error
+      // Set default policy on error — CLIENT defaults to no access
+      const pmIndex = INTERNAL_ROLE_HIERARCHY.indexOf("PM");
       setPolicy({
         resourceKey,
         description: null,
-        permissions: FIELD_SECURITY_ROLE_HIERARCHY.map((roleCode, index) => ({
-          roleCode,
-          canView: true,
-          canEdit: index >= 4, // PM and above
-          canExport: true,
-        })),
+        permissions: [
+          { roleCode: CLIENT_ROLE, canView: false, canEdit: false, canExport: false },
+          ...INTERNAL_ROLE_HIERARCHY.map((roleCode, index) => ({
+            roleCode,
+            canView: true,
+            canEdit: index >= pmIndex,
+            canExport: true,
+          })),
+        ],
         isDefault: true,
       });
     } finally {

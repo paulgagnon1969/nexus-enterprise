@@ -3,24 +3,24 @@
 import React, { useEffect, useRef } from "react";
 import {
   useSecurityInspectorSafe,
-  FIELD_SECURITY_ROLE_HIERARCHY,
+  INTERNAL_ROLE_HIERARCHY,
+  CLIENT_ROLE,
   type FieldSecurityRoleCode,
 } from "./security-inspector-context";
 
-const ROLE_LABELS: Record<FieldSecurityRoleCode, string> = {
-  CLIENT: "Client",
-  CREW: "Crew",
-  FOREMAN: "Foreman",
-  SUPER: "Super",
-  PM: "PM",
-  EXECUTIVE: "Executive",
-  ADMIN: "Admin",
-  OWNER: "Owner",
+const ROLE_LABELS: Record<string, string> = {
+  CREW: "Crew+",
+  FOREMAN: "Foreman+",
+  SUPER: "Super+",
+  PM: "PM+",
+  EXECUTIVE: "Exec+",
+  ADMIN: "Admin+",
+  OWNER: "Owner+",
   SUPER_ADMIN: "Superuser",
+  CLIENT: "Client",
 };
 
-const ROLE_COLORS: Record<FieldSecurityRoleCode, string> = {
-  CLIENT: "#22c55e",
+const ROLE_COLORS: Record<string, string> = {
   CREW: "#10b981",
   FOREMAN: "#06b6d4",
   SUPER: "#3b82f6",
@@ -29,6 +29,7 @@ const ROLE_COLORS: Record<FieldSecurityRoleCode, string> = {
   ADMIN: "#ec4899",
   OWNER: "#ef4444",
   SUPER_ADMIN: "#fbbf24",
+  CLIENT: "#f97316",
 };
 
 export function SecurityInspectorOverlay() {
@@ -200,24 +201,18 @@ export function SecurityInspectorOverlay() {
 
         {policy && (
           <>
-            {/* Permission Matrix */}
+            {/* Internal Role Permission Matrix */}
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
                   <th style={{ textAlign: "left", padding: "8px 4px", fontWeight: 600 }}>Role</th>
-                  <th style={{ textAlign: "center", padding: "8px 4px", fontWeight: 600, width: 60 }}>
-                    View
-                  </th>
-                  <th style={{ textAlign: "center", padding: "8px 4px", fontWeight: 600, width: 60 }}>
-                    Edit
-                  </th>
-                  <th style={{ textAlign: "center", padding: "8px 4px", fontWeight: 600, width: 60 }}>
-                    Export
-                  </th>
+                  <th style={{ textAlign: "center", padding: "8px 4px", fontWeight: 600, width: 60 }}>View</th>
+                  <th style={{ textAlign: "center", padding: "8px 4px", fontWeight: 600, width: 60 }}>Edit</th>
+                  <th style={{ textAlign: "center", padding: "8px 4px", fontWeight: 600, width: 60 }}>Export</th>
                 </tr>
               </thead>
               <tbody>
-                {FIELD_SECURITY_ROLE_HIERARCHY.map((roleCode) => {
+                {INTERNAL_ROLE_HIERARCHY.map((roleCode) => {
                   const perm = policy.permissions.find((p) => p.roleCode === roleCode);
                   const canModify = canModifySet.has(roleCode);
                   const isUserRole = roleInfo?.userRole === roleCode;
@@ -231,13 +226,7 @@ export function SecurityInspectorOverlay() {
                       }}
                     >
                       <td style={{ padding: "6px 4px" }}>
-                        <span
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 6,
-                          }}
-                        >
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                           <span
                             style={{
                               width: 8,
@@ -287,10 +276,81 @@ export function SecurityInspectorOverlay() {
               </tbody>
             </table>
 
+            {/* CLIENT — separate section below divider */}
+            {(() => {
+              const clientPerm = policy.permissions.find((p) => p.roleCode === CLIENT_ROLE);
+              const canModifyClient = canModifySet.has(CLIENT_ROLE);
+              const isClientUser = roleInfo?.userRole === CLIENT_ROLE;
+              return (
+                <div
+                  style={{
+                    marginTop: 12,
+                    paddingTop: 10,
+                    borderTop: "2px solid #f97316",
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#c2410c", marginBottom: 6 }}>
+                    Client Access (independent)
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 16,
+                      opacity: canModifyClient ? 1 : 0.5,
+                      backgroundColor: isClientUser ? "#fff7ed" : undefined,
+                      padding: "6px 4px",
+                      borderRadius: 4,
+                    }}
+                  >
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <span
+                        style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#f97316" }}
+                      />
+                      <span style={{ fontSize: 12, fontWeight: isClientUser ? 600 : 400 }}>
+                        {ROLE_LABELS[CLIENT_ROLE]}
+                      </span>
+                      {isClientUser && <span style={{ fontSize: 10, color: "#f97316" }}>(you)</span>}
+                    </span>
+                    <label style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11 }}>
+                      <input
+                        type="checkbox"
+                        checked={clientPerm?.canView ?? false}
+                        disabled={!canModifyClient}
+                        onChange={(e) => updatePermission(CLIENT_ROLE, "canView", e.target.checked)}
+                        style={{ cursor: canModifyClient ? "pointer" : "not-allowed" }}
+                      />
+                      View
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11 }}>
+                      <input
+                        type="checkbox"
+                        checked={clientPerm?.canEdit ?? false}
+                        disabled={!canModifyClient}
+                        onChange={(e) => updatePermission(CLIENT_ROLE, "canEdit", e.target.checked)}
+                        style={{ cursor: canModifyClient ? "pointer" : "not-allowed" }}
+                      />
+                      Edit
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11 }}>
+                      <input
+                        type="checkbox"
+                        checked={clientPerm?.canExport ?? false}
+                        disabled={!canModifyClient}
+                        onChange={(e) => updatePermission(CLIENT_ROLE, "canExport", e.target.checked)}
+                        style={{ cursor: canModifyClient ? "pointer" : "not-allowed" }}
+                      />
+                      Export
+                    </label>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Help text */}
             <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 12 }}>
               {canModifySet.size > 0 ? (
-                <>You can modify permissions for roles up to {ROLE_LABELS[roleInfo?.userRole ?? "CLIENT"]}.</>
+                <>You can modify permissions for roles up to {ROLE_LABELS[roleInfo?.userRole ?? "CREW"]}.</>
               ) : (
                 <>Read-only view. Upgrade to Admin+ to edit policies.</>
               )}

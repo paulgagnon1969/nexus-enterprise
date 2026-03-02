@@ -13097,7 +13097,7 @@ ${htmlBody}
                   </span>
                 )}
               </div>
-              <RoleVisible minRole="CREW">
+              <RoleVisible minRole="CREW" secKey="project.status">
                 <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>
                   Status: {project.status}
                   {jsaStatus.personnelCount != null && jsaStatus.personnelCount > 0 && (
@@ -13115,7 +13115,7 @@ ${htmlBody}
                 </p>
               </RoleVisible>
               {actorDisplayName && (
-                <RoleVisible minRole="PM">
+                <RoleVisible minRole="PM" secKey="project.actorInfo">
                   <p style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
                     You are logged in as {actorDisplayName}
                     {actorProjectRoles && actorProjectRoles.length > 0 && (
@@ -13126,7 +13126,7 @@ ${htmlBody}
                   </p>
                 </RoleVisible>
               )}
-              <RoleVisible minRole="FOREMAN">
+              <RoleVisible minRole="FOREMAN" secKey="project.address">
                 <p style={{ fontSize: 13, marginTop: 8 }}>
                   {projectMapsUrl && projectAddress ? (
                     <a
@@ -14189,7 +14189,7 @@ ${htmlBody}
                     : "All Items"}
                 </div>
                 <div style={{ fontSize: 11, lineHeight: 1.5 }}>
-                  <RoleVisible minRole="CLIENT">
+                  <RoleVisible minRole="CREW" clientVisible>
                     <div>Progress: {selectionSummary.percentComplete.toFixed(2)}%</div>
                   </RoleVisible>
                   {selectionSummary.totalAmount > 0 && (
@@ -14223,7 +14223,7 @@ ${htmlBody}
             <div style={{ fontSize: 11, lineHeight: 1.5 }}>
               {overallSummary && (
                 <>
-                  <RoleVisible minRole="CLIENT">
+                  <RoleVisible minRole="CREW" clientVisible>
                     <div>Overall Progress: {overallSummary.percentComplete.toFixed(2)}%</div>
                   </RoleVisible>
                   {overallSummary.totalAmount > 0 && (

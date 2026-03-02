@@ -1374,22 +1374,22 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
           <thead>
             <tr>
               <th style={{ textAlign: "left", padding: "6px 8px", width: 120 }}>
-                <RoleVisible minRole="CLIENT">Line</RoleVisible>
+                <RoleVisible minRole="CREW" clientVisible>Line</RoleVisible>
               </th>
               <th style={{ textAlign: "left", padding: "6px 8px", width: 220 }}>
-                <RoleVisible minRole="CLIENT">Room</RoleVisible>
+                <RoleVisible minRole="CREW" clientVisible>Room</RoleVisible>
               </th>
               <th style={{ textAlign: "left", padding: "6px 8px", width: 100 }}>
-                <RoleVisible minRole="CLIENT">Activity</RoleVisible>
+                <RoleVisible minRole="CREW" clientVisible>Activity</RoleVisible>
               </th>
               <th style={{ textAlign: "left", padding: "6px 8px" }}>
-                <RoleVisible minRole="CLIENT">Task</RoleVisible>
+                <RoleVisible minRole="CREW" clientVisible>Task</RoleVisible>
               </th>
               <th style={{ textAlign: "right", padding: "6px 8px", width: 80 }}>
-                <RoleVisible minRole="CLIENT">Qty</RoleVisible>
+                <RoleVisible minRole="CREW" clientVisible>Qty</RoleVisible>
               </th>
               <th style={{ textAlign: "right", padding: "6px 8px", width: 80 }}>
-                <RoleVisible minRole="CLIENT">Unit</RoleVisible>
+                <RoleVisible minRole="CREW" clientVisible>Unit</RoleVisible>
               </th>
               <th style={{ textAlign: "right", padding: "6px 8px", width: 100 }}>
                 <RoleVisible minRole="SUPER">Total</RoleVisible>
@@ -1401,10 +1401,10 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
                 <RoleVisible minRole="FOREMAN">%</RoleVisible>
               </th>
               <th style={{ textAlign: "left", padding: "6px 8px", width: 80 }}>
-                <RoleVisible minRole="CLIENT">Cat</RoleVisible>
+                <RoleVisible minRole="CREW" clientVisible>Cat</RoleVisible>
               </th>
               <th style={{ textAlign: "left", padding: "6px 8px", width: 80 }}>
-                <RoleVisible minRole="CLIENT">Sel</RoleVisible>
+                <RoleVisible minRole="CREW" clientVisible>Sel</RoleVisible>
               </th>
               <th style={{ textAlign: "left", padding: "6px 8px", width: 180 }}>
                 <RoleVisible minRole="SUPER">Recon</RoleVisible>

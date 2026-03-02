@@ -6,8 +6,8 @@ import { PageCard } from "../../ui-shell";
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 // Role hierarchy
+/** Internal role hierarchy only — CLIENT is shown as a separate column. */
 const ROLE_ORDER = [
-  "CLIENT",
   "CREW",
   "FOREMAN",
   "SUPER",
@@ -18,16 +18,18 @@ const ROLE_ORDER = [
   "SUPER_ADMIN",
 ];
 
+const CLIENT_ROLE = "CLIENT";
+
 const ROLE_LABELS: Record<string, string> = {
+  CREW: "Crew+",
+  FOREMAN: "Foreman+",
+  SUPER: "Super+",
+  PM: "PM+",
+  EXECUTIVE: "Exec+",
+  ADMIN: "Admin+",
+  OWNER: "Owner+",
+  SUPER_ADMIN: "Superuser",
   CLIENT: "Client",
-  CREW: "Crew",
-  FOREMAN: "Foreman",
-  SUPER: "Super",
-  PM: "PM",
-  EXECUTIVE: "Exec",
-  ADMIN: "Admin",
-  OWNER: "Owner",
-  SUPER_ADMIN: "Super Admin",
 };
 
 // Protected roles require confirmation before modifying
@@ -66,6 +68,9 @@ const APPLICATION_MAP: AppModule[] = [
         label: "Project Overview",
         path: "/projects/[id]",
         fields: [
+          { key: "project.address", label: "Project Address", description: "Physical address (maps link)" },
+          { key: "project.status", label: "Project Status", description: "Status and onsite personnel" },
+          { key: "project.actorInfo", label: "Actor Info", description: "Logged-in user details and project roles" },
           { key: "project.budget", label: "Project Budget", description: "Total project budget amount" },
           { key: "project.costToDate", label: "Cost to Date", description: "Accumulated project costs" },
           { key: "project.margin", label: "Profit Margin", description: "Project profit margin percentage" },
@@ -783,6 +788,22 @@ export default function FieldSecurityPage() {
                             </th>
                           );
                         })}
+                        {/* CLIENT column header — visually separated */}
+                        <th
+                          style={{
+                            padding: "6px 4px",
+                            textAlign: "center",
+                            fontWeight: 600,
+                            fontSize: 11,
+                            color: "#c2410c",
+                            borderBottom: "1px solid #d1d5db",
+                            borderLeft: "3px solid #f97316",
+                            minWidth: 60,
+                            backgroundColor: "#fff7ed",
+                          }}
+                        >
+                          {ROLE_LABELS[CLIENT_ROLE]}
+                        </th>
                       </tr>
                       {/* Column Checkboxes Row - Collapsible */}
                       <tr style={{ backgroundColor: "#f9fafb" }}>
@@ -886,6 +907,37 @@ export default function FieldSecurityPage() {
                             </th>
                           );
                         })}
+                        {/* CLIENT column bulk checkbox */}
+                        <th
+                          style={{
+                            padding: showBulkColumns ? "4px 2px" : "2px",
+                            textAlign: "center",
+                            borderBottom: "1px solid #e5e7eb",
+                            borderLeft: "3px solid #f97316",
+                            backgroundColor: "#fff7ed",
+                          }}
+                        >
+                          {showBulkColumns ? (
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                              <label
+                                title="Toggle View for Client on all fields"
+                                style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 9, color: "#6b7280", cursor: "pointer" }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={getColumnState(CLIENT_ROLE, "canView") === "all"}
+                                  ref={(el) => { if (el) el.indeterminate = getColumnState(CLIENT_ROLE, "canView") === "some"; }}
+                                  disabled={bulkSaving}
+                                  onChange={() => handleBulkToggleColumn(CLIENT_ROLE, "canView", getColumnState(CLIENT_ROLE, "canView") !== "all")}
+                                  style={{ width: 10, height: 10 }}
+                                />
+                                V
+                              </label>
+                            </div>
+                          ) : (
+                            <span style={{ fontSize: 9, color: "#d1d5db" }}>•</span>
+                          )}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1090,6 +1142,53 @@ export default function FieldSecurityPage() {
                                 </td>
                               );
                             })}
+                            {/* CLIENT cell — View checkbox only */}
+                            {(() => {
+                              const clientPerm = getPermissionForRole(field.key, CLIENT_ROLE);
+                              const clientView = clientPerm?.canView ?? false;
+                              return (
+                                <td
+                                  style={{
+                                    padding: "6px 4px",
+                                    textAlign: "center",
+                                    borderBottom: "1px solid #e5e7eb",
+                                    borderLeft: "3px solid #f97316",
+                                    backgroundColor: "#fff7ed",
+                                    verticalAlign: "middle",
+                                  }}
+                                >
+                                  <label
+                                    title="Client can view"
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      gap: 2,
+                                      fontSize: 10,
+                                      color: clientView ? "#16a34a" : "#dc2626",
+                                      cursor: isSaving ? "not-allowed" : "pointer",
+                                    }}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={clientView}
+                                      disabled={isSaving}
+                                      onChange={() =>
+                                        handleTogglePermission(
+                                          field.key,
+                                          field.label,
+                                          CLIENT_ROLE,
+                                          "canView",
+                                          clientView
+                                        )
+                                      }
+                                      style={{ width: 12, height: 12 }}
+                                    />
+                                    V
+                                  </label>
+                                </td>
+                              );
+                            })()}
                           </tr>
                         );
                       })}
@@ -1112,6 +1211,7 @@ export default function FieldSecurityPage() {
                   <span style={{ color: "#16a34a" }}>✓ Green = Allowed</span> &nbsp;|&nbsp;
                   <span style={{ color: "#dc2626" }}>✗ Red = Denied</span> &nbsp;|&nbsp;
                   <span style={{ color: "#dc2626" }}>🔒 = Protected role (Admin+)</span> &nbsp;|&nbsp;
+                  <span style={{ color: "#c2410c" }}>🟠 Client = Independent access toggle</span> &nbsp;|&nbsp;
                   <span style={{ color: "#9ca3af" }}>Row checkboxes affect non-admin roles only</span>
                 </div>
               </div>
