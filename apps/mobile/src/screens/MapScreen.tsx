@@ -31,8 +31,12 @@ import {
   flagSupplierClosed,
   approveSupplierRemoval,
   denySupplierRemoval,
+  navigateToSupplier,
+  searchNearbyProducts,
   type LocalSupplier,
+  type NearbySupplier,
 } from "../api/localSuppliers";
+import { DirectionsDialog } from "../components/DirectionsDialog";
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
@@ -301,6 +305,17 @@ export function MapScreen({ onSelectProject }: Props) {
   const [selectedSupplier, setSelectedSupplier] = useState<LocalSupplier | null>(null);
   const calloutSlide = useRef(new RNAnimated.Value(200)).current;
 
+  // NexFIND product search
+  const [productSearch, setProductSearch] = useState("");
+  const [productResults, setProductResults] = useState<NearbySupplier[]>([]);
+  const [searchingProducts, setSearchingProducts] = useState(false);
+  const [searchMode, setSearchMode] = useState<"projects" | "products">("projects");
+
+  // Directions dialog
+  const [directionsTarget, setDirectionsTarget] = useState<{
+    latitude: number; longitude: number; address: string | null; name: string | null;
+  } | null>(null);
+
   // Map refs
   const shapeRef = useRef<Mapbox.ShapeSource>(null);
   const cameraRef = useRef<Mapbox.Camera>(null);
@@ -418,7 +433,23 @@ export function MapScreen({ onSelectProject }: Props) {
     return calcBounds(geoData);
   }, [radiusMiles, userLoc, geoData]);
 
-  const isFiltered = search.length > 0 || statusFilters.size < 3 || !showSuppliers;
+  const isFiltered = search.length > 0 || statusFilters.size < 3 || !showSuppliers || productResults.length > 0;
+
+  // Product search GeoJSON
+  const productGeo = useMemo((): GeoJSON.FeatureCollection<GeoJSON.Point> => ({
+    type: "FeatureCollection",
+    features: productResults.map((s) => ({
+      type: "Feature" as const,
+      id: `product-${s.id}`,
+      geometry: { type: "Point" as const, coordinates: [s.lng, s.lat] },
+      properties: {
+        id: s.id,
+        name: s.name,
+        distance: `${s.distanceMiles} mi`,
+        category: s.category ?? "",
+      },
+    })),
+  }), [productResults]);
 
   const toggleStatus = (key: StatusKey) => {
     setStatusFilters((prev) => {
@@ -434,9 +465,69 @@ export function MapScreen({ onSelectProject }: Props) {
 
   const clearFilters = () => {
     setSearch("");
+    setProductSearch("");
+    setProductResults([]);
+    setSearchMode("projects");
     setStatusFilters(new Set(["active", "pending", "closed"]));
     setShowSuppliers(true);
   };
+
+  // ── NexFIND product search ────────────────────────────────────────────
+
+  const handleProductSearch = useCallback(async () => {
+    const q = productSearch.trim();
+    if (q.length < 2) return;
+
+    // Use map center or first project with coords as reference
+    const refProject = projects.find((p) => p.latitude != null && p.longitude != null);
+    if (!refProject?.latitude || !refProject?.longitude) {
+      Alert.alert("No reference location", "No projects with GPS coordinates to search near.");
+      return;
+    }
+
+    setSearchingProducts(true);
+    try {
+      const results = await searchNearbyProducts(
+        q,
+        refProject.latitude,
+        refProject.longitude,
+        25,
+      );
+      setProductResults(results);
+    } catch (err: any) {
+      Alert.alert("Search failed", err.message ?? "Could not search for products.");
+    } finally {
+      setSearchingProducts(false);
+    }
+  }, [productSearch, projects]);
+
+  // ── Supplier directions ───────────────────────────────────────────────
+
+  const handleGetDirections = useCallback(async () => {
+    if (!selectedSupplier) return;
+
+    // Record navigation event (NexFIND capture)
+    try {
+      await navigateToSupplier(selectedSupplier.id);
+    } catch {
+      // Non-fatal — still open directions
+    }
+
+    setDirectionsTarget({
+      latitude: selectedSupplier.lat,
+      longitude: selectedSupplier.lng,
+      address: selectedSupplier.address,
+      name: selectedSupplier.name,
+    });
+  }, [selectedSupplier]);
+
+  const handleCallSupplier = useCallback(() => {
+    if (!selectedSupplier?.phone) return;
+    const tel = selectedSupplier.phone.replace(/[^\d+]/g, "");
+    Linking.openURL(`tel:${tel}`).catch(() =>
+      Alert.alert("Cannot call", "Unable to open the phone dialer."),
+    );
+  }, [selectedSupplier]);
 
   // ── Pin selection ─────────────────────────────────────────────────────────
 
@@ -665,20 +756,73 @@ export function MapScreen({ onSelectProject }: Props) {
             />
           </Mapbox.ShapeSource>
         )}
+
+        {/* ── NexFIND product search result pins (orange) ──────────── */}
+        {productResults.length > 0 && (
+          <Mapbox.ShapeSource
+            id="product-results-source"
+            shape={productGeo}
+          >
+            <Mapbox.CircleLayer
+              id="product-pin"
+              style={{
+                circleColor: "#f97316",
+                circleRadius: 11,
+                circleStrokeWidth: 2.5,
+                circleStrokeColor: "#ffffff",
+              }}
+            />
+            <Mapbox.SymbolLayer
+              id="product-label"
+              style={{
+                textField: ["get", "distance"] as any,
+                textSize: 10,
+                textColor: "#ffffff",
+                textFont: ["DIN Pro Medium", "Arial Unicode MS Regular"],
+                textOffset: [0, -2],
+                textAllowOverlap: true,
+              }}
+            />
+          </Mapbox.ShapeSource>
+        )}
       </Mapbox.MapView>
 
       {/* ── Filter bar ──────────────────────────────────────────────────── */}
       <View style={styles.filterBar}>
         <View style={styles.searchRow}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search projects…"
-            placeholderTextColor={colors.textMuted}
-            value={search}
-            onChangeText={setSearch}
-            returnKeyType="search"
-            clearButtonMode="while-editing"
-          />
+          {/* Mode toggle */}
+          <Pressable
+            style={[styles.searchModeBtn, searchMode === "products" && styles.searchModeBtnActive]}
+            onPress={() => setSearchMode((m) => (m === "projects" ? "products" : "projects"))}
+          >
+            <Text style={{ fontSize: 14 }}>{searchMode === "products" ? "🔍" : "📋"}</Text>
+          </Pressable>
+
+          {searchMode === "projects" ? (
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search projects…"
+              placeholderTextColor={colors.textMuted}
+              value={search}
+              onChangeText={setSearch}
+              returnKeyType="search"
+              clearButtonMode="while-editing"
+            />
+          ) : (
+            <TextInput
+              style={[styles.searchInput, { borderColor: "#f97316" }]}
+              placeholder="Search products near projects…"
+              placeholderTextColor={colors.textMuted}
+              value={productSearch}
+              onChangeText={setProductSearch}
+              returnKeyType="search"
+              onSubmitEditing={handleProductSearch}
+              clearButtonMode="while-editing"
+            />
+          )}
+          {searchingProducts && (
+            <ActivityIndicator size="small" color="#f97316" style={{ marginLeft: 4 }} />
+          )}
           {isFiltered && (
             <Pressable style={styles.clearBtn} onPress={clearFilters}>
               <Text style={styles.clearBtnText}>Clear</Text>
@@ -1017,7 +1161,18 @@ export function MapScreen({ onSelectProject }: Props) {
               <Text style={styles.flagReasonText}>{selectedSupplier.flagReason}</Text>
             </View>
           )}
+          {/* NexFIND action buttons */}
           <View style={styles.calloutActions}>
+            <Pressable style={styles.calloutDirectionsBtn} onPress={handleGetDirections}>
+              <Text style={styles.calloutDirectionsText}>🧭 Directions</Text>
+            </Pressable>
+            {selectedSupplier.phone && (
+              <Pressable style={styles.calloutCallBtn} onPress={handleCallSupplier}>
+                <Text style={styles.calloutCallText}>📞 Call</Text>
+              </Pressable>
+            )}
+          </View>
+          <View style={[styles.calloutActions, { marginTop: 6 }]}>
             {selectedSupplier.status === "ACTIVE" && (
               <Pressable style={styles.calloutFlagBtn} onPress={handleFlagSupplier}>
                 <Text style={styles.calloutFlagText}>⚠️ Flag Closed</Text>
@@ -1038,6 +1193,15 @@ export function MapScreen({ onSelectProject }: Props) {
             </Pressable>
           </View>
         </RNAnimated.View>
+      )}
+
+      {/* ── Directions dialog ────────────────────────────────────────────── */}
+      {directionsTarget && (
+        <DirectionsDialog
+          visible={!!directionsTarget}
+          onClose={() => setDirectionsTarget(null)}
+          destination={directionsTarget}
+        />
       )}
     </View>
   );
@@ -1351,6 +1515,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
   },
+  calloutCallBtn: {
+    flex: 1,
+    minWidth: 100,
+    backgroundColor: "#16a34a",
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  calloutCallText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
   calloutOpenBtn: {
     flex: 1,
     minWidth: 140,
@@ -1432,5 +1609,28 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 14,
     fontWeight: "700",
+  },
+
+  // ── NexFIND search-mode toggle ──────────────────────────────────────────
+  searchModeBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: "#fff",
+    marginRight: 8,
+  },
+  searchModeBtnActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  searchModeBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: colors.textSecondary,
+  },
+  searchModeBtnTextActive: {
+    color: "#fff",
   },
 });

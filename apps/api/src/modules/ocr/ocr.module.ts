@@ -10,9 +10,10 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { ReceiptInventoryBridgeService } from '../daily-log/receipt-inventory-bridge.service';
 import { TaskService } from '../task/task.service';
 import { AuditService } from '../../common/audit.service';
+import { NexfindModule } from '../nexfind/nexfind.module';
 
 @Module({
-  imports: [PrismaModule, ConfigModule, LocationsModule, NotificationsModule],
+  imports: [PrismaModule, ConfigModule, LocationsModule, NotificationsModule, NexfindModule],
   controllers: [OcrController],
   providers: [OpenAiOcrProvider, ReceiptOcrService, GcsService, ReceiptInventoryBridgeService, TaskService, AuditService],
   exports: [ReceiptOcrService, OpenAiOcrProvider, ReceiptInventoryBridgeService],
