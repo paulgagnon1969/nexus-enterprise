@@ -26,7 +26,7 @@ import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { importGoldenComponentsFromFile } from "@repo/database";
 import { readSingleFileFromMultipart } from "../../infra/uploads/multipart";
 import { getImportQueue, isRedisAvailable } from "../../infra/queue/import-queue";
-import { GcsService } from "../../infra/storage/gcs.service";
+import { ObjectStorageService } from "../../infra/storage/object-storage.service";
 import { RedisService, CACHE_KEY, CACHE_TTL } from "../../infra/redis/redis.service";
 import { RequiresModule } from "../billing/module.guard";
 
@@ -35,7 +35,7 @@ import { RequiresModule } from "../billing/module.guard";
 export class PricingController {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly gcs: GcsService,
+    private readonly gcs: ObjectStorageService,
     private readonly redis: RedisService,
   ) {}
 

@@ -952,7 +952,7 @@ export class AuthService {
       JSON.stringify({ userId: user.id })
     );
 
-    const webBase = process.env.WEB_BASE_URL || "https://ncc-nexus-contractor-connect.com";
+    const webBase = process.env.WEB_BASE_URL || "https://ncc.nfsgrp.com";
     const resetUrl = `${webBase.replace(/\/$/, "")}/reset-password?token=${encodeURIComponent(resetToken)}`;
 
     await this.email.sendMail({
@@ -1137,7 +1137,7 @@ export class AuthService {
       },
     });
 
-    const webBase = process.env.WEB_BASE_URL || "https://ncc-nexus-contractor-connect.com";
+    const webBase = process.env.WEB_BASE_URL || "https://ncc.nfsgrp.com";
     const base = webBase.replace(/\/$/, "");
     const url = `${base}/org-onboarding?token=${encodeURIComponent(invite.token)}`;
 

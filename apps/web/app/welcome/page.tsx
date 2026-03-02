@@ -104,7 +104,7 @@ export default function WelcomePage() {
             marginBottom: 32,
           }}
         >
-          ncc-nexus-contractor-connect.com
+          ncc.nfsgrp.com
         </div>
         <h1
           style={{
@@ -581,7 +581,7 @@ export default function WelcomePage() {
             © {new Date().getFullYear()} Nexus Contractor Connect. All rights
             reserved.
             <span style={{ marginLeft: 16, color: "#94a3b8" }}>
-              ncc-nexus-contractor-connect.com
+              ncc.nfsgrp.com
             </span>
           </div>
           <div style={{ display: "flex", gap: 24 }}>

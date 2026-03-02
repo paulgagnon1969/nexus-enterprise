@@ -67,7 +67,7 @@ flowchart TD
 
 ### Step 1 — Welcome Page (`/welcome`)
 
-**URL:** `https://ncc-nexus-contractor-connect.com/welcome`
+**URL:** `https://ncc.nfsgrp.com/welcome`
 
 **What the user sees:**
 - NCC logo and "Nexus Contractor Connect" branding in the header
@@ -89,7 +89,7 @@ flowchart TD
 
 ### Step 2 — Account Creation (`/apply`)
 
-**URL:** `https://ncc-nexus-contractor-connect.com/apply`
+**URL:** `https://ncc.nfsgrp.com/apply`
 
 **What the user sees:**
 - Nexus deconstruct animation header image
@@ -130,7 +130,7 @@ flowchart TD
 
 ### Step 3 — Nexis Profile Form (`/apply?token=xxx`)
 
-**URL:** `https://ncc-nexus-contractor-connect.com/apply?token=<session_token>`
+**URL:** `https://ncc.nfsgrp.com/apply?token=<session_token>`
 
 When a valid token is present, the page renders the `PublicOnboardingForm` component instead of the account creation form. The form loads the session state from `GET /onboarding/:token` and the skills matrix from `GET /onboarding/:token/skills`.
 

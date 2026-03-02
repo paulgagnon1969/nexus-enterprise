@@ -1,13 +1,13 @@
 import { Body, Controller, Post, Req, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import type { AuthenticatedUser } from "../auth/jwt.strategy";
-import { GcsService } from "../../infra/storage/gcs.service";
+import { ObjectStorageService } from "../../infra/storage/object-storage.service";
 
 @Controller("uploads")
 @UseGuards(JwtAuthGuard)
 // Handles signed upload URL creation for rich message/journal attachments.
 export class UploadsController {
-  constructor(private readonly gcs: GcsService) {}
+  constructor(private readonly gcs: ObjectStorageService) {}
 
   @Post()
   async createUpload(

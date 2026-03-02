@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { PrismaService } from '../../infra/prisma/prisma.service';
-import { GcsService } from '../../infra/storage/gcs.service';
+import { ObjectStorageService } from '../../infra/storage/object-storage.service';
 import { AuditService } from '../../common/audit.service';
 import { AuthenticatedUser } from '../auth/jwt.strategy';
 
@@ -63,7 +63,7 @@ export class AssetScanService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly gcs: GcsService,
+    private readonly gcs: ObjectStorageService,
     private readonly config: ConfigService,
     private readonly audit: AuditService,
   ) {}

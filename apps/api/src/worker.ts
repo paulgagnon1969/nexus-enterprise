@@ -20,17 +20,21 @@ import { GlobalRole as AuthGlobalRole, Role as AuthRole } from "./modules/auth/a
 import { ProjectService } from "./modules/project/project.service";
 import { importPriceListFromFile, importCompanyPriceListFromFile, importMasterCostbookFromFile, type PriceListImportMode } from "./modules/pricing/pricing.service";
 import { RedisService, CACHE_KEY } from "./infra/redis/redis.service";
-import { Storage } from "@google-cloud/storage";
 import { parse } from "csv-parse/sync";
 import argon2 from "argon2";
 import { decryptPortfolioHrJson, encryptPortfolioHrJson } from "./common/crypto/portfolio-hr.crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { PlanSheetStatus } from "@prisma/client";
+import { ObjectStorageService } from "./infra/storage/object-storage.service";
 
 const execFileAsync = promisify(execFile);
 
 const DEFAULT_PASSWORD = "Nexus2026.01";
+
+// Resolved from NestJS DI container in startWorker(). Module-level ref so all
+// helper functions can access it without threading the param everywhere.
+let storageService: ObjectStorageService;
 
 type ParentJobPayload = {
   kind?: "parent";
@@ -59,8 +63,6 @@ type ImportJobPayload = ParentJobPayload | ChunkJobPayload | ReceiptEmailOcrPayl
 const PRIORITY_DEFAULT = 5;
 const PRIORITY_XACT_COMPONENTS = 3;
 const PRIORITY_XACT_COMPONENTS_ALLOCATE = 1;
-
-const gcsStorage = new Storage();
 
 function safeError(err: unknown) {
   if (err instanceof Error) {
@@ -273,23 +275,7 @@ async function upsertHrPortfolio(prisma: PrismaService, params: {
 }
 
 async function downloadGcsToTmp(fileUri: string): Promise<string> {
-  const match = fileUri.match(/^gs:\/\/([^/]+)\/(.+)$/);
-  if (!match) {
-    throw new Error(`Invalid fileUri for GCS download: ${fileUri}`);
-  }
-  const [, bucketName, objectName] = match;
-  const bucket = gcsStorage.bucket(bucketName!);
-  const file = bucket.file(objectName!);
-
-  const baseTmpDir = process.env.NCC_UPLOAD_TMP_DIR || os.tmpdir();
-  const uploadDir = path.join(baseTmpDir, "ncc_uploads");
-  await fs.promises.mkdir(uploadDir, { recursive: true });
-
-  const safeName = path.basename(objectName!).replace(/[^a-zA-Z0-9_.-]/g, "_");
-  const localPath = path.join(uploadDir, `${Date.now()}-${safeName}`);
-
-  await file.download({ destination: localPath });
-  return localPath;
+  return storageService.downloadToTmp(fileUri);
 }
 
 async function runXactComponentsIngestionJob(prisma: PrismaService, job: any) {
@@ -1794,10 +1780,10 @@ async function processPlanSheetsJob(
     throw new Error("PLAN_SHEETS: upload has 0 pages");
   }
 
-  const gcsBucket = process.env.GCS_UPLOADS_BUCKET || process.env.XACT_UPLOADS_BUCKET;
-  // In local dev (no GCS), store WebP files under uploads/plan-sheets/ and
-  // save the relative path in the DB. The API serves them via a static route.
-  const useLocalStorage = !gcsBucket;
+  const storageBucket = process.env.GCS_UPLOADS_BUCKET || process.env.XACT_UPLOADS_BUCKET || process.env.MINIO_BUCKET;
+  // In local dev (no object storage), store WebP files under uploads/plan-sheets/
+  // and save the relative path in the DB. The API serves them via a static route.
+  const useLocalStorage = !storageBucket;
   const localUploadsDir = path.resolve(__dirname, "..", "uploads", "plan-sheets");
 
   const sheets = await prisma.planSheet.findMany({
@@ -1883,9 +1869,12 @@ async function processPlanSheetsJob(
           const destPath = path.join(destDir, `${pageNo}.webp`);
           await fs.promises.copyFile(localPath, destPath);
         } else {
-          const bucket = gcsStorage.bucket(gcsBucket!);
-          const file = bucket.file(gcsKey);
-          await file.save(buffer, { contentType: "image/webp" });
+          await storageService.uploadBuffer({
+            bucket: storageBucket!,
+            key: gcsKey,
+            buffer,
+            contentType: "image/webp",
+          });
         }
 
         // Clean up working copy
@@ -2511,6 +2500,7 @@ export async function startWorker() {
   const prisma = app.get(PrismaService);
   const projectService = app.get(ProjectService);
   const redis = app.get(RedisService);
+  storageService = app.get(ObjectStorageService);
 
   const worker = new Worker<ImportJobPayload>(
     IMPORT_QUEUE_NAME,

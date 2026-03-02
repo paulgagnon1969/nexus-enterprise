@@ -18,7 +18,7 @@ import {
   CreateXactRawImportJobDto,
 } from "./dto/import-jobs.dto";
 import { ImportJobType } from "@prisma/client";
-import { GcsService } from "../../infra/storage/gcs.service";
+import { ObjectStorageService } from "../../infra/storage/object-storage.service";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -30,7 +30,7 @@ import { RequiresProjectFeature } from "../billing/project-feature.guard";
 export class ProjectImportJobsController {
   constructor(
     private readonly jobs: ImportJobsService,
-    private readonly gcs: GcsService,
+    private readonly gcs: ObjectStorageService,
   ) {}
 
   @Roles(Role.OWNER, Role.ADMIN)

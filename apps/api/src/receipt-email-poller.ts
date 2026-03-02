@@ -14,12 +14,14 @@
  */
 import { ImapFlow } from "imapflow";
 import { simpleParser, ParsedMail, Attachment } from "mailparser";
-import { Storage } from "@google-cloud/storage";
 import {
   PrismaClient,
   EmailReceiptStatus,
   EmailReceiptConnectorStatus,
 } from "@prisma/client";
+import { ObjectStorageService } from "./infra/storage/object-storage.service";
+import { GcsStorageService } from "./infra/storage/gcs-storage.service";
+import { MinioStorageService } from "./infra/storage/minio-storage.service";
 import { Queue } from "bullmq";
 import IORedis from "ioredis";
 import path from "node:path";
@@ -45,7 +47,10 @@ const COMPANY_ID = process.env.RECEIPT_EMAIL_COMPANY_ID || "";
 // ── Helpers ────────────────────────────────────────────────────────────
 
 const prisma = new PrismaClient();
-const gcs = new Storage();
+const storage: ObjectStorageService =
+  process.env.STORAGE_PROVIDER === "minio"
+    ? new MinioStorageService()
+    : new GcsStorageService();
 
 function log(msg: string, meta?: Record<string, unknown>) {
   const line = meta ? `${msg} ${JSON.stringify(meta)}` : msg;
@@ -75,22 +80,19 @@ function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 128);
 }
 
-async function uploadToGcs(
+async function uploadToStorage(
   buffer: Buffer,
   filename: string,
   contentType: string,
 ): Promise<string> {
   const key = `${GCS_PREFIX}${Date.now()}-${crypto.randomBytes(4).toString("hex")}/${sanitizeFilename(filename)}`;
-  const bucket = gcs.bucket(GCS_BUCKET);
-  const file = bucket.file(key);
 
-  await file.save(buffer, {
+  return storage.uploadBuffer({
+    bucket: GCS_BUCKET || undefined,
+    key,
+    buffer,
     contentType,
-    resumable: false,
-    metadata: { cacheControl: "private, max-age=0" },
   });
-
-  return `gs://${GCS_BUCKET}/${key}`;
 }
 
 // ── Connector poll config ──────────────────────────────────────────────
@@ -204,7 +206,7 @@ export async function pollSingleConnector(
           const attachmentUrls: string[] = [];
           for (const att of attachments) {
             try {
-              const url = await uploadToGcs(
+              const url = await uploadToStorage(
                 att.content,
                 att.filename || `receipt-${Date.now()}.${att.contentType?.split("/")[1] || "bin"}`,
                 att.contentType || "application/octet-stream",

@@ -195,7 +195,7 @@ All API requests require authentication except explicitly public endpoints.
 ### 5.4 CORS Policy
 
 ```
-Access-Control-Allow-Origin: https://ncc-nexus-contractor-connect.com
+Access-Control-Allow-Origin: https://ncc.nfsgrp.com
 Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS
 Access-Control-Allow-Headers: Content-Type, Authorization
 Access-Control-Allow-Credentials: true

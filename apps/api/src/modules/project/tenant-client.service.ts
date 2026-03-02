@@ -529,7 +529,7 @@ export class TenantClientService {
     );
 
     // 5. Send welcome email if requested
-    const webBase = process.env.WEB_BASE_URL || "https://ncc-nexus-contractor-connect.com";
+    const webBase = process.env.WEB_BASE_URL || "https://ncc.nfsgrp.com";
     const portalUrl = `${webBase.replace(/\/$/, "")}/projects/portal/my-projects`;
     let passwordResetUrl: string | null = null;
 

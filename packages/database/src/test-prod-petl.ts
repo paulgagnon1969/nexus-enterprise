@@ -13,7 +13,7 @@ async function testPetlEndpoint() {
   if (!token) {
     console.error('ERROR: ACCESS_TOKEN environment variable not set');
     console.log('\nTo get your token:');
-    console.log('1. Open https://ncc-nexus-contractor-connect.com in your browser');
+    console.log('1. Open https://ncc.nfsgrp.com in your browser');
     console.log('2. Open DevTools (F12) → Application → Local Storage');
     console.log('3. Copy the value of "accessToken"');
     console.log('4. Run: ACCESS_TOKEN="your-token-here" npx ts-node src/test-prod-petl.ts');

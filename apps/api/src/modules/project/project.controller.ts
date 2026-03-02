@@ -40,7 +40,7 @@ import {
 import { CreateProjectPetlArchiveDto } from "./dto/project-petl-archive.dto";
 import { ImportJobsService } from "../import-jobs/import-jobs.service";
 import { ImportJobType } from "@prisma/client";
-import { GcsService } from "../../infra/storage/gcs.service";
+import { ObjectStorageService } from "../../infra/storage/object-storage.service";
 import { TaxJurisdictionService } from "./tax-jurisdiction.service";
 import fs from "node:fs/promises";
 import {
@@ -64,7 +64,7 @@ export class ProjectController {
   constructor(
     private readonly projects: ProjectService,
     private readonly importJobs: ImportJobsService,
-    private readonly gcs: GcsService,
+    private readonly gcs: ObjectStorageService,
     private readonly taxJurisdictions: TaxJurisdictionService,
   ) {}
 

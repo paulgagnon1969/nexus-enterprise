@@ -43,7 +43,7 @@ type FinancialSection =
 type FinancialCardGroup = "Pricing & Estimation" | "Contracts & Changes" | "Financial Operations" | "Resources & Logistics";
 
 type FinancialCardDef = {
-  id: FinancialSection | "EXT_SUPPLIER_CATALOG" | "EXT_RECONCILIATION" | "EXT_RECEIPTS" | "EXT_AGREEMENTS" | "COST_BOOK";
+  id: FinancialSection | "EXT_SUPPLIER_CATALOG" | "EXT_RECONCILIATION" | "EXT_RECEIPTS" | "EXT_AGREEMENTS" | "EXT_ASSETS" | "COST_BOOK";
   icon: string;
   title: string;
   subtitle: string;
@@ -177,6 +177,14 @@ const FINANCIAL_CARDS_RAW: FinancialCardDef[] = [
     icon: "🚛",
     title: "Asset Logistics",
     subtitle: "Locations, holdings & inventory movements",
+    group: "Resources & Logistics",
+  },
+  {
+    id: "EXT_ASSETS",
+    icon: "🔧",
+    title: "Asset Management",
+    subtitle: "Equipment, tools & rental inventory CRUD",
+    href: "/assets",
     group: "Resources & Logistics",
   },
 ];

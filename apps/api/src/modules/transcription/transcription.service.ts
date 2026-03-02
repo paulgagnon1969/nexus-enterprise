@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import OpenAI from "openai";
-import { GcsService } from "../../infra/storage/gcs.service";
+import { ObjectStorageService } from "../../infra/storage/object-storage.service";
 import * as fs from "fs/promises";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -129,7 +129,7 @@ export class TranscriptionService {
 
   constructor(
     private readonly config: ConfigService,
-    private readonly gcs: GcsService,
+    private readonly gcs: ObjectStorageService,
   ) {}
 
   private getClient(): OpenAI {

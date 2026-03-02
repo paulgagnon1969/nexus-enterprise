@@ -3,7 +3,7 @@
  * Run with: npx ts-node scripts/publish-policies.ts
  */
 
-const API_BASE = process.env.API_BASE || "https://ncc-nexus-contractor-connect.com";
+const API_BASE = process.env.API_BASE || "https://ncc.nfsgrp.com";
 
 // You'll need a SUPER_ADMIN token - get it from localStorage after logging in
 const TOKEN = process.env.ADMIN_TOKEN || "";
@@ -244,7 +244,7 @@ async function publishPolicies() {
   if (!TOKEN) {
     console.error("ERROR: Set ADMIN_TOKEN environment variable with a SUPER_ADMIN JWT token");
     console.log("\nTo get a token:");
-    console.log("1. Log in as SUPER_ADMIN at https://ncc-nexus-contractor-connect.com/login");
+    console.log("1. Log in as SUPER_ADMIN at https://ncc.nfsgrp.com/login");
     console.log("2. Open browser DevTools → Application → Local Storage");
     console.log("3. Copy the 'accessToken' value");
     console.log("4. Run: ADMIN_TOKEN='your-token' npx ts-node scripts/publish-policies.ts");
@@ -330,7 +330,7 @@ async function publishPolicies() {
 
   console.log("\n========================================");
   console.log("DONE! View the policies at:");
-  console.log("- https://ncc-nexus-contractor-connect.com/documents/system");
+  console.log("- https://ncc.nfsgrp.com/documents/system");
   console.log("========================================");
 }
 

@@ -6,7 +6,7 @@ import {
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../../infra/prisma/prisma.service";
-import { GcsService } from "../../infra/storage/gcs.service";
+import { ObjectStorageService } from "../../infra/storage/object-storage.service";
 import { getImportQueue, isRedisAvailable } from "../../infra/queue/import-queue";
 import {
   ImportJobStatus,
@@ -23,7 +23,7 @@ export class PlanSheetsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
-    private readonly gcsService: GcsService,
+    private readonly gcsService: ObjectStorageService,
   ) {}
 
   // ── List plan sets for a project ───────────────────────────────────────

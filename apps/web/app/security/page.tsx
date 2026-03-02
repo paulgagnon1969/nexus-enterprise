@@ -376,7 +376,7 @@ export default function SecurityPage() {
           <div style={{ color: "#64748b", fontSize: 14 }}>
             © {new Date().getFullYear()} Nexus Contractor Connect. All rights reserved.
             <span style={{ marginLeft: 16, color: "#94a3b8" }}>
-              ncc-nexus-contractor-connect.com
+              ncc.nfsgrp.com
             </span>
           </div>
           <div style={{ display: "flex", gap: 24 }}>

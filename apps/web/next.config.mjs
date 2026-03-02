@@ -4,6 +4,7 @@ const withNextIntl = createNextIntlPlugin();
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: "standalone",
   reactStrictMode: true,
   // Provide a Turbopack config object so next-intl can register its aliases
   // correctly when using the Turbopack dev server.
@@ -20,7 +21,7 @@ const nextConfig = {
             value: "nexus-enterprise-web.vercel.app",
           },
         ],
-        destination: "https://ncc-nexus-contractor-connect.com/:path*",
+        destination: "https://ncc.nfsgrp.com/:path*",
         permanent: true,
       },
     ];

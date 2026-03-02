@@ -1,0 +1,172 @@
+# Shadow deployment: Full NCC stack on Mac Studio behind Cloudflare Tunnel.
+# Usage: docker compose -f infra/docker/docker-compose.shadow.yml up -d
+#
+# Requires .env.shadow at repo root (git-ignored). See .env.shadow.example.
+
+services:
+  # ---------- Data stores ----------
+  postgres:
+    image: postgres:18
+    container_name: nexus-shadow-postgres
+    restart: unless-stopped
+    env_file: ../../.env.shadow
+    environment:
+      POSTGRES_USER: ${SHADOW_PG_USER:-nexus_user}
+      POSTGRES_PASSWORD: ${SHADOW_PG_PASSWORD}
+      POSTGRES_DB: ${SHADOW_PG_DB:-nexus_db}
+    ports:
+      - "5435:5432"
+    volumes:
+      - nexus-shadow-postgres-data:/var/lib/postgresql/data
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=8GB
+      - -c
+      - effective_cache_size=48GB
+      - -c
+      - work_mem=256MB
+      - -c
+      - maintenance_work_mem=2GB
+      - -c
+      - wal_buffers=64MB
+    shm_size: "4g"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SHADOW_PG_USER:-nexus_user} -d ${SHADOW_PG_DB:-nexus_db}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:8
+    container_name: nexus-shadow-redis
+    restart: unless-stopped
+    ports:
+      - "6381:6379"
+    volumes:
+      - nexus-shadow-redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: nexus-shadow-minio
+    restart: unless-stopped
+    env_file: ../../.env.shadow
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    ports:
+      - "9000:9000"   # S3-compatible API
+      - "9001:9001"   # Console UI (local only — not tunneled)
+    volumes:
+      - nexus-shadow-minio-data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------- Application ----------
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    container_name: nexus-shadow-api
+    restart: unless-stopped
+    env_file: ../../.env.shadow
+    environment:
+      PORT: "8000"
+      NODE_ENV: production
+      STORAGE_PROVIDER: minio
+      DATABASE_URL: postgresql://${SHADOW_PG_USER:-nexus_user}:${SHADOW_PG_PASSWORD}@postgres:5432/${SHADOW_PG_DB:-nexus_db}
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: "9000"
+      MINIO_USE_SSL: "false"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    container_name: nexus-shadow-worker
+    restart: unless-stopped
+    env_file: ../../.env.shadow
+    environment:
+      PORT: "8001"
+      NODE_ENV: production
+      STORAGE_PROVIDER: minio
+      DATABASE_URL: postgresql://${SHADOW_PG_USER:-nexus_user}:${SHADOW_PG_PASSWORD}@postgres:5432/${SHADOW_PG_DB:-nexus_db}
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: "9000"
+      MINIO_USE_SSL: "false"
+    command: ["node", "dist/worker-http.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: https://api-staging.ncc.nfsgrp.com
+        NEXT_PUBLIC_API_URL: https://api-staging.ncc.nfsgrp.com
+        NEXT_PUBLIC_MAPBOX_TOKEN: ${NEXT_PUBLIC_MAPBOX_TOKEN}
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
+    container_name: nexus-shadow-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # ---------- Tunnel ----------
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: nexus-shadow-tunnel
+    restart: unless-stopped
+    command: tunnel --config /etc/cloudflared/config.yml run
+    volumes:
+      - ../cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+      - ${CLOUDFLARE_CREDENTIALS_FILE:-~/.cloudflared/credentials.json}:/etc/cloudflared/credentials.json:ro
+    depends_on:
+      - web
+      - api
+
+volumes:
+  nexus-shadow-postgres-data:
+  nexus-shadow-redis-data:
+  nexus-shadow-minio-data:

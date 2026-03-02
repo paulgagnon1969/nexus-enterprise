@@ -4,7 +4,9 @@ import { PrismaModule } from '../../infra/prisma/prisma.module';
 import { OpenAiOcrProvider } from './openai-ocr.provider';
 import { ReceiptOcrService } from './receipt-ocr.service';
 import { OcrController } from './ocr.controller';
-import { GcsService } from '../../infra/storage/gcs.service';
+import { ObjectStorageService } from '../../infra/storage/object-storage.service';
+import { GcsStorageService } from '../../infra/storage/gcs-storage.service';
+import { MinioStorageService } from '../../infra/storage/minio-storage.service';
 import { LocationsModule } from '../locations/locations.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ReceiptInventoryBridgeService } from '../daily-log/receipt-inventory-bridge.service';
@@ -12,10 +14,18 @@ import { TaskService } from '../task/task.service';
 import { AuditService } from '../../common/audit.service';
 import { NexfindModule } from '../nexfind/nexfind.module';
 
+const StorageProvider = {
+  provide: ObjectStorageService,
+  useClass:
+    process.env.STORAGE_PROVIDER === 'minio'
+      ? MinioStorageService
+      : GcsStorageService,
+};
+
 @Module({
   imports: [PrismaModule, ConfigModule, LocationsModule, NotificationsModule, NexfindModule],
   controllers: [OcrController],
-  providers: [OpenAiOcrProvider, ReceiptOcrService, GcsService, ReceiptInventoryBridgeService, TaskService, AuditService],
+  providers: [OpenAiOcrProvider, ReceiptOcrService, StorageProvider, ReceiptInventoryBridgeService, TaskService, AuditService],
   exports: [ReceiptOcrService, OpenAiOcrProvider, ReceiptInventoryBridgeService],
 })
 export class OcrModule {}

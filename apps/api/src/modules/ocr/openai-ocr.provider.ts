@@ -2,7 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { OcrProvider, ReceiptOcrData } from './ocr-provider.interface';
-import { GcsService } from '../../infra/storage/gcs.service';
+import { ObjectStorageService } from '../../infra/storage/object-storage.service';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as fsPromises from 'fs/promises';
@@ -58,7 +58,7 @@ export class OpenAiOcrProvider implements OcrProvider {
 
   constructor(
     private readonly configService: ConfigService,
-    @Optional() private readonly gcsService?: GcsService,
+    @Optional() private readonly gcsService?: ObjectStorageService,
   ) {}
 
   private getClient(): OpenAI {

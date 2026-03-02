@@ -3,21 +3,15 @@ import { Storage } from "@google-cloud/storage";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
+import { ObjectStorageService } from "./object-storage.service";
 
 @Injectable()
-export class GcsService {
+export class GcsStorageService extends ObjectStorageService {
   private readonly storage: Storage;
 
   constructor() {
+    super();
     this.storage = new Storage();
-  }
-
-  private parseGsUri(uri: string): { bucket: string; object: string } {
-    const match = uri.match(/^gs:\/\/([^/]+)\/(.+)$/);
-    if (!match) {
-      throw new Error(`Invalid GCS URI: ${uri}`);
-    }
-    return { bucket: match[1]!, object: match[2]! };
   }
 
   async createSignedUploadUrl(options: {
@@ -27,12 +21,7 @@ export class GcsService {
     expiresInSeconds?: number;
   }): Promise<{ uploadUrl: string; fileUri: string }> {
     const { key, contentType, expiresInSeconds = 15 * 60 } = options;
-    const bucketName =
-      options.bucket || process.env.XACT_UPLOADS_BUCKET || process.env.GCS_UPLOADS_BUCKET;
-
-    if (!bucketName) {
-      throw new Error("XACT_UPLOADS_BUCKET (or GCS_UPLOADS_BUCKET) is not configured");
-    }
+    const bucketName = this.resolveBucket(options.bucket);
 
     try {
       const bucket = this.storage.bucket(bucketName);
@@ -89,12 +78,7 @@ export class GcsService {
     contentType: string;
   }): Promise<string> {
     const { key, buffer, contentType } = options;
-    const bucketName =
-      options.bucket || process.env.XACT_UPLOADS_BUCKET || process.env.GCS_UPLOADS_BUCKET;
-
-    if (!bucketName) {
-      throw new Error("XACT_UPLOADS_BUCKET (or GCS_UPLOADS_BUCKET) is not configured");
-    }
+    const bucketName = this.resolveBucket(options.bucket);
 
     const bucket = this.storage.bucket(bucketName);
     const file = bucket.file(key);
@@ -125,7 +109,7 @@ export class GcsService {
    * responsible for configuring bucket ACLs appropriately.
    */
   getPublicUrlFromUri(uri: string): string {
-    const { bucket, object } = this.parseGsUri(uri);
+    const { bucket, object } = this.parseUri(uri);
     const base = process.env.GCS_PUBLIC_BASE_URL || "https://storage.googleapis.com";
     return `${base}/${bucket}/${object}`;
   }
@@ -140,12 +124,7 @@ export class GcsService {
     expiresInSeconds?: number;
   }): Promise<string> {
     const { key, expiresInSeconds = 15 * 60 } = options;
-    const bucketName =
-      options.bucket || process.env.XACT_UPLOADS_BUCKET || process.env.GCS_UPLOADS_BUCKET;
-
-    if (!bucketName) {
-      throw new Error("XACT_UPLOADS_BUCKET (or GCS_UPLOADS_BUCKET) is not configured");
-    }
+    const bucketName = this.resolveBucket(options.bucket);
 
     const bucket = this.storage.bucket(bucketName);
     const file = bucket.file(key);
@@ -167,7 +146,6 @@ export class GcsService {
     const { key } = options;
     const bucketName =
       options.bucket || process.env.XACT_UPLOADS_BUCKET || process.env.GCS_UPLOADS_BUCKET;
-
     if (!bucketName) return;
 
     try {
@@ -188,7 +166,7 @@ export class GcsService {
    * Download a gs:// URI to a temporary file and return the local path.
    */
   async downloadToTmp(uri: string): Promise<string> {
-    const { bucket, object } = this.parseGsUri(uri);
+    const { bucket, object } = this.parseUri(uri);
     const tmpBase = process.env.NCC_UPLOAD_TMP_DIR || os.tmpdir();
     const uploadDir = path.join(tmpBase, "ncc_uploads");
     await fs.mkdir(uploadDir, { recursive: true });

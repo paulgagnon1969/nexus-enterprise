@@ -574,21 +574,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             data-help="nav-financial"
             className={
               "app-nav-link" +
-              (isActive("/financial") || isActive("/tools/supplier-catalog")
+              (isActive("/financial") || isActive("/tools/supplier-catalog") || isActive("/assets")
                 ? " app-nav-link-active"
                 : "")
             }
           >
             {h.financial}
-          </Link>
-          <Link
-            href="/assets"
-            className={
-              "app-nav-link" +
-              (isActive("/assets") ? " app-nav-link-active" : "")
-            }
-          >
-            Assets
           </Link>
           <Link
             href="/reports"

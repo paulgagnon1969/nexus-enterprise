@@ -1,0 +1,25 @@
+# Cloudflare Tunnel configuration for the NCC shadow deployment.
+#
+# Before using this file:
+#   1. cloudflared tunnel login
+#   2. cloudflared tunnel create nexus-shadow
+#   3. Replace <TUNNEL_ID> below with the tunnel ID from step 2
+#   4. Route DNS:
+#      cloudflared tunnel route dns nexus-shadow staging.ncc.nfsgrp.com
+#      cloudflared tunnel route dns nexus-shadow api-staging.ncc.nfsgrp.com
+#
+# The credentials file is created automatically by `cloudflared tunnel create`
+# at ~/.cloudflared/<TUNNEL_ID>.json.
+
+tunnel: <TUNNEL_ID>
+credentials-file: /etc/cloudflared/credentials.json
+
+ingress:
+  - hostname: staging.ncc.nfsgrp.com
+    service: http://web:3000
+
+  - hostname: api-staging.ncc.nfsgrp.com
+    service: http://api:8000
+
+  # Catch-all: return 404 for unmatched hostnames
+  - service: http_status:404

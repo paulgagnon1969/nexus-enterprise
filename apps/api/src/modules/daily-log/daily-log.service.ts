@@ -1,7 +1,7 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuditService } from "../../common/audit.service";
-import { GcsService } from "../../infra/storage/gcs.service";
+import { ObjectStorageService } from "../../infra/storage/object-storage.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateDailyLogDto, DailyLogTypeDto } from "./dto/create-daily-log.dto";
 import { UpdateDailyLogDto } from "./dto/update-daily-log.dto";
@@ -34,7 +34,7 @@ export class DailyLogService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    private readonly gcs: GcsService,
+    private readonly gcs: ObjectStorageService,
     private readonly notifications: NotificationsService,
     private readonly push: PushService,
     private readonly tasks: TaskService,
