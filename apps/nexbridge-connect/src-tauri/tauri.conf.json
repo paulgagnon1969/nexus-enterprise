@@ -1,23 +1,23 @@
 {
-  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-cli/schema.json",
+  "$schema": "https://schema.tauri.app/config/2",
   "productName": "NexBRIDGE Connect",
-  "version": "0.1.0",
   "identifier": "com.nexus.nexbridge-connect",
+  "version": "1.0.0",
   "build": {
-    "frontendDist": "../dist",
-    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build",
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "devUrl": "http://localhost:1421",
+    "frontendDist": "../dist"
   },
   "app": {
     "windows": [
       {
         "title": "NexBRIDGE Connect",
-        "width": 1200,
+        "width": 960,
         "height": 800,
-        "minWidth": 900,
-        "minHeight": 600,
         "resizable": true,
+        "minWidth": 480,
+        "minHeight": 600,
         "center": true
       }
     ],
@@ -28,12 +28,27 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "externalBin": [
+      "contacts_helper"
+    ],
+    "resources": [
+      "src/contacts_windows.ps1"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
-  }
+    ],
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    }
+  },
+  "plugins": {}
 }

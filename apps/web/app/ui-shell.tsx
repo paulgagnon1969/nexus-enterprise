@@ -539,10 +539,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </Link>
           )}
           <Link
-            href="/files"
+            href="/todos"
             className={
               "app-nav-link" +
-              (isActive("/files") ? " app-nav-link-active" : "")
+              (isActive("/todos") ? " app-nav-link-active" : "")
             }
           >
             {h.files}

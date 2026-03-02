@@ -1,35 +1,39 @@
 {
   "name": "nexbridge-connect",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "NexBRIDGE Connect — Desktop companion for NCC video property assessments",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "tauri:clean": "./scripts/cleanup.sh && tauri dev",
+    "cleanup": "./scripts/cleanup.sh",
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
-    "@tauri-apps/plugin-dialog": "^2.0.0",
-    "@tauri-apps/plugin-fs": "^2.0.0",
-    "@tauri-apps/plugin-http": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.6.0",
+    "@tauri-apps/plugin-fs": "^2.4.5",
+    "@tauri-apps/plugin-http": "^2.5.7",
     "@tauri-apps/plugin-shell": "^2.0.0",
     "@tauri-apps/plugin-store": "^2.0.0",
-    "react": "^18.3.0",
-    "react-dom": "^18.3.0",
-    "react-router-dom": "^6.20.0"
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.13.1"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
-    "@types/react": "^18.2.79",
-    "@types/react-dom": "^18.2.25",
-    "@vitejs/plugin-react": "^4.2.0",
-    "autoprefixer": "^10.4.0",
-    "postcss": "^8.4.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.1.4",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0",
-    "typescript": "^5.3.0",
-    "vite": "^5.4.0"
+    "typescript": "^5.5.0",
+    "vite": "^7.3.1"
   }
 }

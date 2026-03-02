@@ -1,5 +1,5 @@
 import { apiJson, apiFetch } from "./client";
-import type { TaskItem, CreateTaskRequest, TaskStatus } from "../types/api";
+import type { TaskItem, CreateTaskRequest, TaskStatus, TaskDisposition, TaskActivityItem } from "../types/api";
 
 /**
  * Fetch tasks linked to a specific daily log.
@@ -70,6 +70,43 @@ export async function updateTask(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
+}
+
+/**
+ * Submit a disposition (Approve / Reject / Reassign) with optional note.
+ */
+export async function disposeTask(
+  taskId: string,
+  data: { disposition: TaskDisposition; note?: string; assigneeId?: string },
+): Promise<TaskItem> {
+  return apiJson<TaskItem>(`/tasks/${encodeURIComponent(taskId)}/dispose`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+/**
+ * Add a note / memo to a task.
+ */
+export async function addTaskNote(
+  taskId: string,
+  note: string,
+): Promise<TaskActivityItem> {
+  return apiJson<TaskActivityItem>(`/tasks/${encodeURIComponent(taskId)}/notes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note }),
+  });
+}
+
+/**
+ * Fetch the full activity log for a task.
+ */
+export async function fetchTaskActivities(
+  taskId: string,
+): Promise<TaskActivityItem[]> {
+  return apiJson<TaskActivityItem[]>(`/tasks/${encodeURIComponent(taskId)}/activities`);
 }
 
 /**

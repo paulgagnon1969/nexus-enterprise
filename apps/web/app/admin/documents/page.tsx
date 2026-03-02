@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback, useTransition } from "react";
+import { useEffect, useState, useRef, useMemo, useCallback, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { PageCard } from "../../ui-shell";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -109,10 +110,40 @@ interface DocumentStats {
 
 type StatusFilter = "ACTIVE" | "ARCHIVED" | "ALL";
 
+// --- Global Search Types ---
+
+interface SearchSnippet {
+  text: string;
+  matchStart: number;
+  matchEnd: number;
+}
+
+interface SearchDocMatch {
+  id: string;
+  code: string;
+  title: string;
+  description?: string | null;
+  category?: string | null;
+  snippets: SearchSnippet[];
+  matchCount: number;
+}
+
+interface SearchGroup {
+  category: string;
+  documents: SearchDocMatch[];
+  totalInGroup: number;
+}
+
+interface SearchResults {
+  groups: SearchGroup[];
+  totalMatches: number;
+}
+
 // --- Main Page Component ---
 
 export default function DocumentImportPage() {
   const [, startUiTransition] = useTransition();
+  const router = useRouter();
 
   const [documents, setDocuments] = useState<StagedDocument[]>([]);
   const [stats, setStats] = useState<DocumentStats | null>(null);
@@ -158,6 +189,13 @@ export default function DocumentImportPage() {
   const [systemDocsSearch, setSystemDocsSearch] = useState("");
   const [systemDocsShowAll, setSystemDocsShowAll] = useState(true);
   const [systemDocsSortBy, setSystemDocsSortBy] = useState<"newest" | "title" | "status">("newest");
+
+  // Global Document Search
+  const [globalSearchQuery, setGlobalSearchQuery] = useState("");
+  const [globalSearchResults, setGlobalSearchResults] = useState<SearchResults | null>(null);
+  const [globalSearchLoading, setGlobalSearchLoading] = useState(false);
+  const [globalSearchExpanded, setGlobalSearchExpanded] = useState(false);
+  const globalSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem("accessToken");
@@ -327,6 +365,43 @@ export default function DocumentImportPage() {
 
     return sorted;
   }, [systemDocs, systemDocsShowAll, systemDocsSearch, systemDocsSortBy]);
+
+  // Global document search with debounce
+  const executeGlobalSearch = useCallback(async (q: string) => {
+    if (!q || q.trim().length < 2) {
+      setGlobalSearchResults(null);
+      setGlobalSearchLoading(false);
+      return;
+    }
+    setGlobalSearchLoading(true);
+    try {
+      const res = await fetch(
+        `${API_BASE}/admin/sops/documents/search?q=${encodeURIComponent(q.trim())}`,
+        { headers: getAuthHeaders() },
+      );
+      if (res.ok) {
+        const data: SearchResults = await res.json();
+        startUiTransition(() => setGlobalSearchResults(data));
+      }
+    } catch {
+      // Non-critical
+    } finally {
+      setGlobalSearchLoading(false);
+    }
+  }, []);
+
+  const handleGlobalSearchChange = useCallback(
+    (value: string) => {
+      setGlobalSearchQuery(value);
+      if (globalSearchTimer.current) clearTimeout(globalSearchTimer.current);
+      if (!value.trim()) {
+        setGlobalSearchResults(null);
+        return;
+      }
+      globalSearchTimer.current = setTimeout(() => executeGlobalSearch(value), 400);
+    },
+    [executeGlobalSearch],
+  );
 
   const handlePublishDoc = async (docId: string, targetType: "ALL_TENANTS" | "SINGLE_TENANT", targetCompanyId?: string) => {
     try {
@@ -575,6 +650,245 @@ export default function DocumentImportPage() {
             </div>
           </div>
         )}
+
+        {/* Global Document Search */}
+        <div
+          style={{
+            border: "1px solid #e5e7eb",
+            borderRadius: 8,
+            overflow: "hidden",
+            backgroundColor: "#f8fafc",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "12px 16px",
+              gap: 12,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => startUiTransition(() => setGlobalSearchExpanded(!globalSearchExpanded))}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                backgroundColor: "transparent",
+                border: "none",
+                cursor: "pointer",
+                textAlign: "left",
+                padding: 0,
+              }}
+            >
+              <span style={{ fontSize: 18 }}>🔍</span>
+              <span style={{ fontSize: 15, fontWeight: 600, color: "#1e293b" }}>
+                Global Document Search
+              </span>
+              {globalSearchResults && globalSearchResults.totalMatches > 0 && (
+                <span
+                  style={{
+                    fontSize: 12,
+                    padding: "2px 8px",
+                    borderRadius: 10,
+                    backgroundColor: "#dbeafe",
+                    color: "#1e40af",
+                    fontWeight: 500,
+                  }}
+                >
+                  {globalSearchResults.totalMatches} match{globalSearchResults.totalMatches !== 1 ? "es" : ""}
+                </span>
+              )}
+              <span style={{ fontSize: 14, color: "#64748b" }}>
+                {globalSearchExpanded ? "▼" : "▶"}
+              </span>
+            </button>
+          </div>
+
+          {globalSearchExpanded && (
+            <div style={{ padding: "0 16px 16px", borderTop: "1px solid #e2e8f0" }}>
+              {/* Search Input */}
+              <div style={{ position: "relative", marginTop: 12, marginBottom: 12 }}>
+                <input
+                  type="text"
+                  placeholder="Search all document content, titles, tags…"
+                  value={globalSearchQuery}
+                  onChange={(e) => handleGlobalSearchChange(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "10px 14px 10px 38px",
+                    fontSize: 14,
+                    border: "1px solid #cbd5e1",
+                    borderRadius: 8,
+                    backgroundColor: "#ffffff",
+                    outline: "none",
+                    boxSizing: "border-box",
+                  }}
+                />
+                <span
+                  style={{
+                    position: "absolute",
+                    left: 12,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    fontSize: 16,
+                    color: "#94a3b8",
+                    pointerEvents: "none",
+                  }}
+                >
+                  🔎
+                </span>
+                {globalSearchLoading && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      right: 12,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      width: 16,
+                      height: 16,
+                      border: "2px solid #3b82f6",
+                      borderTopColor: "transparent",
+                      borderRadius: "50%",
+                      animation: "spin 1s linear infinite",
+                    }}
+                  />
+                )}
+              </div>
+
+              {/* Search Results */}
+              {globalSearchQuery.trim().length >= 2 && globalSearchResults && (
+                <div>
+                  {globalSearchResults.totalMatches === 0 ? (
+                    <div style={{ padding: "16px 0", textAlign: "center" }}>
+                      <p style={{ fontSize: 13, color: "#6b7280", margin: 0 }}>
+                        No documents match "{globalSearchQuery.trim()}"
+                      </p>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                      {globalSearchResults.groups.map((group) => (
+                        <div key={group.category}>
+                          {/* Category Header */}
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              marginBottom: 8,
+                              paddingBottom: 4,
+                              borderBottom: "1px solid #e2e8f0",
+                            }}
+                          >
+                            <span style={{ fontSize: 13, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                              {group.category}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: 11,
+                                padding: "1px 6px",
+                                borderRadius: 8,
+                                backgroundColor: "#f1f5f9",
+                                color: "#64748b",
+                              }}
+                            >
+                              {group.totalInGroup}
+                            </span>
+                          </div>
+
+                          {/* Documents in group */}
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            {group.documents.map((doc) => (
+                              <div
+                                key={doc.id}
+                                style={{
+                                  padding: "10px 12px",
+                                  backgroundColor: "#ffffff",
+                                  border: "1px solid #e2e8f0",
+                                  borderRadius: 6,
+                                  cursor: "pointer",
+                                  transition: "border-color 0.15s",
+                                }}
+                                onClick={() => router.push(`/system/documents/${doc.id}`)}
+                                onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#3b82f6")}
+                                onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#e2e8f0")}
+                              >
+                                {/* Doc title row */}
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                                  <span style={{ fontSize: 14, fontWeight: 500, color: "#0f172a" }}>
+                                    {doc.title}
+                                  </span>
+                                  <span
+                                    style={{
+                                      fontSize: 10,
+                                      padding: "2px 6px",
+                                      borderRadius: 4,
+                                      backgroundColor: "#f1f5f9",
+                                      color: "#64748b",
+                                      fontWeight: 500,
+                                    }}
+                                  >
+                                    {doc.code}
+                                  </span>
+                                </div>
+
+                                {/* Snippet briefs */}
+                                {doc.snippets.map((snippet, sIdx) => (
+                                  <div
+                                    key={sIdx}
+                                    style={{
+                                      fontSize: 12,
+                                      lineHeight: 1.5,
+                                      color: "#475569",
+                                      padding: "4px 8px",
+                                      backgroundColor: "#f8fafc",
+                                      borderRadius: 4,
+                                      marginTop: 4,
+                                      borderLeft: "3px solid #3b82f6",
+                                      wordBreak: "break-word",
+                                    }}
+                                  >
+                                    {/* Render snippet with highlighted match */}
+                                    <span style={{ color: "#94a3b8" }}>
+                                      {snippet.text.slice(0, snippet.matchStart)}
+                                    </span>
+                                    <mark
+                                      style={{
+                                        backgroundColor: "#fef08a",
+                                        color: "#1e293b",
+                                        padding: "1px 2px",
+                                        borderRadius: 2,
+                                        fontWeight: 600,
+                                      }}
+                                    >
+                                      {snippet.text.slice(snippet.matchStart, snippet.matchEnd)}
+                                    </mark>
+                                    <span style={{ color: "#94a3b8" }}>
+                                      {snippet.text.slice(snippet.matchEnd)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Hint when no query */}
+              {globalSearchQuery.trim().length < 2 && !globalSearchResults && (
+                <p style={{ fontSize: 12, color: "#94a3b8", margin: "4px 0 0", textAlign: "center" }}>
+                  Type at least 2 characters to search across all documents
+                </p>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Unpublished SOPs - Collapsible Section */}
         <div

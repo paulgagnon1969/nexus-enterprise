@@ -29,7 +29,7 @@ RUN cd /app/packages/database && npx prisma generate --schema=./prisma/schema.pr
 
 # Build only the api (and its dependencies) via Turbo
 # Increase heap for large TS compilation to avoid OOM in Cloud Build
-ENV NODE_OPTIONS="--max-old-space-size=4096"
+ENV NODE_OPTIONS="--max-old-space-size=8192"
 RUN npm run build -- --filter=api
 ENV NODE_OPTIONS=""
 

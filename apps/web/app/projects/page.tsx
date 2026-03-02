@@ -1220,7 +1220,13 @@ export default function ProjectsPage() {
                 const sorted = Array.from(counts.values()).sort((a, b) => b.count - a.count).slice(0, 3);
                 if (!sorted.length) return <div style={{ fontSize: 12, color: "#9ca3af" }}>No data yet</div>;
                 return sorted.map((entry, i) => (
-                  <div key={entry.user.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: i < sorted.length - 1 ? "1px solid #f3f4f6" : undefined }}>
+                  <div
+                    key={entry.user.id}
+                    onClick={() => startUiTransition(() => setSelectedUserId(entry.user.id))}
+                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: i < sorted.length - 1 ? "1px solid #f3f4f6" : undefined, cursor: "pointer", borderRadius: 3 }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "#f9fafb"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                  >
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 600 }}>{getUserDisplayName(entry.user)}</div>
                     </div>
@@ -1286,7 +1292,13 @@ export default function ProjectsPage() {
                   return <div style={{ fontSize: 12, color: "#9ca3af", padding: "12px 0" }}>No voice journal notes yet.</div>;
                 }
                 return filtered.slice(0, 6).map((v, i) => (
-                  <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: i < Math.min(filtered.length, 6) - 1 ? "1px solid #f3f4f6" : undefined }}>
+                  <div
+                    key={v.id}
+                    onClick={() => { if (v.projectId) window.location.href = `/projects/${v.projectId}`; }}
+                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: i < Math.min(filtered.length, 6) - 1 ? "1px solid #f3f4f6" : undefined, cursor: v.projectId ? "pointer" : "default", borderRadius: 3 }}
+                    onMouseEnter={(e) => { if (v.projectId) e.currentTarget.style.background = "#f9fafb"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                  >
                     <span style={{ fontSize: 12, fontWeight: 600, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 120 }}>
                       {v.project?.name || "General"}
                     </span>
@@ -1352,7 +1364,13 @@ export default function ProjectsPage() {
                   const ps = PRIORITY_STYLE[t.priority] || PRIORITY_STYLE.MEDIUM;
                   const isOverdue = t.dueDate && new Date(t.dueDate) < now;
                   return (
-                    <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 0", borderBottom: i < Math.min(filtered.length, 6) - 1 ? "1px solid #f3f4f6" : undefined }}>
+                    <div
+                      key={t.id}
+                      onClick={() => { window.location.href = `/projects/${t.projectId}`; }}
+                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 0", borderBottom: i < Math.min(filtered.length, 6) - 1 ? "1px solid #f3f4f6" : undefined, cursor: "pointer", borderRadius: 3 }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = "#f9fafb"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                    >
                       <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: ts.color }} />
                       <span style={{ fontSize: 12, fontWeight: 500, color: "#1f2937", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>
                         {t.title}

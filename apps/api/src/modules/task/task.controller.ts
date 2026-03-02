@@ -3,7 +3,7 @@ import { TaskService } from "./task.service";
 import { TaskEscalationService } from "./task-escalation.service";
 import { JwtAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
-import { CreateTaskDto, UpdateTaskStatusDto, UpdateTaskDto, TaskPriorityEnum, TaskStatusEnum } from "./dto/task.dto";
+import { CreateTaskDto, UpdateTaskStatusDto, UpdateTaskDto, DisposeTaskDto, AddTaskNoteDto, TaskPriorityEnum, TaskStatusEnum } from "./dto/task.dto";
 
 @Controller("tasks")
 export class TaskController {
@@ -79,6 +79,38 @@ export class TaskController {
   ) {
     const actor = req.user as AuthenticatedUser;
     return this.tasks.updateTask(actor, id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/dispose")
+  dispose(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: DisposeTaskDto,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.tasks.disposeTask(actor, id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/notes")
+  addNote(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: AddTaskNoteDto,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.tasks.addTaskNote(actor, id, dto.note);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/activities")
+  activities(
+    @Req() req: any,
+    @Param("id") id: string,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.tasks.getTaskActivities(actor, id);
   }
 
   /** On-demand escalation check (admin only). */

@@ -1,0 +1,13 @@
+# Build artifacts
+target/
+dist/
+node_modules/
+
+# Binary files
+contacts_helper
+contacts_helper-*
+*.dmg
+*.app
+
+# Generated
+src-tauri/gen/schemas/

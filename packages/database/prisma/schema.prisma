@@ -495,7 +495,9 @@ model User {
   inventoryMovements InventoryMovement[]
 
   // Tasks created by this user (Todos, NTT workflows, etc.)
-  createdTasks Task[] @relation("TaskCreatedBy")
+  createdTasks      Task[]         @relation("TaskCreatedBy")
+  dispositionedTasks Task[]        @relation("TaskDispositionBy")
+  taskActivities     TaskActivity[] @relation("TaskActivityActor")
 
   // PETL reconciliation audit trail
   petlReconciliationCasesCreated    PetlReconciliationCase[]  @relation("PetlReconCaseCreatedBy")
@@ -2392,13 +2394,40 @@ model Task {
   escalationTier Int       @default(0) // 0=none, 1=assigned, 2=manager, 3=owner+admin
   escalatedAt    DateTime?
 
+  // Disposition workflow
+  disposition          TaskDisposition @default(NONE)
+  dispositionNote      String?
+  dispositionAt        DateTime?
+  dispositionByUserId  String?
+
   assignee        User?            @relation("TaskAssignee", fields: [assigneeId], references: [id])
   company         Company          @relation(fields: [companyId], references: [id])
   project         Project          @relation(fields: [projectId], references: [id])
   projectParticle ProjectParticle? @relation(fields: [projectParticleId], references: [id])
   createdBy       User?            @relation("TaskCreatedBy", fields: [createdByUserId], references: [id])
+  dispositionBy   User?            @relation("TaskDispositionBy", fields: [dispositionByUserId], references: [id])
+  activities      TaskActivity[]
 
   @@index([companyId, relatedEntityType, relatedEntityId], map: "Task_related_entity_idx")
+}
+
+/// Immutable activity log for task lifecycle events (dispositions, notes,
+/// status changes, reassignments). Provides full audit trail for reviewers
+/// and originators.
+model TaskActivity {
+  id            String   @id @default(cuid())
+  taskId        String
+  actorUserId   String?
+  action        String   // CREATED, DISPOSITION_SET, REOPENED, STATUS_CHANGED, REASSIGNED, NOTE_ADDED, COMPLETED
+  note          String?
+  previousValue String?
+  newValue      String?
+  createdAt     DateTime @default(now())
+
+  task  Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  actor User? @relation("TaskActivityActor", fields: [actorUserId], references: [id])
+
+  @@index([taskId, createdAt], map: "TaskActivity_task_created_idx")
 }
 
 model EstimateVersion {
@@ -3833,6 +3862,7 @@ enum NotificationKind {
   PETL_CHANGE
   TASK_ASSIGNED
   TASK_DUE
+  TASK_DISPOSITION
   SCHEDULE_ALERT
 }
 
@@ -4071,6 +4101,13 @@ enum AttachmentKind {
   INTERNAL_FILE
   UPLOADED_FILE
   EXTERNAL_LINK
+}
+
+enum TaskDisposition {
+  NONE
+  APPROVED
+  REJECTED
+  REASSIGNED
 }
 
 enum TaskStatus {

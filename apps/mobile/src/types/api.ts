@@ -269,6 +269,7 @@ export interface DailyLogRevision {
 // Task types
 export type TaskStatus = "TODO" | "IN_PROGRESS" | "BLOCKED" | "DONE";
 export type TaskPriority = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+export type TaskDisposition = "NONE" | "APPROVED" | "REJECTED" | "REASSIGNED";
 
 export interface TaskItem {
   id: string;
@@ -285,6 +286,11 @@ export interface TaskItem {
   relatedEntityId?: string | null;
   createdAt: string;
   updatedAt: string;
+  // Disposition workflow
+  disposition?: TaskDisposition;
+  dispositionNote?: string | null;
+  dispositionAt?: string | null;
+  dispositionByUserId?: string | null;
   assignee?: {
     id: string;
     email: string;
@@ -292,6 +298,32 @@ export interface TaskItem {
     lastName?: string | null;
   } | null;
   createdBy?: {
+    id: string;
+    email: string;
+    firstName?: string | null;
+    lastName?: string | null;
+  } | null;
+}
+
+export type TaskActivityAction =
+  | "CREATED"
+  | "DISPOSITION_SET"
+  | "REOPENED"
+  | "STATUS_CHANGED"
+  | "REASSIGNED"
+  | "NOTE_ADDED"
+  | "COMPLETED";
+
+export interface TaskActivityItem {
+  id: string;
+  taskId: string;
+  actorUserId?: string | null;
+  action: TaskActivityAction;
+  note?: string | null;
+  previousValue?: string | null;
+  newValue?: string | null;
+  createdAt: string;
+  actor?: {
     id: string;
     email: string;
     firstName?: string | null;

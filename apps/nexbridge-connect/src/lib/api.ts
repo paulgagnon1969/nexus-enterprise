@@ -1,30 +1,33 @@
 import { fetch } from "@tauri-apps/plugin-http";
-import { loadAuth, saveAuth, clearAuth } from "./auth";
+import { loadAuth, saveAuth, clearAuth, setCachedCredentials, clearCachedCredentials } from "./auth";
 
+// ---------------------------------------------------------------------------
+// Module-level state
+// ---------------------------------------------------------------------------
 let baseUrl = "";
 let accessToken = "";
 
 export function setApiConfig(url: string, token: string) {
   baseUrl = url.replace(/\/$/, "");
   accessToken = token;
+  setCachedCredentials(token, baseUrl);
 }
 
 export function getAccessToken() {
   return accessToken;
 }
 
+// ---------------------------------------------------------------------------
+// Core request helper (Tauri HTTP + automatic token refresh)
+// ---------------------------------------------------------------------------
 async function parseJson<T>(res: Response): Promise<T> {
   const text = await res.text();
   if (!text || text.trim() === "") return null as unknown as T;
   return JSON.parse(text) as T;
 }
 
-async function request<T>(
-  path: string,
-  options: RequestInit = {}
-): Promise<T> {
-  console.log(`[api] request: ${options.method || "GET"} ${baseUrl}${path}`);
-  console.log(`[api] token present: ${!!accessToken}, length: ${accessToken.length}`);
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  console.log(`[api] ${options.method || "GET"} ${baseUrl}${path}`);
 
   let res: Response;
   try {
@@ -41,10 +44,7 @@ async function request<T>(
     throw fetchErr;
   }
 
-  console.log(`[api] response status: ${res.status}`);
-
   if (res.status === 401) {
-    console.log(`[api] 401 — attempting token refresh`);
     const refreshed = await refreshAccessToken();
     if (refreshed) {
       const retry = await fetch(`${baseUrl}${path}`, {
@@ -59,6 +59,7 @@ async function request<T>(
       return parseJson<T>(retry);
     }
     await clearAuth();
+    clearCachedCredentials();
     throw new Error("Session expired");
   }
 
@@ -68,18 +69,12 @@ async function request<T>(
     throw new Error(`API error ${res.status}: ${body}`);
   }
 
-  try {
-    const result = await parseJson<T>(res);
-    console.log(`[api] parseJson success`);
-    return result;
-  } catch (parseErr) {
-    console.error(`[api] parseJson threw:`, parseErr);
-    throw parseErr;
-  }
+  return parseJson<T>(res);
 }
 
-// ---------- Auth ----------
-
+// ---------------------------------------------------------------------------
+// Auth
+// ---------------------------------------------------------------------------
 export interface LoginResponse {
   accessToken: string;
   refreshToken: string;
@@ -90,7 +85,7 @@ export interface LoginResponse {
 export async function login(
   apiUrl: string,
   email: string,
-  password: string
+  password: string,
 ): Promise<LoginResponse> {
   const url = apiUrl.replace(/\/$/, "");
   const res = await fetch(`${url}/auth/login`, {
@@ -105,10 +100,8 @@ export async function login(
     throw new Error(res.status === 401 ? "Invalid credentials" : `Login failed: ${body}`);
   }
 
-  const text = await res.text();
-  const data = JSON.parse(text) as LoginResponse;
+  const data = JSON.parse(await res.text()) as LoginResponse;
 
-  // Persist
   setApiConfig(url, data.accessToken);
   await saveAuth({
     accessToken: data.accessToken,
@@ -131,34 +124,87 @@ async function refreshAccessToken(): Promise<boolean> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken: stored.refreshToken }),
     });
-
     if (!res.ok) return false;
 
-    const txt = await res.text();
-    const data = JSON.parse(txt) as { accessToken: string; refreshToken: string };
+    const data = JSON.parse(await res.text()) as { accessToken: string; refreshToken: string };
     accessToken = data.accessToken;
+    setCachedCredentials(data.accessToken, baseUrl);
 
-    await saveAuth({
-      ...stored,
-      accessToken: data.accessToken,
-      refreshToken: data.refreshToken,
-    });
-
+    await saveAuth({ ...stored, accessToken: data.accessToken, refreshToken: data.refreshToken });
     return true;
   } catch {
     return false;
   }
 }
 
-// ---------- Video Assessment ----------
+// ---------------------------------------------------------------------------
+// Contacts
+// ---------------------------------------------------------------------------
+export interface PersonalContact {
+  id: string;
+  displayName: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+  phone: string | null;
+  allEmails: string[] | null;
+  allPhones: string[] | null;
+  source: string;
+}
 
+export interface ImportContactInput {
+  displayName?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  allEmails?: string[] | null;
+  allPhones?: string[] | null;
+  source: "MACOS" | "WINDOWS" | "IOS" | "ANDROID" | "UPLOAD";
+}
+
+export interface ImportResult {
+  count: number;
+  createdCount: number;
+  updatedCount: number;
+  contacts: PersonalContact[];
+}
+
+export async function importContacts(contacts: ImportContactInput[]): Promise<ImportResult> {
+  return request("/personal-contacts/import", {
+    method: "POST",
+    body: JSON.stringify({ contacts }),
+  });
+}
+
+export async function listContacts(search?: string, limit = 200): Promise<PersonalContact[]> {
+  const params = new URLSearchParams();
+  if (search) params.set("search", search);
+  params.set("limit", String(limit));
+  return request(`/personal-contacts?${params.toString()}`);
+}
+
+export async function updatePrimaryContact(
+  contactId: string,
+  primaryEmail?: string | null,
+  primaryPhone?: string | null,
+): Promise<PersonalContact> {
+  return request(`/personal-contacts/${contactId}/primary`, {
+    method: "PATCH",
+    body: JSON.stringify({ email: primaryEmail, phone: primaryPhone }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Video Assessment
+// ---------------------------------------------------------------------------
 export type AssessmentType = "EXTERIOR" | "INTERIOR" | "DRONE_ROOF" | "TARGETED";
 
 export interface GeminiAssessmentResult {
   summary: {
     narrative: string;
     overallCondition: number;
-    confidence: number; // 0.0–1.0
+    confidence: number;
     materialIdentified: string[];
     zonesAssessed: string[];
     primaryCausation: string;
@@ -175,7 +221,7 @@ export interface GeminiAssessmentResult {
     costbookItemCode?: string | null;
     estimatedQuantity?: number | null;
     estimatedUnit?: string | null;
-    confidence: number; // 0.0–1.0
+    confidence: number;
   }>;
 }
 
@@ -191,10 +237,8 @@ export interface AnalyzeFramesResponse {
   rawResponse: string;
 }
 
-export async function analyzeFrames(
-  payload: AnalyzeFramesPayload
-): Promise<AnalyzeFramesResponse> {
-  return request<AnalyzeFramesResponse>("/video-assessment/analyze", {
+export async function analyzeFrames(payload: AnalyzeFramesPayload): Promise<AnalyzeFramesResponse> {
+  return request("/video-assessment/analyze", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -204,13 +248,10 @@ export async function getPresignedUploadUrl(opts: {
   fileName: string;
   contentType: string;
 }): Promise<{ uploadUrl: string; fileUri: string }> {
-  return request<{ uploadUrl: string; fileUri: string }>(
-    "/video-assessment/presigned-upload",
-    {
-      method: "POST",
-      body: JSON.stringify(opts),
-    },
-  );
+  return request("/video-assessment/presigned-upload", {
+    method: "POST",
+    body: JSON.stringify(opts),
+  });
 }
 
 export interface CreateAssessmentPayload {
@@ -273,21 +314,20 @@ export interface ListAssessmentsResponse {
   total: number;
 }
 
-export async function createAssessment(
-  payload: CreateAssessmentPayload
-): Promise<VideoAssessmentRecord> {
-  return request<VideoAssessmentRecord>("/video-assessment", {
+export async function createAssessment(payload: CreateAssessmentPayload): Promise<VideoAssessmentRecord> {
+  return request("/video-assessment", {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
 export async function listAssessments(): Promise<ListAssessmentsResponse> {
-  return request<ListAssessmentsResponse>("/video-assessment");
+  return request("/video-assessment");
 }
 
-// ---------- Zoom & Teach ----------
-
+// ---------------------------------------------------------------------------
+// Zoom & Teach
+// ---------------------------------------------------------------------------
 export interface TeachPayload {
   frameIndex: number;
   cropBox?: { x: number; y: number; w: number; h: number };
@@ -313,7 +353,7 @@ export async function teachAssessment(
   assessmentId: string,
   payload: TeachPayload,
 ): Promise<TeachResponse> {
-  return request<TeachResponse>(`/video-assessment/${assessmentId}/teach`, {
+  return request(`/video-assessment/${assessmentId}/teach`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -325,11 +365,8 @@ export async function confirmTeach(
   confirmed: boolean,
   correctionJson?: any,
 ): Promise<any> {
-  return request(
-    `/video-assessment/${assessmentId}/teach/${teachId}/confirm`,
-    {
-      method: "PATCH",
-      body: JSON.stringify({ confirmed, correctionJson }),
-    },
-  );
+  return request(`/video-assessment/${assessmentId}/teach/${teachId}/confirm`, {
+    method: "PATCH",
+    body: JSON.stringify({ confirmed, correctionJson }),
+  });
 }

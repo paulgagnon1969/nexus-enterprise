@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { loadAuth, clearAuth } from "../lib/auth";
+import { loadAuth, clearAuth, clearCachedCredentials } from "../lib/auth";
 import { setApiConfig, login as apiLogin, type LoginResponse } from "../lib/api";
 
 interface AuthState {
@@ -58,11 +58,12 @@ export function useAuth() {
       });
       return data;
     },
-    []
+    [],
   );
 
   const logout = useCallback(async () => {
     await clearAuth();
+    clearCachedCredentials();
     setState({
       loading: false,
       authenticated: false,

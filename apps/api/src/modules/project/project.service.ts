@@ -529,17 +529,21 @@ export class ProjectService {
   }
 
   async getProjectByIdForUser(projectId: string, actor: AuthenticatedUser) {
-    const { companyId, userId, role } = actor;
+    const { companyId, userId, role, globalRole } = actor;
+    const isSuperAdmin = globalRole === GlobalRole.SUPER_ADMIN;
 
-    const project = await this.prisma.project.findFirst({
-      where: { id: projectId, companyId }
-    });
+    // SUPER_ADMIN can access projects across all companies
+    const where: any = isSuperAdmin
+      ? { id: projectId }
+      : { id: projectId, companyId };
+
+    const project = await this.prisma.project.findFirst({ where });
 
     if (!project) {
       throw new NotFoundException("Project not found in this company");
     }
 
-    if (role === Role.OWNER || role === Role.ADMIN) {
+    if (isSuperAdmin || role === Role.OWNER || role === Role.ADMIN) {
       return project;
     }
 

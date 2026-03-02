@@ -15,6 +15,13 @@ export enum TaskPriorityEnum {
   CRITICAL = "CRITICAL",
 }
 
+export enum TaskDispositionEnum {
+  NONE = "NONE",
+  APPROVED = "APPROVED",
+  REJECTED = "REJECTED",
+  REASSIGNED = "REASSIGNED",
+}
+
 export class CreateTaskDto {
   @IsUUID()
   projectId!: string;
@@ -76,4 +83,22 @@ export class UpdateTaskDto {
   @IsOptional()
   @IsISO8601()
   dueDate?: string | null;
+}
+
+export class DisposeTaskDto {
+  @IsEnum(TaskDispositionEnum)
+  disposition!: TaskDispositionEnum;
+
+  @IsOptional()
+  @IsString()
+  note?: string;
+
+  @IsOptional()
+  @IsUUID()
+  assigneeId?: string;
+}
+
+export class AddTaskNoteDto {
+  @IsString()
+  note!: string;
 }

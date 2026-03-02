@@ -2,7 +2,7 @@ import { Store } from "@tauri-apps/plugin-store";
 
 const STORE_PATH = "nexbridge-auth.json";
 
-interface StoredAuth {
+export interface StoredAuth {
   accessToken: string;
   refreshToken: string;
   apiUrl: string;
@@ -36,4 +36,26 @@ export async function clearAuth(): Promise<void> {
   await store.delete("auth");
   await store.save();
   storeInstance = null;
+}
+
+// In-memory cache so synchronous callers (contacts/documents) can access credentials
+let cachedToken: string | null = null;
+let cachedApiUrl: string | null = null;
+
+export function getCachedToken(): string | null {
+  return cachedToken;
+}
+
+export function getCachedApiUrl(): string {
+  return cachedApiUrl || "https://nexus-api-wswbn2e6ta-uc.a.run.app";
+}
+
+export function setCachedCredentials(token: string, apiUrl: string): void {
+  cachedToken = token;
+  cachedApiUrl = apiUrl;
+}
+
+export function clearCachedCredentials(): void {
+  cachedToken = null;
+  cachedApiUrl = null;
 }

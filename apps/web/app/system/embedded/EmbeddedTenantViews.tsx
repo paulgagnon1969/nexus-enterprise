@@ -4,14 +4,14 @@ import type { ReactNode } from "react";
 import ProjectsPage from "../../projects/page";
 import ProjectManagementPage from "../../project-management/page";
 import FinancialPage from "../../financial/page";
-import FilesPage from "../../files/page";
+import TodosPage from "../../todos/page";
 import MessagingPage from "../../messaging/page";
 import ReportsPage from "../../reports/page";
 
 export type TenantViewKey =
   | "projects"
   | "project-management"
-  | "files"
+  | "todos"
   | "messaging"
   | "financial"
   | "reports";
@@ -34,7 +34,7 @@ export function EmbeddedTenantView(props: {
     >
       {view === "projects" && <ProjectsPage />}
       {view === "project-management" && <ProjectManagementPage />}
-      {view === "files" && <FilesPage />}
+      {view === "todos" && <TodosPage />}
       {view === "messaging" && <MessagingPage />}
       {view === "financial" && <FinancialPage />}
       {view === "reports" && <ReportsPage />}

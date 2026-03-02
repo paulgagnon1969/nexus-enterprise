@@ -156,6 +156,306 @@ export class SystemDocumentsService {
     };
   }
 
+  // =========================================================================
+  // Global Document Search
+  // =========================================================================
+
+  /**
+   * Strip HTML tags from content to produce searchable plain text.
+   */
+  private stripHtml(html: string): string {
+    return html
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  /**
+   * Extract contextual snippets around each match occurrence.
+   * Returns up to `maxSnippets` results, each with ~`radius` chars of context.
+   */
+  private extractSnippets(
+    plainText: string,
+    queryLower: string,
+    maxSnippets = 3,
+    radius = 120,
+  ): Array<{ text: string; matchStart: number; matchEnd: number }> {
+    const textLower = plainText.toLowerCase();
+    const snippets: Array<{ text: string; matchStart: number; matchEnd: number }> = [];
+    let searchFrom = 0;
+
+    while (snippets.length < maxSnippets) {
+      const idx = textLower.indexOf(queryLower, searchFrom);
+      if (idx === -1) break;
+
+      const start = Math.max(0, idx - radius);
+      const end = Math.min(plainText.length, idx + queryLower.length + radius);
+      const snippet = plainText.slice(start, end);
+
+      // matchStart/matchEnd are relative to the snippet
+      const matchStart = idx - start;
+      const matchEnd = matchStart + queryLower.length;
+
+      snippets.push({
+        text: (start > 0 ? "…" : "") + snippet + (end < plainText.length ? "…" : ""),
+        matchStart: start > 0 ? matchStart + 1 : matchStart, // offset for "…"
+        matchEnd: start > 0 ? matchEnd + 1 : matchEnd,
+      });
+
+      // Advance past this match to avoid overlapping snippets
+      searchFrom = idx + queryLower.length + radius;
+    }
+
+    return snippets;
+  }
+
+  /**
+   * Full-text search across all SystemDocuments.
+   * Searches title, description, code, tags, and htmlContent (stripped).
+   * Results are grouped by category → document → snippets.
+   */
+  async searchDocuments(query: string) {
+    if (!query || query.trim().length < 2) {
+      return { groups: [], totalMatches: 0 };
+    }
+
+    const q = query.trim();
+    const qLower = q.toLowerCase();
+
+    const docs = await this.prisma.systemDocument.findMany({
+      where: { active: true },
+      include: {
+        currentVersion: { select: { htmlContent: true, versionNo: true } },
+      },
+      orderBy: { updatedAt: "desc" },
+    });
+
+    interface DocMatch {
+      id: string;
+      code: string;
+      title: string;
+      description: string | null;
+      category: string | null;
+      snippets: Array<{ text: string; matchStart: number; matchEnd: number }>;
+      matchCount: number;
+    }
+
+    const matches: DocMatch[] = [];
+
+    for (const doc of docs) {
+      const snippets: Array<{ text: string; matchStart: number; matchEnd: number }> = [];
+      let matchCount = 0;
+
+      // Check metadata fields
+      const metaFields = [
+        doc.title,
+        doc.description ?? "",
+        doc.code,
+        ...(doc.tags ?? []),
+      ];
+      for (const field of metaFields) {
+        if (field.toLowerCase().includes(qLower)) {
+          matchCount++;
+        }
+      }
+
+      // Check content
+      if (doc.currentVersion?.htmlContent) {
+        const plain = this.stripHtml(doc.currentVersion.htmlContent);
+        const contentSnippets = this.extractSnippets(plain, qLower);
+        snippets.push(...contentSnippets);
+        matchCount += contentSnippets.length;
+      }
+
+      // Also add title/description as snippets if they match
+      if (doc.title.toLowerCase().includes(qLower)) {
+        const titleIdx = doc.title.toLowerCase().indexOf(qLower);
+        snippets.unshift({
+          text: doc.title,
+          matchStart: titleIdx,
+          matchEnd: titleIdx + qLower.length,
+        });
+      }
+
+      if (matchCount > 0) {
+        matches.push({
+          id: doc.id,
+          code: doc.code,
+          title: doc.title,
+          description: doc.description,
+          category: doc.category,
+          snippets: snippets.slice(0, 3), // max 3 snippets per doc
+          matchCount,
+        });
+      }
+    }
+
+    // Group by category
+    const groupMap = new Map<string, DocMatch[]>();
+    for (const m of matches) {
+      const cat = m.category || "Uncategorized";
+      if (!groupMap.has(cat)) groupMap.set(cat, []);
+      groupMap.get(cat)!.push(m);
+    }
+
+    // Sort: groups by total match count desc, docs within group by match count desc
+    const groups = Array.from(groupMap.entries())
+      .map(([category, documents]) => ({
+        category,
+        documents: documents.sort((a, b) => b.matchCount - a.matchCount),
+        totalInGroup: documents.length,
+      }))
+      .sort((a, b) => b.totalInGroup - a.totalInGroup);
+
+    return { groups, totalMatches: matches.length };
+  }
+
+  /**
+   * Full-text search across documents published to a specific tenant.
+   * Searches TenantDocumentCopy content and published SystemDocument content.
+   */
+  async searchTenantDocuments(companyId: string, query: string) {
+    if (!query || query.trim().length < 2) {
+      return { groups: [], totalMatches: 0 };
+    }
+
+    const q = query.trim();
+    const qLower = q.toLowerCase();
+
+    // Get tenant's own copies
+    const copies = await this.prisma.tenantDocumentCopy.findMany({
+      where: { companyId },
+      include: {
+        currentVersion: { select: { htmlContent: true, versionNo: true } },
+        sourceSystemDocument: { select: { code: true, category: true } },
+      },
+    });
+
+    // Get published system docs for this tenant
+    const publications = await this.prisma.systemDocumentPublication.findMany({
+      where: {
+        retractedAt: null,
+        OR: [
+          { targetType: "ALL_TENANTS" },
+          { targetCompanyId: companyId },
+        ],
+      },
+      include: {
+        systemDocument: {
+          include: {
+            currentVersion: { select: { htmlContent: true, versionNo: true } },
+          },
+        },
+      },
+    });
+
+    interface DocMatch {
+      id: string;
+      code: string;
+      title: string;
+      source: "copy" | "published";
+      category: string | null;
+      snippets: Array<{ text: string; matchStart: number; matchEnd: number }>;
+      matchCount: number;
+    }
+
+    const matches: DocMatch[] = [];
+    const seenDocIds = new Set<string>();
+
+    // Search tenant copies
+    for (const copy of copies) {
+      let matchCount = 0;
+      const snippets: Array<{ text: string; matchStart: number; matchEnd: number }> = [];
+
+      if (copy.title.toLowerCase().includes(qLower)) {
+        matchCount++;
+        const idx = copy.title.toLowerCase().indexOf(qLower);
+        snippets.push({ text: copy.title, matchStart: idx, matchEnd: idx + qLower.length });
+      }
+
+      if (copy.currentVersion?.htmlContent) {
+        const plain = this.stripHtml(copy.currentVersion.htmlContent);
+        const contentSnippets = this.extractSnippets(plain, qLower);
+        snippets.push(...contentSnippets);
+        matchCount += contentSnippets.length;
+      }
+
+      if (matchCount > 0) {
+        seenDocIds.add(copy.sourceSystemDocumentId);
+        matches.push({
+          id: copy.id,
+          code: copy.sourceSystemDocument.code,
+          title: copy.title,
+          source: "copy",
+          category: copy.sourceSystemDocument.category,
+          snippets: snippets.slice(0, 3),
+          matchCount,
+        });
+      }
+    }
+
+    // Search published system docs (skip those already found as copies)
+    for (const pub of publications) {
+      const doc = pub.systemDocument;
+      if (seenDocIds.has(doc.id)) continue;
+
+      let matchCount = 0;
+      const snippets: Array<{ text: string; matchStart: number; matchEnd: number }> = [];
+
+      if (doc.title.toLowerCase().includes(qLower)) {
+        matchCount++;
+        const idx = doc.title.toLowerCase().indexOf(qLower);
+        snippets.push({ text: doc.title, matchStart: idx, matchEnd: idx + qLower.length });
+      }
+
+      if (doc.currentVersion?.htmlContent) {
+        const plain = this.stripHtml(doc.currentVersion.htmlContent);
+        const contentSnippets = this.extractSnippets(plain, qLower);
+        snippets.push(...contentSnippets);
+        matchCount += contentSnippets.length;
+      }
+
+      if (matchCount > 0) {
+        seenDocIds.add(doc.id);
+        matches.push({
+          id: doc.id,
+          code: doc.code,
+          title: doc.title,
+          source: "published",
+          category: doc.category,
+          snippets: snippets.slice(0, 3),
+          matchCount,
+        });
+      }
+    }
+
+    // Group by category
+    const groupMap = new Map<string, DocMatch[]>();
+    for (const m of matches) {
+      const cat = m.category || "Uncategorized";
+      if (!groupMap.has(cat)) groupMap.set(cat, []);
+      groupMap.get(cat)!.push(m);
+    }
+
+    const groups = Array.from(groupMap.entries())
+      .map(([category, documents]) => ({
+        category,
+        documents: documents.sort((a, b) => b.matchCount - a.matchCount),
+        totalInGroup: documents.length,
+      }))
+      .sort((a, b) => b.totalInGroup - a.totalInGroup);
+
+    return { groups, totalMatches: matches.length };
+  }
+
   /**
    * Update SystemDocument metadata
    */

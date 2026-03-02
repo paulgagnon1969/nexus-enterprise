@@ -4,6 +4,7 @@ import {
   Post,
   Patch,
   Param,
+  Query,
   Req,
   UseGuards,
   Body,
@@ -98,6 +99,16 @@ export class SopAdminController {
   // =============================================
   // System Documents Management (synced documents)
   // =============================================
+
+  /**
+   * GET /admin/sops/documents/search?q=<query>
+   * Full-text search across all SystemDocuments (metadata + content).
+   * Returns results grouped by category with highlighted snippets.
+   */
+  @Get("documents/search")
+  async searchDocuments(@Query("q") q: string) {
+    return this.systemDocs.searchDocuments(q);
+  }
 
   /**
    * GET /admin/sops/documents

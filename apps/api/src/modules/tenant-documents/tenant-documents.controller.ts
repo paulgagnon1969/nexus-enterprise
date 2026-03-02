@@ -4,6 +4,7 @@ import {
   Post,
   Patch,
   Param,
+  Query,
   Body,
   Req,
   UseGuards,
@@ -11,6 +12,7 @@ import {
 import { JwtAuthGuard, Roles, RolesGuard, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { TenantDocumentsService } from "./tenant-documents.service";
+import { SystemDocumentsService } from "../documents/system-documents.service";
 import {
   PublishDocumentDto,
   ArchiveDocumentDto,
@@ -34,7 +36,24 @@ function getUser(req: { user: AuthenticatedUser }): AuthenticatedUser {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.ADMIN, Role.OWNER)
 export class TenantDocumentsController {
-  constructor(private readonly service: TenantDocumentsService) {}
+  constructor(
+    private readonly service: TenantDocumentsService,
+    private readonly searchService: SystemDocumentsService,
+  ) {}
+
+  /**
+   * GET /tenant/documents/search?q=<query>
+   * Full-text search across tenant's published documents and copies.
+   */
+  @Get("search")
+  async searchDocuments(
+    @Req() req: { user: AuthenticatedUser },
+    @Query("q") q: string,
+  ) {
+    const user = getUser(req);
+    // Import SystemDocumentsService for search - injected via module
+    return this.searchService.searchTenantDocuments(user.companyId, q);
+  }
 
   /**
    * Get inbox stats (count of unreleased documents/manuals)
