@@ -70,6 +70,8 @@ import { NexfindModule } from "./modules/nexfind/nexfind.module";
 import { RoomScanModule } from "./modules/room-scan/room-scan.module";
 import { ReceiptEmailModule } from "./modules/receipt-email/receipt-email.module";
 import { VideoAssessmentModule } from "./modules/video-assessment/video-assessment.module";
+import { AgreementsModule } from "./modules/agreements/agreements.module";
+import { NexCheckModule } from "./modules/nexcheck/nexcheck.module";
 
 @Module({
   imports: [
@@ -148,6 +150,8 @@ import { VideoAssessmentModule } from "./modules/video-assessment/video-assessme
     RoomScanModule,
     ReceiptEmailModule,
     VideoAssessmentModule,
+    AgreementsModule,
+    NexCheckModule,
   ],
   controllers: [DevController]
 })

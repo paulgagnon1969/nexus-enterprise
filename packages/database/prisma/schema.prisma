@@ -257,6 +257,17 @@ model Company {
   nliWatchFolders  NliWatchFolder[]
   nliScannedFiles  NliScannedFile[]
   nliSyncJobs      NliSyncJob[]
+
+  // Agreements & Contracts
+  agreementTemplates AgreementTemplate[]
+  agreements         Agreement[]
+
+  // NexCheck — Site compliance kiosk system
+  sitePasses        SitePass[]
+  siteDocuments     SiteDocument[]
+  siteCheckIns      SiteCheckIn[]
+  kioskSessions     KioskSession[]
+  kioskDelegations  KioskDelegation[]
 }
 
 model OrganizationTemplate {
@@ -654,6 +665,17 @@ model User {
   // Nex-Plac QR Placards
   placardsAssigned AssetPlacard[] @relation("PlacardAssignedBy")
   placardsVoided   AssetPlacard[] @relation("PlacardVoidedBy")
+
+  // Agreements & Contracts
+  agreementTemplatesCreated AgreementTemplate[] @relation("AgreementTemplateCreatedBy")
+  agreementsCreated         Agreement[]         @relation("AgreementCreatedBy")
+
+  // NexCheck — Site compliance kiosk system
+  sitePasses                   SitePass[]
+  siteDocumentsCreated         SiteDocument[]    @relation("SiteDocumentCreatedBy")
+  kioskSessionsActivated       KioskSession[]    @relation("KioskSessionActivatedBy")
+  kioskDelegationsGranted      KioskDelegation[] @relation("KioskDelegationGrantedBy")
+  kioskDelegationsReceived     KioskDelegation[] @relation("KioskDelegationReceivedBy")
 }
 
 /// Notification delivered to a single user, optionally scoped to a company
@@ -881,6 +903,7 @@ model Worker {
   notes              String?
   weeks              WorkerWeek[]
   timeEntries        DailyTimeEntry[]
+  sitePasses         SitePass[]
 }
 
 /// Per-worker, per-week work summary derived from LCPUpload templates.
@@ -1365,12 +1388,21 @@ model Project {
   nliScannedFiles NliScannedFile[]
   nliSyncJobs     NliSyncJob[]
 
+  // Agreements & Contracts
+  agreements Agreement[]
+
   /// Building model type
   buildingModelType String?
 
   /// Org template applied to this project (provenance tracking)
   orgTemplateId String?
   orgTemplate   OrgTemplate? @relation(fields: [orgTemplateId], references: [id])
+
+  // NexCheck — Site compliance kiosk system
+  siteDocuments     SiteDocument[]
+  siteCheckIns      SiteCheckIn[]
+  kioskSessions     KioskSession[]
+  kioskDelegations  KioskDelegation[]
 
   @@index([companyId, groupId], map: "Project_company_group_idx")
   @@index([tenantClientId], map: "Project_tenant_client_idx")
@@ -8619,4 +8651,322 @@ model NliSyncJob {
   @@index([deviceId, status], map: "NliSyncJob_device_status_idx")
   @@index([companyId, status], map: "NliSyncJob_company_status_idx")
   @@index([companyId, type], map: "NliSyncJob_company_type_idx")
+}
+
+// =============================================================================
+// Agreements & Contracts System
+// =============================================================================
+
+enum AgreementCategory {
+  CONTINGENCY
+  SUBCONTRACT
+  CHANGE_ORDER
+  SERVICE
+  NDA
+  WORK_AUTHORIZATION
+  OTHER
+}
+
+enum AgreementStatus {
+  DRAFT
+  PENDING_SIGNATURES
+  PARTIALLY_SIGNED
+  FULLY_EXECUTED
+  VOIDED
+  EXPIRED
+}
+
+enum SignatoryRole {
+  CLIENT
+  CLIENT_2
+  COMPANY_REP
+  CEO
+  WITNESS
+  SUBCONTRACTOR
+  OTHER
+}
+
+enum SignatureMethod {
+  TYPED      // Typed full name as signature
+  DRAWN      // Canvas-drawn signature (stored as base64 PNG)
+  UPLOADED   // Uploaded image of signature
+}
+
+enum AgreementAuditAction {
+  CREATED
+  UPDATED
+  VARIABLES_FILLED
+  SENT_FOR_SIGNATURES
+  VIEWED
+  SIGNED
+  VOIDED
+  EXPIRED
+  DOWNLOADED_PDF
+}
+
+/// Master template for agreements. companyId=null means system-level (available
+/// to all tenants). companyId set means tenant-created custom template.
+model AgreementTemplate {
+  id               String             @id @default(cuid())
+  companyId        String?            // null = system-level template
+  code             String             // e.g. "FL-CONTINGENCY-001"
+  title            String
+  description      String?
+  jurisdiction     String?            // e.g. "FL", "TX", null for non-state-specific
+  category         AgreementCategory  @default(OTHER)
+  htmlContent      String             @db.Text
+  variables        Json?              // Array of { key, label, type, required, group }
+  isActive         Boolean            @default(true)
+  currentVersion   Int                @default(1)
+  createdByUserId  String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  company    Company?    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy  User?       @relation("AgreementTemplateCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  agreements Agreement[]
+
+  @@unique([companyId, code], name: "AgreementTemplate_company_code_key")
+  @@index([companyId, isActive], map: "AgreementTemplate_company_active_idx")
+  @@index([category], map: "AgreementTemplate_category_idx")
+}
+
+/// A concrete agreement instance created from a template (or blank).
+model Agreement {
+  id               String           @id @default(cuid())
+  companyId        String
+  templateId       String?
+  projectId        String?
+  title            String
+  agreementNumber  String           // Auto-generated, e.g. "AGR-2026-0001"
+  status           AgreementStatus  @default(DRAFT)
+  htmlContent      String?          @db.Text  // Rendered HTML with variables filled
+  variables        Json?            // Filled variable values { key: value }
+  dueDate          DateTime?
+  sentAt           DateTime?        // When sent for signatures
+  fullyExecutedAt  DateTime?        // When all signatures collected
+  voidedAt         DateTime?
+  voidReason       String?
+  createdByUserId  String
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  company     Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  template    AgreementTemplate?   @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  project     Project?             @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdBy   User                 @relation("AgreementCreatedBy", fields: [createdByUserId], references: [id])
+  signatories AgreementSignatory[]
+  auditLog    AgreementAuditLog[]
+
+  @@unique([companyId, agreementNumber], name: "Agreement_company_number_key")
+  @@index([companyId, status], map: "Agreement_company_status_idx")
+  @@index([companyId, projectId], map: "Agreement_company_project_idx")
+  @@index([templateId], map: "Agreement_template_idx")
+}
+
+/// A person who must sign (or has signed) an agreement.
+model AgreementSignatory {
+  id              String           @id @default(cuid())
+  agreementId     String
+  role            SignatoryRole    @default(CLIENT)
+  name            String
+  email           String?
+  phone           String?
+  signedAt        DateTime?
+  signatureData   String?          @db.Text  // base64 image or typed name
+  signatureMethod SignatureMethod?
+  signatureToken  String?          @unique   // Unique token for email-based signing links
+  ipAddress       String?
+  userAgent       String?
+  sortOrder       Int              @default(0)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  agreement Agreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+
+  @@index([agreementId, role], map: "AgreementSignatory_agreement_role_idx")
+  @@index([signatureToken], map: "AgreementSignatory_token_idx")
+}
+
+/// Immutable audit trail for every action on an agreement.
+model AgreementAuditLog {
+  id           String                @id @default(cuid())
+  agreementId  String
+  action       AgreementAuditAction
+  actorUserId  String?
+  actorName    String?
+  metadata     Json?                 // Additional context per action
+  ipAddress    String?
+  createdAt    DateTime              @default(now())
+
+  agreement Agreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+
+  @@index([agreementId, createdAt], map: "AgreementAuditLog_agreement_time_idx")
+}
+
+// =============================================================================
+// NexCheck — Site Compliance Kiosk System
+// =============================================================================
+
+enum SiteDocCategory {
+  JSA
+  ONBOARDING
+  SAFETY
+  POLICY
+  CUSTOM
+}
+
+enum SiteDocFrequency {
+  ONCE       // First visit only
+  DAILY      // Every day
+  ON_CHANGE  // Re-acknowledge when document version changes
+}
+
+enum SignOutMethod {
+  MANUAL               // Worker signed out at kiosk
+  SYSTEM_AUTO_SIGNOUT  // Geo-fence departure, grace period expired
+  SYSTEM_EOD_SIGNOUT   // End-of-day cutoff, no departure detected
+}
+
+/// Unique site pass token for a person (Nexus user or external visitor).
+/// The raw token lives on the device; only the SHA-256 hash is stored here.
+model SitePass {
+  id          String    @id @default(cuid())
+  companyId   String
+  userId      String?   // Null for external visitors
+  workerId    String?   // Null until linked to a Worker record
+  tokenHash   String    @unique // SHA-256 of the raw 32-byte token
+  displayName String
+  companyName String?   // Visitor's company name (not the tenant)
+  trade       String?
+  phone       String?
+  email       String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  revokedAt   DateTime?
+
+  company   Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user      User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  worker    Worker?       @relation(fields: [workerId], references: [id], onDelete: SetNull)
+  checkIns  SiteCheckIn[]
+  acks      SiteDocumentAck[]
+
+  @@index([companyId], map: "SitePass_company_idx")
+  @@index([userId], map: "SitePass_user_idx")
+  @@index([workerId], map: "SitePass_worker_idx")
+}
+
+/// A document that workers must acknowledge at a project site.
+/// PMs configure which documents are required per project.
+model SiteDocument {
+  id              String           @id @default(cuid())
+  companyId       String
+  projectId       String
+  title           String
+  htmlContent     String           @db.Text
+  category        SiteDocCategory  @default(CUSTOM)
+  frequency       SiteDocFrequency @default(DAILY)
+  sortOrder       Int              @default(0)
+  isActive        Boolean          @default(true)
+  version         Int              @default(1)
+  sourceDocId     String?          // Optional link to TenantPnpDocument
+  createdByUserId String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy User?             @relation("SiteDocumentCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  acks      SiteDocumentAck[]
+
+  @@index([companyId, projectId], map: "SiteDocument_company_project_idx")
+  @@index([projectId, isActive], map: "SiteDocument_project_active_idx")
+}
+
+/// Record of a worker acknowledging a specific site document during check-in.
+model SiteDocumentAck {
+  id               String   @id @default(cuid())
+  siteDocumentId   String
+  sitePassId       String
+  projectId        String
+  documentVersion  Int      // Version of the document at time of ack
+  checkInSessionId String   // Links to the SiteCheckIn session
+  acknowledgedAt   DateTime @default(now())
+
+  siteDocument SiteDocument @relation(fields: [siteDocumentId], references: [id], onDelete: Cascade)
+  sitePass     SitePass     @relation(fields: [sitePassId], references: [id], onDelete: Cascade)
+  checkIn      SiteCheckIn  @relation(fields: [checkInSessionId], references: [id], onDelete: Cascade)
+
+  @@index([siteDocumentId, sitePassId], map: "SiteDocumentAck_doc_pass_idx")
+  @@index([sitePassId, acknowledgedAt], map: "SiteDocumentAck_pass_time_idx")
+  @@index([checkInSessionId], map: "SiteDocumentAck_checkin_idx")
+}
+
+/// A single check-in session at a project site. Tracks identity confirmation,
+/// document acknowledgments, signature, and sign-out.
+model SiteCheckIn {
+  id              String        @id @default(cuid())
+  companyId       String
+  projectId       String
+  sitePassId      String
+  kioskSessionId  String?       // Null if checked in via personal device
+  checkInAt       DateTime      @default(now())
+  signOutAt       DateTime?
+  signOutMethod   SignOutMethod?
+  signatureSvg    String?       @db.Text // SVG path data from finger signature
+  documentsAcked  Int           @default(0)
+  createdAt       DateTime      @default(now())
+
+  company      Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project      Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sitePass     SitePass          @relation(fields: [sitePassId], references: [id], onDelete: Cascade)
+  kioskSession KioskSession?     @relation(fields: [kioskSessionId], references: [id], onDelete: SetNull)
+  acks         SiteDocumentAck[]
+
+  @@index([companyId, projectId, checkInAt], map: "SiteCheckIn_company_project_time_idx")
+  @@index([sitePassId, checkInAt], map: "SiteCheckIn_pass_time_idx")
+  @@index([kioskSessionId], map: "SiteCheckIn_kiosk_idx")
+  @@index([projectId, checkInAt], map: "SiteCheckIn_project_time_idx")
+}
+
+/// Tracks an active kiosk session on a device. A device in kiosk mode is
+/// bound to a single project and records all check-ins through it.
+model KioskSession {
+  id                String    @id @default(cuid())
+  companyId         String
+  projectId         String
+  deviceId          String    // Unique device fingerprint
+  activatedByUserId String
+  isActive          Boolean   @default(true)
+  activatedAt       DateTime  @default(now())
+  deactivatedAt     DateTime?
+
+  company     Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  activatedBy User          @relation("KioskSessionActivatedBy", fields: [activatedByUserId], references: [id])
+  checkIns    SiteCheckIn[]
+
+  @@index([companyId, projectId], map: "KioskSession_company_project_idx")
+  @@index([deviceId, isActive], map: "KioskSession_device_active_idx")
+}
+
+/// Time-boxed delegation of kiosk activation rights from a PM/admin to a
+/// field user (typically a foreman). Default 24h, max 7 days.
+model KioskDelegation {
+  id                String    @id @default(cuid())
+  companyId         String
+  projectId         String
+  delegatedToUserId String
+  delegatedByUserId String
+  expiresAt         DateTime  // Default: now + 24h, max: now + 7d
+  revokedAt         DateTime? // Set if PM revokes early
+  createdAt         DateTime  @default(now())
+
+  company     Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  delegatedTo User    @relation("KioskDelegationReceivedBy", fields: [delegatedToUserId], references: [id])
+  delegatedBy User    @relation("KioskDelegationGrantedBy", fields: [delegatedByUserId], references: [id])
+
+  @@index([companyId, projectId], map: "KioskDelegation_company_project_idx")
+  @@index([delegatedToUserId, expiresAt], map: "KioskDelegation_delegate_expiry_idx")
 }
