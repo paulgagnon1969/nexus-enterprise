@@ -7899,6 +7899,7 @@ model CsvImportBatch {
   companyId        String
   source           CsvImportSource
   fileName         String
+  rawCsv           String?         @db.Text  // Original CSV content preserved for undo
   rowCount         Int             @default(0)
   totalAmount      Float           @default(0)
   dateRangeStart   DateTime?       @db.Date

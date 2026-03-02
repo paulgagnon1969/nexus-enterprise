@@ -87,6 +87,22 @@ export class CsvImportController {
     return this.csvImport.deleteBatch(actor.companyId, batchId);
   }
 
+  // ─── Undo import (safe delete + return raw CSV) ─────────────────
+
+  @Post("csv-imports/:batchId/undo")
+  async undoImport(@Req() req: any, @Param("batchId") batchId: string) {
+    const actor = req.user as AuthenticatedUser;
+    return this.csvImport.undoImport(actor.companyId, batchId);
+  }
+
+  // ─── Bulk undo imports ──────────────────────────────────────────
+
+  @Post("csv-imports/bulk-undo")
+  async bulkUndoImport(@Req() req: any, @Body() body: { batchIds: string[] }) {
+    const actor = req.user as AuthenticatedUser;
+    return this.csvImport.bulkUndoImport(actor.companyId, body.batchIds);
+  }
+
   // ─── Unified transactions (Plaid + CSV) ──────────────────────────
 
   @Get("transactions/unified")

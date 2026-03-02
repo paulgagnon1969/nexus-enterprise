@@ -126,6 +126,7 @@ export class CsvImportService {
     fileName: string,
   ) {
     const content = buffer.toString("utf8");
+    const rawCsv = content; // Preserve original CSV for undo
 
     let rows: ParsedRow[];
     switch (source) {
@@ -163,6 +164,7 @@ export class CsvImportService {
         companyId: actor.companyId,
         source,
         fileName,
+        rawCsv,
         rowCount: 0,
         totalAmount: 0,
         dateRangeStart,
@@ -392,13 +394,32 @@ export class CsvImportService {
   // ─── Batch management ────────────────────────────────────────────
 
   async listBatches(companyId: string) {
-    return this.prisma.csvImportBatch.findMany({
+    const batches = await this.prisma.csvImportBatch.findMany({
       where: { companyId },
       orderBy: { createdAt: "desc" },
       include: {
         uploadedBy: { select: { id: true, firstName: true, lastName: true, email: true } },
       },
     });
+
+    // Enrich each batch with assigned transaction count so UI can show undo eligibility
+    const batchIds = batches.map((b) => b.id);
+    const assignedCounts = batchIds.length > 0
+      ? await this.prisma.importedTransaction.groupBy({
+          by: ["batchId"],
+          where: { batchId: { in: batchIds }, projectId: { not: null } },
+          _count: { id: true },
+        })
+      : [];
+
+    const assignedMap = new Map(assignedCounts.map((r) => [r.batchId, r._count.id]));
+
+    return batches.map((b) => ({
+      ...b,
+      rawCsv: undefined, // Never send raw CSV in list responses
+      assignedCount: assignedMap.get(b.id) ?? 0,
+      canUndo: (assignedMap.get(b.id) ?? 0) === 0,
+    }));
   }
 
   async deleteBatch(companyId: string, batchId: string) {
@@ -410,6 +431,109 @@ export class CsvImportService {
     // Cascade delete handles ImportedTransaction rows
     await this.prisma.csvImportBatch.delete({ where: { id: batchId } });
     return { ok: true, deletedRows: batch.rowCount };
+  }
+
+  // ─── Undo import (safe delete + return CSV) ────────────────────────
+
+  async undoImport(companyId: string, batchId: string) {
+    const batch = await this.prisma.csvImportBatch.findFirst({
+      where: { id: batchId, companyId },
+    });
+    if (!batch) throw new BadRequestException("Import batch not found.");
+
+    // Check for any transactions assigned to a project
+    const assignedCount = await this.prisma.importedTransaction.count({
+      where: { batchId, projectId: { not: null } },
+    });
+
+    if (assignedCount > 0) {
+      throw new BadRequestException(
+        `Cannot undo: ${assignedCount} transaction(s) in this batch are assigned to projects. ` +
+        `Unassign them first, then retry.`,
+      );
+    }
+
+    // Grab the raw CSV before deletion
+    const rawCsv = batch.rawCsv;
+
+    // Cascade delete
+    await this.prisma.csvImportBatch.delete({ where: { id: batchId } });
+
+    this.logger.log(
+      `Undo import: deleted batch ${batchId} (${batch.rowCount} rows, source=${batch.source})`,
+    );
+
+    return {
+      ok: true,
+      undone: true,
+      batchId: batch.id,
+      source: batch.source,
+      fileName: batch.fileName,
+      rowCount: batch.rowCount,
+      rawCsv: rawCsv ?? null, // null for batches imported before this feature
+    };
+  }
+
+  async bulkUndoImport(companyId: string, batchIds: string[]) {
+    if (batchIds.length === 0) {
+      throw new BadRequestException("No batch IDs provided.");
+    }
+
+    const batches = await this.prisma.csvImportBatch.findMany({
+      where: { id: { in: batchIds }, companyId },
+    });
+
+    if (batches.length !== batchIds.length) {
+      const found = new Set(batches.map((b) => b.id));
+      const missing = batchIds.filter((id) => !found.has(id));
+      throw new BadRequestException(`Batch(es) not found: ${missing.join(", ")}`);
+    }
+
+    // Check all batches for assigned transactions
+    const assignedCounts = await this.prisma.importedTransaction.groupBy({
+      by: ["batchId"],
+      where: { batchId: { in: batchIds }, projectId: { not: null } },
+      _count: { id: true },
+    });
+
+    const blocked = assignedCounts.filter((r) => r._count.id > 0);
+    if (blocked.length > 0) {
+      const details = blocked
+        .map((r) => {
+          const b = batches.find((b) => b.id === r.batchId);
+          return `${b?.fileName ?? r.batchId}: ${r._count.id} assigned`;
+        })
+        .join("; ");
+      throw new BadRequestException(
+        `Cannot undo: some batches have assigned transactions. ${details}`,
+      );
+    }
+
+    // Collect raw CSVs before deletion
+    const results = batches.map((b) => ({
+      batchId: b.id,
+      source: b.source,
+      fileName: b.fileName,
+      rowCount: b.rowCount,
+      rawCsv: b.rawCsv ?? null,
+    }));
+
+    // Delete all batches (cascade deletes transactions)
+    await this.prisma.csvImportBatch.deleteMany({
+      where: { id: { in: batchIds }, companyId },
+    });
+
+    const totalRows = batches.reduce((sum, b) => sum + b.rowCount, 0);
+    this.logger.log(
+      `Bulk undo: deleted ${batches.length} batch(es), ${totalRows} total rows`,
+    );
+
+    return {
+      ok: true,
+      undone: results,
+      totalBatches: results.length,
+      totalRows,
+    };
   }
 
   // ─── Unified transaction query ───────────────────────────────────
