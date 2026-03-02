@@ -66,6 +66,7 @@ import { BillingModule } from "./modules/billing/billing.module";
 import { BankingModule } from "./modules/banking/banking.module";
 import { AnalyticsModule } from "./modules/analytics/analytics.module";
 import { LocalSupplierModule } from "./modules/local-supplier/local-supplier.module";
+import { NexfindModule } from "./modules/nexfind/nexfind.module";
 import { RoomScanModule } from "./modules/room-scan/room-scan.module";
 import { ReceiptEmailModule } from "./modules/receipt-email/receipt-email.module";
 import { VideoAssessmentModule } from "./modules/video-assessment/video-assessment.module";
@@ -143,6 +144,7 @@ import { VideoAssessmentModule } from "./modules/video-assessment/video-assessme
     BankingModule,
     AnalyticsModule,
     LocalSupplierModule,
+    NexfindModule,
     RoomScanModule,
     ReceiptEmailModule,
     VideoAssessmentModule,

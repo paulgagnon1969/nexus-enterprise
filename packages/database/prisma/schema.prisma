@@ -7950,6 +7950,11 @@ model LocalSupplier {
   source      String?             // e.g. "google_places", "manual"
   placeId     String?             // Google Places ID for de-duplication
 
+  // NexFIND additions
+  globalSupplierId String?        // FK → GlobalSupplier (network index)
+  savedVia         String?        // how the supplier entered: 'google_places', 'receipt_ocr', 'directions', 'manual'
+  metadata         Json?          // visit count, last navigated, tenant-private notes
+
   status      LocalSupplierStatus @default(ACTIVE)
 
   // Flag / review audit trail
@@ -7963,13 +7968,44 @@ model LocalSupplier {
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
 
-  company    Company @relation(fields: [companyId], references: [id])
-  flaggedBy  User?   @relation("LocalSupplierFlaggedBy", fields: [flaggedByUserId], references: [id])
-  reviewedBy User?   @relation("LocalSupplierReviewedBy", fields: [reviewedByUserId], references: [id])
+  company        Company          @relation(fields: [companyId], references: [id])
+  flaggedBy      User?            @relation("LocalSupplierFlaggedBy", fields: [flaggedByUserId], references: [id])
+  reviewedBy     User?            @relation("LocalSupplierReviewedBy", fields: [reviewedByUserId], references: [id])
+  globalSupplier GlobalSupplier?  @relation(fields: [globalSupplierId], references: [id])
 
   @@index([companyId, status], map: "LocalSupplier_company_status_idx")
   @@index([companyId, lat, lng], map: "LocalSupplier_company_geo_idx")
   @@unique([companyId, placeId], map: "LocalSupplier_company_placeId_key")
+  @@index([globalSupplierId], map: "LocalSupplier_global_supplier_idx")
+}
+
+// ===================================================================
+// NexFIND — Global Supplier Network Index (cross-tenant)
+// ===================================================================
+
+/// System-wide supplier record aggregated from all tenants.
+/// No companyId — this is the shared network index.
+/// Tenant-specific data stays in LocalSupplier; this is anonymized aggregate.
+model GlobalSupplier {
+  id          String   @id @default(cuid())
+  name        String
+  address     String?
+  phone       String?
+  website     String?
+  lat         Float
+  lng         Float
+  category    String?  // e.g. "Hardware Store", "Lumber Yard"
+  placeId     String?  @unique(map: "GlobalSupplier_placeId_key")
+  source      String?  // first source: 'google_places', 'receipt_ocr', 'directions', 'manual'
+  tenantCount Int      @default(1) // how many tenants have this supplier saved
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  localSuppliers LocalSupplier[]
+
+  @@index([lat, lng], map: "GlobalSupplier_geo_idx")
+  @@index([category], map: "GlobalSupplier_category_idx")
 }
 
 // ===================================================================

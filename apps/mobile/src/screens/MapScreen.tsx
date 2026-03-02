@@ -9,8 +9,12 @@ import {
   ActivityIndicator,
   Animated as RNAnimated,
   Alert,
+  Modal,
 } from "react-native";
 import Mapbox from "@rnmapbox/maps";
+import * as Location from "expo-location";
+
+import { openPreferredMap } from "../utils/openPreferredMap";
 
 /** Lightweight type matching @rnmapbox/maps ShapeSource onPress event */
 interface MapPressEvent {
@@ -58,6 +62,62 @@ function normalizeStatus(s?: string | null): StatusKey {
 
 function statusColor(s: StatusKey): string {
   return STATUS_CHIPS.find((c) => c.key === s)?.color ?? "#0ea5e9";
+}
+
+// ─── Radius / location helpers ───────────────────────────────────────────────
+
+type RadiusKey = "15" | "50" | "100" | "state" | "nation";
+
+const RADIUS_OPTIONS: { key: RadiusKey; label: string; miles?: number }[] = [
+  { key: "15", label: "15 mi", miles: 15 },
+  { key: "50", label: "50 mi", miles: 50 },
+  { key: "100", label: "100 mi", miles: 100 },
+  { key: "state", label: "State", miles: 250 },
+  { key: "nation", label: "Nation" },
+];
+
+function radiusMilesForKey(key: RadiusKey): number | null {
+  return RADIUS_OPTIONS.find((o) => o.key === key)?.miles ?? null;
+}
+
+function haversineMiles(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
+): number {
+  const R = 3959; // Earth radius in miles
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function boundsFromCenterMiles(
+  center: { lat: number; lng: number },
+  miles: number,
+): { ne: [number, number]; sw: [number, number] } {
+  // 1° latitude ≈ 69 miles
+  const latPad = (miles / 69) * 1.08;
+  const cosLat = Math.max(Math.cos((center.lat * Math.PI) / 180), 0.08);
+  const lngPad = (miles / (cosLat * 69)) * 1.08;
+
+  return {
+    ne: [center.lng + lngPad, center.lat + latPad] as [number, number],
+    sw: [center.lng - lngPad, center.lat - latPad] as [number, number],
+  };
+}
+
+function formatProjectAddress(p: ProjectListItem): string {
+  return [p.addressLine1, p.city, p.state].filter(Boolean).join(", ");
+}
+
+function openDirections(lat: number, lng: number, address?: string | null) {
+  openPreferredMap({ latitude: lat, longitude: lng, address });
 }
 
 // ─── GeoJSON builder ──────────────────────────────────────────────────────────
@@ -227,6 +287,15 @@ export function MapScreen({ onSelectProject }: Props) {
   );
   const [showSuppliers, setShowSuppliers] = useState(true);
 
+  // Location + radius (default is regional)
+  const [locationEnabled, setLocationEnabled] = useState<boolean | null>(null);
+  const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(null);
+  const [radiusKey, setRadiusKey] = useState<RadiusKey>("50");
+  const [radiusPickerOpen, setRadiusPickerOpen] = useState(false);
+
+  // Legend
+  const [legendOpen, setLegendOpen] = useState(true);
+
   // Selected pin callout
   const [selected, setSelected] = useState<ProjectListItem | null>(null);
   const [selectedSupplier, setSelectedSupplier] = useState<LocalSupplier | null>(null);
@@ -235,6 +304,36 @@ export function MapScreen({ onSelectProject }: Props) {
   // Map refs
   const shapeRef = useRef<Mapbox.ShapeSource>(null);
   const cameraRef = useRef<Mapbox.Camera>(null);
+
+  const radiusMiles = useMemo(() => radiusMilesForKey(radiusKey), [radiusKey]);
+  const radiusLabel = useMemo(() => {
+    return RADIUS_OPTIONS.find((o) => o.key === radiusKey)?.label ?? "Radius";
+  }, [radiusKey]);
+
+  // ── Load user location (for radius filter) ───────────────────────────────
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== "granted") {
+          setLocationEnabled(false);
+          setRadiusKey("nation");
+          return;
+        }
+
+        setLocationEnabled(true);
+        const loc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        setUserLoc({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+      } catch {
+        // Location unavailable — fall back to nation so UI matches behavior.
+        setLocationEnabled(false);
+        setRadiusKey("nation");
+      }
+    })();
+  }, []);
 
   // ── Load projects & suppliers ──────────────────────────────────────────────
 
@@ -274,6 +373,19 @@ export function MapScreen({ onSelectProject }: Props) {
     return projects.filter((p) => {
       // Status filter
       if (!statusFilters.has(normalizeStatus(p.status))) return false;
+
+      // Radius filter (requires user location)
+      if (radiusMiles != null && userLoc) {
+        if (p.latitude == null || p.longitude == null) return false;
+        const dist = haversineMiles(
+          userLoc.lat,
+          userLoc.lng,
+          p.latitude,
+          p.longitude,
+        );
+        if (dist > radiusMiles) return false;
+      }
+
       // Text search
       if (q && !p.name.toLowerCase().includes(q)) {
         const addr = [p.addressLine1, p.city, p.state]
@@ -284,11 +396,27 @@ export function MapScreen({ onSelectProject }: Props) {
       }
       return true;
     });
-  }, [projects, search, statusFilters]);
+  }, [projects, search, statusFilters, radiusMiles, userLoc]);
+
+  const filteredSuppliers = useMemo(() => {
+    if (radiusMiles == null || !userLoc) return suppliers;
+    return suppliers.filter((s) => {
+      const dist = haversineMiles(userLoc.lat, userLoc.lng, s.lat, s.lng);
+      return dist <= radiusMiles;
+    });
+  }, [suppliers, radiusMiles, userLoc]);
 
   const geoData = useMemo(() => toGeoJson(filtered), [filtered]);
-  const supplierGeo = useMemo(() => suppliersToGeoJson(suppliers), [suppliers]);
-  const bounds = useMemo(() => calcBounds(geoData), [geoData]);
+  const supplierGeo = useMemo(
+    () => suppliersToGeoJson(filteredSuppliers),
+    [filteredSuppliers],
+  );
+  const cameraBounds = useMemo(() => {
+    if (radiusMiles != null && userLoc) {
+      return boundsFromCenterMiles(userLoc, radiusMiles);
+    }
+    return calcBounds(geoData);
+  }, [radiusMiles, userLoc, geoData]);
 
   const isFiltered = search.length > 0 || statusFilters.size < 3 || !showSuppliers;
 
@@ -476,7 +604,7 @@ export function MapScreen({ onSelectProject }: Props) {
       >
         <Mapbox.Camera
           ref={cameraRef}
-          bounds={bounds}
+          bounds={cameraBounds}
           animationDuration={600}
         />
 
@@ -521,7 +649,7 @@ export function MapScreen({ onSelectProject }: Props) {
         </Mapbox.ShapeSource>
 
         {/* ── Supplier pins ─────────────────────────────────────────── */}
-        {showSuppliers && suppliers.length > 0 && (
+        {showSuppliers && filteredSuppliers.length > 0 && (
           <Mapbox.ShapeSource
             id="suppliers-source"
             shape={supplierGeo}
@@ -563,6 +691,21 @@ export function MapScreen({ onSelectProject }: Props) {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.chipRow}
         >
+          {/* Radius selector */}
+          <Pressable
+            style={[
+              styles.chip,
+              radiusKey !== "nation" && {
+                borderColor: colors.primary,
+                backgroundColor: colors.primary + "10",
+              },
+            ]}
+            onPress={() => setRadiusPickerOpen(true)}
+          >
+            <Text style={{ fontSize: 12 }}>📏</Text>
+            <Text style={styles.chipLabel}>{radiusLabel}</Text>
+          </Pressable>
+
           {STATUS_CHIPS.map((chip) => {
             const active = statusFilters.has(chip.key);
             return (
@@ -607,7 +750,7 @@ export function MapScreen({ onSelectProject }: Props) {
                 showSuppliers && { color: "#fff" },
               ]}
             >
-              Suppliers{suppliers.length > 0 ? ` (${suppliers.length})` : ""}
+              Suppliers{filteredSuppliers.length > 0 ? ` (${filteredSuppliers.length})` : ""}
             </Text>
           </Pressable>
 
@@ -620,12 +763,121 @@ export function MapScreen({ onSelectProject }: Props) {
         </ScrollView>
       </View>
 
+      {/* ── Radius picker ──────────────────────────────────────────────── */}
+      <Modal
+        visible={radiusPickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRadiusPickerOpen(false)}
+      >
+        <View style={styles.radiusOverlay}>
+          <Pressable
+            style={styles.radiusBackdrop}
+            onPress={() => setRadiusPickerOpen(false)}
+          />
+          <View style={styles.radiusSheet}>
+            <Text style={styles.radiusTitle}>Map Radius</Text>
+            {RADIUS_OPTIONS.map((opt) => {
+              const active = opt.key === radiusKey;
+              return (
+                <Pressable
+                  key={opt.key}
+                  style={[styles.radiusRow, active && styles.radiusRowActive]}
+                  onPress={() => {
+                    if (opt.key !== "nation" && locationEnabled === false) {
+                      Alert.alert(
+                        "Location Required",
+                        "Enable location permissions to use radius filtering.",
+                      );
+                      return;
+                    }
+                    setRadiusKey(opt.key);
+                    setRadiusPickerOpen(false);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.radiusRowText,
+                      active && styles.radiusRowTextActive,
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                  {active && <Text style={styles.radiusCheck}>✓</Text>}
+                </Pressable>
+              );
+            })}
+            <Pressable
+              style={styles.radiusCancelBtn}
+              onPress={() => setRadiusPickerOpen(false)}
+            >
+              <Text style={styles.radiusCancelText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Legend ──────────────────────────────────────────────────────── */}
+      <View style={styles.legendCard}>
+        <Pressable
+          style={styles.legendHeader}
+          onPress={() => setLegendOpen((v) => !v)}
+        >
+          <Text style={styles.legendTitle}>Legend</Text>
+          <Text style={styles.legendChevron}>{legendOpen ? "▾" : "▸"}</Text>
+        </Pressable>
+        {legendOpen && (
+          <View style={styles.legendBody}>
+            <Text style={styles.legendSection}>Projects</Text>
+            {STATUS_CHIPS.map((chip) => (
+              <View key={chip.key} style={styles.legendRow}>
+                <View
+                  style={[styles.legendDot, { backgroundColor: chip.color }]}
+                />
+                <Text style={styles.legendLabel}>{chip.label}</Text>
+              </View>
+            ))}
+
+            <Text style={styles.legendSection}>Suppliers</Text>
+            <View style={styles.legendRow}>
+              <View
+                style={[
+                  styles.legendDot,
+                  { backgroundColor: SUPPLIER_STATUS_COLORS.ACTIVE },
+                ]}
+              />
+              <Text style={styles.legendLabel}>🏪 Active</Text>
+            </View>
+            <View style={styles.legendRow}>
+              <View
+                style={[
+                  styles.legendDot,
+                  { backgroundColor: SUPPLIER_STATUS_COLORS.PENDING_REMOVAL },
+                ]}
+              />
+              <Text style={styles.legendLabel}>⚠️ Pending removal</Text>
+            </View>
+            <View style={styles.legendRow}>
+              <View
+                style={[
+                  styles.legendDot,
+                  { backgroundColor: SUPPLIER_STATUS_COLORS.PERMANENTLY_CLOSED },
+                ]}
+              />
+              <Text style={styles.legendLabel}>❌ Closed</Text>
+            </View>
+          </View>
+        )}
+      </View>
+
       {/* ── Empty state ─────────────────────────────────────────────────── */}
       {geoCount === 0 && !loading && (
         <View style={styles.emptyOverlay}>
           <Text style={styles.emptyText}>
             {filtered.length === 0
-              ? "No projects match your filters."
+              ? radiusMiles != null && userLoc
+                ? `No projects within ${radiusLabel}.`
+                : "No projects match your filters."
               : "No projects have GPS coordinates yet."}
           </Text>
         </View>
@@ -651,12 +903,29 @@ export function MapScreen({ onSelectProject }: Props) {
               {selected.name}
             </Text>
           </View>
-          {(selected.city || selected.state) && (
-            <Text style={styles.calloutAddress} numberOfLines={1}>
-              {[selected.addressLine1, selected.city, selected.state]
-                .filter(Boolean)
-                .join(", ")}
-            </Text>
+          {formatProjectAddress(selected) && (
+            selected.latitude != null && selected.longitude != null ? (
+              <Pressable
+                onPress={() =>
+                  openDirections(
+                    selected.latitude!,
+                    selected.longitude!,
+                    formatProjectAddress(selected) || null,
+                  )
+                }
+              >
+                <Text
+                  style={[styles.calloutAddress, styles.calloutAddressLink]}
+                  numberOfLines={1}
+                >
+                  {formatProjectAddress(selected)}
+                </Text>
+              </Pressable>
+            ) : (
+              <Text style={styles.calloutAddress} numberOfLines={1}>
+                {formatProjectAddress(selected)}
+              </Text>
+            )
           )}
           {selected.primaryContactName && (
             <Text style={styles.calloutContact} numberOfLines={1}>
@@ -667,6 +936,20 @@ export function MapScreen({ onSelectProject }: Props) {
             </Text>
           )}
           <View style={styles.calloutActions}>
+            {selected.latitude != null && selected.longitude != null && (
+              <Pressable
+                style={styles.calloutDirectionsBtn}
+                onPress={() =>
+                  openDirections(
+                    selected.latitude!,
+                    selected.longitude!,
+                    formatProjectAddress(selected) || null,
+                  )
+                }
+              >
+                <Text style={styles.calloutDirectionsText}>🧭 Directions</Text>
+              </Pressable>
+            )}
             <Pressable
               style={styles.calloutOpenBtn}
               onPress={() => {
@@ -708,9 +991,22 @@ export function MapScreen({ onSelectProject }: Props) {
             <Text style={styles.supplierCategory}>{selectedSupplier.category}</Text>
           )}
           {selectedSupplier.address && (
-            <Text style={styles.calloutAddress} numberOfLines={1}>
-              {selectedSupplier.address}
-            </Text>
+            <Pressable
+              onPress={() =>
+                openDirections(
+                  selectedSupplier.lat,
+                  selectedSupplier.lng,
+                  selectedSupplier.address,
+                )
+              }
+            >
+              <Text
+                style={[styles.calloutAddress, styles.calloutAddressLink]}
+                numberOfLines={1}
+              >
+                {selectedSupplier.address}
+              </Text>
+            </Pressable>
           )}
           {selectedSupplier.phone && (
             <Text style={styles.calloutContact}>📞 {selectedSupplier.phone}</Text>
@@ -831,6 +1127,123 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: colors.textSecondary,
   },
+
+  // ── Radius picker ────────────────────────────────────────────────────────
+  radiusOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    justifyContent: "flex-end",
+  },
+  radiusBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  radiusSheet: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 22,
+  },
+  radiusTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: colors.textPrimary,
+    textAlign: "center",
+    marginBottom: 10,
+  },
+  radiusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+  },
+  radiusRowActive: {
+    backgroundColor: colors.backgroundTertiary,
+  },
+  radiusRowText: {
+    fontSize: 15,
+    color: colors.textPrimary,
+  },
+  radiusRowTextActive: {
+    fontWeight: "700",
+    color: colors.primary,
+  },
+  radiusCheck: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: colors.primary,
+  },
+  radiusCancelBtn: {
+    marginTop: 8,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  radiusCancelText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: colors.textMuted,
+  },
+
+  // ── Legend ───────────────────────────────────────────────────────────────
+  legendCard: {
+    position: "absolute",
+    top: 92,
+    right: 12,
+    backgroundColor: "rgba(255,255,255,0.95)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+    overflow: "hidden",
+  },
+  legendHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  legendTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: colors.textPrimary,
+  },
+  legendChevron: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: colors.textMuted,
+  },
+  legendBody: {
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    gap: 6,
+  },
+  legendSection: {
+    marginTop: 6,
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  legendRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  legendLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.textSecondary,
+  },
   countPill: {
     paddingHorizontal: 10,
     paddingVertical: 4,
@@ -909,6 +1322,10 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     marginLeft: 18,
   },
+  calloutAddressLink: {
+    color: colors.primary,
+    textDecorationLine: "underline",
+  },
   calloutContact: {
     fontSize: 12,
     color: colors.textSecondary,
@@ -917,11 +1334,26 @@ const styles = StyleSheet.create({
   },
   calloutActions: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 10,
     marginTop: 4,
   },
+  calloutDirectionsBtn: {
+    flex: 1,
+    minWidth: 140,
+    backgroundColor: "#2563eb",
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  calloutDirectionsText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
   calloutOpenBtn: {
     flex: 1,
+    minWidth: 140,
     backgroundColor: colors.primary,
     borderRadius: 10,
     paddingVertical: 12,

@@ -9,12 +9,21 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  TextInput,
 } from "react-native";
-import { fetchAllTasks, updateTaskStatus, updateTask, fetchCompanyMembers } from "../api/tasks";
+import {
+  fetchAllTasks,
+  updateTaskStatus,
+  updateTask,
+  fetchCompanyMembers,
+  disposeTask,
+  addTaskNote,
+  fetchTaskActivities,
+} from "../api/tasks";
 import type { TeamMember } from "../api/tasks";
 import { colors } from "../theme/colors";
 import * as Haptics from "expo-haptics";
-import type { TaskItem, TaskStatus } from "../types/api";
+import type { TaskItem, TaskStatus, TaskDisposition, TaskActivityItem } from "../types/api";
 
 // ── Urgency bucketing ───────────────────────────────────────────────
 type UrgencyBucket = "overdue" | "dueSoon" | "upcoming" | "noDue" | "done";
@@ -91,6 +100,15 @@ export function TodosScreen() {
   const [showDetail, setShowDetail] = useState(false);
   const [detailActionLoading, setDetailActionLoading] = useState(false);
 
+  // Disposition state
+  const [selectedDisposition, setSelectedDisposition] = useState<TaskDisposition | null>(null);
+  const [showDispositionPicker, setShowDispositionPicker] = useState(false);
+  const [dispositionNote, setDispositionNote] = useState("");
+
+  // Activity log
+  const [activities, setActivities] = useState<TaskActivityItem[]>([]);
+  const [activitiesLoading, setActivitiesLoading] = useState(false);
+
   // Reassign state
   const [showReassign, setShowReassign] = useState(false);
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -117,32 +135,80 @@ export function TodosScreen() {
     loadTasks();
   }, [loadTasks]);
 
-  // Open detail card
+  // Open detail card and load activities
   const openDetail = (task: TaskItem) => {
     void Haptics.selectionAsync();
     setSelectedTask(task);
+    setSelectedDisposition(null);
+    setDispositionNote("");
     setShowDetail(true);
+    loadActivities(task.id);
   };
 
   const closeDetail = () => {
     setShowDetail(false);
     setSelectedTask(null);
+    setActivities([]);
+    setSelectedDisposition(null);
+    setDispositionNote("");
   };
 
-  // Close (mark DONE) from detail card
-  const handleCloseTask = async () => {
+  // Load activity log
+  const loadActivities = async (taskId: string) => {
+    setActivitiesLoading(true);
+    try {
+      const items = await fetchTaskActivities(taskId);
+      setActivities(items);
+    } catch {
+      setActivities([]);
+    } finally {
+      setActivitiesLoading(false);
+    }
+  };
+
+  // Submit disposition (Approve / Reject / Reassign)
+  const handleSubmitDisposition = async (reassigneeId?: string) => {
+    if (!selectedTask || !selectedDisposition) return;
+    setDetailActionLoading(true);
+    try {
+      const updated = await disposeTask(selectedTask.id, {
+        disposition: selectedDisposition,
+        note: dispositionNote || undefined,
+        assigneeId: reassigneeId,
+      });
+      setTasks((prev) =>
+        prev.map((t) => (t.id === selectedTask.id ? { ...t, ...updated } : t))
+      );
+      setSelectedTask(updated);
+      setSelectedDisposition(null);
+      setDispositionNote("");
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const label = selectedDisposition === "APPROVED" ? "approved" : selectedDisposition === "REJECTED" ? "rejected" : "reassigned";
+      Alert.alert("Done", `Task ${label} successfully.`);
+      loadActivities(selectedTask.id);
+    } catch {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert("Error", "Failed to submit disposition");
+    } finally {
+      setDetailActionLoading(false);
+    }
+  };
+
+  // Mark complete (separate from disposition)
+  const handleMarkComplete = async () => {
     if (!selectedTask) return;
     setDetailActionLoading(true);
     try {
-      await updateTaskStatus(selectedTask.id, "DONE");
+      const updated = await updateTaskStatus(selectedTask.id, "DONE");
       setTasks((prev) =>
-        prev.map((t) => (t.id === selectedTask.id ? { ...t, status: "DONE" as TaskStatus } : t))
+        prev.map((t) => (t.id === selectedTask.id ? { ...t, ...updated } : t))
       );
+      setSelectedTask(updated);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      closeDetail();
+      loadActivities(selectedTask.id);
     } catch {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert("Error", "Failed to close task");
+      Alert.alert("Error", "Failed to mark task complete");
     } finally {
       setDetailActionLoading(false);
     }
@@ -153,12 +219,13 @@ export function TodosScreen() {
     if (!selectedTask) return;
     setDetailActionLoading(true);
     try {
-      await updateTaskStatus(selectedTask.id, "TODO");
+      const updated = await updateTaskStatus(selectedTask.id, "TODO");
       setTasks((prev) =>
-        prev.map((t) => (t.id === selectedTask.id ? { ...t, status: "TODO" as TaskStatus } : t))
+        prev.map((t) => (t.id === selectedTask.id ? { ...t, ...updated } : t))
       );
+      setSelectedTask(updated);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      closeDetail();
+      loadActivities(selectedTask.id);
     } catch {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert("Error", "Failed to reopen task");
@@ -167,7 +234,7 @@ export function TodosScreen() {
     }
   };
 
-  // Open reassign picker
+  // Open reassign picker (for disposition REASSIGNED)
   const openReassign = async () => {
     setShowReassign(true);
     setMembersLoading(true);
@@ -181,24 +248,19 @@ export function TodosScreen() {
     }
   };
 
-  // Reassign to a member
+  // Reassign via disposition flow
   const handleReassign = async (memberId: string) => {
-    if (!selectedTask) return;
-    setDetailActionLoading(true);
-    try {
-      const updated = await updateTask(selectedTask.id, { assigneeId: memberId });
-      setTasks((prev) =>
-        prev.map((t) => (t.id === selectedTask.id ? { ...t, ...updated } : t))
-      );
-      setSelectedTask(updated);
-      setShowReassign(false);
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert("Reassigned", "Task has been reassigned.");
-    } catch {
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert("Error", "Failed to reassign task");
-    } finally {
-      setDetailActionLoading(false);
+    setShowReassign(false);
+    await handleSubmitDisposition(memberId);
+  };
+
+  // Select a disposition option
+  const handleDispositionSelect = (d: TaskDisposition) => {
+    setSelectedDisposition(d);
+    setShowDispositionPicker(false);
+    // If reassign, open member picker immediately
+    if (d === "REASSIGNED") {
+      openReassign();
     }
   };
 
@@ -379,7 +441,7 @@ export function TodosScreen() {
         <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* Task Detail Modal */}
+      {/* Task Review Modal */}
       <Modal
         visible={showDetail}
         animationType="slide"
@@ -389,20 +451,21 @@ export function TodosScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Task Detail</Text>
+              <Text style={styles.modalTitle}>Task Review</Text>
               <Pressable onPress={closeDetail}>
                 <Text style={styles.modalClose}>✕</Text>
               </Pressable>
             </View>
 
             {selectedTask && (
-              <ScrollView style={styles.modalBody}>
+              <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
                 <Text style={styles.detailTitle}>{selectedTask.title}</Text>
 
                 {selectedTask.description ? (
                   <Text style={styles.detailDesc}>{selectedTask.description}</Text>
                 ) : null}
 
+                {/* Info rows */}
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Status</Text>
                   <View style={[
@@ -451,16 +514,85 @@ export function TodosScreen() {
                   </View>
                 )}
 
-                {/* Action Buttons */}
+                {/* Current disposition (if set) */}
+                {selectedTask.disposition && selectedTask.disposition !== "NONE" && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Disposition</Text>
+                    <View style={[
+                      styles.dispositionBadge,
+                      selectedTask.disposition === "APPROVED" && { backgroundColor: "#d1fae5" },
+                      selectedTask.disposition === "REJECTED" && { backgroundColor: "#fee2e2" },
+                      selectedTask.disposition === "REASSIGNED" && { backgroundColor: "#dbeafe" },
+                    ]}>
+                      <Text style={styles.dispositionBadgeText}>{selectedTask.disposition}</Text>
+                    </View>
+                  </View>
+                )}
+
+                {/* ── Disposition Section ── */}
+                {selectedTask.status !== "DONE" && (
+                  <View style={styles.dispositionSection}>
+                    <Text style={styles.sectionTitle}>Disposition</Text>
+
+                    {/* Dropdown trigger */}
+                    <Pressable
+                      style={styles.dispositionDropdown}
+                      onPress={() => setShowDispositionPicker(true)}
+                    >
+                      <Text style={[
+                        styles.dispositionDropdownText,
+                        !selectedDisposition && { color: "#9ca3af" },
+                      ]}>
+                        {selectedDisposition === "APPROVED" ? "Approve WF"
+                          : selectedDisposition === "REJECTED" ? "Reject Task"
+                            : selectedDisposition === "REASSIGNED" ? "Reassign Task"
+                              : "Select disposition..."}
+                      </Text>
+                      <Text style={styles.dispositionChevron}>▾</Text>
+                    </Pressable>
+
+                    {/* Note / Memo */}
+                    <TextInput
+                      style={styles.noteInput}
+                      placeholder="Add a note or memo (optional)..."
+                      placeholderTextColor="#9ca3af"
+                      value={dispositionNote}
+                      onChangeText={setDispositionNote}
+                      multiline
+                      numberOfLines={3}
+                      textAlignVertical="top"
+                    />
+
+                    {/* Submit Disposition */}
+                    {selectedDisposition && selectedDisposition !== "REASSIGNED" && (
+                      <Pressable
+                        style={[
+                          styles.detailBtn,
+                          selectedDisposition === "APPROVED" ? styles.detailBtnApprove : styles.detailBtnReject,
+                        ]}
+                        onPress={() => handleSubmitDisposition()}
+                        disabled={detailActionLoading}
+                      >
+                        <Text style={styles.detailBtnText}>
+                          {detailActionLoading ? "Submitting..."
+                            : selectedDisposition === "APPROVED" ? "Submit Approval"
+                              : "Submit Rejection"}
+                        </Text>
+                      </Pressable>
+                    )}
+                  </View>
+                )}
+
+                {/* ── Action Buttons ── */}
                 <View style={styles.detailActions}>
                   {selectedTask.status !== "DONE" ? (
                     <Pressable
-                      style={[styles.detailBtn, styles.detailBtnClose]}
-                      onPress={handleCloseTask}
+                      style={[styles.detailBtn, styles.detailBtnComplete]}
+                      onPress={handleMarkComplete}
                       disabled={detailActionLoading}
                     >
                       <Text style={styles.detailBtnText}>
-                        {detailActionLoading ? "Closing..." : "Close Task"}
+                        {detailActionLoading ? "Completing..." : "Mark Task Complete"}
                       </Text>
                     </Pressable>
                   ) : (
@@ -474,19 +606,73 @@ export function TodosScreen() {
                       </Text>
                     </Pressable>
                   )}
-
-                  <Pressable
-                    style={[styles.detailBtn, styles.detailBtnReassign]}
-                    onPress={openReassign}
-                    disabled={detailActionLoading}
-                  >
-                    <Text style={styles.detailBtnText}>Reassign</Text>
-                  </Pressable>
                 </View>
+
+                {/* ── Activity Log ── */}
+                <View style={styles.activitySection}>
+                  <Text style={styles.sectionTitle}>Activity Log</Text>
+                  {activitiesLoading ? (
+                    <ActivityIndicator style={{ marginVertical: 12 }} color={colors.primary} />
+                  ) : activities.length === 0 ? (
+                    <Text style={styles.activityEmpty}>No activity yet</Text>
+                  ) : (
+                    activities.map((a) => {
+                      const actorName = a.actor
+                        ? [a.actor.firstName, a.actor.lastName].filter(Boolean).join(" ") || a.actor.email
+                        : "System";
+                      const timeStr = new Date(a.createdAt).toLocaleString();
+                      return (
+                        <View key={a.id} style={styles.activityRow}>
+                          <View style={styles.activityDot} />
+                          <View style={styles.activityContent}>
+                            <Text style={styles.activityAction}>
+                              <Text style={styles.activityActor}>{actorName}</Text>
+                              {" "}{formatAction(a.action, a.newValue)}
+                            </Text>
+                            {a.note ? (
+                              <Text style={styles.activityNote}>"{a.note}"</Text>
+                            ) : null}
+                            <Text style={styles.activityTime}>{timeStr}</Text>
+                          </View>
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
+
+                <View style={{ height: 40 }} />
               </ScrollView>
             )}
           </View>
         </View>
+      </Modal>
+
+      {/* Disposition Picker Modal */}
+      <Modal
+        visible={showDispositionPicker}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setShowDispositionPicker(false)}
+      >
+        <Pressable style={styles.pickerOverlay} onPress={() => setShowDispositionPicker(false)}>
+          <View style={styles.pickerContent}>
+            <Text style={styles.pickerTitle}>Select Disposition</Text>
+            {([
+              { value: "APPROVED" as TaskDisposition, label: "Approve WF", icon: "✅", color: "#059669" },
+              { value: "REJECTED" as TaskDisposition, label: "Reject Task", icon: "❌", color: "#dc2626" },
+              { value: "REASSIGNED" as TaskDisposition, label: "Reassign Task", icon: "🔄", color: "#2563eb" },
+            ]).map((opt) => (
+              <Pressable
+                key={opt.value}
+                style={[styles.pickerOption, selectedDisposition === opt.value && styles.pickerOptionSelected]}
+                onPress={() => handleDispositionSelect(opt.value)}
+              >
+                <Text style={styles.pickerOptionIcon}>{opt.icon}</Text>
+                <Text style={[styles.pickerOptionLabel, { color: opt.color }]}>{opt.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
       </Modal>
 
       {/* Reassign Picker Modal */}
@@ -534,6 +720,24 @@ export function TodosScreen() {
       </Modal>
     </View>
   );
+}
+
+// Format activity action for display
+function formatAction(action: string, newValue?: string | null): string {
+  switch (action) {
+    case "CREATED": return "created this task";
+    case "COMPLETED": return "marked task complete";
+    case "REOPENED": return "reopened this task";
+    case "REASSIGNED": return "reassigned this task";
+    case "NOTE_ADDED": return "added a note";
+    case "STATUS_CHANGED": return `changed status to ${newValue ?? "unknown"}`;
+    case "DISPOSITION_SET":
+      return newValue === "APPROVED" ? "approved (WF)"
+        : newValue === "REJECTED" ? "rejected the task"
+          : newValue === "REASSIGNED" ? "reassigned via disposition"
+            : `set disposition to ${newValue ?? "unknown"}`;
+    default: return action.toLowerCase().replace(/_/g, " ");
+  }
 }
 
 /** Expose urgency counts for badge rendering in the navigator */
@@ -804,7 +1008,7 @@ const styles = StyleSheet.create({
   detailActions: {
     flexDirection: "row",
     gap: 10,
-    marginTop: 24,
+    marginTop: 16,
   },
   detailBtn: {
     flex: 1,
@@ -812,8 +1016,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
   },
-  detailBtnClose: {
-    backgroundColor: "#10b981",
+  detailBtnComplete: {
+    backgroundColor: "#6366f1",
+  },
+  detailBtnApprove: {
+    backgroundColor: "#059669",
+  },
+  detailBtnReject: {
+    backgroundColor: "#dc2626",
   },
   detailBtnReopen: {
     backgroundColor: "#3b82f6",
@@ -825,6 +1035,153 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 15,
     fontWeight: "700",
+  },
+
+  // Disposition section
+  dispositionSection: {
+    marginTop: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#f3f4f6",
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: colors.textPrimary,
+    marginBottom: 10,
+  },
+  dispositionDropdown: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "#f9fafb",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 10,
+  },
+  dispositionDropdownText: {
+    fontSize: 15,
+    fontWeight: "500",
+    color: colors.textPrimary,
+  },
+  dispositionChevron: {
+    fontSize: 14,
+    color: "#9ca3af",
+  },
+  dispositionBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: "#f3f4f6",
+  },
+  dispositionBadgeText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#374151",
+  },
+  noteInput: {
+    backgroundColor: "#f9fafb",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: colors.textPrimary,
+    minHeight: 72,
+    marginBottom: 12,
+  },
+
+  // Disposition picker
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  pickerContent: {
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
+    padding: 20,
+    width: "80%",
+    maxWidth: 320,
+  },
+  pickerTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: colors.textPrimary,
+    marginBottom: 14,
+    textAlign: "center",
+  },
+  pickerOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginVertical: 2,
+  },
+  pickerOptionSelected: {
+    backgroundColor: "#eff6ff",
+  },
+  pickerOptionIcon: {
+    fontSize: 18,
+    marginRight: 12,
+  },
+  pickerOptionLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+
+  // Activity log
+  activitySection: {
+    marginTop: 24,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#f3f4f6",
+  },
+  activityEmpty: {
+    fontSize: 13,
+    color: colors.textMuted,
+    fontStyle: "italic",
+    marginTop: 4,
+  },
+  activityRow: {
+    flexDirection: "row",
+    marginBottom: 12,
+  },
+  activityDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#6366f1",
+    marginTop: 6,
+    marginRight: 10,
+  },
+  activityContent: {
+    flex: 1,
+  },
+  activityAction: {
+    fontSize: 13,
+    color: colors.textPrimary,
+    lineHeight: 18,
+  },
+  activityActor: {
+    fontWeight: "700",
+  },
+  activityNote: {
+    fontSize: 12,
+    color: colors.textMuted,
+    fontStyle: "italic",
+    marginTop: 2,
+  },
+  activityTime: {
+    fontSize: 11,
+    color: "#9ca3af",
+    marginTop: 2,
   },
 
   // Reassign picker

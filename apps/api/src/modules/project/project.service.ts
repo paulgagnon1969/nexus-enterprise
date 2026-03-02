@@ -57,6 +57,7 @@ import { TaxJurisdictionService } from "./tax-jurisdiction.service";
 import { BigBoxProvider } from "../supplier-catalog/bigbox.provider";
 import { NotificationsService, CreateNotificationParams } from "../notifications/notifications.service";
 import { GeocodingService } from "../geocoding/geocoding.service";
+import { NexfindService } from "../nexfind/nexfind.service";
 
 type PetlArchiveBundleV1 = {
   schemaVersion: 1;
@@ -188,6 +189,7 @@ export class ProjectService {
     private readonly bigBox: BigBoxProvider,
     private readonly notifications: NotificationsService,
     private readonly geocoding: GeocodingService,
+    private readonly nexfind: NexfindService,
   ) {}
 
   /**
@@ -271,7 +273,7 @@ export class ProjectService {
     const result = await this.geocoding.geocode(address);
     if (!result) return;
 
-    await this.prisma.project.update({
+    const updated = await this.prisma.project.update({
       where: { id: projectId },
       data: {
         latitude: result.latitude,
@@ -282,6 +284,13 @@ export class ProjectService {
     this.logger.log(
       `Geocoded project ${projectId}: ${result.latitude}, ${result.longitude}`,
     );
+
+    // NexFIND: auto-discover nearby suppliers after geocoding
+    void this.nexfind
+      .discoverNearby(updated.companyId, result.latitude, result.longitude)
+      .catch((err: any) =>
+        this.logger.warn(`NexFIND post-geocode discovery failed (non-fatal): ${err?.message}`),
+      );
   }
 
   async createProject(dto: CreateProjectDto, actor: AuthenticatedUser) {
@@ -419,6 +428,15 @@ export class ProjectService {
         state: project.state
       }
     });
+
+    // NexFIND: auto-discover nearby suppliers when project has coordinates
+    if (project.latitude != null && project.longitude != null) {
+      void this.nexfind
+        .discoverNearby(companyId, project.latitude, project.longitude)
+        .catch((err: any) =>
+          this.logger.warn(`NexFIND auto-discovery failed (non-fatal): ${err?.message}`),
+        );
+    }
 
     // Auto-create PM review task when a non-OWNER/ADMIN creates a project
     // (e.g. Foreman creating from mobile). This is non-fatal.

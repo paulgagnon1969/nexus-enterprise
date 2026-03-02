@@ -473,6 +473,9 @@ function HomeTabScreen() {
           screen: "CreateProject",
         });
       }}
+      onOpenMap={() => {
+        navigation.navigate("MapTab");
+      }}
     />
   );
 }

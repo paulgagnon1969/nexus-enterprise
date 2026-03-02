@@ -113,11 +113,12 @@ const NEARBY_RADIUS_MILES = 15;
 interface Props {
   onOpenProject: (project: ProjectListItem) => void;
   onCreateProject?: () => void;
+  onOpenMap?: () => void;
   onCompanyChange?: (company: { id: string; name: string }) => void;
   companyName?: string | null;
 }
 
-export function KpiHomeScreen({ onOpenProject, onCreateProject, onCompanyChange, companyName }: Props) {
+export function KpiHomeScreen({ onOpenProject, onCreateProject, onOpenMap, onCompanyChange, companyName }: Props) {
   const { isLandscape } = useOrientation();
 
   // Data
@@ -686,6 +687,24 @@ export function KpiHomeScreen({ onOpenProject, onCreateProject, onCompanyChange,
             </>
           )}
 
+          {/* ── Interactive Map Banner ──────────────────────────────── */}
+          {onOpenMap && (
+            <Pressable
+              style={styles.mapBanner}
+              onPress={() => {
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                onOpenMap();
+              }}
+            >
+              <Text style={styles.mapBannerIcon}>🗺️</Text>
+              <View style={styles.mapBannerText}>
+                <Text style={styles.mapBannerTitle}>Interactive Map</Text>
+                <Text style={styles.mapBannerSub}>Projects, suppliers & directions</Text>
+              </View>
+              <Text style={styles.mapBannerChevron}>›</Text>
+            </Pressable>
+          )}
+
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>📍 Nearby Projects</Text>
             <Text style={styles.sectionCount}>
@@ -1090,6 +1109,37 @@ const styles = StyleSheet.create({
   calloutDismissText: {
     fontSize: 16,
     color: colors.textMuted,
+  },
+
+  // ── Map banner ──────────────────────────────────────────────────────────
+  mapBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 12,
+    marginTop: 14,
+    padding: 14,
+    backgroundColor: "#eff6ff",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    gap: 12,
+  },
+  mapBannerIcon: { fontSize: 28 },
+  mapBannerText: { flex: 1 },
+  mapBannerTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#1e40af",
+  },
+  mapBannerSub: {
+    fontSize: 12,
+    color: "#3b82f6",
+    marginTop: 1,
+  },
+  mapBannerChevron: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#93c5fd",
   },
 
   // ── Recent Activity ─────────────────────────────────────────────────────
