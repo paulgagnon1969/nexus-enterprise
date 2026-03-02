@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ASSESSMENT_PROMPTS, type AssessmentType } from './prompts';
+import { PrismaService } from '../../infra/prisma/prisma.service';
+import { ASSESSMENT_PROMPTS, TEACH_PROMPT, type AssessmentType } from './prompts';
 
 /**
  * Parsed assessment response from Gemini.
@@ -45,7 +46,10 @@ export class GeminiService {
   private readonly region: string;
   private readonly model: string;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
     this.projectId =
       config.get<string>('GCP_PROJECT') ||
       config.get<string>('GCLOUD_PROJECT') ||
@@ -67,6 +71,7 @@ export class GeminiService {
     assessmentType: AssessmentType;
     weatherContext?: string;
     captureDate?: string;
+    companyId?: string;
   }): Promise<{ assessment: GeminiAssessmentResult; rawResponse: string }> {
     const { frames, assessmentType, weatherContext, captureDate } = opts;
     const prompt = ASSESSMENT_PROMPTS[assessmentType];
@@ -77,6 +82,12 @@ export class GeminiService {
       contextPrefix = '\n\nAdditional context:\n';
       if (captureDate) contextPrefix += `- Capture date: ${captureDate}\n`;
       if (weatherContext) contextPrefix += `- Weather at capture: ${weatherContext}\n`;
+    }
+
+    // Inject lessons learned from past teaching examples
+    if (opts.companyId) {
+      const lessons = await this.buildLessonsForCompany(opts.companyId);
+      if (lessons) contextPrefix += lessons;
     }
 
     // Build the multimodal content parts
@@ -159,6 +170,152 @@ export class GeminiService {
     );
 
     return { assessment: parsed, rawResponse: content };
+  }
+
+  // ── Teach Analysis (with Google Search grounding) ───────────────────
+
+  /**
+   * Re-analyze a specific cropped area with the user's hint and Google
+   * Search grounding so Gemini can look up reference materials.
+   */
+  async teachAnalysis(opts: {
+    companyId: string;
+    imageUri: string; // GCS URI of the cropped frame
+    mimeType?: string;
+    userHint: string;
+    assessmentType: AssessmentType;
+    pastLessons?: string; // pre-built lessons string (optional, caller can provide)
+  }): Promise<{
+    finding: GeminiAssessmentResult['findings'][0] | null;
+    narrative: string;
+    rawResponse: string;
+    webSources: Array<{ url: string; title: string }>;
+  }> {
+    const accessToken = await this.getAccessToken();
+
+    // Build lessons from past confirmed teaching examples if not provided
+    let lessons = opts.pastLessons || '';
+    if (!lessons) {
+      lessons = await this.buildLessonsForCompany(opts.companyId);
+    }
+
+    const prompt = TEACH_PROMPT(opts.userHint, opts.assessmentType, lessons);
+
+    const parts: any[] = [
+      { text: prompt },
+      {
+        fileData: {
+          mimeType: opts.mimeType || 'image/jpeg',
+          fileUri: opts.imageUri,
+        },
+      },
+    ];
+
+    const endpoint =
+      `https://${this.region}-aiplatform.googleapis.com/v1/` +
+      `projects/${this.projectId}/locations/${this.region}/` +
+      `publishers/google/models/${this.model}:generateContent`;
+
+    this.logger.log(
+      `Gemini teach: model=${this.model}, hint="${opts.userHint.substring(0, 80)}", type=${opts.assessmentType}`,
+    );
+
+    const body = {
+      contents: [{ role: 'user', parts }],
+      tools: [{ google_search_retrieval: {} }],
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 4096,
+      },
+    };
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      this.logger.error(`Gemini teach API error: ${response.status} ${errText}`);
+      throw new Error(`Gemini teach error: ${response.status} - ${errText.substring(0, 500)}`);
+    }
+
+    const json: any = await response.json();
+    const content = json?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const groundingMeta = json?.candidates?.[0]?.groundingMetadata;
+
+    // Extract web sources from grounding metadata
+    const webSources: Array<{ url: string; title: string }> = [];
+    if (groundingMeta?.groundingChunks) {
+      for (const chunk of groundingMeta.groundingChunks) {
+        if (chunk.web?.uri) {
+          webSources.push({ url: chunk.web.uri, title: chunk.web.title || '' });
+        }
+      }
+    }
+
+    // Parse the finding from response — may be JSON or narrative
+    let finding: GeminiAssessmentResult['findings'][0] | null = null;
+    let narrative = content;
+
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        const parsed = JSON.parse(jsonMatch[0]);
+        // Could be a single finding or a wrapper with findings array
+        if (parsed.findings?.length) {
+          finding = parsed.findings[0];
+          narrative = parsed.summary?.narrative || parsed.narrative || content;
+        } else if (parsed.zone && parsed.category) {
+          finding = parsed;
+        }
+      } catch {
+        // Not valid JSON — use narrative mode
+      }
+    }
+
+    this.logger.log(
+      `Gemini teach complete: hasFinding=${!!finding}, webSources=${webSources.length}`,
+    );
+
+    return { finding, narrative, rawResponse: content, webSources };
+  }
+
+  // ── Learning Injection ────────────────────────────────────────────
+
+  /**
+   * Build a "lessons learned" string from past confirmed teaching examples
+   * for a company. Injected into standard analysis prompts.
+   */
+  async buildLessonsForCompany(companyId: string): Promise<string> {
+    const examples = await this.prisma.assessmentTeachingExample.findMany({
+      where: { companyId, confirmed: true },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: {
+        userHint: true,
+        assessmentType: true,
+        aiRefinedFinding: true,
+        userCorrectionJson: true,
+      },
+    });
+
+    if (!examples.length) return '';
+
+    const lines = examples.map((ex, i) => {
+      const correction = ex.userCorrectionJson
+        ? ` (user corrected: ${JSON.stringify(ex.userCorrectionJson)})`
+        : ' (confirmed by user)';
+      const finding = ex.aiRefinedFinding as any;
+      const desc = finding?.description || finding?.zone || '';
+      return `${i + 1}. User noted: "${ex.userHint}" → ${desc}${correction}`;
+    });
+
+    return `\n\n## Lessons from past assessments by this team (USE THESE TO IMPROVE ACCURACY):\n${lines.join('\n')}`;
   }
 
   /**

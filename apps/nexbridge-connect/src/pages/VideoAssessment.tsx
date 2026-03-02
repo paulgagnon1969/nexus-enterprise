@@ -8,8 +8,11 @@ import {
   analyzeFrames,
   createAssessment,
   getPresignedUploadUrl,
+  teachAssessment,
+  confirmTeach,
   type AnalyzeFramesResponse,
   type AssessmentType,
+  type TeachResponse,
 } from "../lib/api";
 
 type Stage =
@@ -62,6 +65,16 @@ export default function VideoAssessment() {
   const [videoPath, setVideoPath] = useState<string | null>(null);
   const [extraction, setExtraction] = useState<ExtractionResult | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeFramesResponse | null>(null);
+  const [savedAssessmentId, setSavedAssessmentId] = useState<string | null>(null);
+
+  // Zoom & Teach state
+  const [teachFrame, setTeachFrame] = useState<number | null>(null);
+  const [teachHint, setTeachHint] = useState("");
+  const [teachLoading, setTeachLoading] = useState(false);
+  const [teachResult, setTeachResult] = useState<TeachResponse | null>(null);
+  const [supplementalFindings, setSupplementalFindings] = useState<
+    Array<{ finding: any; narrative: string; webSources: Array<{ url: string; title: string }>; teachId: string }>
+  >([]);
 
   // Listen for extraction progress events from Rust
   useEffect(() => {
@@ -228,7 +241,7 @@ export default function VideoAssessment() {
       const sourceTypeForApi =
         sourceType === "DRONE" ? "DRONE" : sourceType === "HANDHELD" ? "HANDHELD" : "OTHER";
 
-      await createAssessment({
+      const saved = await createAssessment({
         sourceType: sourceTypeForApi,
         videoFileName: extraction.metadata.file_name,
         videoDurationSecs: extraction.metadata.duration_secs,
@@ -254,8 +267,8 @@ export default function VideoAssessment() {
         })),
       });
 
-      // Cleanup temp frames
-      await invoke("cleanup_frames", { tempDir: extraction.temp_dir });
+      setSavedAssessmentId(saved.id);
+      // Don't cleanup yet — user may want to Zoom & Teach
       setStage("done");
     } catch (err: unknown) {
       const msg =
@@ -443,12 +456,232 @@ export default function VideoAssessment() {
             })}
           </div>
 
+          {/* Frame Gallery for Zoom & Teach */}
+          {extraction && (
+            <div>
+              <h3 className="mb-2 font-medium text-gray-800">
+                Frames — Click to Zoom & Teach
+              </h3>
+              <div className="flex gap-2 overflow-x-auto pb-2">
+                {extraction.frames.map((frame, i) => (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      setTeachFrame(i);
+                      setTeachHint("");
+                      setTeachResult(null);
+                    }}
+                    className={`flex-none rounded border-2 transition-all ${
+                      teachFrame === i
+                        ? "border-nexus-600 ring-2 ring-nexus-300"
+                        : "border-gray-200 hover:border-nexus-400"
+                    }`}
+                  >
+                    <img
+                      src={`data:${frame.mime_type};base64,${frame.base64}`}
+                      alt={`Frame ${i}`}
+                      className="h-16 w-24 rounded object-cover"
+                    />
+                    <p className="text-center text-[10px] text-gray-500">
+                      {Math.round(frame.timestamp_secs)}s
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Teach Panel — shown when a frame is selected */}
+          {teachFrame !== null && extraction && (
+            <div className="rounded-lg border-2 border-nexus-200 bg-nexus-50 p-4">
+              <div className="flex items-start gap-4">
+                <img
+                  src={`data:${extraction.frames[teachFrame]?.mime_type};base64,${extraction.frames[teachFrame]?.base64}`}
+                  alt="Selected frame"
+                  className="h-40 w-60 rounded border object-contain bg-white"
+                />
+                <div className="flex-1 space-y-3">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-700">
+                      What do you see? (hint for the AI)
+                    </label>
+                    <textarea
+                      value={teachHint}
+                      onChange={(e) => setTeachHint(e.target.value)}
+                      placeholder="e.g. 'hail damage on rake edge' or 'these are 3-tab shingles not architectural'"
+                      className="w-full rounded border px-3 py-2 text-sm"
+                      rows={2}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={async () => {
+                        if (!teachHint.trim() || !savedAssessmentId) return;
+                        setTeachLoading(true);
+                        setTeachResult(null);
+                        try {
+                          const frame = extraction.frames[teachFrame]!;
+                          // Upload the frame to GCS for Gemini
+                          const fileName = safeFileName(
+                            `teach-${extraction.metadata.file_name}-frame${teachFrame}.jpg`
+                          );
+                          const { uploadUrl, fileUri } = await getPresignedUploadUrl({
+                            fileName,
+                            contentType: frame.mime_type || "image/jpeg",
+                          });
+                          const bytes = base64ToBytes(frame.base64);
+                          await tauriFetch(uploadUrl, {
+                            method: "PUT",
+                            headers: { "Content-Type": frame.mime_type || "image/jpeg" },
+                            body: bytes as unknown as BodyInit,
+                          });
+
+                          const result = await teachAssessment(savedAssessmentId, {
+                            frameIndex: teachFrame,
+                            imageUri: fileUri,
+                            userHint: teachHint,
+                            assessmentType: promptType,
+                          });
+                          setTeachResult(result);
+                          if (result.finding) {
+                            setSupplementalFindings((prev) => [
+                              ...prev,
+                              {
+                                finding: result.finding,
+                                narrative: result.narrative,
+                                webSources: result.webSources,
+                                teachId: result.teachingExample.id,
+                              },
+                            ]);
+                          }
+                        } catch (err: unknown) {
+                          const msg = err instanceof Error ? err.message : String(err);
+                          setError(`Teach failed: ${msg}`);
+                        } finally {
+                          setTeachLoading(false);
+                        }
+                      }}
+                      disabled={teachLoading || !teachHint.trim() || !savedAssessmentId}
+                      className="rounded bg-nexus-600 px-4 py-2 text-sm font-medium text-white hover:bg-nexus-700 disabled:opacity-50"
+                    >
+                      {teachLoading ? "Analyzing…" : "🔍 Analyze This"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setTeachFrame(null);
+                        setTeachResult(null);
+                      }}
+                      className="rounded border px-3 py-2 text-sm text-gray-600 hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  {!savedAssessmentId && (
+                    <p className="text-xs text-amber-600">
+                      Save the assessment first to enable Zoom & Teach
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Teach loading */}
+              {teachLoading && (
+                <div className="mt-4 flex items-center gap-2">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-nexus-200 border-t-nexus-600" />
+                  <span className="text-xs text-gray-600">
+                    AI is analyzing with web reference materials…
+                  </span>
+                </div>
+              )}
+
+              {/* Teach result */}
+              {teachResult && (
+                <div className="mt-4 space-y-3">
+                  <div className="rounded border bg-white p-3">
+                    <h4 className="text-xs font-semibold text-nexus-700">AI Forensic Analysis</h4>
+                    <p className="mt-1 text-sm text-gray-700">{teachResult.narrative}</p>
+                  </div>
+
+                  {teachResult.webSources.length > 0 && (
+                    <div className="rounded border bg-white p-3">
+                      <h4 className="text-xs font-semibold text-gray-500">Reference Sources Used</h4>
+                      <ul className="mt-1 space-y-1">
+                        {teachResult.webSources.map((src, i) => (
+                          <li key={i} className="text-xs text-blue-600">
+                            <a href={src.url} target="_blank" rel="noreferrer" className="hover:underline">
+                              {src.title || src.url}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Confirm / Correct */}
+                  {savedAssessmentId && (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={async () => {
+                          await confirmTeach(savedAssessmentId, teachResult.teachingExample.id, true);
+                          setTeachFrame(null);
+                          setTeachResult(null);
+                        }}
+                        className="rounded bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
+                      >
+                        ✓ Accurate — Teach This
+                      </button>
+                      <button
+                        onClick={() => {
+                          setTeachFrame(null);
+                          setTeachResult(null);
+                        }}
+                        className="rounded border px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+                      >
+                        ✗ Not Quite
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Supplemental findings from Teach */}
+          {supplementalFindings.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="font-medium text-gray-800">
+                Supplemental Findings ({supplementalFindings.length})
+              </h3>
+              {supplementalFindings.map((sf, i) => (
+                <div
+                  key={i}
+                  className="rounded-lg border-2 border-nexus-200 bg-nexus-50 px-4 py-3"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="rounded bg-nexus-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                      TAUGHT
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      {sf.finding?.zone} · {sf.finding?.category}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm text-gray-700">{sf.finding?.description}</p>
+                  {sf.webSources.length > 0 && (
+                    <p className="mt-1 text-[10px] text-gray-400">
+                      Based on {sf.webSources.length} web reference(s)
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="flex gap-3">
             <button
               onClick={saveAssessment}
               className="rounded bg-nexus-600 px-6 py-2 text-sm font-medium text-white hover:bg-nexus-700"
             >
-              Save Assessment to NCC
+              {savedAssessmentId ? "Update Assessment" : "Save Assessment to NCC"}
             </button>
             <button
               onClick={() => {
@@ -456,6 +689,8 @@ export default function VideoAssessment() {
                 setVideoPath(null);
                 setExtraction(null);
                 setAnalysis(null);
+                setSavedAssessmentId(null);
+                setSupplementalFindings([]);
               }}
               className="rounded border px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
             >
@@ -485,7 +720,15 @@ export default function VideoAssessment() {
           <p className="mt-1 text-sm text-gray-500">
             Your video assessment has been synced to NCC.
           </p>
-          <div className="mt-6 flex gap-3">
+          <div className="mt-6 flex flex-wrap gap-3 justify-center">
+            <button
+              onClick={() => {
+                setStage("review");
+              }}
+              className="rounded bg-amber-500 px-6 py-2 text-sm font-medium text-white hover:bg-amber-600"
+            >
+              🔍 Zoom & Teach
+            </button>
             <button
               onClick={() => navigate("/")}
               className="rounded bg-nexus-600 px-6 py-2 text-sm font-medium text-white hover:bg-nexus-700"
@@ -493,12 +736,17 @@ export default function VideoAssessment() {
               Back to Dashboard
             </button>
             <button
-              onClick={() => {
+              onClick={async () => {
+                if (extraction) {
+                  await invoke("cleanup_frames", { tempDir: extraction.temp_dir }).catch(() => {});
+                }
                 setStage("pick");
                 setVideoPath(null);
                 setExtraction(null);
                 setAnalysis(null);
                 setError(null);
+                setSavedAssessmentId(null);
+                setSupplementalFindings([]);
               }}
               className="rounded border px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
             >

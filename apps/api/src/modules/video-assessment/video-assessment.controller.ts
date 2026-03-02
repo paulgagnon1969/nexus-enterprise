@@ -53,6 +53,42 @@ export class VideoAssessmentController {
   }
 
   /**
+   * POST /video-assessment/:id/teach
+   * Zoom & Teach: user crops a frame area, provides a hint, and the AI
+   * re-analyzes with Google Search grounding for reference materials.
+   */
+  @UseGuards(CombinedAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
+  @Post(':id/teach')
+  async teach(@Req() req: any, @Param('id') id: string, @Body() body: {
+    frameIndex: number;
+    cropBox?: { x: number; y: number; w: number; h: number };
+    imageUri: string; // GCS URI of the (optionally cropped) frame
+    userHint: string;
+    assessmentType?: string;
+  }) {
+    const user = req.user as AuthenticatedUser;
+    return this.service.teach(id, user.companyId, user, body);
+  }
+
+  /**
+   * PATCH /video-assessment/:assessmentId/teach/:teachId/confirm
+   * Confirm or correct a teaching example.
+   */
+  @UseGuards(CombinedAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
+  @Patch(':assessmentId/teach/:teachId/confirm')
+  async confirmTeach(
+    @Req() req: any,
+    @Param('assessmentId') assessmentId: string,
+    @Param('teachId') teachId: string,
+    @Body() body: { confirmed: boolean; correctionJson?: any },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.service.confirmTeach(teachId, user.companyId, body);
+  }
+
+  /**
    * POST /video-assessment
    * Create a completed assessment with findings (called by sync client).
    */

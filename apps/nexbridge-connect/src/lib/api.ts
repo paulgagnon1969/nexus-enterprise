@@ -285,3 +285,51 @@ export async function createAssessment(
 export async function listAssessments(): Promise<ListAssessmentsResponse> {
   return request<ListAssessmentsResponse>("/video-assessment");
 }
+
+// ---------- Zoom & Teach ----------
+
+export interface TeachPayload {
+  frameIndex: number;
+  cropBox?: { x: number; y: number; w: number; h: number };
+  imageUri: string;
+  userHint: string;
+  assessmentType?: string;
+}
+
+export interface TeachResponse {
+  teachingExample: {
+    id: string;
+    userHint: string;
+    aiRefinedFinding: any;
+    webSourcesUsed: Array<{ url: string; title: string }>;
+    confirmed: boolean;
+  };
+  finding: VideoAssessmentFinding | null;
+  narrative: string;
+  webSources: Array<{ url: string; title: string }>;
+}
+
+export async function teachAssessment(
+  assessmentId: string,
+  payload: TeachPayload,
+): Promise<TeachResponse> {
+  return request<TeachResponse>(`/video-assessment/${assessmentId}/teach`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function confirmTeach(
+  assessmentId: string,
+  teachId: string,
+  confirmed: boolean,
+  correctionJson?: any,
+): Promise<any> {
+  return request(
+    `/video-assessment/${assessmentId}/teach/${teachId}/confirm`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ confirmed, correctionJson }),
+    },
+  );
+}

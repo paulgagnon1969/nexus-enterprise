@@ -429,6 +429,11 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
     refreshKey: 0,
   });
 
+  // Stable callback — avoids infinite re-render loop between AppNavigator ↔ KpiHomeScreen
+  const handleSetCompany = React.useCallback((c: { id: string; name: string }) => {
+    setCompany((prev) => ({ id: c.id, name: c.name, refreshKey: prev.refreshKey + 1 }));
+  }, []);
+
   // Load usage-based initial tab (defaults to Home until enough data)
   const [initialTab, setInitialTab] = React.useState<keyof RootTabParamList>("HomeTab");
   const [tabReady, setTabReady] = React.useState(false);
@@ -481,7 +486,7 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
   return (
     <LogoutContext.Provider value={onLogout}>
     <CompanyContext.Provider value={company}>
-    <SetCompanyContext.Provider value={(c) => setCompany((prev) => ({ id: c.id, name: c.name, refreshKey: prev.refreshKey + 1 }))}>
+    <SetCompanyContext.Provider value={handleSetCompany}>
       {/* Top brand bar */}
       <View style={navStyles.versionHeader}>
         <Text style={navStyles.versionBrand}>NEXUS</Text>

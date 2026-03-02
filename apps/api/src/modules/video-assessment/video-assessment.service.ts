@@ -45,7 +45,7 @@ export class VideoAssessmentService {
       `frames=${payload.frames.length}, type=${payload.assessmentType}`,
     );
 
-    const result = await this.gemini.analyzeFrames(payload);
+    const result = await this.gemini.analyzeFrames({ ...payload, companyId });
 
     await this.audit.log(actor, 'VIDEO_ASSESSMENT_ANALYZED', {
       companyId,
@@ -385,7 +385,130 @@ export class VideoAssessmentService {
     return updated;
   }
 
-  // ── Presigned upload URL ────────────────────────────────────────────
+  // ── Zoom & Teach ────────────────────────────────────────────────
+
+  /**
+   * Process a "Zoom & Teach" submission: user selected a frame area and
+   * provided a hint. Re-analyze with Google Search grounding.
+   */
+  async teach(
+    assessmentId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    payload: {
+      frameIndex: number;
+      cropBox?: { x: number; y: number; w: number; h: number };
+      imageUri: string;
+      userHint: string;
+      assessmentType?: string;
+    },
+  ) {
+    const assessment = await this.prisma.videoAssessment.findFirst({
+      where: { id: assessmentId, companyId },
+    });
+    if (!assessment) throw new NotFoundException('Assessment not found');
+
+    const assessmentType = (payload.assessmentType || 'TARGETED') as any;
+
+    this.logger.log(
+      `Teach: assessment=${assessmentId}, frame=${payload.frameIndex}, ` +
+      `hint="${payload.userHint.substring(0, 80)}"`,
+    );
+
+    // Call Gemini with Google Search grounding
+    const result = await this.gemini.teachAnalysis({
+      companyId,
+      imageUri: payload.imageUri,
+      userHint: payload.userHint,
+      assessmentType,
+    });
+
+    // Persist teaching example
+    const example = await this.prisma.assessmentTeachingExample.create({
+      data: {
+        companyId,
+        assessmentId,
+        frameIndex: payload.frameIndex,
+        cropBox: payload.cropBox ?? undefined,
+        croppedImageUri: payload.imageUri,
+        userHint: payload.userHint,
+        assessmentType,
+        aiRefinedFinding: result.finding || undefined,
+        aiRawResponse: result.rawResponse,
+        webSourcesUsed: result.webSources,
+        createdById: actor.userId,
+      },
+    });
+
+    // If we got a structured finding, also add it to the assessment
+    let newFinding = null;
+    if (result.finding) {
+      const maxSort = await this.prisma.videoAssessmentFinding.aggregate({
+        where: { assessmentId },
+        _max: { sortOrder: true },
+      });
+
+      newFinding = await this.prisma.videoAssessmentFinding.create({
+        data: {
+          companyId,
+          assessmentId,
+          zone: (result.finding.zone || 'OTHER') as any,
+          category: (result.finding.category || 'OTHER') as any,
+          severity: (result.finding.severity || 'MODERATE') as any,
+          causation: (result.finding.causation || 'UNKNOWN') as any,
+          description: result.finding.description,
+          frameTimestamp: null,
+          confidenceScore: result.finding.confidence,
+          sortOrder: (maxSort._max.sortOrder || 0) + 1,
+        },
+      });
+    }
+
+    await this.audit.log(actor, 'VIDEO_ASSESSMENT_TEACH', {
+      companyId,
+      metadata: {
+        assessmentId,
+        teachId: example.id,
+        frameIndex: payload.frameIndex,
+        userHint: payload.userHint,
+        hasFinding: !!result.finding,
+        webSourceCount: result.webSources.length,
+      },
+    });
+
+    return {
+      teachingExample: example,
+      finding: newFinding,
+      narrative: result.narrative,
+      webSources: result.webSources,
+    };
+  }
+
+  /**
+   * Confirm or correct a teaching example. Confirmed examples are
+   * injected into future assessments as few-shot context.
+   */
+  async confirmTeach(
+    teachId: string,
+    companyId: string,
+    payload: { confirmed: boolean; correctionJson?: any },
+  ) {
+    const example = await this.prisma.assessmentTeachingExample.findFirst({
+      where: { id: teachId, companyId },
+    });
+    if (!example) throw new NotFoundException('Teaching example not found');
+
+    return this.prisma.assessmentTeachingExample.update({
+      where: { id: teachId },
+      data: {
+        confirmed: payload.confirmed,
+        confirmedAt: new Date(),
+        userCorrectionJson: payload.correctionJson || undefined,
+      },
+    });
+  }
+
+  // ── Presigned upload URL ────────────────────────────────────────
 
   /**
    * Generate a presigned GCS upload URL for thumbnail frames.

@@ -339,3 +339,70 @@ export const ASSESSMENT_PROMPTS = {
 } as const;
 
 export type AssessmentType = keyof typeof ASSESSMENT_PROMPTS;
+
+/**
+ * Zoom & Teach prompt — used when a user crops a specific area and provides
+ * a hint. This prompt is paired with google_search_retrieval so Gemini can
+ * look up reference materials (Haag Engineering criteria, manufacturer specs,
+ * damage pattern databases, etc.).
+ */
+export function TEACH_PROMPT(
+  userHint: string,
+  assessmentType: AssessmentType,
+  lessonsLearned: string,
+): string {
+  const materialGuide =
+    assessmentType === 'INTERIOR'
+      ? INTERIOR_MATERIALS_GUIDE
+      : `${ROOFING_MATERIALS_GUIDE}\n${SIDING_MATERIALS_GUIDE}`;
+
+  return `You are an expert property damage assessor and forensic analyst with 20+ years of experience. A field inspector has zoomed into a specific area of a property and is asking for your expert analysis.
+
+You have access to Google Search — USE IT to look up reference materials, manufacturer specifications, damage identification criteria (e.g., Haag Engineering hail damage standards), and building codes relevant to what you see.
+
+${materialGuide}
+
+## What the inspector noted about this area:
+"${userHint}"
+
+Analyze this zoomed image in forensic detail:
+
+1. **Material identification**: What EXACTLY is this material? Use the identification guide above AND search for reference images/specs if needed. Be specific (e.g., "Owens Corning Supreme 3-tab shingle, approximately 15-20 years old based on granule loss pattern").
+
+2. **Damage analysis**: What damage is visible? Describe with forensic precision:
+   - Type, pattern, extent, depth
+   - Reference industry standards for damage thresholds (e.g., Haag Engineering criteria for hail: functional vs cosmetic damage)
+   - Measure relative to known reference points
+
+3. **Causation**: Based on the damage pattern AND the inspector's note, determine causation. Search for reference materials to support your determination. Cite specific criteria.
+
+4. **Confidence assessment**: How confident are you in your identification and causation? What would you need to see to be more confident?
+
+5. **Repair recommendation**: What repair/replacement is needed? Search for current material specifications and best practices.
+${lessonsLearned}
+
+Return a JSON object with this structure:
+{
+  "narrative": "Detailed forensic narrative of what you see, referencing industry standards and web sources",
+  "findings": [
+    {
+      "zone": "ROOF | SIDING | WINDOWS | etc.",
+      "category": "HAIL_IMPACT | CURLING | MISSING_SHINGLES | etc.",
+      "severity": "LOW | MODERATE | SEVERE | CRITICAL",
+      "causation": "HAIL | WIND | AGE | etc.",
+      "description": "Forensic description with measurements and reference to standards",
+      "frameIndex": 0,
+      "confidence": 0.0-1.0
+    }
+  ],
+  "materialIdentification": {
+    "material": "exact material name",
+    "confidence": 0.0-1.0,
+    "reasoning": "why you identified it as this material",
+    "distinguishingFeatures": ["feature 1", "feature 2"]
+  },
+  "referenceSources": ["source 1 used", "source 2 used"]
+}
+
+Return ONLY the JSON object, nothing else.`;
+}

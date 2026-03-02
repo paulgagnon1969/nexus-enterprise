@@ -250,6 +250,7 @@ model Company {
   // NexLevelIntegration — Video Property Assessments
   videoAssessments        VideoAssessment[]
   videoAssessmentFindings VideoAssessmentFinding[]
+  assessmentTeachingExamples AssessmentTeachingExample[]
 
   // Nex-LevelIntelligence (NLI) — device fleet, watch folders, file scanning, sync
   nliDevices       NliDevice[]
@@ -642,6 +643,7 @@ model User {
   videoAssessmentsCreated  VideoAssessment[] @relation("VideoAssessmentCreatedBy")
   videoAssessmentsAssigned VideoAssessment[] @relation("VideoAssessmentAssignedBy")
   videoFindingsOverridden  VideoAssessmentFinding[] @relation("VideoFindingOverriddenBy")
+  teachingExamplesCreated  AssessmentTeachingExample[] @relation("TeachingExampleCreatedBy")
 
   // Nex-LevelIntelligence (NLI)
   nliDevicesRegistered NliDevice[]      @relation("NliDeviceRegisteredBy")
@@ -8243,7 +8245,8 @@ model VideoAssessment {
   assignedBy    User?           @relation("VideoAssessmentAssignedBy", fields: [assignedById], references: [id])
   nliDevice     NliDevice?      @relation(fields: [nliDeviceId], references: [id], onDelete: SetNull)
   nliScannedFile NliScannedFile? @relation(fields: [nliScannedFileId], references: [id], onDelete: SetNull)
-  findings      VideoAssessmentFinding[]
+  findings         VideoAssessmentFinding[]
+  teachingExamples AssessmentTeachingExample[]
 
   @@index([companyId, status], map: "VideoAssessment_company_status_idx")
   @@index([companyId, projectId], map: "VideoAssessment_company_project_idx")
@@ -8280,6 +8283,10 @@ model VideoAssessmentFinding {
   /// Human override tracking
   overriddenByUserId String?
   overriddenAt       DateTime?
+  /// Snapshot of the original AI-generated values before human correction.
+  /// Stored as JSON: { zone, category, severity, causation, description, ... }
+  /// Used by the learning system to inject past corrections into future prompts.
+  originalValuesJson Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -8291,6 +8298,57 @@ model VideoAssessmentFinding {
   @@index([assessmentId], map: "VideoAssessmentFinding_assessment_idx")
   @@index([companyId, zone], map: "VideoAssessmentFinding_company_zone_idx")
   @@index([companyId, category], map: "VideoAssessmentFinding_company_category_idx")
+  @@index([companyId, overriddenAt], map: "VideoAssessmentFinding_company_overridden_idx")
+}
+
+/// A "Zoom & Teach" interaction where a user crops/zooms into a specific
+/// area of a frame, provides context, and the AI re-analyzes with Google
+/// Search grounding for reference materials. Confirmed examples are injected
+/// as few-shot context into future assessments for this company.
+model AssessmentTeachingExample {
+  id           String  @id @default(cuid())
+  companyId    String
+  assessmentId String
+
+  /// Which frame in the original assessment was selected
+  frameIndex   Int
+  /// Normalized crop box { x, y, w, h } (0.0-1.0)
+  cropBox      Json?
+  /// GCS URI of the cropped/zoomed image sent to Gemini
+  croppedImageUri String?
+  /// GCS URI of the full frame (fallback if no crop)
+  fullFrameUri    String?
+
+  /// User's text hint: "hail damage" / "these are 3-tab not architectural"
+  userHint     String  @db.Text
+
+  /// Assessment type used for the teach prompt (EXTERIOR, INTERIOR, DRONE_ROOF, TARGETED)
+  assessmentType String @default("TARGETED")
+
+  /// AI's refined analysis result
+  aiRefinedFinding Json?   /// Structured finding JSON from Gemini
+  aiRawResponse    String? @db.Text /// Raw Gemini response for audit
+
+  /// Google Search sources Gemini referenced during grounded analysis
+  webSourcesUsed   Json?   /// Array of { url, title, snippet }
+
+  /// User confirmation: did the refined finding accurately capture what they saw?
+  confirmed    Boolean  @default(false)
+  confirmedAt  DateTime?
+
+  /// If the user corrected the AI's refined output, what did they change?
+  userCorrectionJson Json? /// { field: "zone", from: "ROOF", to: "SIDING" }
+
+  createdById  String
+  createdAt    DateTime @default(now())
+
+  company    Company         @relation(fields: [companyId], references: [id])
+  assessment VideoAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  createdBy  User            @relation("TeachingExampleCreatedBy", fields: [createdById], references: [id])
+
+  @@index([companyId, confirmed], map: "AssessmentTeaching_company_confirmed_idx")
+  @@index([assessmentId], map: "AssessmentTeaching_assessment_idx")
+  @@index([companyId, assessmentType], map: "AssessmentTeaching_company_type_idx")
 }
 
 // ===================================================================
