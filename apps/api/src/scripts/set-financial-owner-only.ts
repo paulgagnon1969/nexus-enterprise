@@ -6,7 +6,7 @@
  *   source ~/.nexus-prod-env && ./scripts/prod-db-run-with-proxy.sh --allow-kill-port --no-prompt -- \
  *     npx ts-node apps/api/src/scripts/set-financial-owner-only.ts
  */
-import { PrismaClient } from "@repo/database";
+import { prisma } from "@repo/database";
 
 const COMPANY_ID = "cmjr9okjz000401s6rdkbatvr";
 
@@ -35,8 +35,6 @@ const ALL_ROLES = [
 const ALLOWED_ROLES = new Set(["OWNER", "SUPER_ADMIN"]);
 
 async function main() {
-  const prisma = new PrismaClient();
-
   try {
     for (const resourceKey of FINANCIAL_RESOURCE_KEYS) {
       // Upsert the policy
