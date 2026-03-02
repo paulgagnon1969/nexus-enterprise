@@ -8,13 +8,26 @@ import {
   StyleSheet,
   Platform,
   ScrollView,
+  Linking,
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import appJson from "../../app.json";
 import { colors } from "../theme/colors";
 import { getUserMe } from "../api/user";
-import { getWifiOnlySync, setWifiOnlySync } from "../storage/settings";
+import {
+  getWifiOnlySync,
+  setWifiOnlySync,
+  getPreferredMapApp,
+  setPreferredMapApp,
+  type MapAppType,
+} from "../storage/settings";
 import type { UserMeResponse } from "../types/api";
+
+const MAP_APP_OPTIONS: { id: MapAppType; label: string; icon: string; scheme: string; platformGuard?: "ios" | "android" }[] = [
+  { id: "apple", label: "Apple Maps", icon: "🗺️", scheme: "maps://", platformGuard: "ios" },
+  { id: "google", label: "Google Maps", icon: "📍", scheme: Platform.OS === "ios" ? "comgooglemaps://" : "google.navigation:q=test" },
+  { id: "waze", label: "Waze", icon: "🚗", scheme: "waze://" },
+];
 
 function getInitials(me: UserMeResponse | null): string {
   const first = me?.firstName?.trim() ?? "";
@@ -50,15 +63,44 @@ export function UserMenuButton({ onLogout }: UserMenuButtonProps) {
   const [open, setOpen] = useState(false);
   const [me, setMe] = useState<UserMeResponse | null>(null);
   const [wifiOnly, setWifiOnly] = useState(false);
+  const [mapApp, setMapApp] = useState<MapAppType>(null);
+  const [availableMapApps, setAvailableMapApps] = useState<typeof MAP_APP_OPTIONS>([]);
+  const [showMapPicker, setShowMapPicker] = useState(false);
 
   useEffect(() => {
     getUserMe().then(setMe).catch(() => {});
     getWifiOnlySync().then(setWifiOnly);
+    getPreferredMapApp().then(setMapApp);
+
+    // Detect installed map apps
+    (async () => {
+      const available: typeof MAP_APP_OPTIONS = [];
+      for (const app of MAP_APP_OPTIONS) {
+        if (app.platformGuard && app.platformGuard !== Platform.OS) continue;
+        if (app.id === "apple" && Platform.OS === "ios") {
+          available.push(app);
+          continue;
+        }
+        try {
+          const canOpen = await Linking.canOpenURL(app.scheme);
+          if (canOpen) available.push(app);
+        } catch {
+          // not installed
+        }
+      }
+      setAvailableMapApps(available);
+    })();
   }, []);
 
   const toggleWifi = async (val: boolean) => {
     setWifiOnly(val);
     await setWifiOnlySync(val);
+  };
+
+  const selectMapApp = async (id: MapAppType) => {
+    setMapApp(id);
+    await setPreferredMapApp(id);
+    setShowMapPicker(false);
   };
 
   const initials = getInitials(me);
@@ -132,6 +174,20 @@ export function UserMenuButton({ onLogout }: UserMenuButtonProps) {
                 />
               </View>
 
+              {/* Default Map App */}
+              <Pressable
+                style={styles.toggleRow}
+                onPress={() => setShowMapPicker(true)}
+              >
+                <Text style={styles.toggleIcon}>🧭</Text>
+                <Text style={styles.toggleLabel}>Default Map App</Text>
+                <Text style={styles.mapAppValue}>
+                  {mapApp
+                    ? MAP_APP_OPTIONS.find((a) => a.id === mapApp)?.label ?? "Set"
+                    : "Not Set"}
+                </Text>
+              </Pressable>
+
               {/* Divider */}
               <View style={styles.divider} />
 
@@ -160,6 +216,53 @@ export function UserMenuButton({ onLogout }: UserMenuButtonProps) {
                 }}
               />
             </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
+      {/* Map app picker modal */}
+      <Modal
+        visible={showMapPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowMapPicker(false)}
+      >
+        <Pressable style={styles.overlay} onPress={() => setShowMapPicker(false)}>
+          <View style={styles.mapPickerContainer}>
+            <View style={styles.mapPickerHeader}>
+              <Text style={styles.mapPickerTitle}>Default Map App</Text>
+              <Pressable onPress={() => setShowMapPicker(false)}>
+                <Text style={styles.menuClose}>✕</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.mapPickerSubtitle}>
+              Choose which app opens when you tap Directions
+            </Text>
+
+            {availableMapApps.map((app) => (
+              <Pressable
+                key={app.id}
+                style={[
+                  styles.mapPickerOption,
+                  mapApp === app.id && styles.mapPickerOptionActive,
+                ]}
+                onPress={() => selectMapApp(app.id)}
+              >
+                <Text style={styles.mapPickerOptionIcon}>{app.icon}</Text>
+                <Text style={styles.mapPickerOptionLabel}>{app.label}</Text>
+                {mapApp === app.id && (
+                  <Text style={styles.mapPickerCheck}>✓</Text>
+                )}
+              </Pressable>
+            ))}
+
+            {mapApp && (
+              <Pressable
+                style={styles.mapPickerClear}
+                onPress={() => selectMapApp(null)}
+              >
+                <Text style={styles.mapPickerClearText}>Clear preference (ask every time)</Text>
+              </Pressable>
+            )}
           </View>
         </Pressable>
       </Modal>
@@ -335,5 +438,75 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.textSecondary,
     lineHeight: 18,
+  },
+
+  // Map app preference
+  mapAppValue: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.primary,
+  },
+  mapPickerContainer: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 20,
+    paddingBottom: Platform.OS === "ios" ? 36 : 24,
+    paddingHorizontal: 20,
+  },
+  mapPickerHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  mapPickerTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: colors.textPrimary,
+  },
+  mapPickerSubtitle: {
+    fontSize: 13,
+    color: colors.textMuted,
+    marginBottom: 16,
+  },
+  mapPickerOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: "#f3f4f6",
+    marginBottom: 8,
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  mapPickerOptionActive: {
+    borderColor: colors.primary,
+    backgroundColor: "#eff6ff",
+  },
+  mapPickerOptionIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  mapPickerOptionLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: colors.textPrimary,
+    flex: 1,
+  },
+  mapPickerCheck: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: colors.primary,
+  },
+  mapPickerClear: {
+    marginTop: 8,
+    padding: 12,
+    alignItems: "center",
+  },
+  mapPickerClearText: {
+    fontSize: 14,
+    color: colors.textMuted,
+    textDecorationLine: "underline",
   },
 });

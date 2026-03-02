@@ -7,8 +7,6 @@ import {
   ScrollView,
   RefreshControl,
   ActivityIndicator,
-  Linking,
-  Platform,
   Animated as RNAnimated,
 } from "react-native";
 import Mapbox from "@rnmapbox/maps";
@@ -102,17 +100,10 @@ const pinInnerStyle: Mapbox.CircleLayerStyle = {
 
 // ─── Directions helper ────────────────────────────────────────────────────────
 
+import { openPreferredMap } from "../utils/openPreferredMap";
+
 function openDirections(lat: number, lng: number, address?: string | null) {
-  const dest = address || `${lat},${lng}`;
-  const url =
-    Platform.OS === "ios"
-      ? `maps://?daddr=${encodeURIComponent(dest)}&dirflg=d`
-      : `google.navigation:q=${encodeURIComponent(dest)}`;
-  Linking.openURL(url).catch(() => {
-    Linking.openURL(
-      `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}`,
-    );
-  });
+  openPreferredMap({ latitude: lat, longitude: lng, address });
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────

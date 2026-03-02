@@ -7,13 +7,13 @@ import {
   Modal,
   ActivityIndicator,
   Platform,
-  Linking,
 } from "react-native";
 import Mapbox from "@rnmapbox/maps";
 import * as Location from "expo-location";
 import { fetchRoute, formatDuration, formatDistance, type RouteResult } from "../api/mapbox";
 import { GeofenceCircle } from "./GeofenceCircle";
 import { colors } from "../theme/colors";
+import { openPreferredMap } from "../utils/openPreferredMap";
 
 interface RouteMapProps {
   visible: boolean;
@@ -74,17 +74,10 @@ export function RouteMap({ visible, onClose, destination }: RouteMapProps) {
   }, [visible, destination.latitude, destination.longitude]);
 
   const openExternalNav = () => {
-    const { latitude, longitude, address, name } = destination;
-    const dest = address || `${latitude},${longitude}`;
-    const url =
-      Platform.OS === "ios"
-        ? `maps://?daddr=${encodeURIComponent(dest)}&dirflg=d`
-        : `google.navigation:q=${encodeURIComponent(dest)}`;
-    Linking.openURL(url).catch(() => {
-      // Fallback to Google Maps web
-      Linking.openURL(
-        `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}`,
-      );
+    openPreferredMap({
+      latitude: destination.latitude,
+      longitude: destination.longitude,
+      address: destination.address,
     });
   };
 
