@@ -24,9 +24,11 @@ gcloud config set project "$PROJECT_ID" >/dev/null
 
 echo "[deploy-api] Building image with Cloud Build..."
 # Use --async to avoid log streaming permission issues, then poll for completion
+# Use e2-highcpu-8 to avoid OOM during TS compilation (Dockerfile sets 8GB heap)
 BUILD_OP=$(gcloud builds submit \
   --tag "$IMAGE" \
   --project "$PROJECT_ID" \
+  --machine-type=e2-highcpu-8 \
   --async \
   --format="value(id)")
 

@@ -3,6 +3,7 @@ import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CsvImportSource } from "@prisma/client";
 import { parse } from "csv-parse/sync";
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -73,6 +74,40 @@ interface ParsedRow {
 }
 
 // ---------------------------------------------------------------------------
+// Fingerprint helpers — deterministic hash for deduplication
+// ---------------------------------------------------------------------------
+
+function computeFingerprint(source: CsvImportSource, row: ParsedRow): string {
+  const parts: string[] = [];
+
+  // Common: date + amount (rounded to 2 decimals to avoid float drift)
+  parts.push(row.date.toISOString().slice(0, 10));
+  parts.push(row.amount.toFixed(2));
+  parts.push(row.description.trim().toLowerCase());
+
+  switch (source) {
+    case CsvImportSource.HD_PRO_XTRA:
+      // SKU + qty makes each line item unique even on same receipt
+      parts.push(row.sku ?? "");
+      parts.push(String(row.qty ?? ""));
+      parts.push(row.purchaser ?? "");
+      break;
+    case CsvImportSource.CHASE_BANK:
+      parts.push(row.txnType ?? "");
+      parts.push(String(row.runningBalance ?? ""));
+      parts.push(row.checkOrSlip ?? "");
+      break;
+    case CsvImportSource.APPLE_CARD:
+      parts.push(row.merchant?.trim().toLowerCase() ?? "");
+      parts.push(row.cardHolder?.trim().toLowerCase() ?? "");
+      parts.push(row.clearingDate?.toISOString().slice(0, 10) ?? "");
+      break;
+  }
+
+  return createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 40);
+}
+
+// ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
 
@@ -116,25 +151,32 @@ export class CsvImportService {
     const dateRangeStart = new Date(Math.min(...dates));
     const dateRangeEnd = new Date(Math.max(...dates));
 
-    // Create batch
+    // Compute fingerprints
+    const rowsWithFingerprint = rows.map((r) => ({
+      ...r,
+      fingerprint: computeFingerprint(source, r),
+    }));
+
+    // Create batch (rowCount will be updated after insert)
     const batch = await this.prisma.csvImportBatch.create({
       data: {
         companyId: actor.companyId,
         source,
         fileName,
-        rowCount: rows.length,
-        totalAmount: Math.round(totalAmount * 100) / 100,
+        rowCount: 0,
+        totalAmount: 0,
         dateRangeStart,
         dateRangeEnd,
         uploadedByUserId: actor.userId,
       },
     });
 
-    // Bulk insert in chunks of 500
+    // Bulk insert in chunks of 500, skipping duplicates
+    let insertedCount = 0;
     const CHUNK = 500;
-    for (let i = 0; i < rows.length; i += CHUNK) {
-      const chunk = rows.slice(i, i + CHUNK);
-      await this.prisma.importedTransaction.createMany({
+    for (let i = 0; i < rowsWithFingerprint.length; i += CHUNK) {
+      const chunk = rowsWithFingerprint.slice(i, i + CHUNK);
+      const result = await this.prisma.importedTransaction.createMany({
         data: chunk.map((r) => ({
           companyId: actor.companyId,
           batchId: batch.id,
@@ -143,6 +185,7 @@ export class CsvImportService {
           description: r.description,
           amount: r.amount,
           merchant: r.merchant ?? null,
+          fingerprint: r.fingerprint,
           jobNameRaw: r.jobNameRaw ?? null,
           jobName: r.jobName ?? null,
           sku: r.sku ?? null,
@@ -160,19 +203,44 @@ export class CsvImportService {
           cardCategory: r.cardCategory ?? null,
           cardHolder: r.cardHolder ?? null,
         })),
+        skipDuplicates: true,
       });
+      insertedCount += result.count;
+    }
+
+    const skippedCount = rows.length - insertedCount;
+    const insertedAmount = insertedCount === rows.length
+      ? totalAmount
+      : (await this.prisma.importedTransaction.aggregate({
+          where: { batchId: batch.id },
+          _sum: { amount: true },
+        }))._sum.amount ?? 0;
+
+    // Update batch with actual counts
+    await this.prisma.csvImportBatch.update({
+      where: { id: batch.id },
+      data: {
+        rowCount: insertedCount,
+        totalAmount: Math.round(insertedAmount * 100) / 100,
+      },
+    });
+
+    // If nothing was inserted (all duplicates), delete the empty batch
+    if (insertedCount === 0) {
+      await this.prisma.csvImportBatch.delete({ where: { id: batch.id } });
     }
 
     this.logger.log(
-      `Imported ${rows.length} rows from ${source} (batch ${batch.id})`,
+      `Imported ${insertedCount} new rows (${skippedCount} duplicates skipped) from ${source} (batch ${batch.id})`,
     );
 
     return {
-      batchId: batch.id,
+      batchId: insertedCount > 0 ? batch.id : null,
       source,
       fileName,
-      rowCount: rows.length,
-      totalAmount: Math.round(totalAmount * 100) / 100,
+      rowCount: insertedCount,
+      skippedCount,
+      totalAmount: Math.round(insertedAmount * 100) / 100,
       dateRangeStart,
       dateRangeEnd,
     };

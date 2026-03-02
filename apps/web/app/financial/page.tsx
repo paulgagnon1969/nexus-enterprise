@@ -945,6 +945,12 @@ export default function FinancialPage() {
         const errBody = await res.json().catch(() => ({}));
         throw new Error(errBody.message || `Upload failed (${res.status})`);
       }
+      const result = await res.json();
+      if (result.skippedCount > 0 && result.rowCount === 0) {
+        setBankError(`All ${result.skippedCount} rows were duplicates — nothing new to import.`);
+      } else if (result.skippedCount > 0) {
+        setBankError(`Imported ${result.rowCount} new rows (${result.skippedCount} duplicates skipped).`);
+      }
       setCsvUploadOpen(false);
       await fetchCsvBatches();
       await fetchBankTransactions(1);

@@ -7942,6 +7942,9 @@ model ImportedTransaction {
   cardCategory    String?
   cardHolder      String?
 
+  // Deduplication fingerprint — SHA-256 of key fields per source type
+  fingerprint String?
+
   // Reconciliation — optional project linkage
   projectId   String?
 
@@ -7951,6 +7954,7 @@ model ImportedTransaction {
   batch   CsvImportBatch   @relation(fields: [batchId], references: [id], onDelete: Cascade)
   project Project?         @relation("ImportedTransactionProject", fields: [projectId], references: [id])
 
+  @@unique([companyId, source, fingerprint], name: "ImportedTransaction_company_source_fingerprint_key")
   @@index([companyId, date], map: "ImportedTransaction_company_date_idx")
   @@index([companyId, source], map: "ImportedTransaction_company_source_idx")
   @@index([batchId], map: "ImportedTransaction_batch_idx")
