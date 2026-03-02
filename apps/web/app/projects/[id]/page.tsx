@@ -708,6 +708,8 @@ interface DailyLog {
   createdByUser?: {
     id: string;
     email: string;
+    firstName?: string | null;
+    lastName?: string | null;
   } | null;
   attachments?: DailyLogAttachmentDto[];
   // Optional PETL context for PUDL
@@ -1925,25 +1927,29 @@ export default function ProjectDetailPage({
 
   // Toggle a line exclusion
   const togglePrintLineExclusion = (lineId: string) => {
-    setInvoicePrintExcludedLines(prev => {
-      const next = new Set(prev);
-      if (next.has(lineId)) {
-        next.delete(lineId);
-      } else {
-        next.add(lineId);
-      }
-      return next;
+    startUiTransition(() => {
+      setInvoicePrintExcludedLines(prev => {
+        const next = new Set(prev);
+        if (next.has(lineId)) {
+          next.delete(lineId);
+        } else {
+          next.add(lineId);
+        }
+        return next;
+      });
     });
   };
 
   // Select/deselect all lines for print
   const setAllLinesIncluded = (include: boolean) => {
-    if (include) {
-      setInvoicePrintExcludedLines(new Set());
-    } else {
-      const allIds = (activeInvoicePetlLines as any[]).map((li: any) => String(li?.id ?? "")).filter(Boolean);
-      setInvoicePrintExcludedLines(new Set(allIds));
-    }
+    startUiTransition(() => {
+      if (include) {
+        setInvoicePrintExcludedLines(new Set());
+      } else {
+        const allIds = (activeInvoicePetlLines as any[]).map((li: any) => String(li?.id ?? "")).filter(Boolean);
+        setInvoicePrintExcludedLines(new Set(allIds));
+      }
+    });
   };
 
   // Detailed invoice view toggle: flat list vs PETL project grouping tree
@@ -4633,11 +4639,13 @@ ${htmlBody}
   >({});
 
   const toggleImportUnitExpanded = (unitKey: string) => {
-    setExpandedImportUnitKeys(prev => {
-      const next = new Set(prev);
-      if (next.has(unitKey)) next.delete(unitKey);
-      else next.add(unitKey);
-      return next;
+    startUiTransition(() => {
+      setExpandedImportUnitKeys(prev => {
+        const next = new Set(prev);
+        if (next.has(unitKey)) next.delete(unitKey);
+        else next.add(unitKey);
+        return next;
+      });
     });
   };
 
@@ -9029,11 +9037,13 @@ ${htmlBody}
   const isPetlReconFlagged = (sowItemId: string) => petlReconFlagIds.has(sowItemId);
 
   const togglePetlReconFlag = (sowItemId: string) => {
-    setPetlReconFlagIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(sowItemId)) next.delete(sowItemId);
-      else next.add(sowItemId);
-      return next;
+    startPetlTransition(() => {
+      setPetlReconFlagIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(sowItemId)) next.delete(sowItemId);
+        else next.add(sowItemId);
+        return next;
+      });
     });
   };
 
@@ -13637,7 +13647,7 @@ ${htmlBody}
                       <button
                         key={option.key}
                         type="button"
-                        onClick={() => setEditProjectState(option.key)}
+                        onClick={() => startUiTransition(() => setEditProjectState(option.key))}
                         style={{
                           padding: "3px 10px",
                           borderRadius: 999,
@@ -13657,10 +13667,10 @@ ${htmlBody}
 
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={() => startUiTransition(() => {
                       setPetlShowDiagnostics(true);
                       setPetlDiagnosticsModalOpen(true);
-                    }}
+                    })}
                     style={{
                       padding: "3px 10px",
                       borderRadius: 999,
@@ -13738,7 +13748,7 @@ ${htmlBody}
                 <div style={{ marginTop: 8 }}>
                   <button
                     type="button"
-                    onClick={() => setStatusNotesOpen((o) => !o)}
+                    onClick={() => startUiTransition(() => setStatusNotesOpen((o) => !o))}
                     style={{
                       background: "none",
                       border: "none",
@@ -14740,7 +14750,7 @@ ${htmlBody}
                   <div style={{ marginTop: 8 }}>
                     <button
                       type="button"
-                      onClick={() => setShowTagManager(true)}
+                      onClick={() => startUiTransition(() => setShowTagManager(true))}
                       style={{
                         padding: "4px 10px",
                         borderRadius: 999,
@@ -22220,7 +22230,7 @@ ${htmlBody}
             justifyContent: "center",
             padding: 12,
           }}
-          onClick={() => setInvoiceLineExclusionModalOpen(false)}
+          onClick={() => startUiTransition(() => setInvoiceLineExclusionModalOpen(false))}
         >
           <div
             style={{
@@ -22258,7 +22268,7 @@ ${htmlBody}
               </div>
               <button
                 type="button"
-                onClick={() => setInvoiceLineExclusionModalOpen(false)}
+                onClick={() => startUiTransition(() => setInvoiceLineExclusionModalOpen(false))}
                 style={{
                   border: "none",
                   background: "transparent",
@@ -26894,7 +26904,7 @@ onClick={() => setManageTemplatesOpen(true)}
                   <span>New Daily Log</span>
                   <button
                     type="button"
-                    onClick={() => setShowNewDailyLogForm(false)}
+                    onClick={() => startUiTransition(() => setShowNewDailyLogForm(false))}
                     style={{
                       border: "none",
                       background: "transparent",
@@ -28260,6 +28270,7 @@ onClick={() => setManageTemplatesOpen(true)}
                           <tr style={{ backgroundColor: "#f9fafb" }}>
                             <th style={{ textAlign: "center", padding: "4px 6px", width: 100 }}>Actions</th>
                             <th style={{ textAlign: "left", padding: "4px 6px" }}>Date</th>
+                            <th style={{ textAlign: "left", padding: "4px 6px" }}>Author</th>
                             <th style={{ textAlign: "left", padding: "4px 6px" }}>Type</th>
                             <th style={{ textAlign: "left", padding: "4px 6px" }}>Title</th>
                             <th style={{ textAlign: "left", padding: "4px 6px" }}>
@@ -28293,40 +28304,40 @@ onClick={() => setManageTemplatesOpen(true)}
                                   {/* View button - available to all */}
                                   <button
                                     type="button"
-                                    onClick={() => setViewDailyLog({
-                                      open: true,
-                                      log,
-                                      draft: {
-                                        type: log.type || "PUDL",
-                                        title: log.title || "",
-                                        tags: "",
-                                        logDate: log.logDate ? log.logDate.slice(0, 10) : "",
-                                        workPerformed: log.workPerformed || "",
-                                        crewOnSite: log.crewOnSite || "",
-                                        issues: log.issues || "",
-                                        safetyIncidents: log.safetyIncidents || "",
-                                        weatherSummary: log.weatherSummary || "",
-                                        personOnsite: log.personOnsite || "",
-                                        manpowerOnsite: log.manpowerOnsite != null ? String(log.manpowerOnsite) : "",
-                                        confidentialNotes: log.confidentialNotes || "",
-                                        shareInternal: log.shareInternal ?? true,
-                                        shareSubs: log.shareSubs ?? false,
-                                        shareClient: log.shareClient ?? false,
-                                        sharePrivate: log.sharePrivate ?? false,
-                                        attachmentFiles: [],
-                                        buildingId: log.building?.id || "",
-                                        unitId: log.unit?.id || "",
-                                        roomParticleId: log.roomParticle?.id || "",
-                                        sowItemId: log.sowItem?.id || "",
-                                        expenseVendor: log.expenseVendor || "",
-                                        expenseAmount: log.expenseAmount != null ? String(log.expenseAmount) : "",
-                                        expenseDate: log.expenseDate ? log.expenseDate.slice(0, 10) : "",
-                                      },
-                                      editing: false,
-                                      saving: false,
-                                      error: null,
-                                    })}
-                                    title="View daily log"
+                    onClick={() => startUiTransition(() => setViewDailyLog({
+                      open: true,
+                      log,
+                      draft: {
+                        type: log.type || "PUDL",
+                        title: log.title || "",
+                        tags: "",
+                        logDate: log.logDate ? log.logDate.slice(0, 10) : "",
+                        workPerformed: log.workPerformed || "",
+                        crewOnSite: log.crewOnSite || "",
+                        issues: log.issues || "",
+                        safetyIncidents: log.safetyIncidents || "",
+                        weatherSummary: log.weatherSummary || "",
+                        personOnsite: log.personOnsite || "",
+                        manpowerOnsite: log.manpowerOnsite != null ? String(log.manpowerOnsite) : "",
+                        confidentialNotes: log.confidentialNotes || "",
+                        shareInternal: log.shareInternal ?? true,
+                        shareSubs: log.shareSubs ?? false,
+                        shareClient: log.shareClient ?? false,
+                        sharePrivate: log.sharePrivate ?? false,
+                        attachmentFiles: [],
+                        buildingId: log.building?.id || "",
+                        unitId: log.unit?.id || "",
+                        roomParticleId: log.roomParticle?.id || "",
+                        sowItemId: log.sowItem?.id || "",
+                        expenseVendor: log.expenseVendor || "",
+                        expenseAmount: log.expenseAmount != null ? String(log.expenseAmount) : "",
+                        expenseDate: log.expenseDate ? log.expenseDate.slice(0, 10) : "",
+                      },
+                      editing: false,
+                      saving: false,
+                      error: null,
+                    }))}
+                    title="View daily log"
                                     style={{
                                       border: "1px solid #6b7280",
                                       background: "#6b7280",
@@ -28391,6 +28402,24 @@ onClick={() => setManageTemplatesOpen(true)}
                               >
                                 {log.logDate
                                   ? new Date(log.logDate).toLocaleDateString()
+                                  : ""}
+                              </td>
+                              {/* Author */}
+                              <td
+                                style={{
+                                  padding: "4px 6px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  whiteSpace: "nowrap",
+                                  maxWidth: 140,
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                }}
+                                title={log.createdByUser?.email || ""}
+                              >
+                                {log.createdByUser
+                                  ? (log.createdByUser.firstName || log.createdByUser.lastName
+                                      ? `${log.createdByUser.firstName ?? ""} ${log.createdByUser.lastName ?? ""}`.trim()
+                                      : log.createdByUser.email)
                                   : ""}
                               </td>
                               {/* Type */}
@@ -28917,7 +28946,7 @@ onClick={() => setManageTemplatesOpen(true)}
                                       return linkedLog ? (
                                         <button
                                           type="button"
-                                          onClick={() => setViewDailyLog({
+                                          onClick={() => startUiTransition(() => setViewDailyLog({
                                             open: true,
                                             log: linkedLog,
                                             draft: {
@@ -28949,7 +28978,7 @@ onClick={() => setManageTemplatesOpen(true)}
                                             editing: false,
                                             saving: false,
                                             error: null,
-                                          })}
+                                          }))}
                                           title="Open linked daily log"
                                           style={{
                                             padding: "2px 6px",
@@ -35029,7 +35058,7 @@ onClick={() => setManageTemplatesOpen(true)}
             justifyContent: "center",
             padding: 12,
           }}
-          onClick={() => setPetlDiagnosticsModalOpen(false)}
+          onClick={() => startUiTransition(() => setPetlDiagnosticsModalOpen(false))}
         >
           <div
             style={{
@@ -35059,7 +35088,7 @@ onClick={() => setManageTemplatesOpen(true)}
               <span>PETL Diagnostics{petlLoadError ? " (error)" : ""}</span>
               <button
                 type="button"
-                onClick={() => setPetlDiagnosticsModalOpen(false)}
+                onClick={() => startUiTransition(() => setPetlDiagnosticsModalOpen(false))}
                 style={{
                   border: "none",
                   background: "transparent",
@@ -35089,7 +35118,7 @@ onClick={() => setManageTemplatesOpen(true)}
                   </div>
                   <button
                     type="button"
-                    onClick={() => setPetlShowDiagnostics((s) => !s)}
+                    onClick={() => startUiTransition(() => setPetlShowDiagnostics((s) => !s))}
                     style={{
                       padding: "4px 8px",
                       borderRadius: 6,
@@ -35682,7 +35711,7 @@ onClick={() => setManageTemplatesOpen(true)}
             justifyContent: "center",
             alignItems: "center",
           }}
-          onClick={() => setViewDailyLog({ open: false, log: null, draft: null, editing: false, saving: false, error: null })}
+          onClick={() => startUiTransition(() => setViewDailyLog({ open: false, log: null, draft: null, editing: false, saving: false, error: null }))}
         >
           <div
             style={{
@@ -35707,7 +35736,7 @@ onClick={() => setManageTemplatesOpen(true)}
                   <>
                     <button
                       type="button"
-                      onClick={() => setViewDailyLog(prev => ({ ...prev, editing: true }))}
+                      onClick={() => startUiTransition(() => setViewDailyLog(prev => ({ ...prev, editing: true })))}
                       style={{
                         padding: "4px 10px",
                         borderRadius: 4,
@@ -35746,7 +35775,7 @@ onClick={() => setManageTemplatesOpen(true)}
               </div>
               <button
                 type="button"
-                onClick={() => setViewDailyLog({ open: false, log: null, draft: null, editing: false, saving: false, error: null })}
+                onClick={() => startUiTransition(() => setViewDailyLog({ open: false, log: null, draft: null, editing: false, saving: false, error: null }))}
                 style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 4 }}
                 aria-label="Close"
               >
@@ -36350,7 +36379,7 @@ onClick={() => setManageTemplatesOpen(true)}
                 <>
                   <button
                     type="button"
-                    onClick={() => setViewDailyLog(prev => ({
+                    onClick={() => startUiTransition(() => setViewDailyLog(prev => ({
                       ...prev,
                       editing: false,
                       draft: prev.log ? {
@@ -36380,7 +36409,7 @@ onClick={() => setManageTemplatesOpen(true)}
                         expenseDate: prev.log.expenseDate ? prev.log.expenseDate.slice(0, 10) : "",
                       } : null,
                       error: null,
-                    }))}
+                    })))}
                     style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #d1d5db", background: "#ffffff", cursor: "pointer", fontSize: 12 }}
                   >
                     Cancel
@@ -36453,7 +36482,7 @@ onClick={() => setManageTemplatesOpen(true)}
               ) : (
                 <button
                   type="button"
-                  onClick={() => setViewDailyLog({ open: false, log: null, draft: null, editing: false, saving: false, error: null })}
+                  onClick={() => startUiTransition(() => setViewDailyLog({ open: false, log: null, draft: null, editing: false, saving: false, error: null }))}
                   style={{
                     padding: "8px 14px",
                     borderRadius: 6,

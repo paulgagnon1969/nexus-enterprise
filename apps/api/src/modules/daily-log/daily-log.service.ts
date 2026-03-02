@@ -417,6 +417,8 @@ export class DailyLogService {
           select: {
             id: true,
             email: true,
+            firstName: true,
+            lastName: true,
           },
         },
         attachments: true,
