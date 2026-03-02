@@ -64,10 +64,15 @@ export class ReceiptInventoryBridgeService {
     companyId: string,
     actor: AuthenticatedUser,
   ): Promise<PromoteReceiptResult> {
-    // ── 1. Load the daily log + OCR result ──────────────────────────────
+    // ── 1. Load the daily log + all OCR results ──────────────────────────
     const log = await this.prisma.dailyLog.findUnique({
       where: { id: dailyLogId },
-      include: { ocrResult: true },
+      include: {
+        ocrResults: {
+          where: { status: 'COMPLETED' },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
     });
 
     if (!log) throw new Error(`DailyLog ${dailyLogId} not found`);
@@ -75,18 +80,24 @@ export class ReceiptInventoryBridgeService {
       throw new Error(`DailyLog ${dailyLogId} is not RECEIPT_EXPENSE`);
     }
 
-    const ocr = log.ocrResult;
-    if (!ocr || ocr.status !== 'COMPLETED') {
+    const completedOcrs = log.ocrResults;
+    if (!completedOcrs.length) {
       throw new Error(`No completed OCR result for log ${dailyLogId}`);
     }
 
-    // Parse line items
+    // Use first OCR for vendor info (primary receipt)
+    const ocr = completedOcrs[0];
+
+    // Merge line items from all OCR results
     let lineItems: OcrLineItem[] = [];
-    if (ocr.lineItemsJson) {
-      try {
-        lineItems = JSON.parse(ocr.lineItemsJson);
-      } catch {
-        this.logger.warn(`Failed to parse lineItemsJson for OCR ${ocr.id}`);
+    for (const ocrResult of completedOcrs) {
+      if (ocrResult.lineItemsJson) {
+        try {
+          const items = JSON.parse(ocrResult.lineItemsJson);
+          if (Array.isArray(items)) lineItems.push(...items);
+        } catch {
+          this.logger.warn(`Failed to parse lineItemsJson for OCR ${ocrResult.id}`);
+        }
       }
     }
 

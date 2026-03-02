@@ -205,6 +205,15 @@ export class CreateDailyLogDto {
   @IsString()
   language?: string;
 
+  // Receipt line item exclusions: [{ ocrResultId, lineItemIndex }]
+  @IsOptional()
+  excludedLineItems?: Array<{ ocrResultId: string; lineItemIndex: number }>;
+
+  // Flat credit/deduction applied to receipt total
+  @IsOptional()
+  @IsNumber()
+  creditAmount?: number | null;
+
   // Optional: project file IDs to attach (triggers OCR if receipt type)
   @IsOptional()
   @IsArray()

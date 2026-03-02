@@ -29,6 +29,19 @@ apps/nexbridge-connect/
 apps/web/tmp_uploads/
 .vercel
 
+# Archived apps (16 GB of old nexus-applet / nexbridge-connect builds)
+archive/
+
+# macOS Automator .app bundles, misc non-API directories
+*.app/
+android/
+ICC API JSON file/
+NexConnect old files and locations/
+NexConnect old files and locations tree/
+promotion/
+skills/
+data/
+
 # Docs - exclude subdirectories not needed for API (keep sops-staging for SOP sync)
 docs/api-contracts/
 docs/architecture/

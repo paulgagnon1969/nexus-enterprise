@@ -94,6 +94,20 @@ export class DailyLogFeedController {
     const user = req.user as AuthenticatedUser;
     return this.dailyLogs.reassignLog(logId, dto.targetProjectId, user.companyId, user);
   }
+
+  /**
+   * Get merged OCR line items for a daily log (supports multi-receipt).
+   * Returns all line items from all OCR results, tagged with ocrResultId + index.
+   */
+  @UseGuards(CombinedAuthGuard)
+  @Get(":logId/ocr-line-items")
+  getOcrLineItems(
+    @Req() req: any,
+    @Param("logId") logId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.dailyLogs.getOcrLineItems(logId, user.companyId, user);
+  }
 }
 
 @RequiresModule('SCHEDULING')

@@ -146,11 +146,12 @@ export class ReceiptOcrService {
   }
 
   /**
-   * Get OCR result for a daily log
+   * Get all OCR results for a daily log (supports multi-receipt)
    */
-  async getOcrResultForDailyLog(dailyLogId: string): Promise<any | null> {
-    return this.prisma.receiptOcrResult.findUnique({
+  async getOcrResultsForDailyLog(dailyLogId: string): Promise<any[]> {
+    return this.prisma.receiptOcrResult.findMany({
       where: { dailyLogId },
+      orderBy: { createdAt: 'asc' },
     });
   }
 
@@ -161,6 +162,75 @@ export class ReceiptOcrService {
     return this.prisma.receiptOcrResult.findUnique({
       where: { billId },
     });
+  }
+
+  /**
+   * Get merged line items from all OCR results for a daily log.
+   * Each item tagged with ocrResultId + lineItemIndex for stable identification.
+   */
+  async getMergedLineItemsForDailyLog(dailyLogId: string): Promise<{
+    lineItems: Array<{
+      ocrResultId: string;
+      lineItemIndex: number;
+      description: string;
+      sku?: string | null;
+      quantity?: number | null;
+      unitPrice?: number | null;
+      amount?: number | null;
+      category?: string | null;
+    }>;
+    ocrSummaries: Array<{
+      ocrResultId: string;
+      vendorName: string | null;
+      totalAmount: number | null;
+      receiptDate: Date | null;
+      confidence: number | null;
+      fileName: string | null;
+    }>;
+  }> {
+    const results = await this.prisma.receiptOcrResult.findMany({
+      where: { dailyLogId, status: OcrStatus.COMPLETED },
+      orderBy: { createdAt: 'asc' },
+      include: { projectFile: { select: { fileName: true } } },
+    });
+
+    const lineItems: any[] = [];
+    const ocrSummaries: any[] = [];
+
+    for (const ocr of results) {
+      ocrSummaries.push({
+        ocrResultId: ocr.id,
+        vendorName: ocr.vendorName,
+        totalAmount: ocr.totalAmount != null ? Number(ocr.totalAmount) : null,
+        receiptDate: ocr.receiptDate,
+        confidence: ocr.confidence,
+        fileName: ocr.projectFile?.fileName ?? null,
+      });
+
+      if (ocr.lineItemsJson) {
+        try {
+          const items = JSON.parse(ocr.lineItemsJson);
+          if (Array.isArray(items)) {
+            for (let i = 0; i < items.length; i++) {
+              lineItems.push({
+                ocrResultId: ocr.id,
+                lineItemIndex: i,
+                description: items[i].description ?? '',
+                sku: items[i].sku ?? null,
+                quantity: items[i].quantity ?? items[i].qty ?? null,
+                unitPrice: items[i].unitPrice ?? items[i].unit_price ?? null,
+                amount: items[i].amount ?? null,
+                category: items[i].category ?? null,
+              });
+            }
+          }
+        } catch {
+          this.logger.warn(`Failed to parse lineItemsJson for OCR ${ocr.id}`);
+        }
+      }
+    }
+
+    return { lineItems, ocrSummaries };
   }
 
   private async markFailed(ocrResultId: string, errorMessage: string): Promise<void> {
@@ -235,37 +305,49 @@ export class ReceiptOcrService {
     }
   }
 
+  /**
+   * Merge logic: aggregate totals across ALL completed OCR results for the log.
+   * First vendor name wins; amounts are summed; earliest date wins.
+   */
   private async updateDailyLogFromOcr(
     dailyLogId: string,
-    data: ReceiptOcrData,
+    _latestData: ReceiptOcrData,
   ): Promise<void> {
     const dailyLog = await this.prisma.dailyLog.findUnique({
       where: { id: dailyLogId },
     });
-
     if (!dailyLog) return;
 
-    const updates: any = {};
+    // Fetch all completed OCR results for this log
+    const allOcr = await this.prisma.receiptOcrResult.findMany({
+      where: { dailyLogId, status: OcrStatus.COMPLETED },
+      orderBy: { createdAt: 'asc' },
+    });
 
-    // Always update fields if OCR extracted data (user can edit after)
-    if (data.vendorName) {
-      updates.expenseVendor = data.vendorName;
+    if (allOcr.length === 0) return;
+
+    // First vendor name wins (most likely the primary receipt)
+    const vendor = allOcr.find(o => o.vendorName)?.vendorName ?? null;
+    // Sum total amounts across all receipts
+    let totalAmount = 0;
+    for (const ocr of allOcr) {
+      if (ocr.totalAmount != null) totalAmount += Number(ocr.totalAmount);
     }
-    if (data.totalAmount != null) {
-      updates.expenseAmount = data.totalAmount;
-    }
-    if (data.receiptDate) {
-      updates.expenseDate = new Date(data.receiptDate);
-    }
+    // Earliest receipt date wins
+    const dates = allOcr.map(o => o.receiptDate).filter(Boolean) as Date[];
+    const earliestDate = dates.length > 0 ? dates.reduce((a, b) => (a < b ? a : b)) : null;
+
+    const updates: any = {};
+    if (vendor) updates.expenseVendor = vendor;
+    if (totalAmount > 0) updates.expenseAmount = totalAmount;
+    if (earliestDate) updates.expenseDate = earliestDate;
 
     if (Object.keys(updates).length > 0) {
       await this.prisma.dailyLog.update({
         where: { id: dailyLogId },
         data: updates,
       });
-      this.logger.log(`Updated daily log ${dailyLogId} with OCR data: vendor=${data.vendorName}, amount=${data.totalAmount}, date=${data.receiptDate}`);
-    } else {
-      this.logger.warn(`No OCR data to update for daily log ${dailyLogId}`);
+      this.logger.log(`Merged OCR data for log ${dailyLogId}: ${allOcr.length} receipt(s), vendor=${vendor}, total=${totalAmount}`);
     }
   }
 }

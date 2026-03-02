@@ -2306,7 +2306,7 @@ model ProjectBillAttachment {
 /// OCR extraction results for receipt images
 model ReceiptOcrResult {
   id            String  @id @default(cuid())
-  dailyLogId    String? @unique
+  dailyLogId    String?
   billId        String? @unique
   projectFileId String
 
@@ -2352,6 +2352,7 @@ model ReceiptOcrResult {
 
   @@index([status], map: "ReceiptOcrResult_status_idx")
   @@index([projectFileId], map: "ReceiptOcrResult_project_file_idx")
+  @@index([dailyLogId], map: "ReceiptOcrResult_daily_log_idx")
 }
 
 /// Log of Golden price list updates driven by Xact RAW imports.
@@ -3193,6 +3194,12 @@ model DailyLog {
   expenseDate   DateTime?
   sourceBillId  String?   @unique
 
+  /// Receipt line item selection adjustments
+  /// JSON: [{ ocrResultId: string, lineItemIndex: number }]
+  excludedLineItemsJson String?
+  /// Flat credit/deduction applied to the receipt total
+  creditAmount Decimal? @db.Decimal(12, 2)
+
   /// Fulfillment method for receipt purchases
   fulfillmentMethod         FulfillmentMethod?
   expectedDeliveryDate      DateTime?
@@ -3225,7 +3232,7 @@ model DailyLog {
   delayedBy    User?                @relation("DailyLogDelayedBy", fields: [delayedById], references: [id])
   publishedBy  User?                @relation("DailyLogPublishedBy", fields: [publishedById], references: [id])
   sourceBill   ProjectBill?         @relation("DailyLogSourceBill", fields: [sourceBillId], references: [id])
-  ocrResult    ReceiptOcrResult?
+  ocrResults   ReceiptOcrResult[]
   sourceJsa    DailyLog?            @relation("DailyLogSourceJsa", fields: [sourceJsaId], references: [id])
   seededLogs   DailyLog[]           @relation("DailyLogSourceJsa")
   timeEntries  TimeEntry[]

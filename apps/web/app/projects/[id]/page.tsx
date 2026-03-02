@@ -749,6 +749,19 @@ interface NewDailyLogState {
   attachmentProjectFileIds?: string[];
   // Metadata for display (parallel array to attachmentProjectFileIds)
   attachmentFiles?: { id: string; fileName: string; mimeType: string | null; storageUrl: string }[];
+  // OCR extracted line items with selection state
+  ocrLineItems?: Array<{
+    description: string;
+    sku?: string | null;
+    quantity?: number | null;
+    unitPrice?: number | null;
+    amount?: number | null;
+    category?: string | null;
+    included: boolean;
+    sourceFileName?: string | null;
+  }>;
+  // Flat credit/deduction
+  creditAmount?: string;
 }
 
 interface RoomComponentAgg {
@@ -4420,6 +4433,78 @@ ${htmlBody}
   const [editLogDragOver, setEditLogDragOver] = useState(false);
   // Drag state for View Daily Log (edit mode) attachments drop zone
   const [viewLogDragOver, setViewLogDragOver] = useState(false);
+
+  // OCR line items for edit/view modals (lazy-loaded from API)
+  type ModalOcrLineItem = {
+    description: string;
+    sku?: string | null;
+    quantity?: number | null;
+    unitPrice?: number | null;
+    amount?: number | null;
+    category?: string | null;
+    included: boolean;
+  };
+  const [modalOcrLineItems, setModalOcrLineItems] = useState<ModalOcrLineItem[] | null>(null);
+  const [modalOcrLoading, setModalOcrLoading] = useState(false);
+  const [modalCreditAmount, setModalCreditAmount] = useState<string>("");
+
+  // Fetch OCR line items when edit or view modal opens for a RECEIPT_EXPENSE log
+  useEffect(() => {
+    const logId = editDailyLog.open && editDailyLog.log?.type === "RECEIPT_EXPENSE"
+      ? editDailyLog.log.id
+      : viewDailyLog.open && viewDailyLog.log?.type === "RECEIPT_EXPENSE"
+        ? viewDailyLog.log.id
+        : null;
+    if (!logId) {
+      setModalOcrLineItems(null);
+      setModalCreditAmount("");
+      return;
+    }
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+    let cancelled = false;
+    setModalOcrLoading(true);
+    fetch(`${API_BASE}/daily-logs/${logId}/ocr-line-items`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (cancelled) return;
+        if (data && Array.isArray(data.lineItems)) {
+          // Check excluded items from log's excludedLineItemsJson
+          const log = editDailyLog.log ?? viewDailyLog.log;
+          let excludedSet = new Set<string>();
+          try {
+            const raw = (log as any)?.excludedLineItemsJson;
+            if (raw) {
+              const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+              if (Array.isArray(parsed)) excludedSet = new Set(parsed.map(String));
+            }
+          } catch {}
+          const items: ModalOcrLineItem[] = data.lineItems.map((li: any, idx: number) => ({
+            description: li.description || "Unknown item",
+            sku: li.sku ?? null,
+            quantity: li.quantity ?? null,
+            unitPrice: li.unitPrice ?? null,
+            amount: li.amount ?? null,
+            category: li.category ?? null,
+            included: !excludedSet.has(String(idx)),
+          }));
+          setModalOcrLineItems(items);
+          // Set credit from log
+          const credit = (log as any)?.creditAmount;
+          setModalCreditAmount(credit != null && Number(credit) > 0 ? String(credit) : "");
+        } else {
+          setModalOcrLineItems(null);
+        }
+        setModalOcrLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) { setModalOcrLineItems(null); setModalOcrLoading(false); }
+      });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editDailyLog.open, editDailyLog.log?.id, viewDailyLog.open, viewDailyLog.log?.id]);
 
   // Field PETL
   const [fieldPetlItems, setFieldPetlItems] = useState<FieldPetlItem[]>([]);
@@ -11515,6 +11600,17 @@ ${htmlBody}
           const amt = parseFloat(newDailyLog.expenseAmount);
           body.expenseAmount = !isNaN(amt) ? amt : null;
           body.expenseDate = newDailyLog.expenseDate || null;
+          // Excluded line items (items where included=false)
+          if (newDailyLog.ocrLineItems?.length) {
+            const excluded = newDailyLog.ocrLineItems
+              .map((li, idx) => ({ ...li, index: idx }))
+              .filter(li => !li.included)
+              .map(li => `${li.index}`);
+            if (excluded.length > 0) body.excludedLineItems = excluded;
+          }
+          // Credit amount
+          const credit = parseFloat(newDailyLog.creditAmount || "0");
+          if (credit > 0) body.creditAmount = credit;
         }
 
         // JSA safety fields
@@ -11596,6 +11692,8 @@ ${htmlBody}
           expenseVendor: "",
           expenseAmount: "",
           expenseDate: new Date().toISOString().slice(0, 10),
+          ocrLineItems: undefined,
+          creditAmount: undefined,
           attachmentProjectFileIds: [],
           attachmentFiles: [],
           buildingId: undefined,
@@ -11748,6 +11846,17 @@ ${htmlBody}
         const amt = parseFloat(draft.expenseAmount);
         body.expenseAmount = !isNaN(amt) ? amt : null;
         body.expenseDate = draft.expenseDate || null;
+        // Excluded line items
+        if (modalOcrLineItems?.length) {
+          const excluded = modalOcrLineItems
+            .map((li, idx) => ({ ...li, index: idx }))
+            .filter(li => !li.included)
+            .map(li => `${li.index}`);
+          if (excluded.length > 0) body.excludedLineItems = excluded;
+        }
+        // Credit amount
+        const credit = parseFloat(modalCreditAmount || "0");
+        if (credit > 0) body.creditAmount = credit;
       }
 
       const res = await fetch(`${API_BASE}/daily-logs/${editDailyLog.log.id}`, {
@@ -27048,8 +27157,146 @@ onClick={() => setManageTemplatesOpen(true)}
                         </div>
                       </div>
                       <div style={{ fontSize: 10, color: "#92400e" }}>
-                        📸 Attach a receipt photo below. OCR will auto-extract vendor and amount.
+                        📸 Attach receipt photo(s) below. OCR will auto-extract vendor, amount, and line items. You can upload multiple receipts.
                       </div>
+
+                      {/* OCR Line Items with checkboxes */}
+                      {newDailyLog.ocrLineItems && newDailyLog.ocrLineItems.length > 0 && (
+                        <div style={{ marginTop: 8 }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4, color: "#92400e" }}>
+                            Line Items (uncheck to exclude)
+                          </div>
+                          <div style={{
+                            maxHeight: 200,
+                            overflowY: "auto",
+                            border: "1px solid #e5e7eb",
+                            borderRadius: 4,
+                            background: "#fff",
+                          }}>
+                            <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
+                              <thead>
+                                <tr style={{ background: "#f9fafb", position: "sticky", top: 0 }}>
+                                  <th style={{ padding: "4px 6px", textAlign: "center", width: 28 }}>✓</th>
+                                  <th style={{ padding: "4px 6px", textAlign: "left" }}>Description</th>
+                                  <th style={{ padding: "4px 6px", textAlign: "right", width: 40 }}>Qty</th>
+                                  <th style={{ padding: "4px 6px", textAlign: "right", width: 60 }}>Unit $</th>
+                                  <th style={{ padding: "4px 6px", textAlign: "right", width: 65 }}>Amount</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {newDailyLog.ocrLineItems.map((item, idx) => (
+                                  <tr
+                                    key={idx}
+                                    style={{
+                                      borderBottom: "1px solid #f3f4f6",
+                                      opacity: item.included ? 1 : 0.45,
+                                      background: item.included ? "transparent" : "#fef2f2",
+                                    }}
+                                  >
+                                    <td style={{ padding: "3px 6px", textAlign: "center" }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={item.included}
+                                        onChange={() => {
+                                          setNewDailyLog(prev => {
+                                            const items = [...(prev.ocrLineItems || [])];
+                                            items[idx] = { ...items[idx], included: !items[idx].included };
+                                            const selectedTotal = items
+                                              .filter(li => li.included)
+                                              .reduce((sum, li) => sum + (li.amount ?? 0), 0);
+                                            const credit = parseFloat(prev.creditAmount || "0") || 0;
+                                            const netTotal = Math.max(0, selectedTotal - credit);
+                                            return {
+                                              ...prev,
+                                              ocrLineItems: items,
+                                              expenseAmount: netTotal.toFixed(2),
+                                            };
+                                          });
+                                        }}
+                                        style={{ cursor: "pointer" }}
+                                      />
+                                    </td>
+                                    <td style={{ padding: "3px 6px", textDecoration: item.included ? "none" : "line-through" }}>
+                                      {item.description}
+                                      {item.sourceFileName && newDailyLog.ocrLineItems!.some((li, i) => i !== idx && li.sourceFileName !== item.sourceFileName) && (
+                                        <span style={{ fontSize: 9, color: "#9ca3af", marginLeft: 4 }}>({item.sourceFileName})</span>
+                                      )}
+                                    </td>
+                                    <td style={{ padding: "3px 6px", textAlign: "right" }}>
+                                      {item.quantity != null ? item.quantity : ""}
+                                    </td>
+                                    <td style={{ padding: "3px 6px", textAlign: "right" }}>
+                                      {item.unitPrice != null ? `$${item.unitPrice.toFixed(2)}` : ""}
+                                    </td>
+                                    <td style={{ padding: "3px 6px", textAlign: "right", fontWeight: 500 }}>
+                                      {item.amount != null ? `$${item.amount.toFixed(2)}` : ""}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Credit / Deduction */}
+                          <div style={{ display: "flex", gap: 8, marginTop: 6, alignItems: "center" }}>
+                            <label style={{ fontSize: 11, fontWeight: 500, color: "#92400e" }}>Credit / Deduction:</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={newDailyLog.creditAmount || ""}
+                              onChange={e => {
+                                const creditVal = e.target.value;
+                                setNewDailyLog(prev => {
+                                  const selectedTotal = (prev.ocrLineItems || [])
+                                    .filter(li => li.included)
+                                    .reduce((sum, li) => sum + (li.amount ?? 0), 0);
+                                  const credit = parseFloat(creditVal) || 0;
+                                  const netTotal = Math.max(0, selectedTotal - credit);
+                                  return {
+                                    ...prev,
+                                    creditAmount: creditVal,
+                                    expenseAmount: netTotal.toFixed(2),
+                                  };
+                                });
+                              }}
+                              placeholder="0.00"
+                              style={{
+                                width: 90,
+                                padding: "3px 6px",
+                                borderRadius: 4,
+                                border: "1px solid #d1d5db",
+                                fontSize: 11,
+                              }}
+                            />
+                          </div>
+
+                          {/* Net Total Summary */}
+                          <div style={{
+                            marginTop: 6,
+                            padding: "4px 8px",
+                            background: "#ecfdf5",
+                            borderRadius: 4,
+                            border: "1px solid #a7f3d0",
+                            fontSize: 11,
+                            display: "flex",
+                            justifyContent: "space-between",
+                          }}>
+                            <span>
+                              {newDailyLog.ocrLineItems.filter(li => li.included).length} of{" "}
+                              {newDailyLog.ocrLineItems.length} items selected
+                              {parseFloat(newDailyLog.creditAmount || "0") > 0 && (
+                                <span style={{ color: "#dc2626" }}>
+                                  {" "}&minus; ${parseFloat(newDailyLog.creditAmount || "0").toFixed(2)} credit
+                                </span>
+                              )}
+                            </span>
+                            <span style={{ fontWeight: 600 }}>
+                              Net: ${parseFloat(newDailyLog.expenseAmount || "0").toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -27572,49 +27819,91 @@ onClick={() => setManageTemplatesOpen(true)}
                             ],
                           }));
 
-                          // For RECEIPT_EXPENSE: run immediate OCR on first image file
+                          // For RECEIPT_EXPENSE: run OCR on ALL image files and merge line items
                           if (newDailyLog.type === "RECEIPT_EXPENSE") {
-                            const firstImage = uploadedFiles.find(f => 
+                            const imageFiles = uploadedFiles.filter(f => 
                               f.mimeType?.startsWith("image/") ||
                               f.fileName?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/)
                             );
-                            if (firstImage) {
-                              setDailyLogMessage("Running OCR on receipt...");
-                              try {
-                                const ocrRes = await fetch(`${API_BASE}/projects/${id}/daily-logs/ocr`, {
-                                  method: "POST",
-                                  headers: {
-                                    "Content-Type": "application/json",
-                                    Authorization: `Bearer ${token}`,
-                                  },
-                                  body: JSON.stringify({ projectFileId: firstImage.id }),
-                                });
-                                if (ocrRes.ok) {
-                                  const ocrData = await ocrRes.json();
-                                  if (ocrData.success) {
-                                    // Build auto-generated title: "Expense - Vendor $Amount"
-                                    const vendorName = ocrData.vendor || "Unknown Vendor";
-                                    const amountStr = ocrData.amount != null ? `$${ocrData.amount.toFixed(2)}` : "";
-                                    const autoTitle = `Expense - ${vendorName}${amountStr ? " " + amountStr : ""}`;
-                                    
-                                    setNewDailyLog(prev => ({
-                                      ...prev,
-                                      title: autoTitle,
-                                      expenseVendor: ocrData.vendor || prev.expenseVendor,
-                                      expenseAmount: ocrData.amount != null ? String(ocrData.amount) : prev.expenseAmount,
-                                      expenseDate: ocrData.date || prev.expenseDate,
-                                      workPerformed: "This note was automatically created by OCR, review needed.",
-                                    }));
-                                    const conf = ocrData.confidence ? `(${Math.round(ocrData.confidence * 100)}% confidence)` : "";
-                                    setDailyLogMessage(`✓ OCR extracted: ${vendorName} - ${amountStr || "$?"} ${conf}`);
-                                  } else {
-                                    setDailyLogMessage(`OCR: ${ocrData.error || "Could not extract data"}`);
+                            if (imageFiles.length > 0) {
+                              setDailyLogMessage(`Running OCR on ${imageFiles.length} receipt(s)...`);
+                              let mergedVendor = "";
+                              let mergedAmount = 0;
+                              let mergedDate = "";
+                              let allLineItems: NonNullable<NewDailyLogState["ocrLineItems"]> = [];
+                              let ocrSuccessCount = 0;
+                              let lastConfidence = 0;
+
+                              for (const imgFile of imageFiles) {
+                                try {
+                                  const ocrRes = await fetch(`${API_BASE}/projects/${id}/daily-logs/ocr`, {
+                                    method: "POST",
+                                    headers: {
+                                      "Content-Type": "application/json",
+                                      Authorization: `Bearer ${token}`,
+                                    },
+                                    body: JSON.stringify({ projectFileId: imgFile.id }),
+                                  });
+                                  if (ocrRes.ok) {
+                                    const ocrData = await ocrRes.json();
+                                    if (ocrData.success) {
+                                      ocrSuccessCount++;
+                                      if (!mergedVendor && ocrData.vendor) mergedVendor = ocrData.vendor;
+                                      if (ocrData.amount != null) mergedAmount += Number(ocrData.amount);
+                                      if (!mergedDate && ocrData.date) mergedDate = ocrData.date;
+                                      else if (ocrData.date && ocrData.date < mergedDate) mergedDate = ocrData.date;
+                                      if (ocrData.confidence) lastConfidence = ocrData.confidence;
+
+                                      // Accumulate line items from this receipt
+                                      if (Array.isArray(ocrData.lineItems)) {
+                                        for (const li of ocrData.lineItems) {
+                                          allLineItems.push({
+                                            description: li.description || "Unknown item",
+                                            sku: li.sku ?? null,
+                                            quantity: li.quantity ?? null,
+                                            unitPrice: li.unitPrice ?? null,
+                                            amount: li.amount ?? null,
+                                            category: li.category ?? null,
+                                            included: true,
+                                            sourceFileName: imgFile.fileName,
+                                          });
+                                        }
+                                      }
+                                    }
                                   }
-                                } else {
-                                  setDailyLogMessage(`✓ File attached (OCR unavailable)`);
-                                }
-                              } catch (ocrErr: any) {
-                                setDailyLogMessage(`✓ File attached (OCR error: ${ocrErr?.message || "failed"})`);
+                                } catch {}
+                              }
+
+                              if (ocrSuccessCount > 0) {
+                                const vendorName = mergedVendor || "Unknown Vendor";
+                                const amountStr = mergedAmount > 0 ? `$${mergedAmount.toFixed(2)}` : "";
+                                const autoTitle = `Expense - ${vendorName}${amountStr ? " " + amountStr : ""}`;
+
+                                setNewDailyLog(prev => {
+                                  // Append new line items to any existing ones (multi-upload support)
+                                  const existingItems = prev.ocrLineItems || [];
+                                  const combinedItems = [...existingItems, ...allLineItems];
+                                  const selectedTotal = combinedItems
+                                    .filter(li => li.included)
+                                    .reduce((sum, li) => sum + (li.amount ?? 0), 0);
+                                  const credit = parseFloat(prev.creditAmount || "0") || 0;
+                                  const netTotal = Math.max(0, selectedTotal - credit);
+
+                                  return {
+                                    ...prev,
+                                    title: prev.ocrLineItems?.length ? prev.title : autoTitle,
+                                    expenseVendor: mergedVendor || prev.expenseVendor,
+                                    expenseAmount: String(netTotal.toFixed(2)),
+                                    expenseDate: mergedDate || prev.expenseDate,
+                                    workPerformed: prev.workPerformed || "This note was automatically created by OCR, review needed.",
+                                    ocrLineItems: combinedItems,
+                                  };
+                                });
+                                const conf = lastConfidence ? `(${Math.round(lastConfidence * 100)}% confidence)` : "";
+                                const countMsg = ocrSuccessCount > 1 ? ` from ${ocrSuccessCount} receipts` : "";
+                                setDailyLogMessage(`✓ OCR extracted: ${mergedVendor || "Vendor"} - ${amountStr || "$?"}${countMsg} ${conf}`);
+                              } else {
+                                setDailyLogMessage(`✓ Files attached (OCR could not extract data)`);
                               }
                               return; // Skip the generic success message below
                             }
@@ -35683,6 +35972,91 @@ onClick={() => setManageTemplatesOpen(true)}
                     <input type="date" value={editDailyLog.draft.expenseDate} onChange={e => setEditDailyLog(prev => ({ ...prev, draft: prev.draft ? { ...prev.draft, expenseDate: e.target.value } : null }))} style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }} />
                   </div>
                 </div>
+
+                {/* OCR Line Items (edit mode) */}
+                {modalOcrLoading && (
+                  <div style={{ marginTop: 8, fontSize: 11, color: "#92400e" }}>Loading line items...</div>
+                )}
+                {modalOcrLineItems && modalOcrLineItems.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4, color: "#92400e" }}>
+                      Line Items (uncheck to exclude)
+                    </div>
+                    <div style={{ maxHeight: 180, overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: 4, background: "#fff" }}>
+                      <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr style={{ background: "#f9fafb", position: "sticky", top: 0 }}>
+                            <th style={{ padding: "4px 6px", textAlign: "center", width: 28 }}>✓</th>
+                            <th style={{ padding: "4px 6px", textAlign: "left" }}>Description</th>
+                            <th style={{ padding: "4px 6px", textAlign: "right", width: 40 }}>Qty</th>
+                            <th style={{ padding: "4px 6px", textAlign: "right", width: 60 }}>Unit $</th>
+                            <th style={{ padding: "4px 6px", textAlign: "right", width: 65 }}>Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {modalOcrLineItems.map((item, idx) => (
+                            <tr
+                              key={idx}
+                              style={{
+                                borderBottom: "1px solid #f3f4f6",
+                                opacity: item.included ? 1 : 0.45,
+                                background: item.included ? "transparent" : "#fef2f2",
+                              }}
+                            >
+                              <td style={{ padding: "3px 6px", textAlign: "center" }}>
+                                <input
+                                  type="checkbox"
+                                  checked={item.included}
+                                  onChange={() => {
+                                    setModalOcrLineItems(prev => {
+                                      if (!prev) return prev;
+                                      const items = [...prev];
+                                      items[idx] = { ...items[idx], included: !items[idx].included };
+                                      const selectedTotal = items.filter(li => li.included).reduce((s, li) => s + (li.amount ?? 0), 0);
+                                      const credit = parseFloat(modalCreditAmount) || 0;
+                                      const net = Math.max(0, selectedTotal - credit);
+                                      setEditDailyLog(p => ({ ...p, draft: p.draft ? { ...p.draft, expenseAmount: net.toFixed(2) } : null }));
+                                      return items;
+                                    });
+                                  }}
+                                  style={{ cursor: "pointer" }}
+                                />
+                              </td>
+                              <td style={{ padding: "3px 6px", textDecoration: item.included ? "none" : "line-through" }}>{item.description}</td>
+                              <td style={{ padding: "3px 6px", textAlign: "right" }}>{item.quantity != null ? item.quantity : ""}</td>
+                              <td style={{ padding: "3px 6px", textAlign: "right" }}>{item.unitPrice != null ? `$${item.unitPrice.toFixed(2)}` : ""}</td>
+                              <td style={{ padding: "3px 6px", textAlign: "right", fontWeight: 500 }}>{item.amount != null ? `$${item.amount.toFixed(2)}` : ""}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, marginTop: 6, alignItems: "center" }}>
+                      <label style={{ fontSize: 11, fontWeight: 500, color: "#92400e" }}>Credit / Deduction:</label>
+                      <input
+                        type="number" step="0.01" min="0"
+                        value={modalCreditAmount}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setModalCreditAmount(val);
+                          const selectedTotal = (modalOcrLineItems || []).filter(li => li.included).reduce((s, li) => s + (li.amount ?? 0), 0);
+                          const credit = parseFloat(val) || 0;
+                          const net = Math.max(0, selectedTotal - credit);
+                          setEditDailyLog(p => ({ ...p, draft: p.draft ? { ...p.draft, expenseAmount: net.toFixed(2) } : null }));
+                        }}
+                        placeholder="0.00"
+                        style={{ width: 90, padding: "3px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 11 }}
+                      />
+                    </div>
+                    <div style={{ marginTop: 6, padding: "4px 8px", background: "#ecfdf5", borderRadius: 4, border: "1px solid #a7f3d0", fontSize: 11, display: "flex", justifyContent: "space-between" }}>
+                      <span>
+                        {modalOcrLineItems.filter(li => li.included).length} of {modalOcrLineItems.length} items selected
+                        {parseFloat(modalCreditAmount) > 0 && <span style={{ color: "#dc2626" }}> &minus; ${parseFloat(modalCreditAmount).toFixed(2)} credit</span>}
+                      </span>
+                      <span style={{ fontWeight: 600 }}>Net: ${parseFloat(editDailyLog.draft?.expenseAmount || "0").toFixed(2)}</span>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -35931,6 +36305,102 @@ onClick={() => setManageTemplatesOpen(true)}
                     )}
                   </div>
                 </div>
+
+                {/* OCR Line Items in view/edit modal */}
+                {modalOcrLoading && (
+                  <div style={{ marginTop: 8, fontSize: 11, color: "#92400e" }}>Loading line items...</div>
+                )}
+                {modalOcrLineItems && modalOcrLineItems.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4, color: "#92400e" }}>
+                      Line Items{viewDailyLog.editing ? " (uncheck to exclude)" : ""}
+                    </div>
+                    <div style={{ maxHeight: 180, overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: 4, background: "#fff" }}>
+                      <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr style={{ background: "#f9fafb", position: "sticky", top: 0 }}>
+                            {viewDailyLog.editing && <th style={{ padding: "4px 6px", textAlign: "center", width: 28 }}>✓</th>}
+                            <th style={{ padding: "4px 6px", textAlign: "left" }}>Description</th>
+                            <th style={{ padding: "4px 6px", textAlign: "right", width: 40 }}>Qty</th>
+                            <th style={{ padding: "4px 6px", textAlign: "right", width: 60 }}>Unit $</th>
+                            <th style={{ padding: "4px 6px", textAlign: "right", width: 65 }}>Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {modalOcrLineItems.map((item, idx) => (
+                            <tr
+                              key={idx}
+                              style={{
+                                borderBottom: "1px solid #f3f4f6",
+                                opacity: item.included ? 1 : 0.45,
+                                background: item.included ? "transparent" : "#fef2f2",
+                              }}
+                            >
+                              {viewDailyLog.editing && (
+                                <td style={{ padding: "3px 6px", textAlign: "center" }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={item.included}
+                                    onChange={() => {
+                                      setModalOcrLineItems(prev => {
+                                        if (!prev) return prev;
+                                        const items = [...prev];
+                                        items[idx] = { ...items[idx], included: !items[idx].included };
+                                        const selectedTotal = items.filter(li => li.included).reduce((s, li) => s + (li.amount ?? 0), 0);
+                                        const credit = parseFloat(modalCreditAmount) || 0;
+                                        const net = Math.max(0, selectedTotal - credit);
+                                        setViewDailyLog(p => ({ ...p, draft: p.draft ? { ...p.draft, expenseAmount: net.toFixed(2) } : null }));
+                                        return items;
+                                      });
+                                    }}
+                                    style={{ cursor: "pointer" }}
+                                  />
+                                </td>
+                              )}
+                              <td style={{ padding: "3px 6px", textDecoration: item.included ? "none" : "line-through" }}>{item.description}</td>
+                              <td style={{ padding: "3px 6px", textAlign: "right" }}>{item.quantity != null ? item.quantity : ""}</td>
+                              <td style={{ padding: "3px 6px", textAlign: "right" }}>{item.unitPrice != null ? `$${item.unitPrice.toFixed(2)}` : ""}</td>
+                              <td style={{ padding: "3px 6px", textAlign: "right", fontWeight: 500 }}>{item.amount != null ? `$${item.amount.toFixed(2)}` : ""}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {viewDailyLog.editing && (
+                      <div style={{ display: "flex", gap: 8, marginTop: 6, alignItems: "center" }}>
+                        <label style={{ fontSize: 11, fontWeight: 500, color: "#92400e" }}>Credit / Deduction:</label>
+                        <input
+                          type="number" step="0.01" min="0"
+                          value={modalCreditAmount}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setModalCreditAmount(val);
+                            const selectedTotal = (modalOcrLineItems || []).filter(li => li.included).reduce((s, li) => s + (li.amount ?? 0), 0);
+                            const credit = parseFloat(val) || 0;
+                            const net = Math.max(0, selectedTotal - credit);
+                            setViewDailyLog(p => ({ ...p, draft: p.draft ? { ...p.draft, expenseAmount: net.toFixed(2) } : null }));
+                          }}
+                          placeholder="0.00"
+                          style={{ width: 90, padding: "3px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 11 }}
+                        />
+                      </div>
+                    )}
+                    <div style={{ marginTop: 6, padding: "4px 8px", background: "#ecfdf5", borderRadius: 4, border: "1px solid #a7f3d0", fontSize: 11, display: "flex", justifyContent: "space-between" }}>
+                      <span>
+                        {modalOcrLineItems.filter(li => li.included).length} of {modalOcrLineItems.length} items
+                        {modalOcrLineItems.some(li => !li.included) && " (some excluded)"}
+                        {parseFloat(modalCreditAmount) > 0 && <span style={{ color: "#dc2626" }}> &minus; ${parseFloat(modalCreditAmount).toFixed(2)} credit</span>}
+                      </span>
+                      <span style={{ fontWeight: 600 }}>
+                        Net: ${(() => {
+                          const sel = modalOcrLineItems.filter(li => li.included).reduce((s, li) => s + (li.amount ?? 0), 0);
+                          const cr = parseFloat(modalCreditAmount) || 0;
+                          return Math.max(0, sel - cr).toFixed(2);
+                        })()}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -36443,6 +36913,17 @@ onClick={() => setManageTemplatesOpen(true)}
                           payload.expenseVendor = viewDailyLog.draft.expenseVendor || null;
                           payload.expenseAmount = viewDailyLog.draft.expenseAmount ? parseFloat(viewDailyLog.draft.expenseAmount) : null;
                           payload.expenseDate = viewDailyLog.draft.expenseDate || null;
+                          // Excluded line items
+                          if (modalOcrLineItems?.length) {
+                            const excluded = modalOcrLineItems
+                              .map((li, idx) => ({ ...li, index: idx }))
+                              .filter(li => !li.included)
+                              .map(li => `${li.index}`);
+                            if (excluded.length > 0) payload.excludedLineItems = excluded;
+                          }
+                          // Credit amount
+                          const viewCredit = parseFloat(modalCreditAmount || "0");
+                          if (viewCredit > 0) payload.creditAmount = viewCredit;
                         }
                         const resp = await fetch(`${API_BASE}/daily-logs/${viewDailyLog.log.id}`, {
                           method: "PATCH",

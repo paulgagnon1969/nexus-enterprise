@@ -109,4 +109,13 @@ export class UpdateDailyLogDto {
   // JSA safety notes (JSON)
   @IsOptional()
   jsaSafetyJson?: any;
+
+  // Receipt line item exclusions: [{ ocrResultId, lineItemIndex }]
+  @IsOptional()
+  excludedLineItems?: Array<{ ocrResultId: string; lineItemIndex: number }>;
+
+  // Flat credit/deduction applied to receipt total
+  @IsOptional()
+  @IsNumber()
+  creditAmount?: number | null;
 }

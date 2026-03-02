@@ -288,16 +288,16 @@ export class CsvImportService {
 
       return {
         date: new Date(r["Date"]),
-        description: r["Description"] || r["Item Description"] || "",
+        description: r["SKU Description"] || r["Description"] || r["Item Description"] || "",
         amount: lineTotal,
         merchant: "The Home Depot",
         jobNameRaw: rawJobName || undefined,
         jobName: normalizedJob || undefined,
-        sku: r["SKU"] || undefined,
-        department: r["Department"] || undefined,
-        category: r["Class"] || r["Category"] || undefined,
-        subcategory: r["Subclass"] || r["Subcategory"] || undefined,
-        purchaser: r["Purchaser Name"] || undefined,
+        sku: r["SKU Number"] || r["SKU"] || undefined,
+        department: r["Department Name"] || r["Department"] || undefined,
+        category: r["Class Name"] || r["Class"] || r["Category"] || undefined,
+        subcategory: r["Subclass Name"] || r["Subclass"] || r["Subcategory"] || undefined,
+        purchaser: r["Purchaser"] || r["Purchaser Name"] || undefined,
         qty: qty || undefined,
         unitPrice: netUnitPrice || undefined,
       };

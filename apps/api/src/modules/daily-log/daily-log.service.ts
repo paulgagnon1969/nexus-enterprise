@@ -192,7 +192,17 @@ export class DailyLogService {
     vendor?: string;
     amount?: number;
     date?: string;
+    subtotal?: number;
+    taxAmount?: number;
     confidence?: number;
+    lineItems?: Array<{
+      description: string;
+      sku?: string;
+      quantity?: number;
+      unitPrice?: number;
+      amount?: number;
+      category?: string;
+    }>;
     error?: string;
   }> {
     await this.assertProjectAccess(projectId, companyId, actor, null);
@@ -227,7 +237,10 @@ export class DailyLogService {
         vendor: result.vendorName,
         amount: result.totalAmount,
         date: result.receiptDate,
+        subtotal: result.subtotal,
+        taxAmount: result.taxAmount,
         confidence: result.confidence,
+        lineItems: result.lineItems,
       };
     } catch (err: any) {
       this.logger.error(`Immediate OCR failed for file ${projectFileId}: ${err?.message ?? err}`);
@@ -1025,6 +1038,11 @@ export class DailyLogService {
         expenseVendor: isReceiptExpense ? (dto.expenseVendor ?? null) : null,
         expenseAmount: isReceiptExpense && dto.expenseAmount != null ? dto.expenseAmount : null,
         expenseDate: isReceiptExpense && dto.expenseDate ? new Date(dto.expenseDate) : null,
+        // Receipt line item exclusions + credit
+        excludedLineItemsJson: isReceiptExpense && dto.excludedLineItems?.length
+          ? JSON.stringify(dto.excludedLineItems)
+          : null,
+        creditAmount: isReceiptExpense && dto.creditAmount != null ? dto.creditAmount : null,
         // Fulfillment & geo fields (receipt purchases)
         fulfillmentMethod: isReceiptExpense && dto.fulfillmentMethod
           ? (dto.fulfillmentMethod as unknown as FulfillmentMethod)
@@ -1683,7 +1701,10 @@ export class DailyLogService {
     try {
       // Determine vendor name and amount
       const vendorName = dto.expenseVendor?.trim() || 'Receipt from Daily Log';
-      const totalAmount = dto.expenseAmount ?? 0;
+      // Use adjusted total: original amount minus credit
+      const rawAmount = dto.expenseAmount ?? 0;
+      const credit = dto.creditAmount ?? 0;
+      const totalAmount = Math.max(0, rawAmount - credit);
       const billDate = dto.expenseDate ? new Date(dto.expenseDate) : new Date(dto.logDate);
 
       // Create draft bill
@@ -2118,6 +2139,42 @@ export class DailyLogService {
    * Update a daily log with revision tracking.
    * Only creator or PM+ can edit.
    */
+  /**
+   * Get merged OCR line items for a daily log.
+   * Returns all items from all OCR results + current exclusion/credit state.
+   */
+  async getOcrLineItems(
+    logId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+  ) {
+    const log = await this.prisma.dailyLog.findFirst({
+      where: { id: logId, project: { companyId } },
+    });
+
+    if (!log) {
+      throw new NotFoundException("Daily log not found");
+    }
+
+    await this.assertProjectAccess(log.projectId, companyId, actor, null);
+
+    const merged = await this.receiptOcr.getMergedLineItemsForDailyLog(logId);
+
+    // Parse saved exclusions
+    let excludedLineItems: Array<{ ocrResultId: string; lineItemIndex: number }> = [];
+    if (log.excludedLineItemsJson) {
+      try {
+        excludedLineItems = JSON.parse(log.excludedLineItemsJson);
+      } catch {}
+    }
+
+    return {
+      ...merged,
+      excludedLineItems,
+      creditAmount: log.creditAmount != null ? Number(log.creditAmount) : null,
+    };
+  }
+
   async updateLog(
     logId: string,
     companyId: string,
@@ -2151,10 +2208,22 @@ export class DailyLogService {
       "confidentialNotes", "buildingId", "unitId", "roomParticleId", "sowItemId",
       "shareInternal", "shareSubs", "shareClient", "sharePrivate",
       "type", "expenseVendor", "expenseAmount", "expenseDate",
+      "creditAmount",
     ] as const;
 
     const changes: Record<string, any> = {};
     const previousValues: Record<string, any> = {};
+
+    // Handle excludedLineItems separately (stored as JSON string)
+    if (dto.excludedLineItems !== undefined) {
+      const newJson = dto.excludedLineItems && dto.excludedLineItems.length > 0
+        ? JSON.stringify(dto.excludedLineItems)
+        : null;
+      if ((log as any).excludedLineItemsJson !== newJson) {
+        changes["excludedLineItemsJson"] = newJson;
+        previousValues["excludedLineItemsJson"] = (log as any).excludedLineItemsJson;
+      }
+    }
 
     for (const field of editableFields) {
       if (dto[field] !== undefined) {
