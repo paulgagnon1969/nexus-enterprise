@@ -39,7 +39,7 @@ ICC API JSON file/
 NexConnect old files and locations/
 NexConnect old files and locations tree/
 promotion/
-skills/
+/skills/
 data/
 
 # Docs - exclude subdirectories not needed for API (keep sops-staging for SOP sync)
