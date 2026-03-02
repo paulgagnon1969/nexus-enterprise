@@ -1,0 +1,772 @@
+<!--
+  Template: Florida Contingency Agreement
+  Code: FL-CONTINGENCY-001
+  Jurisdiction: FL
+  Category: CONTINGENCY
+  Version: 1.0
+  Effective: 2026-03-01
+  Description: Florida residential property insurance contingency agreement package
+               with Exhibits A (Terms & Conditions), B (Mechanics Lien Notice),
+               and C (Irrevocable Direction To Pay & Equitable Lien).
+  Variables:
+    COMPANY_NAME        | text   | Company legal name (e.g. NEXUS FORTIFIED STRUCTURES, LLC)
+    COMPANY_ADDRESS     | text   | Company street address, city, state, zip
+    CGC_LICENSE_NO      | text   | General contractor license number
+    CEO_NAME            | text   | CEO / General Contractor license holder name
+    PROPERTY_ADDRESS    | text   | Property address (street, city, state, zip)
+    PROPERTY_OWNER_1    | text   | Primary property owner full name
+    PROPERTY_OWNER_2    | text   | Secondary property owner full name (optional)
+    OWNER_HOME_PHONE    | phone  | Property owner home phone
+    OWNER_MOBILE        | phone  | Property owner mobile phone
+    OWNER_ADDRESS       | text   | Property owner mailing address (city/state/zip)
+    AUTH_REP_NAME       | text   | Authorized representative name
+    AUTH_REP_PHONE      | phone  | Authorized representative phone
+    INS_COMPANY         | text   | Insurance company / agent name
+    INS_AGENT_PHONE     | phone  | Insurance agent phone
+    INS_AGENT_EMAIL     | email  | Insurance agent email
+    POLICY_NUMBER       | text   | Insurance policy number
+    CLAIM_NUMBER        | text   | Insurance claim number
+    LOSS_DATE           | date   | Date of loss
+    LOSS_DAMAGE         | text   | Description of loss/damage
+    ADJUSTER_NAME       | text   | Adjuster name
+    ADJUSTER_EMAIL      | email  | Adjuster email
+    ADJUSTER_PHONE      | phone  | Adjuster phone
+    ADJUSTER_APPT_DATE  | date   | Adjuster appointment date
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Contingency Agreement — {{COMPANY_NAME}}</title>
+  <style>
+    body {
+      font-family: "Times New Roman", Georgia, serif;
+      font-size: 12pt;
+      line-height: 1.5;
+      color: #111;
+      max-width: 8.5in;
+      margin: 0 auto;
+      padding: 0.75in 1in;
+    }
+    .agreement-header {
+      text-align: center;
+      margin-bottom: 24pt;
+    }
+    .agreement-header .company-logo {
+      max-height: 60px;
+      margin-bottom: 8pt;
+    }
+    .agreement-header .company-name {
+      font-size: 16pt;
+      font-weight: bold;
+      letter-spacing: 1px;
+    }
+    .agreement-header .company-details {
+      font-size: 10pt;
+      color: #555;
+    }
+    h1 {
+      text-align: center;
+      font-size: 16pt;
+      text-transform: uppercase;
+      margin: 24pt 0 16pt;
+      letter-spacing: 1px;
+    }
+    h2 {
+      font-size: 13pt;
+      text-transform: uppercase;
+      margin: 20pt 0 10pt;
+      letter-spacing: 0.5px;
+    }
+    h3 {
+      font-size: 12pt;
+      margin: 16pt 0 8pt;
+    }
+    .exhibit-label {
+      text-align: center;
+      font-size: 14pt;
+      font-weight: bold;
+      text-transform: uppercase;
+      margin: 32pt 0 8pt;
+    }
+    .exhibit-title {
+      text-align: center;
+      font-size: 13pt;
+      font-weight: bold;
+      margin: 0 0 16pt;
+    }
+    p {
+      margin: 8pt 0;
+      text-align: justify;
+    }
+    .field-row {
+      display: flex;
+      gap: 24pt;
+      margin: 6pt 0;
+      flex-wrap: wrap;
+    }
+    .field {
+      flex: 1;
+      min-width: 180px;
+    }
+    .field-label {
+      font-size: 9pt;
+      font-weight: bold;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .field-value {
+      border-bottom: 1px solid #333;
+      min-height: 18pt;
+      padding: 2pt 4pt;
+      font-size: 11pt;
+    }
+    .signature-block {
+      margin: 24pt 0;
+      page-break-inside: avoid;
+    }
+    .signature-row {
+      display: flex;
+      gap: 32pt;
+      margin: 12pt 0;
+    }
+    .signature-field {
+      flex: 1;
+    }
+    .signature-line {
+      border-bottom: 1px solid #333;
+      min-height: 24pt;
+      margin-top: 4pt;
+    }
+    .signature-label {
+      font-size: 9pt;
+      color: #555;
+      margin-top: 2pt;
+    }
+    .checkbox-item {
+      margin: 6pt 0;
+      padding-left: 20pt;
+      text-indent: -20pt;
+    }
+    .checkbox-item::before {
+      content: "☐ ";
+      font-size: 14pt;
+      vertical-align: middle;
+    }
+    .legal-notice {
+      font-size: 10pt;
+      text-transform: uppercase;
+      line-height: 1.4;
+    }
+    .legal-notice p {
+      text-align: justify;
+    }
+    .initials-line {
+      display: inline-block;
+      border-bottom: 1px solid #333;
+      width: 60px;
+      text-align: center;
+    }
+    .page-break {
+      page-break-before: always;
+    }
+    .good-faith-estimate {
+      margin: 16pt 0;
+    }
+    .estimate-lines {
+      border-bottom: 1px solid #333;
+      min-height: 18pt;
+      margin: 8pt 0;
+    }
+    .comments-section {
+      margin: 16pt 0;
+    }
+    .comments-section .comments-label {
+      font-weight: bold;
+      font-size: 11pt;
+    }
+    .comments-section .comments-area {
+      border: 1px solid #ccc;
+      min-height: 48pt;
+      padding: 6pt;
+      margin-top: 4pt;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ============================================================ -->
+  <!-- HEADER                                                        -->
+  <!-- ============================================================ -->
+  <header class="agreement-header">
+    {{#COMPANY_LOGO}}
+    <img src="{{COMPANY_LOGO}}" alt="{{COMPANY_NAME}}" class="company-logo" />
+    {{/COMPANY_LOGO}}
+    <div class="company-name">{{COMPANY_NAME}}</div>
+    <div class="company-details">
+      {{COMPANY_ADDRESS}}<br>
+      {{CGC_LICENSE_NO}}
+    </div>
+  </header>
+
+  <!-- ============================================================ -->
+  <!-- MAIN AGREEMENT                                                -->
+  <!-- ============================================================ -->
+  <section id="main-agreement">
+    <h1>Contingency Agreement</h1>
+
+    <p>
+      I/We (individually and collectively, as applicable, "Property Owner"), owner/manager
+      of the property located at
+      <strong>{{PROPERTY_ADDRESS}}</strong>,
+      agree to have <strong>{{COMPANY_NAME}}</strong> submit estimates and documentation
+      to assist in obtaining my/our insurance company's good faith approval for the funds
+      needed for restoration and repairs to said property.
+    </p>
+
+    <p>
+      The Property Owner acknowledges and agrees that this agreement is subject to, and
+      confirms receipt of, the Terms and Conditions attached hereto as Exhibit A and
+      incorporated herein by this reference, the Mechanics Lien Notice set forth on
+      Exhibit B attached hereto and incorporated herein by this reference, and the
+      Irrevocable Direction To Pay &amp; Equitable Lien On Insurance Proceeds set forth as
+      Exhibit C attached hereto and incorporated herein by this reference.
+    </p>
+
+    <p>
+      If the insurance company does not agree to pay for needed repairs (as determined by
+      <strong>{{COMPANY_NAME}}</strong>), this agreement is automatically terminated. In
+      such event, Property Owner will not owe anything to
+      <strong>{{COMPANY_NAME}}</strong>; and <strong>{{COMPANY_NAME}}</strong> will not be
+      required to perform any restoration and repairs to said property.
+    </p>
+
+    <p>
+      If this agreement is not terminated pursuant to the foregoing paragraph, Property
+      Owner agrees that <strong>{{COMPANY_NAME}}</strong> will perform the repairs to the
+      said property in accordance with the insurance company's damage and work scope,
+      which such scope shall be a written, itemized, per-unit cost estimate of the
+      services to be performed by <strong>{{COMPANY_NAME}}</strong>.
+    </p>
+
+    <p>
+      Property Owner will pay to <strong>{{COMPANY_NAME}}</strong> all checks from the
+      insurance company (or, to the extent allowed by the insurance company and at
+      <strong>{{COMPANY_NAME}}</strong>'s request, cause such checks to be issued directly
+      to <strong>{{COMPANY_NAME}}</strong>), including:
+    </p>
+
+    <ol>
+      <li>
+        The initial check (ACV) that comes with the detailed work scope from the
+        insurance company. At this time Property Owner will be assisted in selecting any
+        available options. <strong>{{COMPANY_NAME}}</strong> then orders all materials,
+        schedules work to be done and orders all inspections during and after repairs and
+        installation.
+      </li>
+      <li>
+        The depreciation/supplement check that the insurance company pays after final
+        inspection.
+      </li>
+      <li>
+        All supplemental funds from the insurance company for unforeseen costs. If these
+        occur, they will be negotiated by <strong>{{COMPANY_NAME}}</strong> and they are
+        paid by the insurance company according to the insured's policy coverage.
+      </li>
+    </ol>
+
+    <!-- Property Owner / Claim Information Fields -->
+    <div style="margin: 20pt 0;">
+      <div class="field-row">
+        <div class="field">
+          <div class="field-label">Name</div>
+          <div class="field-value">{{PROPERTY_OWNER_1}}</div>
+        </div>
+        <div class="field">
+          <div class="field-label">Date</div>
+          <div class="field-value">{{AGREEMENT_DATE}}</div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <div class="field-label">Home Phone</div>
+          <div class="field-value">{{OWNER_HOME_PHONE}}</div>
+        </div>
+        <div class="field">
+          <div class="field-label">Mobile</div>
+          <div class="field-value">{{OWNER_MOBILE}}</div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <div class="field-label">Address City/State/Zip</div>
+          <div class="field-value">{{OWNER_ADDRESS}}</div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <div class="field-label">Authorized Representative</div>
+          <div class="field-value">{{AUTH_REP_NAME}}</div>
+        </div>
+        <div class="field">
+          <div class="field-label">Rep Phone</div>
+          <div class="field-value">{{AUTH_REP_PHONE}}</div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <div class="field-label">Ins Company / Agent</div>
+          <div class="field-value">{{INS_COMPANY}}</div>
+        </div>
+        <div class="field">
+          <div class="field-label">Agent Phone</div>
+          <div class="field-value">{{INS_AGENT_PHONE}}</div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <div class="field-label">Agent Email</div>
+          <div class="field-value">{{INS_AGENT_EMAIL}}</div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <div class="field-label">Policy Number</div>
+          <div class="field-value">{{POLICY_NUMBER}}</div>
+        </div>
+        <div class="field">
+          <div class="field-label">Claim Number</div>
+          <div class="field-value">{{CLAIM_NUMBER}}</div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <div class="field-label">Loss Date</div>
+          <div class="field-value">{{LOSS_DATE}}</div>
+        </div>
+        <div class="field">
+          <div class="field-label">Loss Damage</div>
+          <div class="field-value">{{LOSS_DAMAGE}}</div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <div class="field-label">Adjuster Name</div>
+          <div class="field-value">{{ADJUSTER_NAME}}</div>
+        </div>
+        <div class="field">
+          <div class="field-label">Adjuster Email</div>
+          <div class="field-value">{{ADJUSTER_EMAIL}}</div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <div class="field-label">Adjuster Phone</div>
+          <div class="field-value">{{ADJUSTER_PHONE}}</div>
+        </div>
+        <div class="field">
+          <div class="field-label">Adjuster Appt Date</div>
+          <div class="field-value">{{ADJUSTER_APPT_DATE}}</div>
+        </div>
+      </div>
+    </div>
+
+    <p>
+      Any upgrade or selection that goes beyond the detailed work scope approved by the
+      insurance company or exceeds the items covered by the insurance company is
+      considered beyond the scope of this agreement and Property Owner must enter into a
+      separate agreement or change-order with <strong>{{COMPANY_NAME}}</strong> regarding
+      such upgrade, selection or work beyond the approved scope. The cost of such
+      additional work or upgraded options shall be at Property Owner's sole cost and
+      expense.
+    </p>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- EXHIBIT A — Terms & Conditions                                -->
+  <!-- ============================================================ -->
+  <section id="exhibit-a" class="page-break">
+    <div class="exhibit-label">Exhibit A</div>
+    <div class="exhibit-title">Terms &amp; Conditions</div>
+
+    <p>The consumer is responsible for payment of any insurance deductible.</p>
+
+    <p>
+      It is insurance fraud punishable as a felony of the third degree for a contractor
+      to knowingly or willfully, and with intent to injure, defraud, or deceive, pay,
+      waive, or rebate all or part of an insurance deductible applicable to payment to
+      the contractor for repairs to a property covered by a property insurance policy;
+      and
+    </p>
+
+    <p>
+      It is insurance fraud punishable as a felony of the third degree to intentionally
+      file an insurance claim containing any false, incomplete, or misleading
+      information.
+    </p>
+
+    <p>
+      The commencement date of construction is estimated to occur within 30 days (usually
+      within 7 days of good funds received) of the approval by the insurance company of a
+      written, itemized, per-unit cost estimate of the services to be provided by
+      <strong>{{COMPANY_NAME}}</strong>.
+    </p>
+
+    <div class="legal-notice">
+      <p>
+        ANY CLAIMS FOR CONSTRUCTION DEFECTS ARE SUBJECT TO THE NOTICE AND CURE PROVISIONS
+        OF CHAPTER 558, FLORIDA STATUTES.
+      </p>
+
+      <p>
+        FLA. STAT. § 489.147(2)(B) NOTICE: A CONTRACTOR MAY NOT DIRECTLY OR INDIRECTLY
+        ENGAGE IN OFFERING TO A RESIDENTIAL PROPERTY OWNER A REBATE, GIFT, GIFT CARD,
+        CASH, COUPON, WAIVER OF ANY INSURANCE DEDUCTIBLE, OR ANY OTHER THING OF VALUE IN
+        EXCHANGE FOR:
+      </p>
+      <ol>
+        <li>
+          ALLOWING THE CONTRACTOR TO CONDUCT AN INSPECTION OF THE RESIDENTIAL PROPERTY
+          OWNER'S ROOF; OR
+        </li>
+        <li>
+          MAKING AN INSURANCE CLAIM FOR DAMAGE TO THE RESIDENTIAL PROPERTY OWNER'S ROOF.
+        </li>
+      </ol>
+
+      <p>FLORIDA HOMEOWNERS' CONSTRUCTION RECOVERY FUND</p>
+      <p>
+        PAYMENT, UP TO A LIMITED AMOUNT, MAY BE AVAILABLE FROM THE FLORIDA HOMEOWNERS'
+        CONSTRUCTION RECOVERY FUND IF YOU LOSE MONEY ON A PROJECT PERFORMED UNDER
+        CONTRACT, WHERE THE LOSS RESULTS FROM SPECIFIED VIOLATIONS OF FLORIDA LAW BY A
+        LICENSED CONTRACTOR. FOR INFORMATION ABOUT THE RECOVERY FUND AND FILING A CLAIM,
+        CONTACT THE FLORIDA CONSTRUCTION INDUSTRY LICENSING BOARD AT THE FOLLOWING
+        TELEPHONE NUMBER AND ADDRESS: 850-487-1395; 2601 Blair Stone Road, Tallahassee,
+        FL 32399.
+      </p>
+    </div>
+
+    <!-- Exhibit A Signature Block -->
+    <div class="signature-block" data-signatory="CLIENT">
+      <div class="signature-row">
+        <div class="signature-field">
+          <div class="signature-label">Name</div>
+          <div class="signature-line" data-field="client_1_name">{{PROPERTY_OWNER_1}}</div>
+        </div>
+        <div class="signature-field">
+          <div class="signature-label">Signature</div>
+          <div class="signature-line" data-field="client_1_signature_exhibit_a"></div>
+        </div>
+        <div class="signature-field">
+          <div class="signature-label">Date</div>
+          <div class="signature-line" data-field="client_1_date_exhibit_a"></div>
+        </div>
+      </div>
+      <div class="signature-row">
+        <div class="signature-field">
+          <div class="signature-label">Name</div>
+          <div class="signature-line" data-field="client_2_name">{{PROPERTY_OWNER_2}}</div>
+        </div>
+        <div class="signature-field">
+          <div class="signature-label">Signature</div>
+          <div class="signature-line" data-field="client_2_signature_exhibit_a"></div>
+        </div>
+        <div class="signature-field">
+          <div class="signature-label">Date</div>
+          <div class="signature-line" data-field="client_2_date_exhibit_a"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- EXHIBIT B — Mechanics Lien Notice                             -->
+  <!-- ============================================================ -->
+  <section id="exhibit-b" class="page-break">
+    <div class="exhibit-label">Exhibit B</div>
+    <div class="exhibit-title">Mechanics Lien Notice</div>
+
+    <div class="legal-notice">
+      <p>
+        ACCORDING TO FLORIDA'S CONSTRUCTION LIEN LAW (SECTIONS 713.001–713.37, FLORIDA
+        STATUTES), THOSE WHO WORK ON YOUR PROPERTY OR PROVIDE MATERIALS AND SERVICES AND
+        ARE NOT PAID IN FULL HAVE A RIGHT TO ENFORCE THEIR CLAIM FOR PAYMENT AGAINST YOUR
+        PROPERTY. THIS CLAIM IS KNOWN AS A CONSTRUCTION LIEN. IF YOUR CONTRACTOR OR A
+        SUBCONTRACTOR FAILS TO PAY SUBCONTRACTORS, SUB-SUBCONTRACTORS, OR MATERIAL
+        SUPPLIERS, THOSE PEOPLE WHO ARE OWED MONEY MAY LOOK TO YOUR PROPERTY FOR PAYMENT,
+        EVEN IF YOU HAVE ALREADY PAID YOUR CONTRACTOR IN FULL. IF YOU FAIL TO PAY YOUR
+        CONTRACTOR, YOUR CONTRACTOR MAY ALSO HAVE A LIEN ON YOUR PROPERTY. THIS MEANS IF
+        A LIEN IS FILED YOUR PROPERTY COULD BE SOLD AGAINST YOUR WILL TO PAY FOR LABOR,
+        MATERIALS, OR OTHER SERVICES THAT YOUR CONTRACTOR OR A SUBCONTRACTOR MAY HAVE
+        FAILED TO PAY. TO PROTECT YOURSELF, YOU SHOULD STIPULATE IN THIS CONTRACT THAT
+        BEFORE ANY PAYMENT IS MADE, YOUR CONTRACTOR IS REQUIRED TO PROVIDE YOU WITH A
+        WRITTEN RELEASE OF LIEN FROM ANY PERSON OR COMPANY THAT HAS PROVIDED TO YOU A
+        "NOTICE TO OWNER." FLORIDA'S CONSTRUCTION LIEN LAW IS COMPLEX, AND IT IS
+        RECOMMENDED THAT YOU CONSULT AN ATTORNEY.
+      </p>
+    </div>
+
+    <!-- Exhibit B Signature Block -->
+    <div class="signature-block" data-signatory="CLIENT">
+      <div class="signature-row">
+        <div class="signature-field">
+          <div class="signature-label">Client Name</div>
+          <div class="signature-line" data-field="client_1_name">{{PROPERTY_OWNER_1}}</div>
+        </div>
+        <div class="signature-field">
+          <div class="signature-label">Signature</div>
+          <div class="signature-line" data-field="client_1_signature_exhibit_b"></div>
+        </div>
+        <div class="signature-field">
+          <div class="signature-label">Date</div>
+          <div class="signature-line" data-field="client_1_date_exhibit_b"></div>
+        </div>
+      </div>
+      <div class="signature-row">
+        <div class="signature-field">
+          <div class="signature-label">Client Name</div>
+          <div class="signature-line" data-field="client_2_name">{{PROPERTY_OWNER_2}}</div>
+        </div>
+        <div class="signature-field">
+          <div class="signature-label">Signature</div>
+          <div class="signature-line" data-field="client_2_signature_exhibit_b"></div>
+        </div>
+        <div class="signature-field">
+          <div class="signature-label">Date</div>
+          <div class="signature-line" data-field="client_2_date_exhibit_b"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- EXHIBIT C — Irrevocable Direction To Pay & Equitable Lien     -->
+  <!-- ============================================================ -->
+  <section id="exhibit-c" class="page-break">
+    <div class="exhibit-label">Exhibit C</div>
+    <div class="exhibit-title">Irrevocable Direction To Pay &amp; Equitable Lien On Insurance Proceeds</div>
+
+    <p>
+      I authorize <strong>{{COMPANY_NAME}}</strong> to enter my property, and if
+      applicable, furnish materials, supply all equipment and perform all labor necessary
+      to perform the below listed Specified Services:
+    </p>
+
+    <div style="margin: 12pt 0 12pt 16pt;">
+      <div class="checkbox-item">Reconstruction of the Dwelling</div>
+      <div class="checkbox-item">Roof, and/or Other Structures Construction</div>
+      <div class="checkbox-item">Water Damage Emergency Dry-out</div>
+      <div class="checkbox-item">Water Damage Air Quality Assessment</div>
+      <div class="checkbox-item">Mold Mitigation</div>
+      <div class="checkbox-item">Emergency Mitigation/Tarp/Tree Removal</div>
+      <div class="checkbox-item">Other: _______________________________________________</div>
+    </div>
+
+    <p>
+      Repairs &amp; reconstruction to the interior and exterior of structures
+    </p>
+
+    <h3>Direction to Pay</h3>
+    <p>
+      I hereby confirm to the Insurance Company, Attorney, Mortgage Company, and any
+      other entity that may be in receipt of insurance proceeds for the above-mentioned
+      claim, I/We will make payment of any insurance proceeds by way of distribution,
+      settlement, judgments and/or verdict, payable for above "specified services"
+      rendered by Contractor, its subsidiaries or sub-contractors, to be made payable as
+      a typical draw schedule directly and solely to
+      <strong>{{COMPANY_NAME}}</strong>. I agree that any portion of work, deductible(s),
+      upgrades, depreciation, or additional work requested but otherwise not covered by
+      insurance, is ultimately my responsibility. Any settlement/supplement check in
+      addition to the original insurance claim as agreed by the insurance company as an
+      additional scope of work, I hereby agree to notify
+      <strong>{{COMPANY_NAME}}</strong> and make payments upon work completion, and to
+      endorse and deliver progress payment check/s within forty-eight (48) hours of my
+      acceptance. Client agrees to fully cooperate with insurance company and comply with
+      all post-loss duties required by the subject policy of insurance.
+    </p>
+
+    <p>
+      Typical draw schedule (advance payments) 50% deposit, 75% progress payment, 90%
+      progress payment, and final payment upon completion.
+    </p>
+
+    <h3>Equitable Lien on Insurance Proceeds</h3>
+    <p>
+      I further agree that in consideration of all "specified services" performed on my
+      property, in lieu of immediate payment to Contractor, that an Equitable Lien is
+      being placed on the insurance proceeds to be paid by the Insurance Company for the
+      covered loss. Further, I do hereby appoint <strong>{{COMPANY_NAME}}</strong> to
+      accept on my behalf, any and all checks, drafts, bills of exchange, or other
+      negotiable instruments pertaining to the work performed by the Contractor, and to
+      endorse all such pertinent checks, drafts, bills of exchange for deposit to the
+      Contractor's account for credit against the "specified services" on my property
+      which have been completed or which will be completed.
+    </p>
+
+    <h3>Release of Information / Attorney Fees</h3>
+    <p>
+      I hereby unequivocally direct Insurance Company, Attorney, Mortgage Company, and
+      any other entity that may receive insurance proceeds for the claim mentioned above,
+      that I waive my privacy rights pertaining to this claim and specifically to the
+      services provided by the Contractor. Further, I instruct the release of any and all
+      information requested by <strong>{{COMPANY_NAME}}</strong> pertaining to the claim.
+      Additionally, the prevailing party shall be entitled to reimbursement for costs of
+      collection, including reasonable attorney's fees and costs of unpaid amounts, for
+      the breach, or enforcement, of any terms of this entire agreement.
+    </p>
+
+    <h3>Notice Regarding Roof Claims</h3>
+    <p>
+      I hereby acknowledge that I have received notice that pursuant to Fla. Stat.
+      §489.147(2)(B), that a contractor may not directly or indirectly engage in the
+      offering to a residential property owner a rebate, gift, gift card, cash, coupon,
+      waiver of any insurance deductible, or any other thing of value in exchange for:
+      (1) allowing the contractor to conduct an inspection of the residential property
+      owner's roof; or (2) making an insurance claim for damage to the residential
+      property owner's roof. I also acknowledge that I have received a good faith
+      estimate of the itemized and detailed cost of services and materials for repairs
+      undertaken pursuant to a property insurance claim and the estimate is attached and
+      fully incorporated herein. I further consent that:
+    </p>
+
+    <p>
+      <strong>{{COMPANY_NAME}}</strong><br>
+      <strong>{{CGC_LICENSE_NO}}</strong>
+    </p>
+
+    <p>
+      <span class="initials-line"></span> (client initials) I was not directly or
+      indirectly offered any rebate, gift, gift card, cash, coupon, waiver of any
+      insurance deductible, or any other thing of value in exchange for: (1) allowing the
+      contractor to conduct an inspection of the residential property owner's roof; or
+      for making an insurance claim for damage to the residential property owner's roof
+      and
+    </p>
+
+    <p>
+      <span class="initials-line"></span> (client initials) I state that the Contractor
+      and/or its representatives solely recommended that I contact my insurer and/or a
+      qualified professional to determine if the repairs are covered under my insurance
+      policy.
+    </p>
+
+    <p>
+      FLA. STAT. §558.005 — Construction Defect Procedures Notice: Any claims for
+      construction defects are subject to the notice and cure provisions of Chapter 558,
+      Florida Statutes.
+    </p>
+
+    <p>
+      Client has read and understands the information above and has received a copy for
+      my records. This contract is intended to be legally binding and contains all the
+      terms and conditions between the parties, notwithstanding any other agreements
+      between the parties.
+    </p>
+
+    <!-- Exhibit C Client Signature Block -->
+    <div class="signature-block" data-signatory="CLIENT">
+      <div class="signature-row">
+        <div class="signature-field">
+          <div class="signature-label">Client Name</div>
+          <div class="signature-line" data-field="client_1_name">{{PROPERTY_OWNER_1}}</div>
+        </div>
+        <div class="signature-field">
+          <div class="signature-label">Signature</div>
+          <div class="signature-line" data-field="client_1_signature_exhibit_c"></div>
+        </div>
+        <div class="signature-field">
+          <div class="signature-label">Date</div>
+          <div class="signature-line" data-field="client_1_date_exhibit_c"></div>
+        </div>
+      </div>
+      <div class="signature-row">
+        <div class="signature-field">
+          <div class="signature-label">Client Name</div>
+          <div class="signature-line" data-field="client_2_name">{{PROPERTY_OWNER_2}}</div>
+        </div>
+        <div class="signature-field">
+          <div class="signature-label">Signature</div>
+          <div class="signature-line" data-field="client_2_signature_exhibit_c"></div>
+        </div>
+        <div class="signature-field">
+          <div class="signature-label">Date</div>
+          <div class="signature-line" data-field="client_2_date_exhibit_c"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Service Provider & CEO Signature Block -->
+    <div class="signature-block" data-signatory="COMPANY_REP">
+      <div class="signature-row">
+        <div class="signature-field" style="flex: 2;">
+          <div class="signature-label">Service Provider Representative Signature</div>
+          <div class="signature-line" data-field="rep_signature"></div>
+        </div>
+      </div>
+      <div class="signature-row">
+        <div class="signature-field">
+          <div class="signature-label">Print Name</div>
+          <div class="signature-line" data-field="rep_print_name"></div>
+        </div>
+        <div class="signature-field">
+          <div class="signature-label">Date</div>
+          <div class="signature-line" data-field="rep_date"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="signature-block" data-signatory="CEO">
+      <h3>{{COMPANY_NAME}} Final Approval</h3>
+      <p><strong>CEO / General Contractor License Holder:</strong> {{CEO_NAME}}</p>
+      <div class="signature-row">
+        <div class="signature-field">
+          <div class="signature-label">Signature</div>
+          <div class="signature-line" data-field="ceo_signature"></div>
+        </div>
+        <div class="signature-field">
+          <div class="signature-label">Date</div>
+          <div class="signature-line" data-field="ceo_date"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- GOOD FAITH ESTIMATE & COMMENTS                                -->
+  <!-- ============================================================ -->
+  <section id="estimate-and-comments">
+    <h3>Good Faith Itemized Per-Unit Cost Estimate</h3>
+    <div class="good-faith-estimate">
+      <div class="estimate-lines"></div>
+      <div class="estimate-lines"></div>
+      <div class="estimate-lines"></div>
+      <div class="estimate-lines"></div>
+      <div class="estimate-lines"></div>
+      <div class="estimate-lines"></div>
+      <p style="text-align: center; margin-top: 8pt;">
+        <span style="margin-right: 24pt;">or</span>
+        <span class="checkbox-item" style="padding-left: 0; text-indent: 0;">See attached estimate</span>
+      </p>
+    </div>
+
+    <p style="font-size: 10pt; color: #555;">
+      This is merely an itemized per unit cost estimate and the Contractor reserves the
+      right to supplement and/or amend the estimate upon receipt of additional
+      information, research, and documentation. An up-to-date copy of the
+      estimate/invoice shall be provided to the client.
+    </p>
+
+    <div class="comments-section">
+      <div class="comments-label">Comments Section Client:</div>
+      <div class="comments-area"></div>
+    </div>
+
+    <div class="comments-section">
+      <div class="comments-label">Comments Section {{COMPANY_NAME}}:</div>
+      <div class="comments-area"></div>
+    </div>
+  </section>
+
+</body>
+</html>

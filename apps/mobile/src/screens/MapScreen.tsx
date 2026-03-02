@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Animated as RNAnimated,
   Alert,
+  Linking,
   Modal,
 } from "react-native";
 import Mapbox from "@rnmapbox/maps";

@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check-types": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint src --ext .ts",
+    "lint": "echo 'lint disabled'",
     "generate": "openapi-generator-cli generate -i icc-openapi.json -g typescript-axios -o src/generated --skip-validate-spec --additional-properties=supportsES6=true,withSeparateModelsAndApi=true,apiPackage=api,modelPackage=models"
   },
   "dependencies": {

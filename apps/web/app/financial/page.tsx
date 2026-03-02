@@ -43,7 +43,7 @@ type FinancialSection =
 type FinancialCardGroup = "Pricing & Estimation" | "Contracts & Changes" | "Financial Operations" | "Resources & Logistics";
 
 type FinancialCardDef = {
-  id: FinancialSection | "EXT_SUPPLIER_CATALOG" | "EXT_RECONCILIATION" | "EXT_RECEIPTS" | "COST_BOOK";
+  id: FinancialSection | "EXT_SUPPLIER_CATALOG" | "EXT_RECONCILIATION" | "EXT_RECEIPTS" | "EXT_AGREEMENTS" | "COST_BOOK";
   icon: string;
   title: string;
   subtitle: string;
@@ -104,6 +104,14 @@ const FINANCIAL_CARDS_RAW: FinancialCardDef[] = [
     group: "Pricing & Estimation",
   },
   // Contracts & Changes
+  {
+    id: "EXT_AGREEMENTS",
+    icon: "📑",
+    title: "Agreements & Contracts",
+    subtitle: "Create, manage & sign contract packages",
+    href: "/financial/agreements",
+    group: "Contracts & Changes",
+  },
   {
     id: "CHANGES",
     icon: "🔀",
@@ -444,6 +452,7 @@ export default function FinancialPage() {
   const [csvUploadOpen, setCsvUploadOpen] = useState(false);
   const [csvUploadSource, setCsvUploadSource] = useState("HD_PRO_XTRA");
   const [csvUploading, setCsvUploading] = useState(false);
+  const [csvExpandedSources, setCsvExpandedSources] = useState<Set<string>>(new Set());
 
   // Sort / column filters
   type BankSortField = "date" | "description" | "merchant" | "category" | "amount" | "status" | "project";
@@ -819,7 +828,7 @@ export default function FinancialPage() {
       if (bankUnassignedFilter) params.set("unassigned", "true");
       if (bankAccountFilter) {
         if (bankAccountFilter.startsWith("conn:")) params.set("connectionId", bankAccountFilter.slice(5));
-        else if (bankAccountFilter.startsWith("batch:")) params.set("batchId", bankAccountFilter.slice(6));
+        else if (bankAccountFilter.startsWith("source:")) params.set("source", bankAccountFilter.slice(7));
       }
       const res = await fetch(`${API_BASE}/banking/transactions/unified?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -1789,6 +1798,26 @@ export default function FinancialPage() {
       {/* ── Card Landing View ── */}
       {activeSection === null && (
         <>
+          <a
+            href="/projects"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "6px 12px",
+              marginBottom: 12,
+              borderRadius: 6,
+              border: "1px solid #e5e7eb",
+              background: "#f9fafb",
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: 600,
+              color: "#374151",
+              textDecoration: "none",
+            }}
+          >
+            <span aria-hidden="true">&larr;</span> Projects
+          </a>
           <h2 style={{ marginTop: 0 }}>Financial</h2>
           <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 20 }}>
             Central place for cross-project financial views and configuration.
@@ -3790,31 +3819,61 @@ export default function FinancialPage() {
               </div>
             ))}
 
-            {/* CSV import batch badges */}
-            {csvBatches.map(batch => {
+            {/* CSV import batch badges — grouped by source */}
+            {Object.entries(
+              csvBatches.reduce<Record<string, CsvImportBatchDto[]>>((acc, b) => {
+                (acc[b.source] ??= []).push(b);
+                return acc;
+              }, {})
+            ).map(([source, batches]) => {
               const sourceLabels: Record<string, { label: string; color: string; bg: string }> = {
-                HD_PRO_XTRA: { label: "HD", color: "#ea580c", bg: "#fff7ed" },
+                HD_PRO_XTRA: { label: "Home Depot", color: "#ea580c", bg: "#fff7ed" },
                 CHASE_BANK: { label: "Chase", color: "#2563eb", bg: "#eff6ff" },
-                APPLE_CARD: { label: "Apple", color: "#6b7280", bg: "#f9fafb" },
+                APPLE_CARD: { label: "Apple Card", color: "#6b7280", bg: "#f9fafb" },
               };
-              const s = sourceLabels[batch.source] ?? { label: batch.source, color: "#6b7280", bg: "#f9fafb" };
+              const s = sourceLabels[source] ?? { label: source, color: "#6b7280", bg: "#f9fafb" };
+              const totalRows = batches.reduce((sum, b) => sum + b.rowCount, 0);
+              const totalAmount = batches.reduce((sum, b) => sum + Math.abs(b.totalAmount), 0);
+              const isExpanded = csvExpandedSources.has(source);
               return (
-                <div
-                  key={batch.id}
-                  style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${s.color}44`, background: s.bg, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}
-                >
-                  <span style={{ fontWeight: 700, color: s.color }}>{s.label}</span>
-                  <span style={{ color: "#374151" }}>{batch.fileName}</span>
-                  <span style={{ color: "#6b7280" }}>{batch.rowCount.toLocaleString()} rows</span>
-                  <span style={{ color: "#6b7280" }}>${Math.abs(batch.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteBatch(batch.id)}
-                    title="Remove this import"
-                    style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 14, padding: 0, lineHeight: 1 }}
+                <div key={source} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <div
+                    style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${s.color}44`, background: s.bg, fontSize: 12, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                    onClick={() => setCsvExpandedSources(prev => {
+                      const next = new Set(prev);
+                      if (next.has(source)) next.delete(source); else next.add(source);
+                      return next;
+                    })}
                   >
-                    ×
-                  </button>
+                    <span style={{ fontWeight: 700, color: s.color }}>{s.label}</span>
+                    <span style={{ color: "#6b7280" }}>
+                      {batches.length === 1 ? batches[0].fileName : `${batches.length} files`}
+                    </span>
+                    <span style={{ color: "#6b7280" }}>{totalRows.toLocaleString()} rows</span>
+                    <span style={{ color: "#6b7280" }}>
+                      ${totalAmount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </span>
+                    <span style={{ fontSize: 10, color: "#9ca3af", marginLeft: 2 }}>{isExpanded ? "▲" : "▼"}</span>
+                  </div>
+                  {isExpanded && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2, paddingLeft: 16 }}>
+                      {batches.map(batch => (
+                        <div key={batch.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#6b7280" }}>
+                          <span>{batch.fileName}</span>
+                          <span>{batch.rowCount.toLocaleString()} rows</span>
+                          <span>${Math.abs(batch.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleDeleteBatch(batch.id); }}
+                            title="Remove this import"
+                            style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1 }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -3942,10 +4001,8 @@ export default function FinancialPage() {
                   // Auto-set source filter to match the selected account
                   const v = e.target.value;
                   if (v.startsWith("conn:")) setBankSourceFilter("");
-                  else if (v.startsWith("batch:")) {
-                    const batch = csvBatches.find(b => b.id === v.slice(6));
-                    if (batch) setBankSourceFilter(batch.source);
-                  } else {
+                  else if (v.startsWith("source:")) setBankSourceFilter(v.slice(7));
+                  else {
                     // Cleared — leave source filter as-is
                   }
                 }}
@@ -3957,11 +4014,17 @@ export default function FinancialPage() {
                     {conn.institutionName ?? "Bank"}{conn.accountName ? ` — ${conn.accountName}` : ""}{conn.accountMask ? ` (••••${conn.accountMask})` : ""}
                   </option>
                 ))}
-                {csvBatches.map(batch => {
-                  const sourceLabels: Record<string, string> = { HD_PRO_XTRA: "HD", CHASE_BANK: "Chase", APPLE_CARD: "Apple" };
+                {Object.entries(
+                  csvBatches.reduce<Record<string, CsvImportBatchDto[]>>((acc, b) => {
+                    (acc[b.source] ??= []).push(b);
+                    return acc;
+                  }, {})
+                ).map(([source, batches]) => {
+                  const sourceLabels: Record<string, string> = { HD_PRO_XTRA: "Home Depot", CHASE_BANK: "Chase", APPLE_CARD: "Apple Card" };
+                  const totalRows = batches.reduce((sum, b) => sum + b.rowCount, 0);
                   return (
-                    <option key={batch.id} value={`batch:${batch.id}`}>
-                      {sourceLabels[batch.source] ?? batch.source}: {batch.fileName} ({batch.rowCount} rows)
+                    <option key={source} value={`source:${source}`}>
+                      {sourceLabels[source] ?? source} ({totalRows.toLocaleString()} rows)
                     </option>
                   );
                 })}
