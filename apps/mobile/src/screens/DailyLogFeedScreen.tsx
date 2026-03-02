@@ -8,18 +8,22 @@ import {
   RefreshControl,
   ScrollView,
   Image,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
-import { fetchDailyLogFeed, fetchUserProjects } from "../api/dailyLog";
+import * as Haptics from "expo-haptics";
+import { fetchDailyLogFeed, fetchUserProjects, deleteDailyLog } from "../api/dailyLog";
 import { getCache, setCache } from "../offline/cache";
 import { colors } from "../theme/colors";
 import type { DailyLogListItem, DailyLogType, ProjectListItem } from "../types/api";
 
 interface Props {
   onSelectLog: (log: DailyLogListItem) => void;
+  onEditLog?: (log: DailyLogListItem) => void;
   onCreateLog?: () => void;
 }
 
-export function DailyLogFeedScreen({ onSelectLog, onCreateLog }: Props) {
+export function DailyLogFeedScreen({ onSelectLog, onEditLog, onCreateLog }: Props) {
   const [logs, setLogs] = useState<DailyLogListItem[]>([]);
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(new Set());
@@ -124,6 +128,43 @@ export function DailyLogFeedScreen({ onSelectLog, onCreateLog }: Props) {
     );
   };
 
+  // Delete handler with confirmation
+  const handleDelete = useCallback(
+    (item: DailyLogListItem) => {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert(
+        "Delete Daily Log",
+        `Are you sure you want to delete this daily log${item.title ? `: "${item.title}"` : ""}? This cannot be undone.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                await deleteDailyLog(item.projectId, item.id);
+                void Haptics.notificationAsync(
+                  Haptics.NotificationFeedbackType.Success,
+                );
+                // Remove from local state immediately
+                setLogs((prev) => prev.filter((l) => l.id !== item.id));
+              } catch (e) {
+                void Haptics.notificationAsync(
+                  Haptics.NotificationFeedbackType.Error,
+                );
+                Alert.alert(
+                  "Error",
+                  e instanceof Error ? e.message : "Failed to delete daily log",
+                );
+              }
+            },
+          },
+        ],
+      );
+    },
+    [],
+  );
+
   const renderLogItem = ({ item }: { item: DailyLogListItem }) => {
     const createdByName = item.createdByUser
       ? [item.createdByUser.firstName, item.createdByUser.lastName]
@@ -136,64 +177,99 @@ export function DailyLogFeedScreen({ onSelectLog, onCreateLog }: Props) {
     const hasImages = imageAttachments.length > 0;
 
     return (
-      <Pressable style={styles.card} onPress={() => onSelectLog(item)}>
-        <View style={styles.cardHeader}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <Text style={styles.cardDate}>{formatDate(item.logDate)}</Text>
-            {item.type && item.type !== "PUDL" && (
-              <View style={[styles.typeBadge, getTypeBadgeStyle(item.type)]}>
-                <Text style={styles.typeBadgeText}>{getTypeLabel(item.type)}</Text>
-              </View>
+      <View style={styles.card}>
+        <Pressable onPress={() => onSelectLog(item)}>
+          <View style={styles.cardHeader}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Text style={styles.cardDate}>{formatDate(item.logDate)}</Text>
+              {item.type && item.type !== "PUDL" && (
+                <View style={[styles.typeBadge, getTypeBadgeStyle(item.type)]}>
+                  <Text style={styles.typeBadgeText}>{getTypeLabel(item.type)}</Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.cardProject}>{item.projectName}</Text>
+          </View>
+          <Text style={styles.cardTitle} numberOfLines={1}>
+            {item.title || "(No title)"}
+          </Text>
+          {item.workPerformed ? (
+            <Text style={styles.cardSnippet} numberOfLines={2}>
+              {item.workPerformed}
+            </Text>
+          ) : null}
+
+          {/* Photo thumbnails */}
+          {hasImages && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.thumbnailRow}
+              contentContainerStyle={styles.thumbnailRowContent}
+            >
+              {imageAttachments.slice(0, 4).map((att, idx) => {
+                const imageUri = att.fileUrl || att.thumbnailUrl;
+                if (!imageUri) return null;
+                return (
+                  <Image
+                    key={att.id || idx}
+                    source={{ uri: imageUri }}
+                    style={styles.thumbnail}
+                    resizeMode="cover"
+                  />
+                );
+              })}
+              {imageAttachments.length > 4 && (
+                <View style={styles.thumbnailMore}>
+                  <Text style={styles.thumbnailMoreText}>+{imageAttachments.length - 4}</Text>
+                </View>
+              )}
+            </ScrollView>
+          )}
+
+          <View style={styles.cardFooter}>
+            <Text style={styles.cardMeta}>By {createdByName}</Text>
+            {item.attachments && item.attachments.length > 0 && (
+              <Text style={styles.cardMeta}>
+                📎 {item.attachments.length}
+              </Text>
             )}
           </View>
-          <Text style={styles.cardProject}>{item.projectName}</Text>
-        </View>
-        <Text style={styles.cardTitle} numberOfLines={1}>
-          {item.title || "(No title)"}
-        </Text>
-        {item.workPerformed ? (
-          <Text style={styles.cardSnippet} numberOfLines={2}>
-            {item.workPerformed}
-          </Text>
-        ) : null}
-        
-        {/* Photo thumbnails */}
-        {hasImages && (
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            style={styles.thumbnailRow}
-            contentContainerStyle={styles.thumbnailRowContent}
+        </Pressable>
+
+        {/* Action buttons row */}
+        <View style={styles.actionRow}>
+          <Pressable
+            style={styles.actionBtn}
+            onPress={() => {
+              void Haptics.selectionAsync();
+              onSelectLog(item);
+            }}
           >
-            {imageAttachments.slice(0, 4).map((att, idx) => {
-              const imageUri = att.fileUrl || att.thumbnailUrl;
-              if (!imageUri) return null;
-              return (
-                <Image
-                  key={att.id || idx}
-                  source={{ uri: imageUri }}
-                  style={styles.thumbnail}
-                  resizeMode="cover"
-                />
-              );
-            })}
-            {imageAttachments.length > 4 && (
-              <View style={styles.thumbnailMore}>
-                <Text style={styles.thumbnailMoreText}>+{imageAttachments.length - 4}</Text>
-              </View>
-            )}
-          </ScrollView>
-        )}
-        
-        <View style={styles.cardFooter}>
-          <Text style={styles.cardMeta}>By {createdByName}</Text>
-          {item.attachments && item.attachments.length > 0 && (
-            <Text style={styles.cardMeta}>
-              📎 {item.attachments.length}
-            </Text>
+            <Text style={styles.actionBtnIcon}>👁</Text>
+            <Text style={styles.actionBtnLabel}>View</Text>
+          </Pressable>
+          {onEditLog && (
+            <Pressable
+              style={styles.actionBtn}
+              onPress={() => {
+                void Haptics.selectionAsync();
+                onEditLog(item);
+              }}
+            >
+              <Text style={styles.actionBtnIcon}>✏️</Text>
+              <Text style={styles.actionBtnLabel}>Edit</Text>
+            </Pressable>
           )}
+          <Pressable
+            style={[styles.actionBtn, styles.actionBtnDanger]}
+            onPress={() => handleDelete(item)}
+          >
+            <Text style={styles.actionBtnIcon}>🗑</Text>
+            <Text style={[styles.actionBtnLabel, styles.actionBtnLabelDanger]}>Delete</Text>
+          </Pressable>
         </View>
-      </Pressable>
+      </View>
     );
   };
 
@@ -201,12 +277,23 @@ export function DailyLogFeedScreen({ onSelectLog, onCreateLog }: Props) {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Daily Logs</Text>
-        {onCreateLog && (
-          <Pressable style={styles.addButton} onPress={onCreateLog}>
-            <Text style={styles.addButtonText}>+</Text>
-          </Pressable>
-        )}
       </View>
+
+      {/* + Daily Log button — styled like Home page + New Project */}
+      {onCreateLog && (
+        <View style={styles.createBtnWrap}>
+          <Pressable
+            style={styles.createBtn}
+            onPress={() => {
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              onCreateLog();
+            }}
+          >
+            <Text style={styles.createBtnIcon}>＋</Text>
+            <Text style={styles.createBtnText}>Daily Log</Text>
+          </Pressable>
+        </View>
+      )}
 
       {/* Project filter chips */}
       {projects.length > 0 && (
@@ -298,19 +385,65 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: colors.primary,
   },
-  addButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.primary,
-    justifyContent: "center",
-    alignItems: "center",
+  // + Daily Log button (matches Home page + New Project style)
+  createBtnWrap: {
+    paddingHorizontal: 16,
+    paddingBottom: 8,
   },
-  addButtonText: {
-    color: colors.textOnPrimary,
-    fontSize: 24,
-    fontWeight: "600",
-    lineHeight: 28,
+  createBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    backgroundColor: "#eff6ff",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    borderStyle: "dashed" as any,
+    gap: 6,
+  },
+  createBtnIcon: {
+    fontSize: 18,
+    fontWeight: "700" as any,
+    color: "#2563eb",
+  },
+  createBtnText: {
+    fontSize: 14,
+    fontWeight: "600" as any,
+    color: "#2563eb",
+  },
+  // Action row per card
+  actionRow: {
+    flexDirection: "row",
+    borderTopWidth: 1,
+    borderTopColor: colors.cardBorder,
+    marginTop: 10,
+    paddingTop: 8,
+    gap: 4,
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: colors.backgroundSecondary,
+    gap: 4,
+  },
+  actionBtnDanger: {
+    backgroundColor: "#fef2f2",
+  },
+  actionBtnIcon: {
+    fontSize: 14,
+  },
+  actionBtnLabel: {
+    fontSize: 12,
+    fontWeight: "600" as any,
+    color: colors.textSecondary,
+  },
+  actionBtnLabelDanger: {
+    color: "#dc2626",
   },
   filterSection: {
     paddingVertical: 8,

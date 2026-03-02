@@ -238,6 +238,19 @@ export async function fetchProjectEquipment(
 }
 
 /**
+ * Delete a daily log.
+ */
+export async function deleteDailyLog(
+  projectId: string,
+  logId: string,
+): Promise<void> {
+  await apiFetch(
+    `/projects/${encodeURIComponent(projectId)}/daily-logs/${encodeURIComponent(logId)}`,
+    { method: "DELETE" },
+  );
+}
+
+/**
  * Reassign a daily log to a different project.
  */
 export async function reassignDailyLog(

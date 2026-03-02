@@ -13,6 +13,9 @@ import { KpiHomeScreen } from "../screens/KpiHomeScreen";
 import { ProjectsScreen } from "../screens/ProjectsScreen";
 import { MapScreen } from "../screens/MapScreen";
 import { DailyLogsScreen } from "../screens/DailyLogsScreen";
+import { DailyLogFeedScreen } from "../screens/DailyLogFeedScreen";
+import { DailyLogDetailScreen } from "../screens/DailyLogDetailScreen";
+import { DailyLogEditScreen } from "../screens/DailyLogEditScreen";
 import { FieldPetlScreen, type PetlSessionChanges } from "../screens/FieldPetlScreen";
 import { DirectoryScreen } from "../screens/DirectoryScreen";
 import { PhoneContactsScreen } from "../screens/PhoneContactsScreen";
@@ -37,7 +40,7 @@ import { ScrollableTabBar } from "../components/ScrollableTabBar";
 import { fetchAllTasks } from "../api/tasks";
 import { apiJson } from "../api/client";
 import { recordTabUsage, getTopTab } from "../storage/usageTracker";
-import type { ProjectListItem, TaskItem, PlanSheetItem } from "../types/api";
+import type { ProjectListItem, TaskItem, PlanSheetItem, DailyLogListItem, DailyLogDetail } from "../types/api";
 
 // Type definitions for navigation
 export type RootTabParamList = {
@@ -59,6 +62,9 @@ export type DirectoryStackParamList = {
 };
 
 export type ProjectsStackParamList = {
+  DailyLogFeed: undefined;
+  DailyLogDetail: { log: DailyLogListItem };
+  DailyLogEdit: { log: DailyLogDetail };
   ProjectsList: undefined;
   CreateProject: undefined;
   DailyLogs: { project: ProjectListItem; companyName?: string; petlChanges?: PetlSessionChanges; createLogType?: string };
@@ -89,7 +95,53 @@ const DirectoryStack = createNativeStackNavigator<DirectoryStackParamList>();
 const ProjectsStack = createNativeStackNavigator<ProjectsStackParamList>();
 const ScannerStack = createNativeStackNavigator<ScannerStackParamList>();
 
-// Projects stack wrappers
+// Projects / Daily Logs stack wrappers
+function DailyLogFeedWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
+  return (
+    <DailyLogFeedScreen
+      onSelectLog={(log) => navigation.navigate("DailyLogDetail", { log })}
+      onEditLog={(log) => {
+        // Navigate to detail first, then edit will be triggered from there
+        navigation.navigate("DailyLogDetail", { log });
+      }}
+      onCreateLog={() => {
+        // Navigate to project picker, then create
+        navigation.navigate("ProjectsList");
+      }}
+    />
+  );
+}
+
+function DailyLogDetailWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
+  const route = useRoute<RouteProp<ProjectsStackParamList, "DailyLogDetail">>();
+  const log = route.params.log;
+  return (
+    <DailyLogDetailScreen
+      log={log}
+      onBack={() => navigation.goBack()}
+      onEdit={(detail) => navigation.navigate("DailyLogEdit", { log: detail })}
+    />
+  );
+}
+
+function DailyLogEditWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
+  const route = useRoute<RouteProp<ProjectsStackParamList, "DailyLogEdit">>();
+  const log = route.params.log;
+  return (
+    <DailyLogEditScreen
+      log={log}
+      onBack={() => navigation.goBack()}
+      onSaved={(_updated) => {
+        // Go back to feed (pop detail + edit)
+        navigation.popToTop();
+      }}
+    />
+  );
+}
+
 function ProjectsListWrapper() {
   const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
   const company = useCurrentCompany();
@@ -281,6 +333,9 @@ function InviteWrapper() {
 function ProjectsStackNavigator() {
   return (
     <ProjectsStack.Navigator screenOptions={{ headerShown: false }}>
+      <ProjectsStack.Screen name="DailyLogFeed" component={DailyLogFeedWrapper} />
+      <ProjectsStack.Screen name="DailyLogDetail" component={DailyLogDetailWrapper} />
+      <ProjectsStack.Screen name="DailyLogEdit" component={DailyLogEditWrapper} />
       <ProjectsStack.Screen name="ProjectsList" component={ProjectsListWrapper} />
       <ProjectsStack.Screen name="CreateProject" component={CreateProjectWrapper} />
       <ProjectsStack.Screen name="DailyLogs" component={DailyLogsWrapper} />
