@@ -31,40 +31,28 @@ export async function uploadImageFileToNexusUploads(
     throw new Error("Missing access token; please log in again.");
   }
 
-  const metaRes = await fetch(`${API_BASE}/uploads`, {
+  // Direct multipart upload — the API stores the file in object storage
+  // server-side. This works for both GCS and MinIO without CORS / presigned
+  // URL issues.
+  const form = new FormData();
+  form.append("file", file, file.name || "upload");
+  form.append("scope", scope);
+
+  const res = await fetch(`${API_BASE}/uploads/file`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      contentType: file.type || "image/png",
-      fileName: file.name || "screenshot.png",
-      scope,
-    }),
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
   });
 
-  if (!metaRes.ok) {
-    throw new Error(`Failed to prepare upload (${metaRes.status})`);
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error(errBody.message || `Upload failed (${res.status})`);
   }
 
-  const meta: any = await metaRes.json();
-  const uploadUrl: string | undefined = meta.uploadUrl;
-  const publicUrl: string | undefined = meta.publicUrl || meta.fileUri;
-  if (!uploadUrl || !publicUrl) {
-    throw new Error("Upload metadata was incomplete");
-  }
-
-  const putRes = await fetch(uploadUrl, {
-    method: "PUT",
-    headers: {
-      "Content-Type": file.type || "application/octet-stream",
-    },
-    body: file,
-  });
-
-  if (!putRes.ok) {
-    throw new Error(`Failed to upload image (${putRes.status})`);
+  const data: any = await res.json();
+  const publicUrl: string | undefined = data.publicUrl || data.fileUri;
+  if (!publicUrl) {
+    throw new Error("Upload response was incomplete");
   }
 
   const label = file.name && file.name.trim().length > 0 ? file.name : "Screenshot";
