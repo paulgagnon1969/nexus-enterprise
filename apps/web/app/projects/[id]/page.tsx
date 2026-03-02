@@ -27727,50 +27727,60 @@ onClick={() => setManageTemplatesOpen(true)}
                         </span>
                       )}
                     </div>
-                    <label style={{ display: "flex", alignItems: "center", gap: 6, opacity: newDailyLog.type === "RECEIPT_EXPENSE" ? 0.5 : 1 }}>
-                      <input
-                        type="checkbox"
-                        checked={newDailyLog.type === "RECEIPT_EXPENSE" ? false : newDailyLog.shareInternal}
-                        disabled={newDailyLog.type === "RECEIPT_EXPENSE"}
-                        onChange={e =>
-                          setNewDailyLog(prev => ({ ...prev, shareInternal: e.target.checked }))
-                        }
-                      />
-                      <span>Internal Users</span>
-                    </label>
-                    <label style={{ display: "flex", alignItems: "center", gap: 6, opacity: newDailyLog.type === "RECEIPT_EXPENSE" ? 0.5 : 1 }}>
-                      <input
-                        type="checkbox"
-                        checked={newDailyLog.type === "RECEIPT_EXPENSE" ? false : newDailyLog.shareSubs}
-                        disabled={newDailyLog.type === "RECEIPT_EXPENSE"}
-                        onChange={e =>
-                          setNewDailyLog(prev => ({ ...prev, shareSubs: e.target.checked }))
-                        }
-                      />
-                      <span>Subs / Vendors</span>
-                    </label>
-                    <label style={{ display: "flex", alignItems: "center", gap: 6, opacity: newDailyLog.type === "RECEIPT_EXPENSE" ? 0.5 : 1 }}>
-                      <input
-                        type="checkbox"
-                        checked={newDailyLog.type === "RECEIPT_EXPENSE" ? false : newDailyLog.shareClient}
-                        disabled={newDailyLog.type === "RECEIPT_EXPENSE"}
-                        onChange={e =>
-                          setNewDailyLog(prev => ({ ...prev, shareClient: e.target.checked }))
-                        }
-                      />
-                      <span>Client</span>
-                    </label>
-                    <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <input
-                        type="checkbox"
-                        checked={newDailyLog.type === "RECEIPT_EXPENSE" ? true : newDailyLog.sharePrivate}
-                        disabled={newDailyLog.type === "RECEIPT_EXPENSE"}
-                        onChange={e =>
-                          setNewDailyLog(prev => ({ ...prev, sharePrivate: e.target.checked }))
-                        }
-                      />
-                      <span>Private (creator only)</span>
-                    </label>
+                    {newDailyLog.type === "RECEIPT_EXPENSE" ? (
+                      <div style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid #e0e7ff", background: "#eef2ff", display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 16 }}>🔒</span>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: "#3730a3" }}>Finance Group Private</div>
+                          <div style={{ fontSize: 10, color: "#6366f1", marginTop: 1 }}>
+                            Visible to: Creator · Foreman · Superintendent · PM · Executive · Admin
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <input
+                            type="checkbox"
+                            checked={newDailyLog.shareInternal}
+                            onChange={e =>
+                              setNewDailyLog(prev => ({ ...prev, shareInternal: e.target.checked }))
+                            }
+                          />
+                          <span>Internal Users</span>
+                        </label>
+                        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <input
+                            type="checkbox"
+                            checked={newDailyLog.shareSubs}
+                            onChange={e =>
+                              setNewDailyLog(prev => ({ ...prev, shareSubs: e.target.checked }))
+                            }
+                          />
+                          <span>Subs / Vendors</span>
+                        </label>
+                        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <input
+                            type="checkbox"
+                            checked={newDailyLog.shareClient}
+                            onChange={e =>
+                              setNewDailyLog(prev => ({ ...prev, shareClient: e.target.checked }))
+                            }
+                          />
+                          <span>Client</span>
+                        </label>
+                        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <input
+                            type="checkbox"
+                            checked={newDailyLog.sharePrivate}
+                            onChange={e =>
+                              setNewDailyLog(prev => ({ ...prev, sharePrivate: e.target.checked }))
+                            }
+                          />
+                          <span>Private (creator only)</span>
+                        </label>
+                      </>
+                    )}
                   </div>
 
                   <div style={{ marginTop: 10, textAlign: "right" }}>
@@ -28434,6 +28444,22 @@ onClick={() => setManageTemplatesOpen(true)}
                                     ? "Quality"
                                     : "PUDL"}
                                 </span>
+                                {log.type === "RECEIPT_EXPENSE" && (
+                                  <span
+                                    title="Finance Group Private — Foreman+"
+                                    style={{
+                                      display: "inline-block",
+                                      marginLeft: 4,
+                                      padding: "1px 5px",
+                                      borderRadius: 4,
+                                      fontSize: 9,
+                                      background: "#eef2ff",
+                                      color: "#4338ca",
+                                    }}
+                                  >
+                                    🔒 FM+
+                                  </span>
+                                )}
                               </td>
                               {/* Title */}
                               <td
@@ -36070,7 +36096,13 @@ onClick={() => setManageTemplatesOpen(true)}
                     <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#fef3c7", color: "#92400e" }}>Client</span>
                   )}
                   {viewDailyLog.log.sharePrivate && (
-                    <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#f3f4f6", color: "#374151" }}>Private</span>
+                    viewDailyLog.log.type === "RECEIPT_EXPENSE" ? (
+                      <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#eef2ff", color: "#3730a3", display: "inline-flex", alignItems: "center", gap: 3 }} title="Visible to: Creator, Foreman, Superintendent, PM, Executive, Admin">
+                        🔒 Finance Group Private
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#f3f4f6", color: "#374151" }}>Private</span>
+                    )
                   )}
                   {!viewDailyLog.log.shareInternal && !viewDailyLog.log.shareSubs && !viewDailyLog.log.shareClient && !viewDailyLog.log.sharePrivate && (
                     <span style={{ fontSize: 10, color: "#9ca3af" }}>No sharing configured</span>
