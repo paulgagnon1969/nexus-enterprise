@@ -15,6 +15,7 @@ import * as Haptics from "expo-haptics";
 import { fetchDailyLogFeed, fetchUserProjects, deleteDailyLog } from "../api/dailyLog";
 import { getCache, setCache } from "../offline/cache";
 import { colors } from "../theme/colors";
+import { ProjectPickerModal } from "../components/ProjectPickerModal";
 import type { DailyLogListItem, DailyLogType, ProjectListItem } from "../types/api";
 
 interface Props {
@@ -27,6 +28,7 @@ export function DailyLogFeedScreen({ onSelectLog, onEditLog, onCreateLog }: Prop
   const [logs, setLogs] = useState<DailyLogListItem[]>([]);
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(new Set());
+  const [showPicker, setShowPicker] = useState(false);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -89,21 +91,15 @@ export function DailyLogFeedScreen({ onSelectLog, onEditLog, onCreateLog }: Prop
     return logs.filter((log) => selectedProjectIds.has(log.projectId));
   }, [logs, selectedProjectIds]);
 
-  const toggleProject = (projectId: string) => {
-    setSelectedProjectIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(projectId)) {
-        next.delete(projectId);
-      } else {
-        next.add(projectId);
-      }
-      return next;
-    });
-  };
-
-  const clearFilters = () => {
-    setSelectedProjectIds(new Set());
-  };
+  // Selection summary label for the dropdown banner
+  const selectionLabel = useMemo(() => {
+    if (selectedProjectIds.size === 0) return "All Projects";
+    if (selectedProjectIds.size === 1) {
+      const p = projects.find((x) => selectedProjectIds.has(x.id));
+      return p?.name || "1 project";
+    }
+    return `${selectedProjectIds.size} of ${projects.length} projects`;
+  }, [selectedProjectIds, projects]);
 
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr);
@@ -295,48 +291,38 @@ export function DailyLogFeedScreen({ onSelectLog, onEditLog, onCreateLog }: Prop
         </View>
       )}
 
-      {/* Project filter chips */}
+      {/* Project filter dropdown banner */}
       {projects.length > 0 && (
-        <View style={styles.filterSection}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.filterScroll}
-          >
-            <Pressable
-              style={[
-                styles.chip,
-                selectedProjectIds.size === 0 && styles.chipSelected,
-              ]}
-              onPress={clearFilters}
-            >
-              <Text
-                style={
-                  selectedProjectIds.size === 0
-                    ? styles.chipTextSelected
-                    : styles.chipText
-                }
-              >
-                All Projects
-              </Text>
-            </Pressable>
-            {projects.map((project) => {
-              const selected = selectedProjectIds.has(project.id);
-              return (
-                <Pressable
-                  key={project.id}
-                  style={[styles.chip, selected && styles.chipSelected]}
-                  onPress={() => toggleProject(project.id)}
-                >
-                  <Text style={selected ? styles.chipTextSelected : styles.chipText}>
-                    {project.name}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </View>
+        <Pressable
+          style={styles.filterBanner}
+          onPress={() => {
+            void Haptics.selectionAsync();
+            setShowPicker(true);
+          }}
+        >
+          <View style={styles.filterBannerLeft}>
+            <Text style={styles.filterBannerIcon}>📂</Text>
+            <View>
+              <Text style={styles.filterBannerLabel}>{selectionLabel}</Text>
+              {selectedProjectIds.size > 0 && (
+                <Text style={styles.filterBannerHint}>
+                  Tap to change filter
+                </Text>
+              )}
+            </View>
+          </View>
+          <Text style={styles.filterBannerChevron}>▾</Text>
+        </Pressable>
       )}
+
+      {/* Project picker modal */}
+      <ProjectPickerModal
+        visible={showPicker}
+        onClose={() => setShowPicker(false)}
+        projects={projects}
+        selectedIds={selectedProjectIds}
+        onSelectionChange={setSelectedProjectIds}
+      />
 
       {error ? (
         <View style={styles.errorContainer}>
@@ -445,34 +431,44 @@ const styles = StyleSheet.create({
   actionBtnLabelDanger: {
     color: "#dc2626",
   },
-  filterSection: {
-    paddingVertical: 8,
-  },
-  filterScroll: {
-    paddingHorizontal: 16,
-    gap: 8,
-  },
-  chip: {
-    borderWidth: 1,
-    borderColor: colors.chipBorder,
-    borderRadius: 999,
+  // Dropdown filter banner
+  filterBanner: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginHorizontal: 16,
+    marginTop: 4,
+    marginBottom: 8,
     paddingHorizontal: 14,
-    paddingVertical: 6,
-    marginRight: 8,
-    backgroundColor: colors.chipBackground,
+    paddingVertical: 12,
+    backgroundColor: colors.cardBackground,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    borderRadius: 10,
   },
-  chipSelected: {
-    backgroundColor: colors.chipBackgroundSelected,
-    borderColor: colors.chipBackgroundSelected,
+  filterBannerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
   },
-  chipText: {
-    fontSize: 13,
-    color: colors.chipText,
+  filterBannerIcon: {
+    fontSize: 18,
   },
-  chipTextSelected: {
-    fontSize: 13,
-    color: colors.chipTextSelected,
+  filterBannerLabel: {
+    fontSize: 14,
     fontWeight: "600",
+    color: colors.textPrimary,
+  },
+  filterBannerHint: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: 1,
+  },
+  filterBannerChevron: {
+    fontSize: 16,
+    color: colors.textMuted,
+    marginLeft: 8,
   },
   listContent: {
     paddingHorizontal: 16,

@@ -40,6 +40,7 @@ interface CatalogIndex {
     featurePrintCount: number;
     matchCount: number;
     updatedAt: string;
+    status?: NexiCatalogEntry["status"];
   }>;
 }
 
@@ -109,6 +110,7 @@ export async function addEntry(
     featurePrintCount: finalEntry.featurePrintCount,
     matchCount: finalEntry.matchCount,
     updatedAt: finalEntry.updatedAt,
+    status: finalEntry.status ?? "draft",
   });
   await writeIndex(index);
 
@@ -169,7 +171,7 @@ export async function getCatalogSize(): Promise<number> {
  */
 export async function updateEntry(
   entryId: string,
-  updates: Partial<Pick<NexiCatalogEntry, "name" | "category" | "subcategory" | "material" | "tags" | "dimensions">>,
+  updates: Partial<Pick<NexiCatalogEntry, "name" | "category" | "subcategory" | "material" | "tags" | "dimensions" | "status">>,
 ): Promise<NexiCatalogEntry | null> {
   const entry = await getEntry(entryId);
   if (!entry) return null;
@@ -192,6 +194,7 @@ export async function updateEntry(
       name: updated.name,
       category: updated.category,
       updatedAt: updated.updatedAt,
+      status: updated.status,
     };
     await writeIndex(index);
   }

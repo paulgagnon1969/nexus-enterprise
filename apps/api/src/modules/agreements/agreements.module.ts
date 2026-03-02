@@ -7,7 +7,7 @@ import {
 } from "./agreements.controller";
 
 @Module({
-  controllers: [AgreementsController, AgreementTemplatesController],
+  controllers: [AgreementTemplatesController, AgreementsController],
   providers: [AgreementsService, TemplateImportService],
   exports: [AgreementsService, TemplateImportService],
 })

@@ -3,6 +3,8 @@
 
 // ── Catalog Entry ────────────────────────────────────────────
 
+export type NexiEntryStatus = "draft" | "pending_approval" | "approved";
+
 export interface NexiCatalogEntry {
   /** Unique ID for this catalog entry */
   id: string;
@@ -32,6 +34,8 @@ export interface NexiCatalogEntry {
   updatedAt: string;
   /** Whether this entry has been synced to the API */
   synced: boolean;
+  /** Approval workflow status (defaults to 'draft' for backwards compat) */
+  status?: NexiEntryStatus;
 }
 
 export interface NexiDimensions {
