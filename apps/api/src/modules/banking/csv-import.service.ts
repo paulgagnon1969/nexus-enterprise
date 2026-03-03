@@ -48,6 +48,7 @@ function parseDollar(val: string | undefined): number {
 // ---------------------------------------------------------------------------
 
 interface ParsedRow {
+  rowIndex: number;  // 0-based position in the CSV — part of the fingerprint
   date: Date;
   description: string;
   amount: number;
@@ -80,14 +81,18 @@ interface ParsedRow {
 function computeFingerprint(source: CsvImportSource, row: ParsedRow): string {
   const parts: string[] = [];
 
-  // Common: date + amount (rounded to 2 decimals to avoid float drift)
+  // Row index makes every line in a CSV unique, even byte-for-byte identical
+  // rows (e.g. same SKU purchased 8× in one HD transaction).
+  // Re-importing the same file produces the same indices → dedup still works.
+  parts.push(String(row.rowIndex));
+
+  // Common: date + amount + description
   parts.push(row.date.toISOString().slice(0, 10));
   parts.push(row.amount.toFixed(2));
   parts.push(row.description.trim().toLowerCase());
 
   switch (source) {
     case CsvImportSource.HD_PRO_XTRA:
-      // SKU + qty makes each line item unique even on same receipt
       parts.push(row.sku ?? "");
       parts.push(String(row.qty ?? ""));
       parts.push(row.purchaser ?? "");
@@ -276,7 +281,7 @@ export class CsvImportService {
       relax_quotes: true,
     }) as Array<Record<string, string>>;
 
-    return records.map((r) => {
+    return records.map((r, idx) => {
       const qty = parseDollar(r["Quantity"]);
       const netUnitPrice = parseDollar(r["Net Unit Price"]);
       const extRetail = parseDollar(r["Extended Retail (before discount)"]);
@@ -289,6 +294,7 @@ export class CsvImportService {
       const normalizedJob = normalizeJobName(rawJobName);
 
       return {
+        rowIndex: idx,
         date: new Date(r["Date"]),
         description: r["SKU Description"] || r["Description"] || r["Item Description"] || "",
         amount: lineTotal,
@@ -330,12 +336,13 @@ export class CsvImportService {
       );
     }
 
-    return records.map((r) => {
+    return records.map((r, idx) => {
       const dateStr = r["Posting Date"] || r["Date"] || "";
       const amount = parseDollar(r["Amount"]);
       const balance = parseDollar(r["Balance"]);
 
       return {
+        rowIndex: idx,
         date: new Date(dateStr),
         // Chase amounts: negative = money out, positive = money in
         // We normalize to: positive = expense, negative = credit/income
@@ -373,12 +380,13 @@ export class CsvImportService {
       );
     }
 
-    return records.map((r) => {
+    return records.map((r, idx) => {
       const txnDateStr = r["Transaction Date"] || "";
       const clearingDateStr = r["Clearing Date"] || "";
       const amount = parseDollar(r["Amount (USD)"] || r["Amount"]);
 
       return {
+        rowIndex: idx,
         date: new Date(txnDateStr),
         description: r["Description"] || "",
         // Apple Card amounts: positive = purchase, negative = payment/credit

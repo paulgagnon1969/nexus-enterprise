@@ -68,11 +68,11 @@ This file provides guidance to WARP (warp.dev) when working with code in this re
 
 ### Import Worker (`apps/api/src/worker.ts`)
 
-- The import worker is a **separate process** from the API. It runs as its own Cloud Run service (`nexus-worker`).
+- The import worker is a **separate container** from the API (`nexus-shadow-worker` in production).
 - It listens on the BullMQ `import-jobs` queue (backed by Redis) and processes CSV imports asynchronously.
 - Entry points:
   - `apps/api/src/worker.ts`: BullMQ worker logic (processes XACT_RAW, XACT_COMPONENTS, PRICE_LIST, etc.).
-  - `apps/api/src/worker-http.ts`: Wraps the worker with a lightweight HTTP health-check server for Cloud Run probes.
+  - `apps/api/src/worker-http.ts`: Wraps the worker with a lightweight HTTP health-check server.
 - Scripts (from `apps/api/package.json`):
   - `worker:dev`: `nodemon --watch src --ext ts --exec ts-node src/worker.ts` (worker in watch mode).
   - `worker`: `node dist/worker.js` (run compiled worker).
@@ -80,17 +80,17 @@ This file provides guidance to WARP (warp.dev) when working with code in this re
 
 **Production deployment:**
 - Uses the same Docker image as the API (`apps/api/Dockerfile`) but with CMD overridden to `node dist/worker-http.js`.
-- Deployed via `scripts/deploy-worker.sh` or the `prod-worker-deploy.yml` GitHub Actions workflow.
-- Cloud Run config: `--min-instances 1` (always-on), `--concurrency 1` (one import at a time per instance), `--timeout 900` (15 min for large imports).
-- Requires the same env vars as the API: `DATABASE_URL`, `REDIS_URL`, `GCS_UPLOADS_BUCKET`, etc.
+- Deployed as `nexus-shadow-worker` container via `docker compose -f infra/docker/docker-compose.shadow.yml up -d --build worker`.
+- Always deploy API and Worker together: `docker compose -f infra/docker/docker-compose.shadow.yml up -d --build api worker`
 
 **CRITICAL: API and Worker must stay in sync.**
-Both services use the same Docker image. When deploying API changes that affect import logic (worker.ts, import-xact.ts, pricing.service.ts), the worker MUST be redeployed too. The GitHub Actions workflows trigger on the same paths to ensure this.
+Both services use the same Docker image. When deploying API changes that affect import logic (worker.ts, import-xact.ts, pricing.service.ts), the worker MUST be redeployed too.
 
 **Common worker workflows:**
 - Run worker locally (alongside API dev server): `npm run dev:worker`
-- Deploy worker to prod: `bash scripts/deploy-worker.sh`
-- Check worker health in prod: `curl https://<worker-url>/health`
+- Deploy worker to prod: `docker compose -f infra/docker/docker-compose.shadow.yml up -d --build api worker`
+- Check worker health in prod: `curl http://localhost:8001/health`
+- View worker logs: `docker logs nexus-shadow-worker --tail 50 -f`
 
 ### Web (`apps/web`)
 
@@ -144,9 +144,9 @@ Both services use the same Docker image. When deploying API changes that affect 
   - From `packages/database`: `npm run import:xact`
   - Ensure required environment variables (e.g., `DATABASE_URL`) are configured before running.
 
-## Infrastructure — Dev & Shadow Stack Contract
+## Infrastructure — Dev & Production Stack Contract
 
-This machine runs **two independent stacks** in Docker side-by-side. They share the Docker daemon but have completely separate containers, volumes, ports, and databases. **Scripts and agents must never cross the boundary.**
+The Mac Studio ("Studio-Server") runs **two independent stacks** in Docker side-by-side. They share the Docker daemon but have completely separate containers, volumes, ports, and databases. **Scripts and agents must never cross the boundary.**
 
 ### Two stacks
 
@@ -156,11 +156,12 @@ This machine runs **two independent stacks** in Docker side-by-side. They share 
 - Host processes (not Docker): API (nodemon), Worker (ts-node), Web (next dev)
 - Database: `NEXUSDEVv3` on local Postgres
 
-**Shadow stack** — staging/production mirror behind Cloudflare Tunnel.
+**Production stack** — live production behind Cloudflare Tunnel on the Mac Studio.
 - Compose file: `infra/docker/docker-compose.shadow.yml`
-- Containers: `nexus-shadow-api`, `nexus-shadow-web`, `nexus-shadow-worker`, `nexus-shadow-postgres`, `nexus-shadow-redis`, `nexus-shadow-minio`, `nexus-shadow-tunnel`
-- Database: `NEXUSPRODv3` on shadow Postgres
-- Exposed via: `staging-ncc.nfsgrp.com` (web), `staging-api.nfsgrp.com` (API)
+- Containers: `nexus-shadow-api`, `nexus-shadow-web`, `nexus-shadow-worker`, `nexus-shadow-receipt-poller`, `nexus-shadow-postgres`, `nexus-shadow-redis`, `nexus-shadow-minio`, `nexus-shadow-tunnel`
+- Database: `NEXUSPRODv3` on shadow Postgres (`:5435`)
+- Public URLs: `staging-ncc.nfsgrp.com` (web), `staging-api.nfsgrp.com` (API)
+- **This is the ONLY production environment.** There is no GCP Cloud Run, no remote hosting. All production traffic flows through the Cloudflare Tunnel to the Mac Studio.
 
 ### Port allocation (FIXED — do not change)
 
@@ -209,58 +210,130 @@ The canonical dev database is **`NEXUSDEVv3`** on `localhost:5433`. Every file t
 - Stop dev infra: `docker compose -f infra/docker/docker-compose.yml down`
 - Nuke & restart dev (safe): `npm run dev:nuke`
 - Start full dev stack: `bash scripts/dev-start.sh`
-- Check shadow health: `docker ps --filter name=nexus-shadow`
-- Rebuild shadow stack (rare): `docker compose -f infra/docker/docker-compose.shadow.yml up -d --build`
+- Check prod health: `docker ps --filter name=nexus-shadow`
+- Deploy to prod (API + Worker): `docker compose -f infra/docker/docker-compose.shadow.yml up -d --build api worker`
+- Deploy to prod (all services): `docker compose -f infra/docker/docker-compose.shadow.yml up -d --build`
+- Rebuild only web: `docker compose -f infra/docker/docker-compose.shadow.yml up -d --build web`
 
-## Production Credentials & Autonomous Execution
+## Production Environment — Local Docker on Mac Studio
 
-Production secrets live in `~/.nexus-prod-env` (git-ignored). This file contains:
-- `PROD_DB_PASSWORD` — Cloud SQL Postgres password
+**CRITICAL: Production is the local shadow stack on the Mac Studio behind Cloudflare Tunnel. There is NO GCP Cloud Run, NO remote hosting. Do NOT use `deploy-prod.sh`, `deploy-worker.sh`, or `prod-db-run-with-proxy.sh` — those are legacy GCP artifacts.**
+
+### Architecture
+
+```
+Internet → Cloudflare Tunnel → Mac Studio Docker
+  staging-ncc.nfsgrp.com  → nexus-shadow-web    (:3001)
+  staging-api.nfsgrp.com  → nexus-shadow-api     (:8000)
+```
+
+All services run as Docker containers on the Mac Studio via `infra/docker/docker-compose.shadow.yml`:
+- `nexus-shadow-api` — NestJS API (port 8000)
+- `nexus-shadow-worker` — BullMQ import worker (port 8001)
+- `nexus-shadow-receipt-poller` — Receipt email poller
+- `nexus-shadow-web` — Next.js frontend (port 3001)
+- `nexus-shadow-postgres` — Postgres 18 (port 5435, DB: `NEXUSPRODv3`)
+- `nexus-shadow-redis` — Redis 8 (port 6381)
+- `nexus-shadow-minio` — S3-compatible storage (ports 9000/9001)
+- `nexus-shadow-tunnel` — Cloudflare tunnel
+
+### Production secrets
+
+All production secrets live in `.env.shadow` at the repo root (git-ignored). This file is loaded by every container via `env_file` in the compose file. It contains:
+- `SHADOW_PG_USER`, `SHADOW_PG_PASSWORD`, `SHADOW_PG_DB` — Postgres credentials
 - `STRIPE_SECRET_KEY` — Stripe live secret key
 - `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV` — Plaid production credentials
-- `PROJECT_ID`, `REGION`, `SERVICE` — GCP project config
+- `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` — MinIO/S3 credentials
+- `JWT_SECRET`, `SESSION_SECRET` — Auth secrets
+- `OPENAI_API_KEY` — OCR and AI features
+- `NEXT_PUBLIC_MAPBOX_TOKEN`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` — Frontend keys
 
-**When Warp needs to run any command against production** (seed scripts, migrations, one-off DB queries, deploy steps), it MUST:
+**Rules:**
+- **Never echo, print, or log secret values.** Use env vars by reference only.
+- `.env.shadow` MUST NOT be committed to git.
+- To add a new secret, add it to `.env.shadow` and reference it in the compose file's `environment` block.
 
-1. **Source the prod env file automatically** — do NOT ask the user to do it manually:
-   ```bash
-   source ~/.nexus-prod-env
-   ```
-2. **Use `scripts/prod-db-run-with-proxy.sh`** for any command that needs the prod database:
-   ```bash
-   source ~/.nexus-prod-env && /Users/pg/nexus-enterprise/scripts/prod-db-run-with-proxy.sh --allow-kill-port -- <command>
-   ```
-3. **Never echo, print, or log secret values.** Use env vars by reference only (`$STRIPE_SECRET_KEY`, `$PROD_DB_PASSWORD`).
-4. **For deploy scripts**, `deploy-prod.sh` loads from the repo-root `.env` automatically — no extra sourcing needed.
-5. **For seed/migration scripts that need both DB + Stripe/Plaid**, export the needed vars from `~/.nexus-prod-env` before running through the proxy wrapper.
+### Deploying to production
 
-**CRITICAL: `~/.nexus-prod-env` variable requirements.**
-The proxy script (`prod-db-run-with-proxy.sh`) expects `PROD_DB_PASSWORD` as a **standalone exported variable** — it does NOT parse it out of `DATABASE_URL`. If `PROD_DB_PASSWORD` is missing or only embedded inside another variable, the script will hang waiting for an interactive password prompt (which fails in non-interactive agent sessions).
-
-`~/.nexus-prod-env` MUST contain at minimum:
+**Deploy API + Worker (most common — after backend code changes):**
 ```bash
-export PROD_DB_PASSWORD="<the-password>"
+docker compose -f infra/docker/docker-compose.shadow.yml up -d --build api worker
 ```
 
-Warp MUST always pass `--no-prompt` when running non-interactively to fail fast instead of hanging:
+**Deploy web only (after frontend changes):**
 ```bash
-source ~/.nexus-prod-env && /Users/pg/nexus-enterprise/scripts/prod-db-run-with-proxy.sh --allow-kill-port --no-prompt -- <command>
+docker compose -f infra/docker/docker-compose.shadow.yml up -d --build web
 ```
 
-**Production Prisma migrations** must run from `packages/database` so Prisma 7 picks up `prisma.config.ts` (the schema no longer contains a `url` property):
+**Deploy everything (rare — full rebuild):**
 ```bash
-source ~/.nexus-prod-env && /Users/pg/nexus-enterprise/scripts/prod-db-run-with-proxy.sh --allow-kill-port --no-prompt -- \
-  bash -c 'cd /Users/pg/nexus-enterprise/packages/database && npx prisma migrate deploy'
+docker compose -f infra/docker/docker-compose.shadow.yml up -d --build
 ```
 
-**Example — seed module catalog against prod:**
+**CRITICAL: API and Worker must stay in sync.** Both use the same Docker image (`apps/api/Dockerfile`). When deploying API changes that affect import logic, always rebuild both `api` and `worker` together.
+
+Typical downtime per deploy: ~30–60 seconds while containers rebuild and restart.
+
+### Production database access
+
+The prod database is `NEXUSPRODv3` on `localhost:5435`. Direct access from the Mac Studio:
 ```bash
-source ~/.nexus-prod-env && STRIPE_SECRET_KEY=$STRIPE_SECRET_KEY \
-  /Users/pg/nexus-enterprise/scripts/prod-db-run-with-proxy.sh --allow-kill-port --no-prompt -- \
-  npx ts-node /Users/pg/nexus-enterprise/apps/api/src/scripts/seed-module-catalog.ts
+PGPASSWORD=$SHADOW_PG_PASSWORD psql -h 127.0.0.1 -p 5435 -U ${SHADOW_PG_USER:-nexus_user} -d NEXUSPRODv3 --no-psqlrc --pset=pager=off
 ```
 
-**Production API URL:** `https://nexus-api-wswbn2e6ta-uc.a.run.app`
+When Warp needs to run any query against the prod database, source `.env.shadow` first:
+```bash
+set -a; source .env.shadow; set +a
+PGPASSWORD=$SHADOW_PG_PASSWORD psql -h 127.0.0.1 -p 5435 -U ${SHADOW_PG_USER:-nexus_user} -d NEXUSPRODv3 --no-psqlrc --pset=pager=off -c "<SQL>"
+```
+
+### Production Prisma migrations
+
+Run from `packages/database` with `DATABASE_URL` pointing at the shadow Postgres:
+```bash
+set -a; source .env.shadow; set +a
+DATABASE_URL="postgresql://${SHADOW_PG_USER:-nexus_user}:${SHADOW_PG_PASSWORD}@127.0.0.1:5435/NEXUSPRODv3" \
+  npx --prefix packages/database prisma migrate deploy
+```
+
+After applying migrations, rebuild the API + Worker so the Prisma client in the containers picks up the new schema:
+```bash
+docker compose -f infra/docker/docker-compose.shadow.yml up -d --build api worker
+```
+
+### Production health checks
+
+```bash
+# Container status
+docker ps --filter name=nexus-shadow --format 'table {{.Names}}	{{.Status}}	{{.Ports}}'
+
+# API health
+curl -s https://staging-api.nfsgrp.com/health
+
+# Worker health (internal only — not tunneled)
+curl -s http://localhost:8001/health
+
+# View API logs
+docker logs nexus-shadow-api --tail 50 -f
+
+# View worker logs
+docker logs nexus-shadow-worker --tail 50 -f
+```
+
+### Production URLs
+
+- **Web:** `https://staging-ncc.nfsgrp.com`
+- **API:** `https://staging-api.nfsgrp.com`
+
+### Legacy GCP references (DEPRECATED)
+
+The following scripts and workflows are legacy artifacts from the previous GCP Cloud Run deployment and MUST NOT be used:
+- `scripts/deploy-prod.sh` — was GCP Cloud Run deploy
+- `scripts/deploy-worker.sh` — was GCP worker deploy
+- `scripts/prod-db-run-with-proxy.sh` — was Cloud SQL proxy wrapper
+- `~/.nexus-prod-env` — was GCP credentials; prod secrets now live in `.env.shadow`
+- `prod-worker-deploy.yml` GitHub Actions workflow — no longer applicable
+- Any `gcloud run deploy` commands
 
 ## Docs and domain knowledge
 

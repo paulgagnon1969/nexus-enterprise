@@ -138,6 +138,32 @@ services:
       retries: 5
       start_period: 30s
 
+  receipt-poller:
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    container_name: nexus-shadow-receipt-poller
+    restart: unless-stopped
+    env_file: ../../.env.shadow
+    environment:
+      NODE_ENV: production
+      STORAGE_PROVIDER: minio
+      DATABASE_URL: postgresql://${SHADOW_PG_USER:-nexus_user}:${SHADOW_PG_PASSWORD}@postgres:5432/${SHADOW_PG_DB:-NEXUSPRODv3}
+      REDIS_URL: redis://redis:6379
+      BULLMQ_REDIS_URL: redis://redis:6379
+      GCS_UPLOADS_BUCKET: ${MINIO_BUCKET:-nexus-uploads}
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: "9000"
+      MINIO_USE_SSL: "false"
+    command: ["sh", "-c", "while true; do node dist/receipt-email-poller.js; echo '[receipt-poller] sleeping 5m...'; sleep 300; done"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
   web:
     build:
       context: ../..
