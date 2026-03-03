@@ -2,10 +2,12 @@
 set -euo pipefail
 
 # ============================================================================
-# dev-nuke-restart.sh — Kill ALL Nexus dev processes and restart from scratch
+# dev-nuke-restart.sh — Kill dev processes and restart the dev stack
 #
-# USE THIS when ports are stale, processes are orphaned, or you just want a
-# guaranteed clean dev environment. Safe to run at any time.
+# SAFE: This script NEVER touches the shadow/staging stack (nexus-shadow-*
+# containers, Docker Desktop, or ports 8000/3001/5435/6381). It only manages:
+#   - Host node processes (nodemon, ts-node, next dev) on ports 3000/8001
+#   - Dev Docker containers (nexus-postgres, nexus-redis, nexus-postgres-shadow)
 #
 # Usage:
 #   bash scripts/dev-nuke-restart.sh           # nuke + restart
@@ -27,76 +29,48 @@ echo "║       NEXUS DEV STACK — NUKE & RESTART           ║"
 echo "╚══════════════════════════════════════════════════╝"
 echo ""
 
-# ── 1) Kill processes on dev ports ──────────────────────────────────────────
+# ── 1) Kill host-side dev processes by name ─────────────────────────────────
+#    These are node processes started by dev-start.sh or npm run dev:*.
+#    We match by process name/args, NOT by port, to avoid collateral damage
+#    to Docker proxy processes or shadow containers.
 
-PORTS=(3000 8001 5433 5434 6380)
-echo "→ Checking dev ports: ${PORTS[*]}"
-for PORT in "${PORTS[@]}"; do
-  PIDS=$(lsof -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null || true)
-  if [[ -n "$PIDS" ]]; then
-    echo "  ✗ Port $PORT in use (PIDs: $PIDS) — killing..."
-    echo "$PIDS" | xargs kill -9 2>/dev/null || true
-  else
-    echo "  ✓ Port $PORT is free"
-  fi
-done
-
-# ── 2) Kill known dev processes by name ─────────────────────────────────────
-
-echo ""
-echo "→ Killing known dev processes..."
+echo "→ Killing host dev processes..."
 
 declare -a PATTERNS=(
   "nodemon.*apps/api"
   "ts-node.*src/main.ts"
   "ts-node.*src/worker.ts"
-  "next dev"
-  "node.*apps/api"
-  "node.*apps/web"
-  "cloud-sql-proxy"
+  "next dev.*apps/web"
+  "next-router-worker"
 )
 
+KILLED=0
 for PATTERN in "${PATTERNS[@]}"; do
   if pgrep -f "$PATTERN" >/dev/null 2>&1; then
     echo "  ✗ Killing: $PATTERN"
     pkill -9 -f "$PATTERN" 2>/dev/null || true
+    KILLED=$((KILLED + 1))
   fi
 done
 
-sleep 2
-echo "  ✓ All dev processes killed"
-
-# ── 3) Verify ports are free ───────────────────────────────────────────────
-
-echo ""
-echo "→ Verifying all ports are free..."
-ALL_CLEAR=true
-for PORT in "${PORTS[@]}"; do
-  if lsof -iTCP:"$PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
-    echo "  ⚠ Port $PORT is STILL in use"
-    ALL_CLEAR=false
-  fi
-done
-
-if $ALL_CLEAR; then
-  echo "  ✓ All ports clear"
+if (( KILLED == 0 )); then
+  echo "  ✓ No dev processes found"
 else
-  echo "  ⚠ Some ports still occupied — you may need to investigate manually"
+  sleep 2
+  echo "  ✓ Killed $KILLED process group(s)"
 fi
 
-# ── 4) Restart (unless --nuke) ─────────────────────────────────────────────
-
-if $NUKE_ONLY; then
-  echo ""
-  echo "══ Nuke complete (--nuke mode, no restart). ══"
-  echo "   Run 'bash scripts/dev-start.sh' when ready."
-  exit 0
-fi
+# ── 2) Restart dev Docker containers (NOT shadow) ──────────────────────────
+#    Use docker compose down/up on the dev compose file only. This restarts
+#    nexus-postgres, nexus-redis, and nexus-postgres-shadow without affecting
+#    any nexus-shadow-* containers.
 
 echo ""
-echo "→ Ensuring Docker is running..."
+echo "→ Restarting dev Docker containers..."
+
 if ! docker info >/dev/null 2>&1; then
-  echo "  Docker not running — launching Docker Desktop..."
+  echo "  ⚠ Docker is not running. Shadow stack may also be down."
+  echo "  Launching Docker Desktop..."
   open -a Docker
   echo "  Waiting for Docker daemon (max 120s)..."
   WAITED=0
@@ -109,16 +83,55 @@ if ! docker info >/dev/null 2>&1; then
     fi
   done
   echo "  ✓ Docker is ready"
-else
-  echo "  ✓ Docker already running"
 fi
 
-echo ""
-echo "→ Starting Docker infra (Postgres + Redis)..."
 if [[ -f "$COMPOSE_FILE" ]]; then
-  docker compose -f "$COMPOSE_FILE" up -d
+  docker compose -f "$COMPOSE_FILE" down 2>&1 | sed 's/^/  /'
+  docker compose -f "$COMPOSE_FILE" up -d 2>&1 | sed 's/^/  /'
 else
   echo "  ⚠ Compose file not found at $COMPOSE_FILE — skipping"
+fi
+
+# ── 3) Verify dev host ports are free ──────────────────────────────────────
+
+echo ""
+echo "→ Verifying dev host ports are free..."
+DEV_HOST_PORTS=(3000 8001)
+ALL_CLEAR=true
+for PORT in "${DEV_HOST_PORTS[@]}"; do
+  if lsof -iTCP:"$PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
+    echo "  ⚠ Port $PORT is still in use"
+    ALL_CLEAR=false
+  else
+    echo "  ✓ Port $PORT is free"
+  fi
+done
+
+if ! $ALL_CLEAR; then
+  echo "  ⚠ Some dev ports still occupied — orphaned processes may need manual cleanup"
+fi
+
+# ── 4) Shadow stack health check ──────────────────────────────────────────
+
+echo ""
+echo "→ Shadow stack status:"
+SHADOW_CONTAINERS=("nexus-shadow-api" "nexus-shadow-web" "nexus-shadow-tunnel" "nexus-shadow-postgres" "nexus-shadow-redis")
+for C in "${SHADOW_CONTAINERS[@]}"; do
+  STATUS=$(docker inspect -f '{{.State.Status}}' "$C" 2>/dev/null || echo "missing")
+  if [[ "$STATUS" == "running" ]]; then
+    echo "  ✓ $C: running"
+  else
+    echo "  ⚠ $C: $STATUS"
+  fi
+done
+
+# ── 5) Restart dev servers (unless --nuke) ─────────────────────────────────
+
+if $NUKE_ONLY; then
+  echo ""
+  echo "══ Nuke complete (--nuke mode, no restart). ══"
+  echo "   Run 'bash scripts/dev-start.sh' when ready."
+  exit 0
 fi
 
 echo ""

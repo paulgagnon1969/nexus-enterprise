@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_USER: nexus_user
       POSTGRES_PASSWORD: nexus_password
-      POSTGRES_DB: nexus_db
+      POSTGRES_DB: NEXUSDEVv3
     ports:
       - "5433:5432"
     volumes:

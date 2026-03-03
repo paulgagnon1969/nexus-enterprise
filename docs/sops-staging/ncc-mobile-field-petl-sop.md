@@ -1,11 +1,11 @@
 ---
 title: "NCC Mobile Field PETL & Daily Log SOP"
 module: mobile-field-petl
-revision: "1.0"
+revision: "1.1"
 tags: [sop, mobile, field-petl, daily-log, sync, android]
 status: draft
 created: 2026-02-16
-updated: 2026-02-16
+updated: 2026-03-03
 author: Warp
 ---
 
@@ -139,7 +139,7 @@ flowchart TD
 ### Build Issues (Development)
 - Ensure Java 17 is set: `export JAVA_HOME=$(/usr/libexec/java_home -v 17)`
 - Android Studio SDK required for emulator
-- Cloud SQL Proxy needed for production database access
+- Production database is local (shadow stack on port 5435) — no Cloud SQL Proxy needed
 
 ## Related Modules
 - [Daily Log Management]
@@ -172,4 +172,5 @@ eas build:run --platform android --latest
 ## Revision History
 | Rev | Date | Changes |
 |-----|------|---------|
+| 1.1 | 2026-03-03 | Removed Cloud SQL Proxy reference; production DB is now local. |
 | 1.0 | 2026-02-16 | Initial release - Field PETL workflow with breadcrumbs, sync feedback |

@@ -1,11 +1,11 @@
 ---
 title: "Premium Module Purchase System - Implementation Complete"
 module: billing
-revision: "1.0"
+revision: "1.1"
 tags: [sop, billing, stripe, premium-modules, backend]
 status: complete
 created: 2026-02-28
-updated: 2026-02-28
+updated: 2026-03-03
 author: Warp
 ---
 
@@ -308,9 +308,10 @@ REDIS_URL=redis://...
 ### Stripe Dashboard Setup
 
 1. **Create Webhook Endpoint**
-   - URL: `https://nexus-api-wswbn2e6ta-uc.a.run.app/webhooks/stripe`
+   - URL: Use the current production API URL (Cloudflare Tunnel hostname — see `.env.shadow`)
    - Events: Select `payment_intent.succeeded`
    - Copy webhook signing secret → `STRIPE_WEBHOOK_SECRET`
+   - **Note:** The old Cloud Run URL (`nexus-api-wswbn2e6ta-uc.a.run.app`) is legacy and no longer active.
 
 2. **Verify Products**
    - Dashboard → Products → Verify 3 products exist
@@ -385,14 +386,14 @@ TOTAL YEAR 1:                   $289,925
 - **Dashboard → Webhooks** — Monitor delivery success/failures
 - **Dashboard → Logs** — API errors and retries
 
-### CloudWatch Logs (GCP equivalent)
+### Production Logs (Local Docker)
 
 ```bash
 # Search for module purchase events
-gcloud logging read "resource.type=cloud_run_revision AND jsonPayload.message=~\"Granting.*to company\""
+docker logs nexus-shadow-api --tail 200 2>&1 | grep -i "granting.*to company"
 
 # Search for webhook errors
-gcloud logging read "resource.type=cloud_run_revision AND jsonPayload.message=~\"stripe-webhook.*error\""
+docker logs nexus-shadow-api --tail 200 2>&1 | grep -i "stripe-webhook.*error"
 ```
 
 ## Troubleshooting
@@ -411,8 +412,8 @@ gcloud logging read "resource.type=cloud_run_revision AND jsonPayload.message=~\
 ```bash
 # Re-create webhook in Stripe Dashboard
 # Copy new signing secret
-# Update STRIPE_WEBHOOK_SECRET in Cloud Run env vars
-gcloud run services update nexus-api --set-env-vars STRIPE_WEBHOOK_SECRET=whsec_new_secret
+# Update STRIPE_WEBHOOK_SECRET in .env.shadow and restart the API container:
+docker compose -p nexus-shadow -f infra/docker/docker-compose.shadow.yml --env-file .env.shadow up -d api
 ```
 
 ### "You already own..." Error
@@ -488,4 +489,5 @@ redis-cli KEYS "module:*" | xargs redis-cli DEL
 
 | Rev | Date       | Changes         |
 |-----|------------|-----------------|
+| 1.1 | 2026-03-03 | Updated for local Mac Studio production; replaced Cloud Run URLs, gcloud logging, and env var commands with Docker equivalents. |
 | 1.0 | 2026-02-28 | Initial release |

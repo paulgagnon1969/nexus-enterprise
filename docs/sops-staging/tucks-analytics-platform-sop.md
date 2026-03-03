@@ -1,11 +1,11 @@
 ---
 title: "TUCKS Analytics Platform SOP"
 module: tucks-analytics
-revision: "1.0"
+revision: "1.1"
 tags: [sop, analytics, tucks, kpi, telemetry, admin, operations]
 status: draft
 created: 2026-02-28
-updated: 2026-02-28
+updated: 2026-03-03
 author: Warp
 visibility:
   public: false
@@ -50,7 +50,7 @@ User Action → API Middleware (lightweight) → Redis LPUSH (1ms)
                                                   ↓ (cron: every 2 weeks)
                                     ┌─────────────────────────┐
                                     │  Activity Vault Archive  │
-                                    │  (GCS, encrypted, cold)  │
+                                    │  (MinIO, encrypted, cold)│
                                     └─────────────────────────┘
 ```
 
@@ -66,10 +66,9 @@ User Action → API Middleware (lightweight) → Redis LPUSH (1ms)
    - `ActivityWeeklyRollup`: same dimensions, weekly aggregation
    - These power all dashboard queries (fast reads on small tables)
 
-3. **Activity Vault (GCS)** — Encrypted archive, permanent
+3. **Activity Vault (MinIO / Object Storage)** — Encrypted archive, permanent
    - Raw events exported as compressed, encrypted blobs before purge
-   - GCS Coldline for data < 1 year, Archive class for older data
-   - Lifecycle policy auto-transitions storage classes
+   - Stored in local MinIO (shadow stack) with optional replication to cloud backup
    - Retrieval: rare, on-demand for forensic investigation or backfill
 
 ### Storage Budget (Annual)
@@ -82,14 +81,9 @@ User Action → API Middleware (lightweight) → Redis LPUSH (1ms)
 | 10,000  | 1.4 GB    | 7.8 GB      | 6.5 GB      | ~15.7 GB  |
 | 100,000 | 14 GB     | 78 GB       | 65 GB       | ~157 GB   |
 
-### Cost Budget (Annual, GCP)
+### Cost Budget (Annual, Local Infrastructure)
 
-| Users   | Cloud SQL  | GCS Vault | Total/Year |
-|---------|-----------|----------|-----------|
-| 1,000   | ~$16      | ~$0.04   | ~$16      |
-| 5,000   | ~$82      | ~$0.19   | ~$82      |
-| 10,000  | ~$161     | ~$0.37   | ~$161     |
-| 100,000 | ~$1,613   | ~$3.74   | ~$1,617   |
+With production running on the Mac Studio, Postgres and MinIO storage costs are absorbed into the machine's existing hardware. The primary cost is disk space on the external 4TB Thunderbolt drive.
 
 ---
 
@@ -283,8 +277,8 @@ gamingScore = (volume × 0.30) + (burst × 0.25) + (entropy × 0.20)
 
 ## Security & Privacy
 
-- Raw event data is encrypted at rest (Cloud SQL default + GCS CMEK)
-- Activity Vault uses customer-managed encryption keys (Cloud KMS)
+- Raw event data is encrypted at rest (Postgres on Docker volume + MinIO server-side encryption)
+- Activity Vault uses encrypted blobs in local MinIO storage
 - Personal KPI data is scoped to the authenticated user only
 - Anonymous benchmarking never leaks individual identities
 - Gaming flags are visible only to PM+ roles; the flagged user sees a generic "Data Quality Score"
@@ -296,4 +290,5 @@ gamingScore = (volume × 0.30) + (burst × 0.25) + (entropy × 0.20)
 
 | Rev | Date | Changes |
 |-----|------|---------|
+| 1.1 | 2026-03-03 | Updated storage references from GCS/Cloud SQL to local MinIO/Postgres; removed GCP cost table. |
 | 1.0 | 2026-02-28 | Initial release — architecture, storage budget, gaming detection, phased implementation |

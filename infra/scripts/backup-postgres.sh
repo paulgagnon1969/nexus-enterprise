@@ -8,7 +8,7 @@ set -euo pipefail
 
 CONTAINER="nexus-shadow-postgres"
 DB_USER="${SHADOW_PG_USER:-nexus_user}"
-DB_NAME="${SHADOW_PG_DB:-nexus_db}"
+DB_NAME="${SHADOW_PG_DB:-NEXUSPRODv3}"
 BACKUP_DIR="$HOME/Library/CloudStorage/GoogleDrive-paul.gagnon@keystone-restoration.com/My Drive/nexus-backups"
 DATE=$(date +%Y%m%d-%H%M%S)
 DAY_OF_WEEK=$(date +%u)  # 1=Monday, 7=Sunday

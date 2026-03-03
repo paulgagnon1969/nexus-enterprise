@@ -13,11 +13,11 @@ services:
     environment:
       POSTGRES_USER: ${SHADOW_PG_USER:-nexus_user}
       POSTGRES_PASSWORD: ${SHADOW_PG_PASSWORD}
-      POSTGRES_DB: ${SHADOW_PG_DB:-nexus_db}
+      POSTGRES_DB: ${SHADOW_PG_DB:-NEXUSPRODv3}
     ports:
       - "5435:5432"
     volumes:
-      - nexus-shadow-postgres-data:/var/lib/postgresql/data
+      - nexus-shadow-postgres-data:/var/lib/postgresql
     command:
       - postgres
       - -c
@@ -34,7 +34,7 @@ services:
       - wal_buffers=64MB
     shm_size: "4g"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${SHADOW_PG_USER:-nexus_user} -d ${SHADOW_PG_DB:-nexus_db}"]
+      test: ["CMD-SHELL", "pg_isready -U ${SHADOW_PG_USER:-nexus_user} -d ${SHADOW_PG_DB:-NEXUSPRODv3}"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -86,7 +86,7 @@ services:
       PORT: "8000"
       NODE_ENV: production
       STORAGE_PROVIDER: minio
-      DATABASE_URL: postgresql://${SHADOW_PG_USER:-nexus_user}:${SHADOW_PG_PASSWORD}@postgres:5432/${SHADOW_PG_DB:-nexus_db}
+      DATABASE_URL: postgresql://${SHADOW_PG_USER:-nexus_user}:${SHADOW_PG_PASSWORD}@postgres:5432/${SHADOW_PG_DB:-NEXUSPRODv3}
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: "9000"
@@ -101,10 +101,11 @@ services:
       minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/health"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
 
   worker:
     build:
@@ -117,7 +118,7 @@ services:
       PORT: "8001"
       NODE_ENV: production
       STORAGE_PROVIDER: minio
-      DATABASE_URL: postgresql://${SHADOW_PG_USER:-nexus_user}:${SHADOW_PG_PASSWORD}@postgres:5432/${SHADOW_PG_DB:-nexus_db}
+      DATABASE_URL: postgresql://${SHADOW_PG_USER:-nexus_user}:${SHADOW_PG_PASSWORD}@postgres:5432/${SHADOW_PG_DB:-NEXUSPRODv3}
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: minio
       MINIO_PORT: "9000"
@@ -131,24 +132,25 @@ services:
       minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8001/health"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8001/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
 
   web:
     build:
       context: ../..
       dockerfile: apps/web/Dockerfile
       args:
-        NEXT_PUBLIC_API_BASE_URL: https://api-staging.ncc.nfsgrp.com
-        NEXT_PUBLIC_API_URL: https://api-staging.ncc.nfsgrp.com
+        NEXT_PUBLIC_API_BASE_URL: https://staging-api.nfsgrp.com
+        NEXT_PUBLIC_API_URL: https://staging-api.nfsgrp.com
         NEXT_PUBLIC_MAPBOX_TOKEN: ${NEXT_PUBLIC_MAPBOX_TOKEN}
         NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
     container_name: nexus-shadow-web
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3001:3000"
     depends_on:
       api:
         condition: service_healthy
@@ -161,7 +163,7 @@ services:
     command: tunnel --config /etc/cloudflared/config.yml run
     volumes:
       - ../cloudflared/config.yml:/etc/cloudflared/config.yml:ro
-      - ${CLOUDFLARE_CREDENTIALS_FILE:-~/.cloudflared/credentials.json}:/etc/cloudflared/credentials.json:ro
+      - ${CLOUDFLARE_CREDENTIALS_FILE:-/Users/pg/.cloudflared/f2959e74-843b-4190-b444-36cda0dceeb7.json}:/etc/cloudflared/credentials.json:ro
     depends_on:
       - web
       - api

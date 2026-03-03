@@ -74,7 +74,7 @@ flowchart TD
 - **Mobile** (`apps/mobile/src/api/dailyLog.ts`) → `scanReceiptImage()` uploads the image
 - **API** (`apps/api/src/modules/ocr/ocr.controller.ts`) → converts to base64, calls OpenAI
 - **OCR Provider** (`apps/api/src/modules/ocr/openai-ocr.provider.ts`) → GPT-4 Vision with receipt extraction prompt
-- **Module Registration** — `OcrModule` is imported directly in `AppModule` (required for reliable controller registration on Cloud Run cold starts)
+- **Module Registration** — `OcrModule` is imported directly in `AppModule` (ensures reliable controller registration at startup)
 
 ### Supported Image Formats
 - JPEG, PNG, WebP, GIF

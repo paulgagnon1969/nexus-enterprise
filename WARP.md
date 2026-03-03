@@ -144,25 +144,73 @@ Both services use the same Docker image. When deploying API changes that affect 
   - From `packages/database`: `npm run import:xact`
   - Ensure required environment variables (e.g., `DATABASE_URL`) are configured before running.
 
-## Infrastructure
+## Infrastructure — Dev & Shadow Stack Contract
 
-### Docker (`infra/docker`)
+This machine runs **two independent stacks** in Docker side-by-side. They share the Docker daemon but have completely separate containers, volumes, ports, and databases. **Scripts and agents must never cross the boundary.**
 
-- `infra/docker/docker-compose.yml` defines local infrastructure for backend services:
-  - `postgres` (Postgres 16):
-    - Port: `5432` on host.
-    - Env vars: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`.
-    - Volume: `nexus-postgres-data`.
-  - `redis` (Redis 7):
-    - Port: `6380` on host mapped to `6379` in container.
-    - Volume: `nexus-redis-data`.
+### Two stacks
 
-**Common infra workflows**
+**Dev stack** — local development, hot-reload, throwaway data.
+- Compose file: `infra/docker/docker-compose.yml`
+- Containers: `nexus-postgres`, `nexus-redis`, `nexus-postgres-shadow`
+- Host processes (not Docker): API (nodemon), Worker (ts-node), Web (next dev)
+- Database: `NEXUSDEVv3` on local Postgres
 
-- Start local Postgres and Redis for API development:
-  - From repo root: `docker compose -f infra/docker/docker-compose.yml up -d`
-- Stop local infra:
-  - `docker compose -f infra/docker/docker-compose.yml down`
+**Shadow stack** — staging/production mirror behind Cloudflare Tunnel.
+- Compose file: `infra/docker/docker-compose.shadow.yml`
+- Containers: `nexus-shadow-api`, `nexus-shadow-web`, `nexus-shadow-worker`, `nexus-shadow-postgres`, `nexus-shadow-redis`, `nexus-shadow-minio`, `nexus-shadow-tunnel`
+- Database: `NEXUSPRODv3` on shadow Postgres
+- Exposed via: `staging-ncc.nfsgrp.com` (web), `staging-api.nfsgrp.com` (API)
+
+### Port allocation (FIXED — do not change)
+
+- `:3000` — Dev Web (next dev, host process)
+- `:3001` — Shadow Web (nexus-shadow-web container)
+- `:8000` — Shadow API (nexus-shadow-api container)
+- `:8001` — Dev API (nodemon, host process)
+- `:5433` — Dev Postgres (nexus-postgres container, DB: `NEXUSDEVv3`)
+- `:5434` — Dev Shadow DB for Prisma migrations (nexus-postgres-shadow)
+- `:5435` — Shadow Postgres (nexus-shadow-postgres, DB: `NEXUSPRODv3`)
+- `:6380` — Dev Redis (nexus-redis container)
+- `:6381` — Shadow Redis (nexus-shadow-redis container)
+- `:9000/:9001` — Shadow MinIO (S3-compatible storage)
+
+### DATABASE_URL — single source of truth
+
+The canonical dev database is **`NEXUSDEVv3`** on `localhost:5433`. Every file that sets `DATABASE_URL` for local dev MUST point to this database. The authoritative files are:
+
+- `apps/api/.env` — loaded by NestJS ConfigModule at API startup
+- `packages/database/.env` — used by Prisma CLI (`prisma migrate dev`, `prisma generate`)
+- `prisma.config.ts` — fallback default for Prisma CLI when env var is absent
+
+**Rules:**
+- `apps/web/.env.local` must NOT set `DATABASE_URL` (web talks to the API, not directly to Postgres).
+- `dev-start.sh` must NOT override `DATABASE_URL` if it is already set. It only provides a fallback.
+- If you add a new `.env` file that sets `DATABASE_URL`, it MUST point to `NEXUSDEVv3`.
+- Shadow stack uses its own `DATABASE_URL` via `.env.shadow` and compose environment overrides — never mix these.
+
+### Script safety rules — CRITICAL
+
+**`dev-nuke-restart.sh` (`npm run dev:nuke`):**
+- Kills dev host processes by name (nodemon, ts-node, next dev) — NEVER by port.
+- Restarts dev Docker containers via `docker compose -f docker-compose.yml down/up`.
+- NEVER kills Docker Desktop, NEVER touches `nexus-shadow-*` containers.
+- Reports shadow stack health after running.
+
+**NEVER do any of the following:**
+- `kill -9` on PIDs found by port (e.g., `lsof -ti:5433 | xargs kill`) — this kills Docker proxy processes and can take down shadow containers.
+- Stop or restart Docker Desktop from a script — the shadow tunnel and staging site depend on it being always-on.
+- Run `docker compose down` on `docker-compose.shadow.yml` unless explicitly rebuilding the shadow stack.
+- Set `DATABASE_URL` to anything other than `NEXUSDEVv3` in dev `.env` files.
+
+### Common infra workflows
+
+- Start dev infra: `docker compose -f infra/docker/docker-compose.yml up -d`
+- Stop dev infra: `docker compose -f infra/docker/docker-compose.yml down`
+- Nuke & restart dev (safe): `npm run dev:nuke`
+- Start full dev stack: `bash scripts/dev-start.sh`
+- Check shadow health: `docker ps --filter name=nexus-shadow`
+- Rebuild shadow stack (rare): `docker compose -f infra/docker/docker-compose.shadow.yml up -d --build`
 
 ## Production Credentials & Autonomous Execution
 

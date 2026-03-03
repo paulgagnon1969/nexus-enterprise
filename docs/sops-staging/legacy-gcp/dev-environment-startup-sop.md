@@ -1,13 +1,15 @@
 ---
 title: "Dev Environment Startup SOP"
 module: dev-environment
-revision: "1.1"
-tags: [sop, dev-environment, development, ports, api, web, docker, local-production]
+revision: "1.0"
+tags: [sop, dev-environment, development, ports, api, web]
 status: draft
 created: 2026-02-17
-updated: 2026-03-03
+updated: 2026-02-17
 author: Warp
 ---
+
+> **LEGACY (GCP)**: This document references the pre-March 2026 environment layout (Vercel/Cloud SQL/Cloud Run). It is retained for posterity only and should not be used going forward.
 
 # Dev Environment Startup
 
@@ -21,14 +23,12 @@ Standard procedure for starting and managing the Nexus Enterprise development en
 
 ## Port Architecture
 
-As of March 2026, production runs locally on the Mac Studio (Docker Compose shadow stack). There is no GCP/Cloud SQL/Vercel dependency.
-
-| Service | Dev Port | Prod (Shadow) Port | Notes |
-|---------|----------|-------------------|-------|
+| Service | Dev Port | Prod Port | Notes |
+|---------|----------|-----------|-------|
 | API | 8001 | 8000 | NestJS + Fastify |
-| Web | 3000 | 3001 | Next.js 14 |
-| Postgres | 5433 | 5435 | Docker (NEXUSDEVv3 / NEXUSPRODv3) |
-| Redis | 6380 | 6381 | Docker |
+| Web | 3000 | Vercel | Next.js 14 |
+| Postgres | 5433 | Cloud SQL | Docker local |
+| Redis | 6380 | Cloud Redis | Docker local |
 
 ## Workflow
 
@@ -96,15 +96,19 @@ npm run dev
 
 # API only
 npm run dev:api
+
+# With Cloud SQL (requires DEV_DB_PASSWORD)
+./scripts/dev-start-cloud.sh
 ```
 
 ### Stopping Services
 ```bash
-# Stop Docker infra (dev only — NEVER touch shadow containers)
-docker compose -p nexus-dev -f infra/docker/docker-compose.yml down
-```
+# Kill specific ports
+lsof -ti :8001 :3000 | xargs kill -9
 
-**NEVER use `kill -9`, `lsof | xargs kill`, or `pkill` on dev server processes.** Nodemon and Next.js auto-restart on file changes. If a manual restart is truly needed, ask the developer to restart in their own terminal.
+# Stop Docker infra
+docker compose -f infra/docker/docker-compose.yml down
+```
 
 ### Troubleshooting
 ```bash
@@ -130,10 +134,9 @@ tail -f apps/web/.next/trace
 
 ### Port Already in Use
 ```bash
-# Check what's using the port (read-only, safe)
-lsof -i :8001 | head -5
+# Find and kill the process
+lsof -ti :8001 | xargs kill -9
 ```
-If a previous dev server is hanging, ask the developer to stop it from their terminal. Do NOT kill by port — this can destroy Docker proxy processes for the shadow stack.
 
 ### API Can't Connect to Database
 1. Check Docker: `docker ps`
@@ -153,5 +156,4 @@ If a previous dev server is hanging, ask the developer to stop it from their ter
 
 | Rev | Date | Changes |
 |-----|------|---------|
-| 1.1 | 2026-03-03 | Updated port table for local Mac Studio production; removed Cloud SQL/Vercel/kill -9 references; aligned with dev server safety rules. |
 | 1.0 | 2026-02-17 | Initial release - port 8001 for dev, 8000 for prod |

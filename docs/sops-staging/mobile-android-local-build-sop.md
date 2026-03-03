@@ -1,11 +1,11 @@
 ---
 title: "Mobile Android Local Build SOP"
 module: mobile-android-build
-revision: "1.0"
+revision: "1.1"
 tags: [sop, mobile, android, build, deployment, dev-ops]
 status: draft
 created: 2026-02-16
-updated: 2026-02-16
+updated: 2026-03-03
 author: Warp
 ---
 
@@ -136,12 +136,11 @@ org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryErro
 **Note:** `expo prebuild --clean` resets this file. Re-apply after regenerating native project.
 
 ### API URL Configuration
-Release builds automatically use production API. Controlled by:
-```bash
-EXPO_PUBLIC_API_BASE_URL=https://nexus-api-979156454944.us-central1.run.app
-```
+Release builds automatically use the production API. As of March 2026, production runs on the local Mac Studio behind a Cloudflare Tunnel.
 
-Set in build scripts or `.env.production`.
+The canonical production URL is configured in `.env.production` and build scripts. Update this value if the tunnel hostname changes.
+
+**Note:** The old GCP Cloud Run URL (`nexus-api-...us-central1.run.app`) is no longer active.
 
 ## Automator One-Click Build
 
@@ -202,4 +201,5 @@ adb -s R5GL13LHGGH install app.apk  # Use specific device
 ## Revision History
 | Rev | Date | Changes |
 |-----|------|---------|
+| 1.1 | 2026-03-03 | Updated API URL section to reflect local Mac Studio production (no longer GCP Cloud Run). |
 | 1.0 | 2026-02-16 | Initial release |

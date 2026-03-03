@@ -36,7 +36,7 @@ COMPOSE_FILE="$REPO_ROOT/infra/docker/docker-compose.yml"
 
 # Local DB defaults (matching infra/docker/docker-compose.yml)
 LOCAL_DB_PORT="${LOCAL_DB_PORT:-5433}"
-LOCAL_DB_NAME="${LOCAL_DB_NAME:-nexus_db}"
+LOCAL_DB_NAME="${LOCAL_DB_NAME:-NEXUSDEVv3}"
 LOCAL_DB_USER="${LOCAL_DB_USER:-nexus_user}"
 LOCAL_DB_PASSWORD="${LOCAL_DB_PASSWORD:-nexus_password}"
 
@@ -81,25 +81,20 @@ EOF_WEB
   echo "[dev-start] Created apps/web/.env.local pointing to http://localhost:8001" | tee -a "$LOG_DIR/dev-start.log"
 fi
 
-# --- 2) Configure DATABASE_URL for local Postgres (or override externally) ---
+# --- 2) Configure DATABASE_URL for local Postgres -------------------------
+#
+# Source of truth: root .env (loaded by NestJS ConfigModule) and apps/api/.env.
+# This script only sets DATABASE_URL if it is completely absent from the
+# environment, as a safety net. It never overrides an existing value.
 
-# By default we point DATABASE_URL at the local Postgres instance that
-# matches infra/docker/docker-compose.yml. If you are using Cloud SQL or
-# another database, override DATABASE_URL before running this script.
-
-# Also set a longer JWT access token TTL for dev so tokens last ~4 hours
-# instead of the default 15 minutes. This is purely a convenience for
-# local development; staging/prod should manage JWT_ACCESS_TTL via their
-# own environment configuration.
 export JWT_ACCESS_TTL="14400" # 4 hours
 
-# --- If you want this script to be DB-agnostic, comment out the export
-# below and rely entirely on your shell environment. ---
-
-export DATABASE_URL="postgresql://${LOCAL_DB_USER}:${LOCAL_DB_PASSWORD}@127.0.0.1:${LOCAL_DB_PORT}/${LOCAL_DB_NAME}"
-# Obfuscate password in log output
-SANITIZED_DB_URL="${DATABASE_URL/${LOCAL_DB_PASSWORD}/****}"
-echo "[dev-start] Using DATABASE_URL=${SANITIZED_DB_URL}" | tee -a "$LOG_DIR/dev-start.log"
+if [[ -z "${DATABASE_URL:-}" ]]; then
+  export DATABASE_URL="postgresql://${LOCAL_DB_USER}:${LOCAL_DB_PASSWORD}@localhost:${LOCAL_DB_PORT}/${LOCAL_DB_NAME}"
+  echo "[dev-start] DATABASE_URL not set — using default: ...@localhost:${LOCAL_DB_PORT}/${LOCAL_DB_NAME}" | tee -a "$LOG_DIR/dev-start.log"
+else
+  echo "[dev-start] DATABASE_URL already set in environment — respecting it" | tee -a "$LOG_DIR/dev-start.log"
+fi
 
 # --- 3) Ensure Prisma client is up-to-date --------------------------------
 

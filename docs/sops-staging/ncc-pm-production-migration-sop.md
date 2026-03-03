@@ -1,168 +1,79 @@
 ---
-title: "NCC Production Migration & Troubleshooting SOP"
+title: "Production Migrations & Troubleshooting SOP (Local Mac Studio)"
 module: database-migrations
-revision: "1.0"
-tags: [sop, database, migrations, cloud-sql, troubleshooting, admin-only]
+revision: "1.2"
+tags: [sop, database, migrations, troubleshooting, local-production, docker, admin-only]
 status: draft
 created: 2026-02-16
-updated: 2026-02-16
+updated: 2026-03-03
 author: Warp
 ---
 
-# NCC Production Migration & Troubleshooting
+# Production Migrations & Troubleshooting
 
 ## Purpose
-This SOP documents the procedure for diagnosing production API errors (500s) caused by missing database columns, creating migrations, and applying them to the production Cloud SQL database.
+This SOP documents the procedure for diagnosing production API errors (500s) caused by missing database columns, creating migrations, and applying them to the **local Mac Studio production database** (`NEXUSPRODv3`).
 
-## Who Uses This
-- System Administrators
-- DevOps Engineers
-- Senior Developers with production access
+As of **March 2026**, production no longer runs on GCP Cloud Run / Cloud SQL. The old GCP workflow is archived at `docs/sops-staging/legacy-gcp/ncc-pm-production-migration-sop.md` for posterity.
 
-## Workflow
+## Current Workflow (Local Production)
 
-### Step-by-Step Process
-
-#### 1. Identify the Error
+### 1. Identify the Error
 When users report 500 errors on specific pages:
-
 1. Get the failing URL and check browser DevTools Network tab
 2. Identify which API endpoint is returning 500 (e.g., `/projects/:id/invoices`)
 
-#### 2. Check Cloud Run Logs
+### 2. Check Local Production Logs
 ```bash
-# Check stderr logs for actual error messages
-gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="nexus-api" AND logName:"stderr"' \
-  --limit=30 \
-  --format='value(timestamp,textPayload)' \
-  --project=nexus-enterprise-480610
+# API logs
+docker logs nexus-shadow-api --tail 200
 
-# For more detailed JSON logs
-gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="nexus-api" AND timestamp>="YYYY-MM-DDTHH:MM:SSZ"' \
-  --limit=10 \
-  --format=json \
-  --project=nexus-enterprise-480610
+# Worker logs (import jobs)
+docker logs nexus-shadow-worker --tail 200
 ```
 
-#### 3. Identify Missing Column
+### 3. Identify Missing Column
 Look for Prisma errors like:
 ```
 originalMessage: 'column TableName.columnName does not exist'
 kind: 'ColumnNotFound'
 ```
 
-#### 4. Verify Schema vs Migrations
-Check if the column exists in schema but has no migration:
+### 4. Create Migration
+Create a migration in `packages/database/prisma/migrations/` and commit it.
+
+### 5. Apply Migration to Local Production
+Run Prisma migrations from `packages/database`.
+
 ```bash
-# Check schema for the column
-grep -n "columnName" packages/database/prisma/schema.prisma
+# Use DATABASE_URL from .env.shadow (do not print it)
+export DATABASE_URL="$(grep '^DATABASE_URL=' .env.shadow | head -1 | cut -d= -f2-)"
 
-# Check if migration exists
-grep -r "columnName" packages/database/prisma/migrations/ --include="*.sql"
+npm -w @repo/database exec -- npx prisma migrate deploy
 ```
 
-#### 5. Create Migration
+### 6. Verify Fix
 ```bash
-# Create migration directory (use timestamp format: YYYYMMDDHHMMSS)
-mkdir -p packages/database/prisma/migrations/20260216150000_descriptive_name
-
-# Create migration.sql file with appropriate ALTER TABLE statements
-# Use IF NOT EXISTS for idempotency
+curl -s http://localhost:8000/health
 ```
 
-Example migration:
-```sql
-ALTER TABLE "TableName" ADD COLUMN IF NOT EXISTS "columnName" TYPE NOT NULL DEFAULT value;
-CREATE INDEX IF NOT EXISTS "index_name" ON "TableName"("columnName");
-```
+## Who Uses This
+- System Administrators
+- DevOps Engineers
+- Senior Developers with production access
 
-#### 6. Start Cloud SQL Proxy
-```bash
-# Check if proxy is running
-ps aux | grep cloud-sql
+## Legacy (Archived)
+The former GCP Cloud Run / Cloud SQL workflow is archived at `docs/sops-staging/legacy-gcp/ncc-pm-production-migration-sop.md` for posterity.
 
-# Start proxy on available port (avoid 5433 if local Docker is using it)
-cloud-sql-proxy nexus-enterprise-480610:us-central1:nexusprod-v2 --port=5434
-```
+## Environment Details (Current Local)
+- **Production Stack**: Mac Studio shadow stack (Docker Compose)
+- **Production API**: `nexus-shadow-api` (host port 8000)
+- **Production Database**: `NEXUSPRODv3` on `nexus-shadow-postgres` (host port 5435)
 
-#### 7. Re-authenticate if Needed
-If you get "invalid_grant" or "reauth related error":
-```bash
-gcloud auth application-default login
-```
-Then restart the proxy.
-
-#### 8. Apply Migration to Production
-```bash
-# Set password securely
-export PROD_DB_PASS="your_password"
-
-# Run migration
-cd packages/database
-DATABASE_URL="postgresql://postgres:${PROD_DB_PASS}@127.0.0.1:5434/nexus_db" npx prisma migrate deploy
-```
-
-#### 9. Commit and Push
-```bash
-git add packages/database/prisma/migrations/
-git commit -m "fix(db): add missing column description"
-git push origin main
-```
-
-#### 10. Verify Fix
-Refresh the failing page and confirm the 500 error is resolved.
-
-### Flowchart
-
-```mermaid
-flowchart TD
-    A[User Reports 500 Error] --> B[Check Browser DevTools]
-    B --> C[Identify Failing API Endpoint]
-    C --> D[Check Cloud Run Logs]
-    D --> E{Column Missing?}
-    E -->|Yes| F[Check Schema vs Migrations]
-    E -->|No| G[Investigate Other Causes]
-    F --> H{Migration Exists?}
-    H -->|No| I[Create Migration File]
-    H -->|Yes| J[Check Migration Applied]
-    I --> K[Start Cloud SQL Proxy]
-    K --> L{Auth Valid?}
-    L -->|No| M[gcloud auth login]
-    M --> K
-    L -->|Yes| N[Apply Migration]
-    N --> O[Commit & Push]
-    O --> P[Verify Fix]
-    P --> Q[End]
-```
-
-## Key Features
-- Uses `IF NOT EXISTS` for idempotent migrations
-- Cloud SQL Proxy on alternate port (5434) to avoid Docker conflicts
-- Secure password handling via environment variables
-- Comprehensive logging queries for diagnosis
-
-## Common Issues
-
-| Issue | Solution |
-|-------|----------|
-| Port 5433 conflict | Use port 5434 for Cloud SQL Proxy |
-| "invalid_grant" error | Run `gcloud auth application-default login` |
-| "Can't reach database" | Ensure Cloud SQL Proxy is running |
-| Authentication failed | Verify PROD_DB_PASS is correct |
-
-## Related Modules
-- [Database Schema Management]
-- [Cloud Run Deployment]
-- [API Error Handling]
-
-## Environment Details
-- **Production Database**: Cloud SQL PostgreSQL (nexusprod-v2)
-- **Project ID**: nexus-enterprise-480610
-- **Region**: us-central1
-- **API Service**: nexus-api (Cloud Run)
-- **Prisma Version**: 7.4.0
 
 ## Revision History
 | Rev | Date | Changes |
 |-----|------|---------|
-| 1.0 | 2026-02-16 | Initial release based on INP fix and migration session |
+| 1.2 | 2026-03-03 | Removed GCP workflow from the active SOP and archived it under `docs/sops-staging/legacy-gcp/`. |
+| 1.1 | 2026-03-03 | Updated SOP for local Mac Studio production migrations; demoted GCP Cloud Run/Cloud SQL instructions to legacy reference. |
+| 1.0 | 2026-02-16 | Initial release (GCP Cloud SQL era). |

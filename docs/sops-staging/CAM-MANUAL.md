@@ -496,7 +496,7 @@ async function processImport(file) {
 
 1. **Infrastructure maintenance**: Redis restarted for update—imports continue uninterrupted
 2. **Scaling event**: Redis memory pressure during peak—fallback keeps system running
-3. **New deployment**: Cloud Run instance starts before Redis connection established—first request still works
+3. **New deployment**: API container starts before Redis connection established—first request still works
 
 ## Technical Implementation
 
@@ -566,7 +566,7 @@ A weighted 5-signal scoring system (volume anomaly, temporal burst, content entr
 TUCKS doesn't just track app usage — it correlates timecard hours, room completion percentages, and estimate data to compute which drywall team / trade / crew is most efficient. "Team A completes rooms at 1.2x the rate of Team B with 15% lower labor cost." This turns Nexus from a record-keeping tool into a workforce intelligence platform.
 
 ### Activity Vault Architecture
-Raw telemetry lives in Postgres for 2 weeks (for debugging and real-time queries), rolls into permanent daily/weekly aggregation tables, then archives to GCS encrypted cold storage. The vault grows at ~0.8 GB/year per 1,000 users at $0.04/year in storage cost. The architecture supports forensic retrieval without burdening the production database.
+Raw telemetry lives in Postgres for 2 weeks (for debugging and real-time queries), rolls into permanent daily/weekly aggregation tables, then archives to MinIO encrypted cold storage. The vault grows at ~0.8 GB/year per 1,000 users with negligible storage cost on local infrastructure. The architecture supports forensic retrieval without burdening the production database.
 
 ## Demo Script
 1. **Admin Dashboard**: Open NEXUS SYSTEM → show live KPIs replacing dummy data. Toggle time ranges (7d/30d/90d). Show module usage chart — "Daily Logs" is the most-used module, "Financial" is growing 20% month-over-month.
@@ -578,7 +578,7 @@ Raw telemetry lives in Postgres for 2 weeks (for debugging and real-time queries
 ## Technical Foundation
 - **Event ingestion**: API middleware → Redis LPUSH (1ms latency) → BullMQ flush worker → Postgres
 - **Rollup pipeline**: Nightly cron aggregates raw events into `ActivityDailyRollup` and `ActivityWeeklyRollup`
-- **Archive pipeline**: Bi-weekly cron exports raw events to GCS (compressed, CMEK-encrypted), then purges from Postgres
+- **Archive pipeline**: Bi-weekly cron exports raw events to MinIO (compressed, encrypted), then purges from Postgres
 - **Gaming scorer**: Runs as part of the nightly rollup job. Computes weighted composite score per user per day. Flags stored in a `GamingFlag` table with management review workflow.
 - **Benchmarking queries**: `SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY event_count)` against rollup tables, scoped by companyId and role
 - **Schema**: `UserActivityEvent`, `ActivityDailyRollup`, `ActivityWeeklyRollup` (see SOP: `docs/sops-staging/tucks-analytics-platform-sop.md`)

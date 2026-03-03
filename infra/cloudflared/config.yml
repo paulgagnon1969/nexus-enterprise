@@ -11,14 +11,14 @@
 # The credentials file is created automatically by `cloudflared tunnel create`
 # at ~/.cloudflared/<TUNNEL_ID>.json.
 
-tunnel: <TUNNEL_ID>
+tunnel: f2959e74-843b-4190-b444-36cda0dceeb7
 credentials-file: /etc/cloudflared/credentials.json
 
 ingress:
-  - hostname: staging.ncc.nfsgrp.com
+  - hostname: staging-ncc.nfsgrp.com
     service: http://web:3000
 
-  - hostname: api-staging.ncc.nfsgrp.com
+  - hostname: staging-api.nfsgrp.com
     service: http://api:8000
 
   # Catch-all: return 404 for unmatched hostnames

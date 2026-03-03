@@ -13,6 +13,10 @@ COPY package.json package-lock.json ./
 COPY apps/web/package.json apps/web/package.json
 COPY packages/database/package.json packages/database/package.json
 
+# Copy prisma schema BEFORE npm install (needed for postinstall hooks)
+COPY packages/database/prisma packages/database/prisma
+COPY packages/database/prisma.config.ts packages/database/prisma.config.ts
+
 # Install all dependencies (needed for next build)
 RUN npm install
 

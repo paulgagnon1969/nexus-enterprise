@@ -6,7 +6,7 @@ import { defineConfig } from "prisma/config";
 // PrismaPg adapter in packages/database/src/client.ts.
 const url =
   process.env.DATABASE_URL ??
-  "postgresql://nexus_user:nexus_password@localhost:5433/nexus_db";
+  "postgresql://nexus_user:nexus_password@localhost:5433/NEXUSDEVv3";
 
 const shadowUrl =
   process.env.SHADOW_DATABASE_URL ??

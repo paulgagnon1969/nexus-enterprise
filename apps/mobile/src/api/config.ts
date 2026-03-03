@@ -1,6 +1,6 @@
 // API Configuration
-// HARDCODED to production - no conditional logic
+// HARDCODED to production — shadow stack behind Cloudflare Tunnel
 
 export function getApiBaseUrl(): string {
-  return "https://nexus-api-979156454944.us-central1.run.app";
+  return "https://staging-api.nfsgrp.com";
 }
