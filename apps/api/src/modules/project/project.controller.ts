@@ -99,6 +99,34 @@ export class ProjectController {
     return this.projects.getProjectForClientPortal(projectId, user.userId);
   }
 
+  // ── Project Favorites ──────────────────────────────────────────────
+
+  /** GET /projects/favorites — list favorited project IDs for current tenant */
+  @UseGuards(CombinedAuthGuard)
+  @Get("favorites")
+  listFavorites(@Req() req: any) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.listFavoriteProjectIds(user.userId, user.companyId);
+  }
+
+  /** POST /projects/:id/favorite — mark a project as favorite */
+  @UseGuards(CombinedAuthGuard)
+  @Post(":id/favorite")
+  addFavorite(@Req() req: any, @Param("id") projectId: string) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.addFavorite(user.userId, projectId, user.companyId);
+  }
+
+  /** DELETE /projects/:id/favorite — remove a project from favorites */
+  @UseGuards(CombinedAuthGuard)
+  @Delete(":id/favorite")
+  removeFavorite(@Req() req: any, @Param("id") projectId: string) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.removeFavorite(user.userId, projectId);
+  }
+
+  // ── Project Listing ───────────────────────────────────────────────
+
   @UseGuards(CombinedAuthGuard)
   @Get()
   list(

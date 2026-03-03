@@ -907,6 +907,32 @@ export class ProjectService {
     return response;
   }
 
+  // ── Project Favorites ───────────────────────────────────────────────
+
+  async addFavorite(userId: string, projectId: string, companyId: string) {
+    return this.prisma.projectFavorite.upsert({
+      where: { userId_projectId: { userId, projectId } },
+      create: { userId, projectId, companyId },
+      update: {},
+    });
+  }
+
+  async removeFavorite(userId: string, projectId: string) {
+    return this.prisma.projectFavorite.deleteMany({
+      where: { userId, projectId },
+    });
+  }
+
+  async listFavoriteProjectIds(userId: string, companyId: string): Promise<string[]> {
+    const rows = await this.prisma.projectFavorite.findMany({
+      where: { userId, companyId },
+      select: { projectId: true },
+    });
+    return rows.map((r: { projectId: string }) => r.projectId);
+  }
+
+  // ── Project Listing ────────────────────────────────────────────────
+
   async listProjectsForUser(
     userId: string,
     companyId: string,
@@ -915,8 +941,10 @@ export class ProjectService {
   ) {
     const isSuperAdmin = filters?.globalRole === "SUPER_ADMIN";
 
-    // SUPER_ADMIN sees all projects across all companies
-    const where: any = isSuperAdmin ? {} : { companyId };
+    // Always scope to the current tenant (companyId from JWT).
+    // SUPER_ADMIN means "skip project-membership check" (same as OWNER/ADMIN),
+    // NOT "see every tenant's projects".
+    const where: any = { companyId };
 
     // Status filter: map Open/Closed/Warranty/Completed to project.status strings.
     // Empty or missing status = no filter (show all).
@@ -954,11 +982,7 @@ export class ProjectService {
     }
 
     if (isSuperAdmin || companyRole === Role.OWNER || companyRole === Role.ADMIN) {
-      return this.prisma.project.findMany({
-        where,
-        // For super admin seeing all projects, include company name for context
-        ...(isSuperAdmin ? { include: { company: { select: { id: true, name: true } } } } : {}),
-      });
+      return this.prisma.project.findMany({ where });
     }
 
     return this.prisma.project.findMany({

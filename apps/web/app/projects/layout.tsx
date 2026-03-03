@@ -84,6 +84,10 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
   const [newProject, setNewProject] = useState({ ...NEW_PROJECT_DEFAULT });
   const [newProjectError, setNewProjectError] = useState<string | null>(null);
 
+  // Favorites state
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+
   // Tenant client linking state
   const [linkToClient, setLinkToClient] = useState(false);
   const [clientSearch, setClientSearch] = useState("");
@@ -128,6 +132,48 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
 
     void load();
   }, [filters.status, filters.groups]);
+
+  // Load favorites for this tenant
+  useEffect(() => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
+    if (!token) return;
+
+    fetch(`${API_BASE}/projects/favorites`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => (res.ok ? res.json() : []))
+      .then((ids: string[]) => setFavoriteIds(new Set(ids)))
+      .catch(() => {});
+  }, []);
+
+  const toggleFavorite = async (projectId: string) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
+    if (!token) return;
+
+    const isFav = favoriteIds.has(projectId);
+    // Optimistic update
+    setFavoriteIds(prev => {
+      const next = new Set(prev);
+      if (isFav) next.delete(projectId);
+      else next.add(projectId);
+      return next;
+    });
+
+    try {
+      await fetch(`${API_BASE}/projects/${projectId}/favorite`, {
+        method: isFav ? "DELETE" : "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {
+      // Revert on failure
+      setFavoriteIds(prev => {
+        const next = new Set(prev);
+        if (isFav) next.add(projectId);
+        else next.delete(projectId);
+        return next;
+      });
+    }
+  };
 
   // Load job statuses for the Job Status filter
   useEffect(() => {
@@ -228,6 +274,10 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
       const q = search.toLowerCase();
       if (!p.name.toLowerCase().includes(q)) return false;
     }
+
+    // Favorites filter
+    if (showFavoritesOnly && !favoriteIds.has(p.id)) return false;
+
     return true;
   });
 
@@ -747,6 +797,22 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
           >
             Import CSV
           </Link>
+          <button
+            type="button"
+            onClick={() => setShowFavoritesOnly(f => !f)}
+            title={showFavoritesOnly ? "Show all projects" : "Show favorites only"}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 4,
+              border: showFavoritesOnly ? "1px solid #eab308" : "1px solid #d1d5db",
+              background: showFavoritesOnly ? "#fef9c3" : "#ffffff",
+              fontSize: 12,
+              cursor: "pointer",
+              color: showFavoritesOnly ? "#854d0e" : "#6b7280",
+            }}
+          >
+            {showFavoritesOnly ? "★ Favs" : "☆ Favs"}
+          </button>
         </div>
 
         <div style={{ marginBottom: 4 }}>
@@ -807,33 +873,62 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
                 const active = isActiveProject(p.id);
                 // When on overview page (/projects), highlight all projects in blue
                 const highlighted = isOverview || active;
+                const isFav = favoriteIds.has(p.id);
                 return (
                   <li key={p.id}>
-                    <Link
-                      href={`/projects/${p.id}`}
+                    <div
                       style={{
-                        display: "block",
-                        // Stretch highlight from edge to edge within the sidebar
+                        display: "flex",
+                        alignItems: "center",
                         margin: "0 -8px 4px",
-                        padding: "6px 12px",
-                        borderRadius: 0,
-                        textDecoration: "none",
-                        fontSize: 12,
-                        color: highlighted ? "#0f172a" : "#111827",
                         backgroundColor: highlighted ? "#bfdbfe" : "transparent",
-                        fontWeight: highlighted ? 500 : 400,
                       }}
                     >
-                      <div
+                      <Link
+                        href={`/projects/${p.id}`}
                         style={{
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
+                          flex: 1,
+                          display: "block",
+                          padding: "6px 0 6px 12px",
+                          borderRadius: 0,
+                          textDecoration: "none",
+                          fontSize: 12,
+                          color: highlighted ? "#0f172a" : "#111827",
+                          fontWeight: highlighted ? 500 : 400,
+                          minWidth: 0,
                         }}
                       >
-                        {p.name}
-                      </div>
-                    </Link>
+                        <div
+                          style={{
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {p.name}
+                        </div>
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavorite(p.id);
+                        }}
+                        title={isFav ? "Remove from favorites" : "Add to favorites"}
+                        style={{
+                          flexShrink: 0,
+                          border: "none",
+                          background: "transparent",
+                          cursor: "pointer",
+                          fontSize: 14,
+                          padding: "4px 8px",
+                          color: isFav ? "#eab308" : "#d1d5db",
+                          lineHeight: 1,
+                        }}
+                      >
+                        {isFav ? "★" : "☆"}
+                      </button>
+                    </div>
                   </li>
                 );
               })}
