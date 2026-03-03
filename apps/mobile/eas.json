@@ -10,7 +10,7 @@
       "channel": "development",
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://nexus-api-979156454944.us-central1.run.app"
+        "EXPO_PUBLIC_API_BASE_URL": "https://staging-api.nfsgrp.com"
       }
     },
     "preview": {
@@ -18,7 +18,7 @@
       "channel": "preview",
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://nexus-api-979156454944.us-central1.run.app"
+        "EXPO_PUBLIC_API_BASE_URL": "https://staging-api.nfsgrp.com"
       }
     },
     "android-apk": {
@@ -29,7 +29,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://nexus-api-979156454944.us-central1.run.app"
+        "EXPO_PUBLIC_API_BASE_URL": "https://staging-api.nfsgrp.com"
       }
     },
     "production": {
@@ -39,7 +39,7 @@
         "buildConfiguration": "Release"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://nexus-api-979156454944.us-central1.run.app"
+        "EXPO_PUBLIC_API_BASE_URL": "https://staging-api.nfsgrp.com"
       }
     }
   },

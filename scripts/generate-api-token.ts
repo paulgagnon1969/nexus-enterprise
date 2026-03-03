@@ -18,7 +18,7 @@
  * The script will output a token that can be added to .env as NEXUS_API_TOKEN
  */
 
-const API_URL = process.env.NEXUS_API_URL || "https://nexus-api-979156454944.us-central1.run.app";
+const API_URL = process.env.NEXUS_API_URL || "https://staging-api.nfsgrp.com";
 
 function parseArgs() {
   const args = process.argv.slice(2);

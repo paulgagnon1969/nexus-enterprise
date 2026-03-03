@@ -29,7 +29,7 @@ if [ ! -d "android" ]; then
 fi
 
 # Set production API URL
-export EXPO_PUBLIC_API_BASE_URL="https://nexus-api-979156454944.us-central1.run.app"
+export EXPO_PUBLIC_API_BASE_URL="https://staging-api.nfsgrp.com"
 echo "🌐 API URL: $EXPO_PUBLIC_API_BASE_URL"
 
 # Build dependencies

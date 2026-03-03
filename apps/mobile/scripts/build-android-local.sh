@@ -52,7 +52,7 @@ fi
 
 # Set production env vars for release builds
 if [ "$VARIANT" = "release" ]; then
-  export EXPO_PUBLIC_API_BASE_URL="https://nexus-api-979156454944.us-central1.run.app"
+  export EXPO_PUBLIC_API_BASE_URL="https://staging-api.nfsgrp.com"
   # Mapbox token — read from environment or ~/.nexus-prod-env
   if [ -z "$EXPO_PUBLIC_MAPBOX_TOKEN" ] && [ -f "$HOME/.nexus-prod-env" ]; then
     source "$HOME/.nexus-prod-env"

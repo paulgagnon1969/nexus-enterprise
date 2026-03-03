@@ -12,7 +12,7 @@ const DEFAULT_ENVIRONMENTS: Environment[] = [
   {
     id: "prod",
     name: "Production",
-    url: "https://nexus-api-979156454944.us-central1.run.app",
+    url: "https://staging-api.nfsgrp.com",
     color: "bg-green-500",
   },
   {

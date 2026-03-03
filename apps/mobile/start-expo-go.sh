@@ -15,7 +15,7 @@ cd "$HOME/nexus-enterprise/apps/mobile"
 ########################################
 
 # Option A: Production API
-API_BASE_DEFAULT="https://nexus-api-979156454944.us-central1.run.app"
+API_BASE_DEFAULT="https://staging-api.nfsgrp.com"
 
 # Option B: Local API (uncomment and set your Mac IP if you prefer local backend)
 # API_BASE_DEFAULT="http://192.168.1.27:8001"
