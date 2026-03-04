@@ -18084,6 +18084,171 @@ ${htmlBody}
                   </div>
                 )}
 
+                {/* Pending Prescreened Transactions — TENTATIVE bills from smart prescreen */}
+                {!projectBillsLoading && projectBills && (() => {
+                  const tentativeBills = projectBills.filter(
+                    (b: any) => b?.status === "TENTATIVE"
+                  );
+                  if (tentativeBills.length === 0) return null;
+                  const highConfCount = tentativeBills.filter((b: any) => (b?.prescreenConfidence ?? 0) >= 0.7).length;
+                  return (
+                    <div
+                      style={{
+                        marginBottom: 12,
+                        padding: "10px 12px",
+                        borderRadius: 6,
+                        background: "#eff6ff",
+                        border: "1px solid #93c5fd",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#1d4ed8" }}>
+                          🔍 Pending Prescreened Transactions ({tentativeBills.length})
+                        </div>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          {highConfCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const token = localStorage.getItem("accessToken");
+                                if (!token) return;
+                                try {
+                                  await fetch(`${API_BASE}/banking/transactions/bulk-prescreen-accept-by-confidence`, {
+                                    method: "PATCH",
+                                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                                    body: JSON.stringify({ minConfidence: 0.7, projectId: project?.id }),
+                                  });
+                                  setProjectBills(null);
+                                  setFinancialSummary(null);
+                                } catch {}
+                              }}
+                              style={{
+                                padding: "3px 8px", borderRadius: 4, border: "1px solid #16a34a",
+                                background: "#dcfce7", color: "#166534", cursor: "pointer", fontSize: 10, fontWeight: 600,
+                              }}
+                            >
+                              ✓ Confirm All High Confidence ({highConfCount})
+                            </button>
+                          )}
+                          <span style={{ fontSize: 11, color: "#3b82f6" }}>
+                            Smart prescreened — review and confirm
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {tentativeBills.map((b: any) => {
+                          const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
+                          const conf = typeof b?.prescreenConfidence === "number" ? b.prescreenConfidence : 0;
+                          const pct = Math.round(conf * 100);
+                          const chipStyle = conf >= 0.7
+                            ? { bg: "#dcfce7", color: "#166534", border: "#86efac" }
+                            : conf >= 0.5
+                              ? { bg: "#fef9c3", color: "#854d0e", border: "#fde047" }
+                              : { bg: "#ffedd5", color: "#9a3412", border: "#fdba74" };
+                          const srcLabel: Record<string, string> = {
+                            HD_PRO_XTRA: "HD", CHASE_BANK: "Chase", APPLE_CARD: "Apple", PLAID: "Bank",
+                          };
+                          return (
+                            <div
+                              key={String(b?.id ?? Math.random())}
+                              style={{
+                                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                                padding: "6px 8px", borderRadius: 4, background: "#ffffff",
+                                border: "1px solid #e5e7eb",
+                              }}
+                            >
+                              {/* Confidence chip */}
+                              <span
+                                style={{ padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: chipStyle.bg, color: chipStyle.color, border: `1px solid ${chipStyle.border}`, whiteSpace: "nowrap" }}
+                                title={`Prescreened at ${pct}% confidence`}
+                              >
+                                {pct}%
+                              </span>
+                              {/* Source badge */}
+                              {b?.sourceTransactionSource && (
+                                <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: "#f3f4f6", color: "#6b7280" }}>
+                                  {srcLabel[b.sourceTransactionSource] ?? b.sourceTransactionSource}
+                                </span>
+                              )}
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 600, fontSize: 12 }}>
+                                  {b?.vendorName ?? "Unknown Vendor"}
+                                </div>
+                                <div style={{ fontSize: 11, color: "#6b7280" }}>
+                                  {b?.billDate ? String(b.billDate).slice(0, 10) : "No date"}
+                                  {li?.description && ` · ${li.description}`}
+                                </div>
+                              </div>
+                              <div style={{ fontWeight: 600, fontSize: 13, color: "#1d4ed8" }}>
+                                {formatMoney(b?.totalAmount)}
+                              </div>
+                              {/* Actions */}
+                              <div style={{ display: "flex", gap: 4 }}>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    const token = localStorage.getItem("accessToken");
+                                    if (!token || !b?.sourceTransactionId) return;
+                                    try {
+                                      await fetch(`${API_BASE}/banking/transactions/${b.sourceTransactionId}/prescreen-accept`, {
+                                        method: "PATCH",
+                                        headers: { Authorization: `Bearer ${token}` },
+                                      });
+                                      setProjectBills(null);
+                                      setFinancialSummary(null);
+                                    } catch {}
+                                  }}
+                                  style={{
+                                    padding: "3px 6px", borderRadius: 4, border: "1px solid #16a34a",
+                                    background: "#dcfce7", color: "#166534", cursor: "pointer", fontSize: 10, fontWeight: 500,
+                                  }}
+                                  title="Confirm this prescreen match"
+                                >
+                                  ✓ Confirm
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    const token = localStorage.getItem("accessToken");
+                                    if (!token || !b?.sourceTransactionId) return;
+                                    try {
+                                      await fetch(`${API_BASE}/banking/transactions/${b.sourceTransactionId}/prescreen-reject`, {
+                                        method: "PATCH",
+                                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                                        body: JSON.stringify({ reason: "Rejected from project bills" }),
+                                      });
+                                      setProjectBills(null);
+                                      setFinancialSummary(null);
+                                    } catch {}
+                                  }}
+                                  style={{
+                                    padding: "3px 6px", borderRadius: 4, border: "1px solid #dc2626",
+                                    background: "#fef2f2", color: "#b91c1c", cursor: "pointer", fontSize: 10, fontWeight: 500,
+                                  }}
+                                  title="Reject — remove from this project"
+                                >
+                                  ✕ Reject
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openEditBillModal(b)}
+                                  style={{
+                                    padding: "3px 6px", borderRadius: 4, border: "1px solid #d1d5db",
+                                    background: "#f9fafb", color: "#374151", cursor: "pointer", fontSize: 10, fontWeight: 500,
+                                  }}
+                                  title="Open bill details"
+                                >
+                                  Edit
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Uncommitted Receipts Section - Draft bills from daily log receipts */}
                 {!projectBillsLoading && projectBills && (() => {
                   const uncommittedReceipts = projectBills.filter(

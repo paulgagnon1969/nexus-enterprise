@@ -178,6 +178,80 @@ export class CsvImportController {
     return this.csvImport.getDistinctCategories(actor.companyId);
   }
 
+  // ─── Raw transaction detail ──────────────────────────────────────
+
+  @Get("transactions/:id/raw")
+  async getRawTransaction(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Query("source") source: string,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.csvImport.getRawTransaction(actor.companyId, id, source);
+  }
+
+  // ─── Prescreen accept/reject/override ──────────────────────────────
+
+  @Patch("transactions/:id/prescreen-accept")
+  async acceptPrescreen(@Req() req: any, @Param("id") id: string) {
+    const actor = req.user as AuthenticatedUser;
+    return this.csvImport.acceptPrescreen(actor.companyId, id, actor.userId);
+  }
+
+  @Patch("transactions/:id/prescreen-reject")
+  async rejectPrescreen(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() body: { reason: string },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.csvImport.rejectPrescreen(actor.companyId, id, body.reason, actor.userId);
+  }
+
+  @Patch("transactions/:id/prescreen-override")
+  async overridePrescreen(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() body: { projectId: string; reason: string },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.csvImport.overridePrescreen(actor.companyId, id, body.projectId, body.reason, actor.userId);
+  }
+
+  @Patch("transactions/bulk-prescreen-accept")
+  async bulkAcceptPrescreen(
+    @Req() req: any,
+    @Body() body: { transactionIds: string[] },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    const results = [];
+    for (const txnId of body.transactionIds) {
+      try {
+        await this.csvImport.acceptPrescreen(actor.companyId, txnId, actor.userId);
+        results.push({ id: txnId, ok: true });
+      } catch (err: any) {
+        results.push({ id: txnId, ok: false, error: err.message });
+      }
+    }
+    return { results, accepted: results.filter((r) => r.ok).length };
+  }
+
+  // ─── Bulk accept by confidence threshold ──────────────────────────
+
+  @Patch("transactions/bulk-prescreen-accept-by-confidence")
+  async bulkAcceptByConfidence(
+    @Req() req: any,
+    @Body() body: { minConfidence: number; projectId?: string },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.csvImport.bulkAcceptByConfidence(
+      actor.companyId,
+      body.minConfidence ?? 0.7,
+      actor.userId,
+      body.projectId,
+    );
+  }
+
   // ─── Per-project summary ──────────────────────────────────────────
 
   @Get("projects-summary")
@@ -188,5 +262,39 @@ export class CsvImportController {
   ) {
     const actor = req.user as AuthenticatedUser;
     return this.csvImport.getProjectsSummary(actor.companyId, startDate, endDate);
+  }
+
+  // ─── Store-to-card reconciliation ─────────────────────────────────
+
+  @Get("reconciliation/store-card-matches")
+  async getStoreCardMatches(
+    @Req() req: any,
+    @Query("startDate") startDate?: string,
+    @Query("endDate") endDate?: string,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.csvImport.getStoreCardMatches(actor.companyId, startDate, endDate);
+  }
+
+  @Patch("reconciliation/link")
+  async linkStoreToCard(
+    @Req() req: any,
+    @Body() body: { storeTransactionIds: string[]; cardTransactionId: string },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.csvImport.linkStoreToCard(
+      actor.companyId,
+      body.storeTransactionIds,
+      body.cardTransactionId,
+    );
+  }
+
+  @Patch("reconciliation/unlink")
+  async unlinkReconciliation(
+    @Req() req: any,
+    @Body() body: { transactionIds: string[] },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.csvImport.unlinkReconciliation(actor.companyId, body.transactionIds);
   }
 }

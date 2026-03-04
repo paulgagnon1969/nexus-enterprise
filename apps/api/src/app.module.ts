@@ -1,5 +1,8 @@
 import { Module } from "@nestjs/common";
-import { ConfigModule } from "@nestjs/config";
+import { ConfigModule, ConfigService } from "@nestjs/config";
+import { APP_INTERCEPTOR } from "@nestjs/core";
+import { AppVersionInterceptor } from "./common/app-version.interceptor";
+import { LicenseStatusInterceptor } from "./common/license-status.interceptor";
 import { ScheduleModule } from "@nestjs/schedule";
 import { HealthModule } from "./modules/health/health.module";
 import { PrismaModule } from "./infra/prisma/prisma.module";
@@ -72,6 +75,7 @@ import { ReceiptEmailModule } from "./modules/receipt-email/receipt-email.module
 import { VideoAssessmentModule } from "./modules/video-assessment/video-assessment.module";
 import { AgreementsModule } from "./modules/agreements/agreements.module";
 import { NexCheckModule } from "./modules/nexcheck/nexcheck.module";
+import { ExportModule } from "./modules/export/export.module";
 
 @Module({
   imports: [
@@ -152,7 +156,19 @@ import { NexCheckModule } from "./modules/nexcheck/nexcheck.module";
     VideoAssessmentModule,
     AgreementsModule,
     NexCheckModule,
+    ExportModule,
   ],
-  controllers: [DevController]
+  controllers: [DevController],
+  providers: [
+    // Global interceptors (applied to all routes)
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: AppVersionInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: LicenseStatusInterceptor,
+    },
+  ],
 })
 export class AppModule {}

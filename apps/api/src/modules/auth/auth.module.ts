@@ -5,6 +5,7 @@ import { AuthController } from "./auth.controller";
 import { JwtStrategy } from "./jwt.strategy";
 import { DeviceSyncStrategy } from "./device-sync.strategy";
 import { RolesGuard, GlobalRolesGuard } from "./auth.guards";
+import { LicenseService } from "./license.service";
 import { Reflector } from "@nestjs/core";
 
 @Module({
@@ -17,6 +18,7 @@ import { Reflector } from "@nestjs/core";
   ],
   providers: [
     AuthService,
+    LicenseService,
     JwtStrategy,
     DeviceSyncStrategy,
     RolesGuard,
@@ -24,6 +26,6 @@ import { Reflector } from "@nestjs/core";
     Reflector,
   ],
   controllers: [AuthController],
-  exports: [AuthService]
+  exports: [AuthService, LicenseService]
 })
 export class AuthModule {}

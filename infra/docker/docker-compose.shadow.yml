@@ -3,6 +3,8 @@
 #
 # Requires .env.shadow at repo root (git-ignored). See .env.shadow.example.
 
+name: nexus-shadow
+
 services:
   # ---------- Data stores ----------
   postgres:

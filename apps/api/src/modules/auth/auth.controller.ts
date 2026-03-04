@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Post, Req, UseGuards, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post, Req, UseGuards, Query, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { AuthService } from "./auth.service";
+import { LicenseService } from "./license.service";
 import { RegisterDto, LoginDto, ChangePasswordDto } from "./dto/auth.dto";
 import { JwtAuthGuard, GlobalRolesGuard, GlobalRoles, GlobalRole, Public } from "./auth.guards";
 import { AuthenticatedUser } from "./jwt.strategy";
@@ -7,7 +8,10 @@ import { AcceptInviteDto } from "./dto/accept-invite.dto";
 
 @Controller("auth")
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly license: LicenseService,
+  ) {}
 
   @Public()
   @Post("register")
@@ -168,5 +172,50 @@ export class AuthController {
   ) {
     const actor = req.user as AuthenticatedUser;
     return this.auth.createServiceToken(actor, label, expiresInDays);
+  }
+
+  // ── Device Binding ───────────────────────────────────────────────
+
+  @UseGuards(JwtAuthGuard)
+  @Post("register-device")
+  async registerDevice(
+    @Req() req: any,
+    @Body() body: { deviceId: string; platform: string; deviceName?: string; appVersion?: string },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    const result = await this.license.registerDevice(user.userId, user.companyId, body);
+    if (result && "error" in result && result.error === "DEVICE_LIMIT_REACHED") {
+      throw new ForbiddenException(result);
+    }
+    return result;
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get("my-devices")
+  myDevices(@Req() req: any) {
+    const user = req.user as AuthenticatedUser;
+    return this.license.listDevices(user.userId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete("devices/:deviceId")
+  async revokeDevice(@Req() req: any, @Param("deviceId") deviceId: string) {
+    const user = req.user as AuthenticatedUser;
+    const result = await this.license.revokeDevice(user.userId, deviceId);
+    if (!result) throw new NotFoundException("Device not found");
+    return result;
+  }
+
+  // SUPER_ADMIN: revoke any user's device
+  @UseGuards(JwtAuthGuard, GlobalRolesGuard)
+  @GlobalRoles(GlobalRole.SUPER_ADMIN)
+  @Delete("admin/users/:userId/devices/:deviceId")
+  async adminRevokeDevice(
+    @Param("userId") userId: string,
+    @Param("deviceId") deviceId: string,
+  ) {
+    const result = await this.license.adminRevokeDevice(userId, deviceId);
+    if (!result) throw new NotFoundException("Device not found");
+    return result;
   }
 }

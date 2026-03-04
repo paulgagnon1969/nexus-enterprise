@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, Logger } from "@nestjs/common";
+import { Injectable, BadRequestException, Logger, Inject, forwardRef } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CsvImportSource } from "@prisma/client";
@@ -6,6 +6,8 @@ import { parse } from "csv-parse/sync";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { PrescreenService } from "./prescreen.service";
+import { NexPriceService } from "./nexprice.service";
 
 // ---------------------------------------------------------------------------
 // HD job-name normalizer (ported from scripts/hd-import/parse-hd-csv.ts)
@@ -63,6 +65,9 @@ interface ParsedRow {
   purchaser?: string;
   qty?: number;
   unitPrice?: number;
+  storeNumber?: string;
+  transactionRef?: string;
+  registerNumber?: string;
   // Chase
   postingDate?: Date;
   txnType?: string;
@@ -120,7 +125,13 @@ function computeFingerprint(source: CsvImportSource, row: ParsedRow): string {
 export class CsvImportService {
   private readonly logger = new Logger(CsvImportService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => PrescreenService))
+    private readonly prescreen: PrescreenService,
+    @Inject(forwardRef(() => NexPriceService))
+    private readonly nexprice: NexPriceService,
+  ) {}
 
   // ─── Orchestrator ────────────────────────────────────────────────
 
@@ -202,6 +213,9 @@ export class CsvImportService {
           purchaser: r.purchaser ?? null,
           qty: r.qty ?? null,
           unitPrice: r.unitPrice ?? null,
+          storeNumber: r.storeNumber ?? null,
+          transactionRef: r.transactionRef ?? null,
+          registerNumber: r.registerNumber ?? null,
           postingDate: r.postingDate ?? null,
           txnType: r.txnType ?? null,
           runningBalance: r.runningBalance ?? null,
@@ -241,6 +255,46 @@ export class CsvImportService {
       `Imported ${insertedCount} new rows (${skippedCount} duplicates skipped) from ${source} (batch ${batch.id})`,
     );
 
+    // Run prescreening on the newly imported batch
+    let prescreenResult = { total: 0, prescreened: 0, billsCreated: 0 };
+    if (insertedCount > 0) {
+      try {
+        prescreenResult = await this.prescreen.prescreenBatch(actor.companyId, batch.id);
+      } catch (err: any) {
+        this.logger.error(`Prescreening failed for batch ${batch.id}: ${err.message}`);
+      }
+    }
+
+    // NexPRICE dual-write: sync HD SKU rows to the global Master Cost Book
+    let nexpriceResult = { synced: 0, created: 0, updated: 0, skipped: 0 };
+    if (insertedCount > 0 && source === CsvImportSource.HD_PRO_XTRA) {
+      try {
+        const skuRows = rows.filter((r) => r.sku && r.unitPrice);
+        if (skuRows.length > 0) {
+          // Resolve regions for each row via HD store number
+          const contributions = await Promise.all(
+            skuRows.map(async (r) => {
+              const regionZip = r.storeNumber
+                ? await this.nexprice.resolveHdStoreRegion(r.storeNumber)
+                : null;
+              return {
+                sku: r.sku!,
+                description: r.description,
+                unitPrice: r.unitPrice!,
+                unit: "EA",
+                sourceVendor: "The Home Depot",
+                regionZip: regionZip ?? undefined,
+                companyId: actor.companyId,
+              };
+            }),
+          );
+          nexpriceResult = await this.nexprice.syncBatchToGlobalMaster(contributions);
+        }
+      } catch (err: any) {
+        this.logger.error(`NexPRICE sync failed for batch ${batch.id}: ${err.message}`);
+      }
+    }
+
     return {
       batchId: insertedCount > 0 ? batch.id : null,
       source,
@@ -250,6 +304,10 @@ export class CsvImportService {
       totalAmount: Math.round(insertedAmount * 100) / 100,
       dateRangeStart,
       dateRangeEnd,
+      prescreened: prescreenResult.prescreened,
+      tentativeBillsCreated: prescreenResult.billsCreated,
+      nexpriceSynced: nexpriceResult.synced,
+      nexpriceCreated: nexpriceResult.created,
     };
   }
 
@@ -308,6 +366,9 @@ export class CsvImportService {
         purchaser: r["Purchaser"] || r["Purchaser Name"] || undefined,
         qty: qty || undefined,
         unitPrice: netUnitPrice || undefined,
+        storeNumber: r["Store Number"] || undefined,
+        transactionRef: r["Transaction ID"] || r["Order Number"] || r["Invoice Number"] || undefined,
+        registerNumber: r["Register Number"] || undefined,
       };
     });
   }
@@ -713,10 +774,21 @@ export class CsvImportService {
             purchaser: t.purchaser,
             qty: t.qty,
             unitPrice: t.unitPrice,
+            storeNumber: t.storeNumber,
+            transactionRef: t.transactionRef,
+            registerNumber: t.registerNumber,
             txnType: t.txnType,
             runningBalance: t.runningBalance,
+            checkOrSlip: t.checkOrSlip,
+            clearingDate: t.clearingDate,
+            cardCategory: t.cardCategory,
             cardHolder: t.cardHolder,
             batchId: t.batchId,
+            // Prescreening metadata
+            prescreenProjectId: t.prescreenProjectId,
+            prescreenConfidence: t.prescreenConfidence,
+            prescreenReason: t.prescreenReason,
+            prescreenStatus: t.prescreenStatus,
           },
         });
       }
@@ -815,6 +887,261 @@ export class CsvImportService {
     return { ok: true, updated: ids.length };
   }
 
+  // ─── Raw transaction detail ──────────────────────────────────────
+
+  async getRawTransaction(companyId: string, transactionId: string, source: string) {
+    if (source === "PLAID") {
+      const txn = await this.prisma.bankTransaction.findFirst({
+        where: { id: transactionId, companyId },
+        include: { project: { select: { id: true, name: true } } },
+      });
+      if (!txn) throw new BadRequestException("Transaction not found.");
+      return {
+        source: "PLAID",
+        data: txn,
+        sourceColumns: [
+          { key: "date", label: "Date", type: "date" },
+          { key: "name", label: "Description", type: "string" },
+          { key: "merchantName", label: "Merchant", type: "string" },
+          { key: "amount", label: "Amount", type: "currency" },
+          { key: "primaryCategory", label: "Category", type: "string" },
+          { key: "detailedCategory", label: "Detailed Category", type: "string" },
+          { key: "paymentChannel", label: "Payment Channel", type: "string" },
+          { key: "transactionType", label: "Transaction Type", type: "string" },
+          { key: "pending", label: "Pending", type: "boolean" },
+        ],
+      };
+    }
+
+    const txn = await this.prisma.importedTransaction.findFirst({
+      where: { id: transactionId, companyId },
+      include: {
+        project: { select: { id: true, name: true } },
+        prescreenProject: { select: { id: true, name: true } },
+      },
+    });
+    if (!txn) throw new BadRequestException("Transaction not found.");
+
+    const columnsBySource: Record<string, Array<{ key: string; label: string; type: string }>> = {
+      HD_PRO_XTRA: [
+        { key: "date", label: "Date", type: "date" },
+        { key: "storeNumber", label: "Store #", type: "string" },
+        { key: "transactionRef", label: "Transaction ID", type: "string" },
+        { key: "registerNumber", label: "Register #", type: "string" },
+        { key: "jobNameRaw", label: "Job Name (Raw)", type: "string" },
+        { key: "jobName", label: "Job Name (Normalized)", type: "string" },
+        { key: "sku", label: "SKU", type: "string" },
+        { key: "description", label: "SKU Description", type: "string" },
+        { key: "qty", label: "Qty", type: "number" },
+        { key: "unitPrice", label: "Unit Price", type: "currency" },
+        { key: "amount", label: "Net Amount", type: "currency" },
+        { key: "department", label: "Department", type: "string" },
+        { key: "category", label: "Class", type: "string" },
+        { key: "subcategory", label: "Subclass", type: "string" },
+        { key: "purchaser", label: "Purchaser", type: "string" },
+      ],
+      CHASE_BANK: [
+        { key: "postingDate", label: "Posting Date", type: "date" },
+        { key: "description", label: "Description", type: "string" },
+        { key: "txnType", label: "Type", type: "string" },
+        { key: "amount", label: "Amount", type: "currency" },
+        { key: "runningBalance", label: "Balance", type: "currency" },
+        { key: "checkOrSlip", label: "Check/Slip #", type: "string" },
+      ],
+      APPLE_CARD: [
+        { key: "date", label: "Transaction Date", type: "date" },
+        { key: "clearingDate", label: "Clearing Date", type: "date" },
+        { key: "description", label: "Description", type: "string" },
+        { key: "merchant", label: "Merchant", type: "string" },
+        { key: "cardCategory", label: "Category", type: "string" },
+        { key: "amount", label: "Amount", type: "currency" },
+        { key: "cardHolder", label: "Purchased By", type: "string" },
+      ],
+    };
+
+    return {
+      source: txn.source,
+      data: txn,
+      sourceColumns: columnsBySource[txn.source] ?? [],
+    };
+  }
+
+  // ─── Prescreen accept/reject ────────────────────────────────────────
+
+  async acceptPrescreen(companyId: string, transactionId: string, userId?: string) {
+    const txn = await this.prisma.importedTransaction.findFirst({
+      where: { id: transactionId, companyId },
+    });
+    if (!txn) throw new BadRequestException("Transaction not found.");
+    if (!txn.prescreenProjectId) throw new BadRequestException("No prescreen suggestion.");
+
+    // Accept: set projectId, update prescreen status
+    const updated = await this.prisma.importedTransaction.update({
+      where: { id: transactionId },
+      data: {
+        projectId: txn.prescreenProjectId,
+        prescreenStatus: "ACCEPTED",
+      },
+      include: { project: { select: { id: true, name: true } } },
+    });
+
+    // Promote tentative bill to DRAFT
+    await this.prisma.projectBill.updateMany({
+      where: { sourceTransactionId: transactionId, status: "TENTATIVE" },
+      data: { status: "DRAFT" },
+    });
+
+    // Log feedback
+    await this.prisma.prescreenFeedback.create({
+      data: {
+        companyId,
+        transactionId,
+        prescreenProjectId: txn.prescreenProjectId,
+        actualProjectId: txn.prescreenProjectId,
+        feedbackType: "ACCEPTED",
+        source: txn.source,
+        merchant: txn.merchant,
+        jobNameNormalized: txn.jobName,
+        storeNumber: txn.storeNumber,
+        purchaser: txn.purchaser,
+        createdByUserId: userId,
+      },
+    });
+
+    return updated;
+  }
+
+  async rejectPrescreen(companyId: string, transactionId: string, reason: string, userId?: string) {
+    const txn = await this.prisma.importedTransaction.findFirst({
+      where: { id: transactionId, companyId },
+    });
+    if (!txn) throw new BadRequestException("Transaction not found.");
+
+    // Reject: clear projectId, update prescreen status
+    const updated = await this.prisma.importedTransaction.update({
+      where: { id: transactionId },
+      data: {
+        prescreenStatus: "REJECTED",
+        prescreenRejectionReason: reason,
+        projectId: null,
+      },
+    });
+
+    // Delete tentative bill
+    await this.prisma.projectBill.deleteMany({
+      where: { sourceTransactionId: transactionId, status: "TENTATIVE" },
+    });
+
+    // Log feedback
+    await this.prisma.prescreenFeedback.create({
+      data: {
+        companyId,
+        transactionId,
+        prescreenProjectId: txn.prescreenProjectId,
+        actualProjectId: null,
+        feedbackType: "REJECTED",
+        reason,
+        source: txn.source,
+        merchant: txn.merchant,
+        jobNameNormalized: txn.jobName,
+        storeNumber: txn.storeNumber,
+        purchaser: txn.purchaser,
+        createdByUserId: userId,
+      },
+    });
+
+    return updated;
+  }
+
+  async overridePrescreen(
+    companyId: string,
+    transactionId: string,
+    newProjectId: string,
+    reason: string,
+    userId?: string,
+  ) {
+    const txn = await this.prisma.importedTransaction.findFirst({
+      where: { id: transactionId, companyId },
+    });
+    if (!txn) throw new BadRequestException("Transaction not found.");
+
+    // Override: set new projectId, update prescreen status
+    const updated = await this.prisma.importedTransaction.update({
+      where: { id: transactionId },
+      data: {
+        projectId: newProjectId,
+        prescreenStatus: "OVERRIDDEN",
+      },
+      include: { project: { select: { id: true, name: true } } },
+    });
+
+    // Move tentative bill to new project or delete and recreate
+    const existingBill = await this.prisma.projectBill.findFirst({
+      where: { sourceTransactionId: transactionId, status: "TENTATIVE" },
+    });
+    if (existingBill) {
+      await this.prisma.projectBill.update({
+        where: { id: existingBill.id },
+        data: { projectId: newProjectId, status: "DRAFT" },
+      });
+    }
+
+    // Log feedback
+    await this.prisma.prescreenFeedback.create({
+      data: {
+        companyId,
+        transactionId,
+        prescreenProjectId: txn.prescreenProjectId,
+        actualProjectId: newProjectId,
+        feedbackType: "OVERRIDDEN",
+        reason,
+        source: txn.source,
+        merchant: txn.merchant,
+        jobNameNormalized: txn.jobName,
+        storeNumber: txn.storeNumber,
+        purchaser: txn.purchaser,
+        createdByUserId: userId,
+      },
+    });
+
+    return updated;
+  }
+
+  // ─── Bulk accept by confidence ────────────────────────────────────
+
+  async bulkAcceptByConfidence(
+    companyId: string,
+    minConfidence: number,
+    userId?: string,
+    projectId?: string,
+  ) {
+    const where: any = {
+      companyId,
+      prescreenStatus: "PENDING",
+      prescreenConfidence: { gte: minConfidence },
+      prescreenProjectId: { not: null },
+    };
+    if (projectId) where.prescreenProjectId = projectId;
+
+    const candidates = await this.prisma.importedTransaction.findMany({
+      where,
+      select: { id: true },
+    });
+
+    let accepted = 0;
+    const errors: string[] = [];
+    for (const c of candidates) {
+      try {
+        await this.acceptPrescreen(companyId, c.id, userId);
+        accepted++;
+      } catch (err: any) {
+        errors.push(`${c.id}: ${err.message}`);
+      }
+    }
+
+    return { ok: true, found: candidates.length, accepted, errors };
+  }
+
   // ─── Distinct categories ──────────────────────────────────────────
 
   async getDistinctCategories(companyId: string) {
@@ -842,6 +1169,214 @@ export class CsvImportService {
     for (const r of appleCats) if (r.cardCategory) all.add(r.cardCategory);
 
     return Array.from(all).sort();
+  }
+
+  // ─── Store-to-card reconciliation ─────────────────────────────────
+
+  async getStoreCardMatches(
+    companyId: string,
+    startDate?: string,
+    endDate?: string,
+  ) {
+    const dateGte = startDate ? new Date(startDate) : undefined;
+    const dateLte = endDate ? new Date(endDate) : undefined;
+    const dateFilter: any = {};
+    if (dateGte) dateFilter.gte = dateGte;
+    if (dateLte) dateFilter.lte = dateLte;
+    const hasDate = Object.keys(dateFilter).length > 0;
+
+    // 1. Load HD store transactions (not yet reconciled)
+    const hdTxns = await this.prisma.importedTransaction.findMany({
+      where: {
+        companyId,
+        source: CsvImportSource.HD_PRO_XTRA,
+        storeNumber: { not: null },
+        reconciledWithId: null,
+        ...(hasDate ? { date: dateFilter } : {}),
+      },
+      orderBy: { date: "asc" },
+    });
+
+    // 2. Load credit card transactions (Apple Card + Chase, not yet reconciled)
+    const cardTxns = await this.prisma.importedTransaction.findMany({
+      where: {
+        companyId,
+        source: { in: [CsvImportSource.APPLE_CARD, CsvImportSource.CHASE_BANK] },
+        reconciledWithId: null,
+        ...(hasDate ? { date: dateFilter } : {}),
+      },
+      orderBy: { date: "asc" },
+    });
+
+    // 3. Group HD transactions by (date ISO, storeNumber) → sum amounts
+    type StoreGroup = {
+      dateStr: string;
+      storeNumber: string;
+      totalAmount: number;
+      transactionIds: string[];
+      items: Array<{ id: string; description: string; amount: number; sku?: string | null; qty?: number | null }>;
+    };
+    const storeGroups = new Map<string, StoreGroup>();
+
+    for (const t of hdTxns) {
+      const dateStr = t.date.toISOString().slice(0, 10);
+      const key = `${dateStr}|${t.storeNumber}`;
+      if (!storeGroups.has(key)) {
+        storeGroups.set(key, {
+          dateStr,
+          storeNumber: t.storeNumber!,
+          totalAmount: 0,
+          transactionIds: [],
+          items: [],
+        });
+      }
+      const g = storeGroups.get(key)!;
+      g.totalAmount += t.amount;
+      g.transactionIds.push(t.id);
+      g.items.push({ id: t.id, description: t.description, amount: t.amount, sku: t.sku, qty: t.qty });
+    }
+
+    // 4. For each store group, find matching card transactions (±1 day, ±$0.02)
+    const AMOUNT_TOLERANCE = 0.02;
+    const DAY_MS = 86_400_000;
+
+    type MatchResult = {
+      storeGroup: StoreGroup;
+      cardTransaction: {
+        id: string;
+        source: string;
+        date: string;
+        description: string;
+        merchant: string | null;
+        amount: number;
+        cardHolder: string | null;
+      };
+      amountDiff: number;
+      dateDiffDays: number;
+    };
+
+    const matches: MatchResult[] = [];
+    const matchedCardIds = new Set<string>();
+    const matchedStoreKeys = new Set<string>();
+
+    for (const [key, group] of storeGroups.entries()) {
+      const groupDate = new Date(group.dateStr).getTime();
+      const roundedTotal = Math.round(group.totalAmount * 100) / 100;
+
+      for (const card of cardTxns) {
+        if (matchedCardIds.has(card.id)) continue;
+        const cardDate = card.date.getTime();
+        const dateDiff = Math.abs(cardDate - groupDate);
+        if (dateDiff > DAY_MS) continue;
+
+        const amountDiff = Math.abs(card.amount - roundedTotal);
+        if (amountDiff > AMOUNT_TOLERANCE) continue;
+
+        // Match found
+        matches.push({
+          storeGroup: group,
+          cardTransaction: {
+            id: card.id,
+            source: card.source,
+            date: card.date.toISOString().slice(0, 10),
+            description: card.description,
+            merchant: card.merchant,
+            amount: card.amount,
+            cardHolder: card.cardHolder,
+          },
+          amountDiff: Math.round(amountDiff * 100) / 100,
+          dateDiffDays: Math.round(dateDiff / DAY_MS),
+        });
+        matchedCardIds.add(card.id);
+        matchedStoreKeys.add(key);
+        break; // One card match per store group
+      }
+    }
+
+    // Unmatched groups
+    const unmatchedStoreGroups = Array.from(storeGroups.entries())
+      .filter(([key]) => !matchedStoreKeys.has(key))
+      .map(([, g]) => g);
+
+    const unmatchedCards = cardTxns
+      .filter((c) => !matchedCardIds.has(c.id))
+      .map((c) => ({
+        id: c.id,
+        source: c.source,
+        date: c.date.toISOString().slice(0, 10),
+        description: c.description,
+        merchant: c.merchant,
+        amount: c.amount,
+        cardHolder: c.cardHolder,
+      }));
+
+    return {
+      matches,
+      unmatchedStoreGroups,
+      unmatchedCards,
+      summary: {
+        totalMatches: matches.length,
+        totalUnmatchedStoreGroups: unmatchedStoreGroups.length,
+        totalUnmatchedCards: unmatchedCards.length,
+      },
+    };
+  }
+
+  async linkStoreToCard(
+    companyId: string,
+    storeTransactionIds: string[],
+    cardTransactionId: string,
+  ) {
+    // Verify all transactions belong to this company
+    const storeTxns = await this.prisma.importedTransaction.findMany({
+      where: { id: { in: storeTransactionIds }, companyId },
+    });
+    if (storeTxns.length !== storeTransactionIds.length) {
+      throw new BadRequestException("One or more store transactions not found.");
+    }
+
+    const cardTxn = await this.prisma.importedTransaction.findFirst({
+      where: { id: cardTransactionId, companyId },
+    });
+    if (!cardTxn) throw new BadRequestException("Card transaction not found.");
+
+    const now = new Date();
+
+    // Link all store transactions → card transaction
+    await this.prisma.importedTransaction.updateMany({
+      where: { id: { in: storeTransactionIds } },
+      data: { reconciledWithId: cardTransactionId, reconciledAt: now },
+    });
+
+    // Link card transaction → first store transaction (bidirectional ref)
+    await this.prisma.importedTransaction.update({
+      where: { id: cardTransactionId },
+      data: { reconciledWithId: storeTransactionIds[0], reconciledAt: now },
+    });
+
+    return { ok: true, linked: storeTransactionIds.length + 1 };
+  }
+
+  async unlinkReconciliation(companyId: string, transactionIds: string[]) {
+    // Find all transactions that reference any of these IDs
+    const txns = await this.prisma.importedTransaction.findMany({
+      where: {
+        companyId,
+        OR: [
+          { id: { in: transactionIds } },
+          { reconciledWithId: { in: transactionIds } },
+        ],
+      },
+      select: { id: true },
+    });
+
+    const allIds = txns.map((t) => t.id);
+    await this.prisma.importedTransaction.updateMany({
+      where: { id: { in: allIds } },
+      data: { reconciledWithId: null, reconciledAt: null },
+    });
+
+    return { ok: true, unlinked: allIds.length };
   }
 
   // ─── Per-project summary (for reconciliation) ─────────────────────

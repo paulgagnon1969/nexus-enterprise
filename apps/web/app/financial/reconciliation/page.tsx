@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { PageCard } from "../../ui-shell";
+import { RawDetailModal } from "../../components/RawDataTable";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -46,6 +47,36 @@ type UnifiedTransaction = {
 
 type ProjectPickerItem = { id: string; name: string };
 
+type StoreGroupItem = { id: string; description: string; amount: number; sku?: string | null; qty?: number | null };
+type StoreGroup = {
+  dateStr: string;
+  storeNumber: string;
+  totalAmount: number;
+  transactionIds: string[];
+  items: StoreGroupItem[];
+};
+type CardTxn = {
+  id: string;
+  source: string;
+  date: string;
+  description: string;
+  merchant: string | null;
+  amount: number;
+  cardHolder: string | null;
+};
+type StoreCardMatch = {
+  storeGroup: StoreGroup;
+  cardTransaction: CardTxn;
+  amountDiff: number;
+  dateDiffDays: number;
+};
+type StoreCardData = {
+  matches: StoreCardMatch[];
+  unmatchedStoreGroups: StoreGroup[];
+  unmatchedCards: CardTxn[];
+  summary: { totalMatches: number; totalUnmatchedStoreGroups: number; totalUnmatchedCards: number };
+};
+
 // ── Page ─────────────────────────────────────────────────────────────
 
 export default function FinancialReconciliationPage() {
@@ -65,6 +96,18 @@ export default function FinancialReconciliationPage() {
   // Source breakdown (computed from unassigned + summary)
   type SourceBreakdown = { source: string; count: number; total: number };
   const [sourceBreakdown, setSourceBreakdown] = useState<SourceBreakdown[]>([]);
+
+  // Store-to-card reconciliation
+  const [storeCardData, setStoreCardData] = useState<StoreCardData | null>(null);
+  const [storeCardLoading, setStoreCardLoading] = useState(false);
+  const [storeCardExpanded, setStoreCardExpanded] = useState(false);
+  const [storeCardTab, setStoreCardTab] = useState<"matches" | "unmatchedStore" | "unmatchedCard">("matches");
+  const [linkingId, setLinkingId] = useState<string | null>(null);
+
+  // Raw detail modal
+  const [rawDetailOpen, setRawDetailOpen] = useState(false);
+  const [rawDetailTxn, setRawDetailTxn] = useState<Record<string, any> | null>(null);
+  const [rawDetailSource, setRawDetailSource] = useState<string>("");
 
   function getToken() {
     return typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
@@ -128,6 +171,9 @@ export default function FinancialReconciliationPage() {
         }
       }
       setSourceBreakdown(breakdowns);
+
+      // Fetch store-to-card matches
+      fetchStoreCardMatches(token, params);
     } catch (err: any) {
       setError(err?.message ?? "Failed to load reconciliation data");
     } finally {
@@ -138,6 +184,71 @@ export default function FinancialReconciliationPage() {
   useEffect(() => {
     fetchAll();
   }, []);
+
+  async function fetchStoreCardMatches(token: string, params: URLSearchParams) {
+    setStoreCardLoading(true);
+    try {
+      const qs = params.toString() ? `?${params}` : "";
+      const res = await fetch(`${API_BASE}/banking/reconciliation/store-card-matches${qs}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setStoreCardData(await res.json());
+    } catch {} finally {
+      setStoreCardLoading(false);
+    }
+  }
+
+  async function handleLinkMatch(match: StoreCardMatch) {
+    const token = getToken();
+    if (!token) return;
+    setLinkingId(match.cardTransaction.id);
+    try {
+      const res = await fetch(`${API_BASE}/banking/reconciliation/link`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          storeTransactionIds: match.storeGroup.transactionIds,
+          cardTransactionId: match.cardTransaction.id,
+        }),
+      });
+      if (!res.ok) throw new Error(`Failed (${res.status})`);
+      // Remove from matches list optimistically
+      setStoreCardData(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          matches: prev.matches.filter(m => m.cardTransaction.id !== match.cardTransaction.id),
+          summary: {
+            ...prev.summary,
+            totalMatches: prev.summary.totalMatches - 1,
+          },
+        };
+      });
+    } catch (err: any) {
+      setError(err?.message ?? "Failed to link");
+    } finally {
+      setLinkingId(null);
+    }
+  }
+
+  async function handleDismissMatch(match: StoreCardMatch) {
+    // Move to unmatched lists (no backend call, just UI shuffle)
+    setStoreCardData(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        matches: prev.matches.filter(m => m.cardTransaction.id !== match.cardTransaction.id),
+        unmatchedStoreGroups: [...prev.unmatchedStoreGroups, match.storeGroup],
+        unmatchedCards: [...prev.unmatchedCards, match.cardTransaction],
+        summary: {
+          ...prev.summary,
+          totalMatches: prev.summary.totalMatches - 1,
+          totalUnmatchedStoreGroups: prev.summary.totalUnmatchedStoreGroups + 1,
+          totalUnmatchedCards: prev.summary.totalUnmatchedCards + 1,
+        },
+      };
+    });
+  }
 
   async function fetchUnassignedPage(page: number) {
     const token = getToken();
@@ -365,6 +476,224 @@ export default function FinancialReconciliationPage() {
             </div>
           )}
 
+          {/* ── Store-to-Card Reconciliation ── */}
+          {storeCardData && (storeCardData.summary.totalMatches > 0 || storeCardData.summary.totalUnmatchedStoreGroups > 0) && (
+            <div style={{ marginBottom: 24 }}>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: 8 }}
+                onClick={() => setStoreCardExpanded(!storeCardExpanded)}
+              >
+                <span style={{ fontSize: 13, transform: storeCardExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s" }}>&#9654;</span>
+                <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>
+                  Store ↔ Card Matching
+                </h3>
+                <span style={{ fontSize: 12, color: "#22c55e", fontWeight: 700, background: "#f0fdf4", padding: "2px 8px", borderRadius: 4 }}>
+                  {storeCardData.summary.totalMatches} match{storeCardData.summary.totalMatches !== 1 ? "es" : ""}
+                </span>
+                <span style={{ fontSize: 12, color: "#f59e0b", fontWeight: 700, background: "#fffbeb", padding: "2px 8px", borderRadius: 4 }}>
+                  {storeCardData.summary.totalUnmatchedStoreGroups} unmatched HD
+                </span>
+                <span style={{ fontSize: 12, color: "#6b7280", fontWeight: 700, background: "#f3f4f6", padding: "2px 8px", borderRadius: 4 }}>
+                  {storeCardData.summary.totalUnmatchedCards} unmatched card
+                </span>
+              </div>
+
+              {storeCardExpanded && (
+                <>
+                  {/* Tab bar */}
+                  <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
+                    {(["matches", "unmatchedStore", "unmatchedCard"] as const).map(tab => {
+                      const labels = { matches: "Matches", unmatchedStore: "Unmatched HD", unmatchedCard: "Unmatched Cards" };
+                      const counts = {
+                        matches: storeCardData.summary.totalMatches,
+                        unmatchedStore: storeCardData.summary.totalUnmatchedStoreGroups,
+                        unmatchedCard: storeCardData.summary.totalUnmatchedCards,
+                      };
+                      return (
+                        <button key={tab} type="button" onClick={() => setStoreCardTab(tab)} style={{
+                          padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                          border: storeCardTab === tab ? "1px solid #2563eb" : "1px solid #d1d5db",
+                          background: storeCardTab === tab ? "#eff6ff" : "#fff",
+                          color: storeCardTab === tab ? "#2563eb" : "#374151",
+                        }}>
+                          {labels[tab]} ({counts[tab]})
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Matches tab */}
+                  {storeCardTab === "matches" && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                      {storeCardData.matches.length === 0 && (
+                        <div style={{ padding: 20, textAlign: "center", color: "#6b7280", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 8 }}>
+                          No matches found. Try importing both HD and card CSVs with overlapping date ranges.
+                        </div>
+                      )}
+                      {storeCardData.matches.map((m, idx) => (
+                        <div key={idx} style={{
+                          border: "1px solid #d1fae5", borderRadius: 10, padding: 14,
+                          background: "#f0fdf4", display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap",
+                        }}>
+                          {/* Left: HD store group */}
+                          <div style={{ flex: 1, minWidth: 240 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "#c2410c", marginBottom: 4 }}>
+                              HD Store #{m.storeGroup.storeNumber} — {m.storeGroup.dateStr}
+                            </div>
+                            <div style={{ fontSize: 12, color: "#374151", marginBottom: 4 }}>
+                              {m.storeGroup.items.length} item{m.storeGroup.items.length !== 1 ? "s" : ""}
+                            </div>
+                            {m.storeGroup.items.slice(0, 5).map((item, i) => (
+                              <div key={i} style={{ fontSize: 11, color: "#6b7280", marginLeft: 8 }}>
+                                {item.qty ? `${item.qty}× ` : ""}{item.description.slice(0, 40)}{item.description.length > 40 ? "..." : ""} — ${fmt(item.amount)}
+                              </div>
+                            ))}
+                            {m.storeGroup.items.length > 5 && (
+                              <div style={{ fontSize: 11, color: "#9ca3af", marginLeft: 8 }}>+{m.storeGroup.items.length - 5} more</div>
+                            )}
+                            <div style={{ fontSize: 12, fontWeight: 700, color: "#c2410c", marginTop: 4 }}>
+                              Total: ${fmt(m.storeGroup.totalAmount)}
+                            </div>
+                          </div>
+
+                          {/* Center: match indicator */}
+                          <div style={{
+                            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                            padding: "8px 0", minWidth: 60,
+                          }}>
+                            <span style={{ fontSize: 18 }}>↔</span>
+                            <span style={{ fontSize: 10, color: m.amountDiff === 0 ? "#22c55e" : "#f59e0b" }}>
+                              {m.amountDiff === 0 ? "Exact" : `±$${m.amountDiff.toFixed(2)}`}
+                            </span>
+                            {m.dateDiffDays > 0 && (
+                              <span style={{ fontSize: 10, color: "#9ca3af" }}>{m.dateDiffDays}d offset</span>
+                            )}
+                          </div>
+
+                          {/* Right: card transaction */}
+                          <div style={{ flex: 1, minWidth: 200 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", marginBottom: 4 }}>
+                              {m.cardTransaction.source === "APPLE_CARD" ? "Apple Card" : "Chase"} — {m.cardTransaction.date}
+                            </div>
+                            <div style={{ fontSize: 12, color: "#6b7280" }}>
+                              {m.cardTransaction.description}
+                            </div>
+                            {m.cardTransaction.merchant && (
+                              <div style={{ fontSize: 11, color: "#9ca3af" }}>{m.cardTransaction.merchant}</div>
+                            )}
+                            {m.cardTransaction.cardHolder && (
+                              <div style={{ fontSize: 11, color: "#9ca3af" }}>{m.cardTransaction.cardHolder}</div>
+                            )}
+                            <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginTop: 4 }}>
+                              ${fmt(m.cardTransaction.amount)}
+                            </div>
+                          </div>
+
+                          {/* Actions */}
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 80 }}>
+                            <button
+                              type="button"
+                              onClick={() => handleLinkMatch(m)}
+                              disabled={linkingId === m.cardTransaction.id}
+                              style={{
+                                padding: "6px 12px", borderRadius: 6, border: "none",
+                                background: "#22c55e", color: "#fff", fontSize: 11, fontWeight: 700,
+                                cursor: linkingId === m.cardTransaction.id ? "not-allowed" : "pointer",
+                                opacity: linkingId === m.cardTransaction.id ? 0.6 : 1,
+                              }}
+                            >
+                              {linkingId === m.cardTransaction.id ? "Linking..." : "Link"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDismissMatch(m)}
+                              style={{
+                                padding: "6px 12px", borderRadius: 6, border: "1px solid #d1d5db",
+                                background: "#fff", color: "#6b7280", fontSize: 11, fontWeight: 600, cursor: "pointer",
+                              }}
+                            >
+                              Dismiss
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Unmatched HD tab */}
+                  {storeCardTab === "unmatchedStore" && (
+                    <div style={{ overflowX: "auto", borderRadius: 8, border: "1px solid #e5e7eb" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                        <thead style={{ background: "#f9fafb" }}>
+                          <tr>
+                            <th style={{ textAlign: "left", padding: "8px 10px" }}>Date</th>
+                            <th style={{ textAlign: "left", padding: "8px 10px" }}>Store #</th>
+                            <th style={{ textAlign: "right", padding: "8px 10px" }}>Items</th>
+                            <th style={{ textAlign: "right", padding: "8px 10px" }}>Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {storeCardData.unmatchedStoreGroups.length === 0 && (
+                            <tr><td colSpan={4} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>All HD store groups matched.</td></tr>
+                          )}
+                          {storeCardData.unmatchedStoreGroups.map((g, i) => (
+                            <tr key={i} style={{ borderTop: "1px solid #e5e7eb" }}>
+                              <td style={{ padding: "8px 10px" }}>{g.dateStr}</td>
+                              <td style={{ padding: "8px 10px" }}>#{g.storeNumber}</td>
+                              <td style={{ padding: "8px 10px", textAlign: "right" }}>{g.items.length}</td>
+                              <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 600 }}>${fmt(g.totalAmount)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {/* Unmatched Cards tab */}
+                  {storeCardTab === "unmatchedCard" && (
+                    <div style={{ overflowX: "auto", borderRadius: 8, border: "1px solid #e5e7eb" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                        <thead style={{ background: "#f9fafb" }}>
+                          <tr>
+                            <th style={{ textAlign: "left", padding: "8px 10px" }}>Date</th>
+                            <th style={{ textAlign: "left", padding: "8px 10px" }}>Source</th>
+                            <th style={{ textAlign: "left", padding: "8px 10px" }}>Description</th>
+                            <th style={{ textAlign: "left", padding: "8px 10px" }}>Merchant</th>
+                            <th style={{ textAlign: "right", padding: "8px 10px" }}>Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {storeCardData.unmatchedCards.length === 0 && (
+                            <tr><td colSpan={5} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>All card transactions matched.</td></tr>
+                          )}
+                          {storeCardData.unmatchedCards.map((c, i) => (
+                            <tr key={i} style={{ borderTop: "1px solid #e5e7eb" }}>
+                              <td style={{ padding: "8px 10px" }}>{c.date}</td>
+                              <td style={{ padding: "8px 10px" }}>
+                                <span style={{
+                                  padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700,
+                                  background: c.source === "APPLE_CARD" ? "#f3f4f6" : "#dbeafe",
+                                  color: c.source === "APPLE_CARD" ? "#374151" : "#2563eb",
+                                }}>
+                                  {c.source === "APPLE_CARD" ? "Apple" : "Chase"}
+                                </span>
+                              </td>
+                              <td style={{ padding: "8px 10px", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {c.description}
+                              </td>
+                              <td style={{ padding: "8px 10px" }}>{c.merchant || "—"}</td>
+                              <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 600 }}>${fmt(c.amount)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {/* ── Project Breakdown ── */}
           <div style={{ marginBottom: 24 }}>
             <h3 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 8px" }}>
@@ -438,12 +767,13 @@ export default function FinancialReconciliationPage() {
                     <th style={{ textAlign: "left", padding: "8px 10px" }}>Merchant</th>
                     <th style={{ textAlign: "right", padding: "8px 10px" }}>Amount</th>
                     <th style={{ textAlign: "left", padding: "8px 10px" }}>Assign to Project</th>
+                    <th style={{ textAlign: "center", padding: "8px 10px", width: 32 }}></th>
                   </tr>
                 </thead>
                 <tbody>
                   {unassigned.length === 0 && (
                     <tr>
-                      <td colSpan={6} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>
+                      <td colSpan={7} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>
                         {unassignedTotal === 0 ? "All transactions are assigned to projects." : "No unassigned transactions on this page."}
                       </td>
                     </tr>
@@ -496,6 +826,21 @@ export default function FinancialReconciliationPage() {
                             {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                           </select>
                         </td>
+                        <td style={{ padding: "8px 4px", textAlign: "center" }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const flat = txn.extra ? { ...txn, ...txn.extra } : { ...txn };
+                              setRawDetailTxn(flat);
+                              setRawDetailSource(txn.source);
+                              setRawDetailOpen(true);
+                            }}
+                            title="View raw data"
+                            style={{ border: "none", background: "none", cursor: "pointer", fontSize: 13, padding: 0, color: "#6b7280" }}
+                          >
+                            🔍
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}
@@ -526,6 +871,13 @@ export default function FinancialReconciliationPage() {
           </div>
         </>
       )}
+      {/* Raw Detail Modal */}
+      <RawDetailModal
+        open={rawDetailOpen}
+        onClose={() => setRawDetailOpen(false)}
+        source={rawDetailSource}
+        data={rawDetailTxn}
+      />
     </PageCard>
   );
 }

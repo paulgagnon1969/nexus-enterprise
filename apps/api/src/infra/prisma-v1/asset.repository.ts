@@ -25,6 +25,7 @@ export interface CreateAssetInput {
   sharingVisibility?: AssetSharingVisibility;
   maintenanceAssigneeId?: string | null;
   maintenancePoolId?: string | null;
+  dispositionId?: string | null;
 }
 
 export interface UpdateAssetInput {
@@ -49,6 +50,7 @@ export interface UpdateAssetInput {
   sharingVisibility?: AssetSharingVisibility;
   maintenanceAssigneeId?: string | null;
   maintenancePoolId?: string | null;
+  dispositionId?: string | null;
 }
 
 export interface CostSummary {
@@ -124,9 +126,11 @@ export class AssetRepository {
       orderBy: { name: "asc" },
       include: {
         currentLocation: { select: { id: true, name: true, type: true } },
+        disposition: { select: { id: true, code: true, label: true, color: true, isTerminal: true } },
         owner: { select: { id: true, email: true, firstName: true, lastName: true } },
         maintenanceAssignee: { select: { id: true, email: true, firstName: true, lastName: true } },
         maintenancePool: { select: { id: true, name: true } },
+        tagAssignments: { include: { tag: { select: { id: true, label: true, color: true } } } },
       },
     });
   }
@@ -138,6 +142,7 @@ export class AssetRepository {
       where: { id: assetId, companyId },
       include: {
         currentLocation: { select: { id: true, name: true, type: true } },
+        disposition: { select: { id: true, code: true, label: true, color: true, isTerminal: true } },
         owner: { select: { id: true, email: true, firstName: true, lastName: true } },
         maintenanceAssignee: { select: { id: true, email: true, firstName: true, lastName: true } },
         maintenancePool: {
@@ -153,6 +158,7 @@ export class AssetRepository {
             grantedTo: { select: { id: true, email: true, firstName: true, lastName: true } },
           },
         },
+        tagAssignments: { include: { tag: { select: { id: true, label: true, color: true } } } },
         usages: {
           orderBy: { createdAt: "desc" },
           take: 20,
@@ -175,6 +181,12 @@ export class AssetRepository {
           where: { status: { in: ["PENDING", "IN_PROGRESS"] } },
           orderBy: { dueDate: "asc" },
           take: 10,
+        },
+        attachments: {
+          orderBy: { createdAt: "desc" },
+          include: {
+            uploadedBy: { select: { id: true, email: true, firstName: true, lastName: true } },
+          },
         },
       },
     });
@@ -208,6 +220,7 @@ export class AssetRepository {
         sharingVisibility: input.sharingVisibility ?? (input.ownershipType === "PERSONAL" ? "PRIVATE" : "COMPANY"),
         maintenanceAssigneeId: input.maintenanceAssigneeId ?? null,
         maintenancePoolId: input.maintenancePoolId ?? null,
+        dispositionId: input.dispositionId ?? null,
       },
     });
   }
@@ -242,6 +255,7 @@ export class AssetRepository {
     if (input.sharingVisibility !== undefined) data.sharingVisibility = input.sharingVisibility;
     if (input.maintenanceAssigneeId !== undefined) data.maintenanceAssigneeId = input.maintenanceAssigneeId;
     if (input.maintenancePoolId !== undefined) data.maintenancePoolId = input.maintenancePoolId;
+    if (input.dispositionId !== undefined) data.dispositionId = input.dispositionId;
 
     return this.prisma.asset.update({
       where: { id: assetId },
@@ -313,6 +327,67 @@ export class AssetRepository {
       })),
       transactionCount: transactions.length,
     };
+  }
+
+  // ── Rental Pool ────────────────────────────────────────────────────
+
+  async listRentalPool(companyId: string) {
+    return this.prisma.asset.findMany({
+      where: {
+        companyId,
+        ownershipType: "PERSONAL",
+        availableForRent: true,
+        isActive: true,
+      },
+      orderBy: { name: "asc" },
+      include: {
+        owner: { select: { id: true, email: true, firstName: true, lastName: true } },
+        disposition: { select: { id: true, code: true, label: true, color: true } },
+        tagAssignments: { include: { tag: { select: { id: true, label: true, color: true } } } },
+      },
+    });
+  }
+
+  async offerForRental(
+    companyId: string,
+    assetId: string,
+    userId: string,
+    input: { rentalDailyRate?: string; rentalNotes?: string },
+  ) {
+    const asset = await this.prisma.asset.findFirst({
+      where: { id: assetId, companyId, ownerId: userId },
+    });
+    if (!asset) throw new NotFoundException(`Asset ${assetId} not found or you are not the owner`);
+    if (asset.ownershipType !== "PERSONAL") {
+      throw new ForbiddenException("Only personal assets can be offered for rent");
+    }
+
+    return this.prisma.asset.update({
+      where: { id: assetId },
+      data: {
+        availableForRent: true,
+        rentalDailyRate: input.rentalDailyRate ?? null,
+        rentalNotes: input.rentalNotes ?? null,
+        offeredAt: new Date(),
+        offeredToCompanyId: companyId,
+      },
+    });
+  }
+
+  async withdrawRentalOffer(companyId: string, assetId: string, userId: string) {
+    const asset = await this.prisma.asset.findFirst({
+      where: { id: assetId, companyId, ownerId: userId },
+    });
+    if (!asset) throw new NotFoundException(`Asset ${assetId} not found or you are not the owner`);
+
+    return this.prisma.asset.update({
+      where: { id: assetId },
+      data: {
+        availableForRent: false,
+        offeredAt: null,
+        offeredToCompanyId: null,
+      },
+    });
   }
 
   // ── Sharing ────────────────────────────────────────────────────────
@@ -413,6 +488,88 @@ export class AssetRepository {
         asset: true,
       },
     });
+  }
+
+  // ── CSV Import (upsert) ────────────────────────────────────────────
+
+  async importFromCsvRows(
+    companyId: string,
+    rows: Array<{
+      name: string;
+      code?: string | null;
+      description?: string | null;
+      assetType: string;
+      baseUnit?: string | null;
+      baseRate?: string | null;
+      manufacturer?: string | null;
+      model?: string | null;
+      serialNumberOrVin?: string | null;
+      year?: number | null;
+      isTrackable?: boolean;
+      isConsumable?: boolean;
+      isActive?: boolean;
+    }>,
+  ): Promise<{ created: number; updated: number; skipped: number; errors: string[] }> {
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    const validTypes = new Set(["EQUIPMENT", "TOOL", "RENTAL", "LABOR", "MATERIAL"]);
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const rowNum = i + 2; // 1-indexed + header row
+
+      if (!row.name?.trim()) {
+        errors.push(`Row ${rowNum}: missing name, skipped`);
+        skipped++;
+        continue;
+      }
+
+      const assetType = row.assetType?.trim()?.toUpperCase();
+      if (!assetType || !validTypes.has(assetType)) {
+        errors.push(`Row ${rowNum} (${row.name}): invalid assetType '${row.assetType}', skipped`);
+        skipped++;
+        continue;
+      }
+
+      const data: any = {
+        name: row.name.trim(),
+        code: row.code?.trim() || null,
+        description: row.description?.trim() || null,
+        assetType,
+        baseUnit: row.baseUnit?.trim() || null,
+        baseRate: row.baseRate != null && row.baseRate !== "" ? Number(row.baseRate) : null,
+        manufacturer: row.manufacturer?.trim() || null,
+        model: row.model?.trim() || null,
+        serialNumberOrVin: row.serialNumberOrVin?.trim() || null,
+        year: row.year != null ? Number(row.year) : null,
+        isTrackable: row.isTrackable ?? false,
+        isConsumable: row.isConsumable ?? false,
+        isActive: row.isActive ?? true,
+      };
+
+      try {
+        // Upsert by (companyId, code) when code is provided, else by (companyId, name)
+        const existing = data.code
+          ? await this.prisma.asset.findFirst({ where: { companyId, code: data.code } })
+          : await this.prisma.asset.findFirst({ where: { companyId, name: data.name } });
+
+        if (existing) {
+          await this.prisma.asset.update({ where: { id: existing.id }, data });
+          updated++;
+        } else {
+          await this.prisma.asset.create({ data: { companyId, ...data } });
+          created++;
+        }
+      } catch (e: any) {
+        errors.push(`Row ${rowNum} (${row.name}): ${e.message?.slice(0, 120)}`);
+        skipped++;
+      }
+    }
+
+    return { created, updated, skipped, errors };
   }
 
   // ── Project-level summary ─────────────────────────────────────────

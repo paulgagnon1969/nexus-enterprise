@@ -1,21 +1,130 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { loadAuth, clearAuth, clearCachedCredentials } from "../lib/auth";
-import { setApiConfig, login as apiLogin, type LoginResponse } from "../lib/api";
+import {
+  setApiConfig,
+  setAppVersion,
+  setDeviceId,
+  getLicenseStatus,
+  getGraceEndsAt,
+  login as apiLogin,
+  registerDevice,
+  listDevices,
+  revokeDevice as apiRevokeDevice,
+  checkEntitlements,
+  type LoginResponse,
+  type UserDeviceRecord,
+} from "../lib/api";
+import { getOrCreateDeviceId, getDeviceName, getDevicePlatform } from "../lib/device";
+import { getVersion } from "@tauri-apps/api/app";
 
 interface AuthState {
   loading: boolean;
   authenticated: boolean;
   userEmail: string | null;
   companyName: string | null;
+  // License & entitlement gating
+  licenseStatus: string; // ACTIVE | GRACE_PERIOD | EXPORT_ONLY | LOCKED
+  graceEndsAt: string | null;
+  entitlementBlocked: boolean;
+  // Device limit
+  deviceLimitReached: boolean;
+  existingDevices: UserDeviceRecord[];
+  // Update required
+  updateRequired: boolean;
+  updateMinVersion: string | null;
+  updateDownloadUrl: string | null;
 }
 
+const INITIAL: AuthState = {
+  loading: true,
+  authenticated: false,
+  userEmail: null,
+  companyName: null,
+  licenseStatus: "ACTIVE",
+  graceEndsAt: null,
+  entitlementBlocked: false,
+  deviceLimitReached: false,
+  existingDevices: [],
+  updateRequired: false,
+  updateMinVersion: null,
+  updateDownloadUrl: null,
+};
+
 export function useAuth() {
-  const [state, setState] = useState<AuthState>({
-    loading: true,
-    authenticated: false,
-    userEmail: null,
-    companyName: null,
-  });
+  const [state, setState] = useState<AuthState>(INITIAL);
+  const licenseTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Set app version from Tauri on mount
+  useEffect(() => {
+    getVersion()
+      .then((v) => setAppVersion(v))
+      .catch(() => {});
+  }, []);
+
+  // Poll license status from api module headers every 30s when authenticated
+  useEffect(() => {
+    if (!state.authenticated) return;
+    const poll = () => {
+      const ls = getLicenseStatus();
+      const ge = getGraceEndsAt();
+      setState((s) => {
+        if (s.licenseStatus !== ls || s.graceEndsAt !== ge) {
+          return { ...s, licenseStatus: ls, graceEndsAt: ge };
+        }
+        return s;
+      });
+    };
+    poll();
+    licenseTimer.current = setInterval(poll, 30_000);
+    return () => {
+      if (licenseTimer.current) clearInterval(licenseTimer.current);
+    };
+  }, [state.authenticated]);
+
+  /** Post-login: register device, check entitlements. */
+  const postLoginSetup = useCallback(async (appVer: string) => {
+    // --- Device registration ---
+    try {
+      const devId = await getOrCreateDeviceId();
+      setDeviceId(devId);
+      await registerDevice({
+        deviceId: devId,
+        platform: getDevicePlatform(),
+        deviceName: getDeviceName(),
+        appVersion: appVer,
+      });
+    } catch (err: any) {
+      if (err?.message?.includes("DEVICE_LIMIT_REACHED")) {
+        try {
+          const devices = await listDevices();
+          setState((s) => ({ ...s, deviceLimitReached: true, existingDevices: devices }));
+        } catch {
+          setState((s) => ({ ...s, deviceLimitReached: true }));
+        }
+        return; // don't proceed to entitlement check
+      }
+      console.warn("[auth] device registration failed:", err);
+    }
+
+    // --- Entitlement check ---
+    try {
+      const ent = await checkEntitlements();
+      if (!ent.hasNexBridge) {
+        setState((s) => ({ ...s, entitlementBlocked: true }));
+      }
+    } catch (err: any) {
+      if (err?.code === "UPDATE_REQUIRED") {
+        setState((s) => ({
+          ...s,
+          updateRequired: true,
+          updateMinVersion: err.minVersion ?? null,
+          updateDownloadUrl: err.downloadUrl ?? null,
+        }));
+        return;
+      }
+      console.warn("[auth] entitlement check failed:", err);
+    }
+  }, []);
 
   // Restore session on mount (with timeout so app never hangs)
   useEffect(() => {
@@ -25,15 +134,20 @@ export function useAuth() {
 
     (async () => {
       try {
+        const appVer = await getVersion().catch(() => "1.0.0");
+        setAppVersion(appVer);
+
         const stored = await loadAuth();
         if (stored) {
           setApiConfig(stored.apiUrl, stored.accessToken);
-          setState({
+          setState((s) => ({
+            ...s,
             loading: false,
             authenticated: true,
             userEmail: stored.userEmail,
             companyName: stored.companyName,
-          });
+          }));
+          await postLoginSetup(appVer);
         } else {
           setState((s) => ({ ...s, loading: false }));
         }
@@ -45,32 +159,45 @@ export function useAuth() {
     })();
 
     return () => clearTimeout(timeout);
-  }, []);
+  }, [postLoginSetup]);
 
   const login = useCallback(
     async (apiUrl: string, email: string, password: string): Promise<LoginResponse> => {
       const data = await apiLogin(apiUrl, email, password);
-      setState({
+      const appVer = await getVersion().catch(() => "1.0.0");
+      setState((s) => ({
+        ...s,
         loading: false,
         authenticated: true,
         userEmail: data.user.email,
         companyName: data.company.name,
-      });
+      }));
+      await postLoginSetup(appVer);
       return data;
     },
-    [],
+    [postLoginSetup],
   );
 
   const logout = useCallback(async () => {
     await clearAuth();
     clearCachedCredentials();
-    setState({
-      loading: false,
-      authenticated: false,
-      userEmail: null,
-      companyName: null,
-    });
+    setState({ ...INITIAL, loading: false });
   }, []);
 
-  return { ...state, login, logout };
+  /** Revoke a device and retry registration. */
+  const revokeDeviceAndRetry = useCallback(async (deviceRecordId: string) => {
+    await apiRevokeDevice(deviceRecordId);
+    const appVer = await getVersion().catch(() => "1.0.0");
+    const devId = await getOrCreateDeviceId();
+    setDeviceId(devId);
+    await registerDevice({
+      deviceId: devId,
+      platform: getDevicePlatform(),
+      deviceName: getDeviceName(),
+      appVersion: appVer,
+    });
+    setState((s) => ({ ...s, deviceLimitReached: false, existingDevices: [] }));
+  }, []);
+
+  return { ...state, login, logout, revokeDeviceAndRetry };
 }

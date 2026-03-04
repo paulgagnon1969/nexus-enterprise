@@ -19,6 +19,8 @@ import {
   type LocationMovement as AssetLocationMovement,
 } from "../../lib/api/locations";
 import { CostBookPickerModal } from "../components/cost-book-picker-modal";
+import { RawDetailModal } from "../components/RawDataTable";
+import { ColumnCustomizer, useColumnPrefs } from "../components/ColumnCustomizer";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -461,6 +463,14 @@ export default function FinancialPage() {
   const [csvUploadSource, setCsvUploadSource] = useState("HD_PRO_XTRA");
   const [csvUploading, setCsvUploading] = useState(false);
   const [csvExpandedSources, setCsvExpandedSources] = useState<Set<string>>(new Set());
+
+  // Raw detail modal
+  const [rawDetailOpen, setRawDetailOpen] = useState(false);
+  const [rawDetailTxn, setRawDetailTxn] = useState<Record<string, any> | null>(null);
+  const [rawDetailSource, setRawDetailSource] = useState<string>("");
+
+  // Column customizer for unified table
+  const { visibleColumns: bankVisibleCols, setVisibleColumns: setBankVisibleCols } = useColumnPrefs("ncc-banking-columns");
 
   // Sort / column filters
   type BankSortField = "date" | "description" | "merchant" | "category" | "amount" | "status" | "project";
@@ -982,6 +992,58 @@ export default function FinancialPage() {
       await fetchBankTransactions(1);
       await fetchBankSummary();
     } catch {}
+  }
+
+  // ── Prescreen helpers ──
+  async function handlePrescreenAccept(txnId: string) {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    try {
+      await fetch(`${API_BASE}/banking/transactions/${txnId}/prescreen-accept`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      await fetchBankTransactions(bankTxPage);
+    } catch (err: any) {
+      setBankError(err?.message ?? "Failed to accept prescreen");
+    }
+  }
+
+  async function handlePrescreenReject(txnId: string, reason?: string) {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    try {
+      await fetch(`${API_BASE}/banking/transactions/${txnId}/prescreen-reject`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ reason: reason || "Rejected by user" }),
+      });
+      await fetchBankTransactions(bankTxPage);
+    } catch (err: any) {
+      setBankError(err?.message ?? "Failed to reject prescreen");
+    }
+  }
+
+  async function handleBulkPrescreenAccept() {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    try {
+      await fetch(`${API_BASE}/banking/transactions/bulk-prescreen-accept-by-confidence`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ minConfidence: 0.7 }),
+      });
+      await fetchBankTransactions(bankTxPage);
+    } catch (err: any) {
+      setBankError(err?.message ?? "Bulk accept failed");
+    }
+  }
+
+  function openRawDetail(txn: UnifiedTransactionDto) {
+    const flat = txn.extra ? { ...txn, ...txn.extra } : { ...txn };
+    setRawDetailTxn(flat);
+    setRawDetailSource(txn.source);
+    setRawDetailOpen(true);
   }
 
   async function fetchBankSummary() {
@@ -4100,6 +4162,24 @@ export default function FinancialPage() {
             >
               Apply
             </button>
+            <ColumnCustomizer
+              storageKey="ncc-banking-columns"
+              visibleColumns={bankVisibleCols}
+              onChange={setBankVisibleCols}
+            />
+            {/* Bulk prescreen accept for high-confidence matches */}
+            {bankTransactions.some(t => t.extra?.prescreenStatus === "PENDING" && (t.extra?.prescreenConfidence ?? 0) >= 0.7) && (
+              <button
+                type="button"
+                onClick={handleBulkPrescreenAccept}
+                style={{
+                  padding: "6px 12px", borderRadius: 6, border: "1px solid #16a34a", background: "#dcfce7",
+                  color: "#166534", fontSize: 11, fontWeight: 600, cursor: "pointer",
+                }}
+              >
+                ✓ Confirm All High Confidence
+              </button>
+            )}
           </div>
 
           {/* Bulk assign bar */}
@@ -4171,7 +4251,9 @@ export default function FinancialPage() {
                     { field: "category" as BankSortField, label: "Category", align: "left", nowrap: false },
                     { field: "amount" as BankSortField, label: "Amount", align: "right", nowrap: true },
                     { field: "status" as BankSortField, label: "Status", align: "center", nowrap: false },
+                    { field: null, label: "Prescreen", align: "center", nowrap: false },
                     { field: "project" as BankSortField, label: "Project", align: "left", nowrap: false },
+                    { field: null, label: "", align: "center", nowrap: true },
                   ] as const).map((col) => (
                     <th
                       key={col.label}
@@ -4197,10 +4279,10 @@ export default function FinancialPage() {
               </thead>
               <tbody>
                 {bankLoading && (
-                  <tr><td colSpan={9} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>Loading…</td></tr>
+                  <tr><td colSpan={11} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>Loading…</td></tr>
                 )}
                 {!bankLoading && bankTransactions.length === 0 && (
-                  <tr><td colSpan={9} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>
+                  <tr><td colSpan={11} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>
                     {bankConnections.length === 0 && csvBatches.length === 0
                       ? "Connect a bank account or import a CSV to see transactions."
                       : "No transactions found."}
@@ -4271,6 +4353,36 @@ export default function FinancialPage() {
                           {txn.pending ? "PENDING" : "POSTED"}
                         </span>
                       </td>
+                      {/* Prescreen chip */}
+                      <td style={{ padding: "8px 6px", textAlign: "center" }}>
+                        {txn.extra?.prescreenConfidence != null && txn.extra.prescreenStatus === "PENDING" ? (() => {
+                          const conf = txn.extra.prescreenConfidence as number;
+                          const pct = Math.round(conf * 100);
+                          const chipStyle = conf >= 0.7
+                            ? { bg: "#dcfce7", color: "#166534", border: "#86efac" }
+                            : conf >= 0.5
+                              ? { bg: "#fef9c3", color: "#854d0e", border: "#fde047" }
+                              : { bg: "#ffedd5", color: "#9a3412", border: "#fdba74" };
+                          return (
+                            <div style={{ display: "flex", alignItems: "center", gap: 3, justifyContent: "center" }}>
+                              <span
+                                style={{ padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: chipStyle.bg, color: chipStyle.color, border: `1px solid ${chipStyle.border}`, whiteSpace: "nowrap" }}
+                                title={txn.extra.prescreenReason ?? ""}
+                              >
+                                {pct}%
+                              </span>
+                              <button type="button" onClick={() => handlePrescreenAccept(txn.id)} title="Accept" style={{ border: "none", background: "none", cursor: "pointer", fontSize: 12, padding: 0, color: "#16a34a" }}>✓</button>
+                              <button type="button" onClick={() => handlePrescreenReject(txn.id)} title="Reject" style={{ border: "none", background: "none", cursor: "pointer", fontSize: 12, padding: 0, color: "#dc2626" }}>✕</button>
+                            </div>
+                          );
+                        })() : txn.extra?.prescreenStatus === "ACCEPTED" ? (
+                          <span style={{ fontSize: 10, color: "#16a34a", fontWeight: 600 }}>✓</span>
+                        ) : txn.extra?.prescreenStatus === "REJECTED" ? (
+                          <span style={{ fontSize: 10, color: "#dc2626", fontWeight: 600 }}>✕</span>
+                        ) : (
+                          <span style={{ color: "#d1d5db" }}>—</span>
+                        )}
+                      </td>
                       <td style={{ padding: "8px 10px" }}>
                         <select
                           value={txn.projectId ?? ""}
@@ -4283,6 +4395,17 @@ export default function FinancialPage() {
                           <option value="">— None —</option>
                           {bankProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                         </select>
+                      </td>
+                      {/* View Raw action */}
+                      <td style={{ padding: "8px 4px", textAlign: "center" }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawDetail(txn)}
+                          title="View raw data"
+                          style={{ border: "none", background: "none", cursor: "pointer", fontSize: 13, padding: 0, color: "#6b7280" }}
+                        >
+                          🔍
+                        </button>
                       </td>
                     </tr>
                   );
@@ -4315,6 +4438,14 @@ export default function FinancialPage() {
               </button>
             </div>
           )}
+
+          {/* Raw Detail Modal */}
+          <RawDetailModal
+            open={rawDetailOpen}
+            onClose={() => setRawDetailOpen(false)}
+            source={rawDetailSource}
+            data={rawDetailTxn}
+          />
         </section>
       )}
 

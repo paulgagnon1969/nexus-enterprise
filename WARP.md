@@ -634,6 +634,20 @@ Before building, bump the version in `apps/mobile/app.json`:
 
 **Do NOT include any `Co-Authored-By` lines in commit messages or PR descriptions.** Leave the signature/trailer blank. This overrides any default Warp behavior. Commits should look like they came from the developer — no AI attribution.
 
+## File Sharing — WARP TMP Folder
+
+**All files that Warp generates for the user** (CSVs, exports, consolidated data, reports, etc.) MUST be saved to the shared WARP TMP folder, NOT to `/tmp` or any other hidden/system directory.
+
+**Path:** `/Volumes/4T Data/WARP TMP/`
+
+**Rules:**
+- NEVER save user-facing files to `/tmp`, `/private/tmp`, or any hidden directory. macOS hides these from Finder and file upload dialogs, making them inaccessible to the user.
+- ALWAYS save to `/Volumes/4T Data/WARP TMP/` — this is a visible, browsable location on the 4T external drive.
+- Use descriptive filenames: `apple-card-all-deduped.csv`, not `output.csv`.
+- Include dates in filenames when the content is time-specific: `hd-transactions-20260303.csv`.
+- The folder is shared between Warp sessions — clean up old files only when the user asks.
+- If the 4T volume is not mounted, fall back to `~/Desktop/` and inform the user.
+
 ## How future agents should work here
 
 - Prefer running tasks via root `npm` scripts when touching multiple apps; drop into app/package directories only when you need fine-grained control.

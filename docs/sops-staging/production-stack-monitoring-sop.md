@@ -1,11 +1,11 @@
 ---
 title: "Production Stack Monitoring & Auto-Recovery SOP"
 module: infrastructure
-revision: "1.0"
-tags: [sop, infrastructure, production, docker, monitoring, mac-studio]
+revision: "2.0"
+tags: [sop, infrastructure, production, docker, monitoring, mac-studio, dns, cloudflare]
 status: draft
 created: 2026-03-03
-updated: 2026-03-03
+updated: 2026-03-04
 author: Warp
 visibility:
   public: false
@@ -28,7 +28,8 @@ Defines the monitoring, auto-recovery, and maintenance procedures for the NEXUS 
 
 ```mermaid
 flowchart TD
-    Internet["Internet Traffic"] --> CF["Cloudflare Tunnel"]
+    Internet["Internet Traffic"] --> DNS["Cloudflare DNS"]
+    DNS --> CF["Cloudflare Tunnel"]
     CF --> Web["nexus-shadow-web :3001"]
     CF --> API["nexus-shadow-api :8000"]
     API --> PG["nexus-shadow-postgres :5435"]
@@ -41,12 +42,17 @@ flowchart TD
     Poller --> Redis
 
     Monitor["prod-health-monitor.sh (every 60s)"] -.->|checks| Docker["Docker Desktop"]
-    Monitor -.->|checks| API
-    Monitor -.->|checks| Worker
-    Monitor -.->|checks| Web
+    Monitor -.->|checks local| API
+    Monitor -.->|checks local| Worker
+    Monitor -.->|checks local| Web
+    Monitor -.->|checks external via 1.1.1.1| DNS
+    Monitor -.->|checks external| CF
+    Monitor -.->|auto-flushes| DNSCache["macOS DNS Cache"]
 
     style Monitor fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
     style CF fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    style DNS fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    style DNSCache fill:#fce4ec,stroke:#c62828,stroke-width:2px
 ```
 
 ## Boot-to-Production Recovery Chain
@@ -79,18 +85,22 @@ flowchart TD
 ## Health Monitor
 
 ### Overview
-`infra/scripts/prod-health-monitor.sh` runs every 60 seconds via launchd and performs 5 checks:
+`infra/scripts/prod-health-monitor.sh` runs every 60 seconds via launchd and performs 7 checks:
 
 1. **Docker Desktop daemon** — Is `docker info` responding?
 2. **Container status** — Are all 8 `nexus-shadow-*` containers running?
-3. **Health endpoints** — Do API (:8000), Worker (:8001), and Web (:3001) return HTTP 200?
-4. **Restart policy drift** — Do all containers have `restart: unless-stopped`?
-5. **Compose project consistency** — Are all containers in the `nexus-shadow` project?
+3. **Health endpoints (local)** — Do API (:8000), Worker (:8001), and Web (:3001) return HTTP 200 on localhost?
+4. **DNS resolution** — Do `staging-api.nfsgrp.com` and `staging-ncc.nfsgrp.com` resolve via system DNS? If local DNS fails but public DNS (1.1.1.1) succeeds, auto-flushes macOS DNS cache.
+5. **External endpoints (public)** — Do `https://staging-api.nfsgrp.com/health` and `https://staging-ncc.nfsgrp.com` return HTTP 200 through Cloudflare? Resolves via 1.1.1.1 with `--resolve` to bypass local DNS cache entirely.
+6. **Restart policy drift** — Do all containers have `restart: unless-stopped`?
+7. **Compose project consistency** — Are all containers in the `nexus-shadow` project?
 
 ### Auto-Recovery Actions
 - **Docker Desktop down** → `open -a Docker` (with 10-minute cooldown to prevent restart loops)
 - **Containers down** → `docker compose -p nexus-shadow -f ... up -d`
 - **Health endpoints failing** → Notification only (containers may be starting up)
+- **DNS cache stale** → Auto-flush via `sudo dscacheutil -flushcache` + `sudo killall -HUP mDNSResponder` (5-minute cooldown)
+- **External endpoints down** → Critical notification distinguishing DNS/tunnel failure from container failure
 - **Policy/project drift** → Notification only (manual compose redeploy needed)
 
 ### Notifications
@@ -165,7 +175,44 @@ docker compose -p nexus-shadow -f infra/docker/docker-compose.shadow.yml up -d -
 
 **After rebuilding web:** Users may need to hard-refresh (Cmd+Shift+R) to clear cached JS bundles.
 
+## DNS Configuration
+
+### Mac Studio DNS Servers
+The Mac Studio MUST use Cloudflare DNS as primary resolvers. Since all production DNS records are managed in Cloudflare, this ensures instant resolution and prevents stale NXDOMAIN caching by ISP/router DNS.
+
+**System Settings → Network → Ethernet → Details → DNS:**
+1. `1.1.1.1` (Cloudflare primary)
+2. `1.0.0.1` (Cloudflare secondary)
+3. `192.168.1.1` (router fallback — auto-assigned by DHCP, cannot be removed)
+
+**Why this matters:** Prior to this configuration (v1.0), the Mac Studio used only the router's DNS (`192.168.1.1`), which cached NXDOMAIN responses with long TTLs. This caused recurring outages where the production API was healthy on localhost but unreachable from the internet because the Mac Studio's own DNS couldn't resolve the Cloudflare-managed hostnames.
+
+### Sudoers Entry for DNS Flush
+The health monitor needs passwordless sudo to flush DNS. This is configured in:
+
+```
+/etc/sudoers.d/nexus-dns-flush
+pg ALL=(ALL) NOPASSWD: /usr/bin/dscacheutil -flushcache, /usr/bin/killall -HUP mDNSResponder
+```
+
+**NEVER remove this file** — the monitor's DNS auto-recovery depends on it.
+
+### Cloudflare DNS Records (nfsgrp.com zone)
+Two tunnel CNAME records must exist in the Cloudflare dashboard:
+
+- `staging-api` → `nexus-shadow` tunnel (Proxied)
+- `staging-ncc` → `nexus-shadow` tunnel (Proxied)
+
+If either record is missing, the health monitor's external check (Check 5) will fire a critical alert with `DNS FAIL`.
+
 ## Troubleshooting
+
+### External endpoints down but localhost healthy
+This means DNS or the Cloudflare tunnel is broken. Steps:
+1. Check DNS: `dig +short staging-api.nfsgrp.com A` — if empty, flush DNS: `sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder`
+2. If DNS still fails after flush, check Cloudflare dashboard for missing CNAME records
+3. If DNS resolves but curl fails, check tunnel: `docker logs nexus-shadow-tunnel --tail 20`
+4. Restart tunnel if needed: `docker compose -p nexus-shadow -f infra/docker/docker-compose.shadow.yml restart cloudflared`
 
 ### Login fails with "Network error"
 The web container has a stale API URL baked in. Rebuild with no cache:
@@ -217,4 +264,5 @@ docker rm <container-name>
 
 | Rev | Date | Changes |
 |-----|------|---------|
+| 2.0 | 2026-03-04 | Added DNS resolution check (Check 4), external endpoint monitoring via Cloudflare (Check 5), auto DNS cache flush with sudoers, Cloudflare DNS config for Mac Studio. Root cause: ISP DNS caching NXDOMAIN caused recurring prod outages invisible to localhost-only monitoring. |
 | 1.0 | 2026-03-03 | Initial release. Covers health monitor, boot chain, Docker cleanup, compose project rules. |

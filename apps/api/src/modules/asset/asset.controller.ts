@@ -1,10 +1,13 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards, BadRequestException } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { AssetRepository, OwnershipFilter } from "../../infra/prisma-v1/asset.repository";
+import { AssetTagRepository } from "../../infra/prisma-v1/asset-tag.repository";
 import { AssetDeploymentService } from "./asset-deployment.service";
 import { AssetType, AssetOwnershipType, AssetSharingVisibility } from "@prisma/client";
 import { RequiresModule } from "../billing/module.guard";
+import { readSingleFileFromMultipart } from "../../infra/uploads/multipart";
+import { parse } from "csv-parse/sync";
 
 @RequiresModule('ASSETS')
 @UseGuards(JwtAuthGuard)
@@ -12,6 +15,7 @@ import { RequiresModule } from "../billing/module.guard";
 export class AssetController {
   constructor(
     private readonly assets: AssetRepository,
+    private readonly tags: AssetTagRepository,
     private readonly deployment: AssetDeploymentService,
   ) {}
 
@@ -38,6 +42,48 @@ export class AssetController {
     return this.assets.listAssetsForCompany(user.companyId, user.userId, {
       ownershipFilter: "MY_ASSETS",
     });
+  }
+
+  @Post("import-csv")
+  async importCsv(@Req() req: any) {
+    const user = req.user as AuthenticatedUser;
+    const { file } = await readSingleFileFromMultipart(req, { fieldName: "file" });
+    const buffer = await file.toBuffer();
+    const csvText = buffer.toString("utf8");
+
+    let records: any[];
+    try {
+      records = parse(csvText, { columns: true, skip_empty_lines: true, trim: true });
+    } catch (e: any) {
+      throw new BadRequestException(`Failed to parse CSV: ${e.message}`);
+    }
+
+    if (!records.length) {
+      throw new BadRequestException("CSV file is empty or has no data rows.");
+    }
+
+    const toBool = (v: string | undefined, fallback: boolean) => {
+      if (!v || v === "") return fallback;
+      return v.toLowerCase() === "true";
+    };
+
+    const rows = records.map((r: any) => ({
+      name: r.name ?? r.asset_name ?? "",
+      code: r.code ?? r.asset_code ?? null,
+      description: r.description ?? null,
+      assetType: r.assetType ?? r.asset_type ?? "",
+      baseUnit: r.baseUnit ?? r.base_unit ?? null,
+      baseRate: r.baseRate ?? r.base_rate ?? null,
+      manufacturer: r.manufacturer ?? null,
+      model: r.model ?? null,
+      serialNumberOrVin: r.serialNumberOrVin ?? r.serial_number_or_vin ?? null,
+      year: r.year ? Number(r.year) : null,
+      isTrackable: toBool(r.isTrackable ?? r.is_trackable, false),
+      isConsumable: toBool(r.isConsumable ?? r.is_consumable, false),
+      isActive: toBool(r.isActive ?? r.is_active, true),
+    }));
+
+    return this.assets.importFromCsvRows(user.companyId, rows);
   }
 
   @Get("project-summary")
@@ -132,6 +178,45 @@ export class AssetController {
   async deactivate(@Req() req: any, @Param("id") id: string) {
     const user = req.user as AuthenticatedUser;
     return this.assets.deactivateAsset(user.companyId, id);
+  }
+
+  // ── Tags ──────────────────────────────────────────────────────────
+
+  @Post(":id/tags")
+  async setTags(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() body: { tagIds: string[] },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.tags.setTagsForAsset(user.companyId, id, body.tagIds ?? []);
+  }
+
+  // ── Rental Pool ───────────────────────────────────────────────────
+
+  @Get("rental-pool")
+  async rentalPool(@Req() req: any) {
+    const user = req.user as AuthenticatedUser;
+    return this.assets.listRentalPool(user.companyId);
+  }
+
+  @Post(":id/offer-rental")
+  async offerRental(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() body: { rentalDailyRate?: string; rentalNotes?: string },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.assets.offerForRental(user.companyId, id, user.userId, {
+      rentalDailyRate: body.rentalDailyRate,
+      rentalNotes: body.rentalNotes,
+    });
+  }
+
+  @Delete(":id/offer-rental")
+  async withdrawRental(@Req() req: any, @Param("id") id: string) {
+    const user = req.user as AuthenticatedUser;
+    return this.assets.withdrawRentalOffer(user.companyId, id, user.userId);
   }
 
   // ── Sharing ───────────────────────────────────────────────────────

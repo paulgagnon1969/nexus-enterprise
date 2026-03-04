@@ -10,6 +10,9 @@ type OwnershipType = "COMPANY" | "PERSONAL";
 type SharingVisibility = "PRIVATE" | "COMPANY" | "CUSTOM";
 type OwnershipFilter = "ALL" | "COMPANY" | "PERSONAL" | "MY_ASSETS";
 
+interface DispositionRef { id: string; code: string; label: string; color: string; isTerminal: boolean }
+interface TagRef { id: string; label: string; color: string }
+
 interface UserRef { id: string; email: string; firstName: string | null; lastName: string | null }
 interface PoolRef { id: string; name: string; members?: { user: UserRef }[] }
 
@@ -37,6 +40,9 @@ interface Asset {
   maintenancePoolId: string | null;
   maintenancePool?: PoolRef | null;
   shareGrants?: { grantedTo: UserRef }[];
+  disposition?: DispositionRef | null;
+  dispositionId?: string | null;
+  tagAssignments?: { tag: TagRef }[];
   currentLocation?: { id: string; name: string; type: string } | null;
   createdAt: string;
   updatedAt: string;
@@ -45,6 +51,19 @@ interface Asset {
   transactions?: any[];
   meterReadings?: any[];
   maintenanceTodos?: any[];
+  attachments?: Attachment[];
+}
+
+type AttachmentCategory = "PHOTO" | "TITLE" | "INSURANCE" | "MANUAL" | "RECEIPT" | "DIAGNOSTIC" | "CONTRACT" | "WARRANTY" | "SCHEMATIC" | "OTHER";
+interface Attachment {
+  id: string;
+  fileName: string;
+  fileType: string | null;
+  fileSize: number;
+  category: AttachmentCategory;
+  notes: string | null;
+  uploadedBy?: UserRef | null;
+  createdAt: string;
 }
 
 interface CostSummary {
@@ -86,6 +105,10 @@ export default function AssetsPage() {
   const [filterActive, setFilterActive] = useState<"" | "true" | "false">("");
   const [search, setSearch] = useState("");
   const [ownershipFilter, setOwnershipFilter] = useState<OwnershipFilter>("ALL");
+  const [dispositions, setDispositions] = useState<DispositionRef[]>([]);
+  const [allTags, setAllTags] = useState<TagRef[]>([]);
+  const [filterDisposition, setFilterDisposition] = useState("");
+  const [filterTags, setFilterTags] = useState<string[]>([]);
 
   // Company users & maintenance pools (for dropdowns)
   const [companyUsers, setCompanyUsers] = useState<UserRef[]>([]);
@@ -112,8 +135,18 @@ export default function AssetsPage() {
   const [formSharingVisibility, setFormSharingVisibility] = useState<SharingVisibility>("COMPANY");
   const [formMaintenanceAssigneeId, setFormMaintenanceAssigneeId] = useState("");
   const [formMaintenancePoolId, setFormMaintenancePoolId] = useState("");
+  const [formDispositionId, setFormDispositionId] = useState("");
+  const [formTagIds, setFormTagIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // ── Attachment upload state ──────────────────────────────────────────
+  const [attachUploading, setAttachUploading] = useState(false);
+  const [attachCategory, setAttachCategory] = useState<AttachmentCategory>("OTHER");
+
+  // ── CSV Upload state ───────────────────────────────────────────────
+  const [csvUploading, setCsvUploading] = useState(false);
+  const [csvResult, setCsvResult] = useState<{ created: number; updated: number; skipped: number; errors: string[] } | null>(null);
 
   // ── Load assets ───────────────────────────────────────────────────────
   const loadAssets = useCallback(async () => {
@@ -147,6 +180,20 @@ export default function AssetsPage() {
     apiFetch<PoolRef[]>("/maintenance-pools").then(setPools).catch(() => {});
   }, []);
 
+  // Load dispositions & tags
+  useEffect(() => {
+    apiFetch<DispositionRef[]>("/asset-dispositions").then(setDispositions).catch(() => {});
+    apiFetch<TagRef[]>("/asset-tags").then(setAllTags).catch(() => {});
+  }, []);
+
+  // Client-side filter for disposition & tags
+  const filteredAssets = useMemo(() => {
+    let result = assets;
+    if (filterDisposition) result = result.filter((a) => a.disposition?.id === filterDisposition);
+    if (filterTags.length > 0) result = result.filter((a) => filterTags.every((tid) => a.tagAssignments?.some((ta) => ta.tag.id === tid)));
+    return result;
+  }, [assets, filterDisposition, filterTags]);
+
   // ── Open detail ───────────────────────────────────────────────────────
   const openDetail = useCallback(async (id: string) => {
     setLoadingDetail(true);
@@ -174,6 +221,7 @@ export default function AssetsPage() {
     setFormYear(""); setFormTrackable(true); setEditingId(null);
     setFormOwnership("COMPANY"); setFormSharingVisibility("COMPANY");
     setFormMaintenanceAssigneeId(""); setFormMaintenancePoolId("");
+    setFormDispositionId(""); setFormTagIds([]);
   };
 
   const populateForm = (a: Asset) => {
@@ -186,6 +234,8 @@ export default function AssetsPage() {
     setFormSharingVisibility(a.sharingVisibility ?? "COMPANY");
     setFormMaintenanceAssigneeId(a.maintenanceAssigneeId ?? "");
     setFormMaintenancePoolId(a.maintenancePoolId ?? "");
+    setFormDispositionId(a.dispositionId ?? "");
+    setFormTagIds(a.tagAssignments?.map((ta) => ta.tag.id) ?? []);
   };
 
   const handleSave = async () => {
@@ -208,8 +258,10 @@ export default function AssetsPage() {
         sharingVisibility: formOwnership === "PERSONAL" ? formSharingVisibility : "COMPANY",
         maintenanceAssigneeId: formMaintenanceAssigneeId || null,
         maintenancePoolId: formMaintenancePoolId || null,
+        dispositionId: formDispositionId || null,
       };
 
+      let targetId = editingId;
       if (editingId) {
         await apiFetch(`/assets/${editingId}`, {
           method: "PATCH",
@@ -217,10 +269,20 @@ export default function AssetsPage() {
           body: JSON.stringify(body),
         });
       } else {
-        await apiFetch("/assets", {
+        const created = await apiFetch<{ id: string }>("/assets", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
+        });
+        targetId = created.id;
+      }
+
+      // Assign tags
+      if (targetId) {
+        await apiFetch(`/assets/${targetId}/tags`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tagIds: formTagIds }),
         });
       }
 
@@ -242,6 +304,36 @@ export default function AssetsPage() {
       if (tab === "DETAIL") startTransition(() => setTab("LIST"));
     } catch (e: any) {
       setError(e?.message ?? "Deactivate failed");
+    }
+  };
+
+  // ── CSV Upload ──────────────────────────────────────────────────────
+  const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCsvUploading(true);
+    setCsvResult(null);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`${API_BASE}/assets/import-csv`, {
+        method: "POST",
+        headers: { ...authHeaders() },
+        body: formData,
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`${res.status}: ${body}`);
+      }
+      const result = await res.json();
+      setCsvResult(result);
+      void loadAssets();
+    } catch (err: any) {
+      setError(err?.message ?? "CSV upload failed");
+    } finally {
+      setCsvUploading(false);
+      e.target.value = ""; // reset file input
     }
   };
 
@@ -291,6 +383,12 @@ export default function AssetsPage() {
               >
                 ↓ CSV Template
               </button>
+              <label
+                style={{ padding: "6px 14px", border: "1px solid #059669", borderRadius: 6, background: "#ecfdf5", cursor: csvUploading ? "wait" : "pointer", fontSize: 13, fontWeight: 600, color: "#065f46", display: "inline-flex", alignItems: "center", gap: 4 }}
+              >
+                {csvUploading ? "Uploading…" : "↑ Import CSV"}
+                <input type="file" accept=".csv" onChange={handleCsvUpload} disabled={csvUploading} style={{ display: "none" }} />
+              </label>
               <button
                 onClick={() => { resetForm(); startTransition(() => setTab("CREATE")); }}
                 style={{ padding: "6px 14px", border: "none", borderRadius: 6, background: "#1e3a8a", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}
@@ -306,6 +404,21 @@ export default function AssetsPage() {
         <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#991b1b" }}>
           {error}
           <button onClick={() => setError(null)} style={{ marginLeft: 12, background: "none", border: "none", cursor: "pointer", color: "#991b1b", fontWeight: 600 }}>✕</button>
+        </div>
+      )}
+
+      {csvResult && (
+        <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#14532d" }}>
+          <strong>CSV Import complete:</strong> {csvResult.created} created, {csvResult.updated} updated, {csvResult.skipped} skipped.
+          {csvResult.errors.length > 0 && (
+            <details style={{ marginTop: 6 }}>
+              <summary style={{ cursor: "pointer", fontWeight: 600 }}>{csvResult.errors.length} warning(s)</summary>
+              <ul style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 12 }}>
+                {csvResult.errors.map((e, i) => <li key={i}>{e}</li>)}
+              </ul>
+            </details>
+          )}
+          <button onClick={() => setCsvResult(null)} style={{ marginLeft: 12, background: "none", border: "none", cursor: "pointer", color: "#14532d", fontWeight: 600 }}>✕</button>
         </div>
       )}
 
@@ -356,16 +469,62 @@ export default function AssetsPage() {
               <option value="true">Active Only</option>
               <option value="false">Inactive Only</option>
             </select>
+            <select
+              value={filterDisposition}
+              onChange={(e) => setFilterDisposition(e.target.value)}
+              style={{ padding: "6px 10px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 13 }}
+            >
+              <option value="">All Dispositions</option>
+              {dispositions.map((d) => (
+                <option key={d.id} value={d.id}>{d.label}</option>
+              ))}
+            </select>
           </div>
+
+          {/* Tag filter chips */}
+          {allTags.length > 0 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
+              <span style={{ fontSize: 12, color: "#6b7280", lineHeight: "24px" }}>Tags:</span>
+              {allTags.map((t) => {
+                const on = filterTags.includes(t.id);
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setFilterTags((prev) => on ? prev.filter((x) => x !== t.id) : [...prev, t.id])}
+                    style={{
+                      padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 600,
+                      border: `1px solid ${t.color || "#d1d5db"}`,
+                      background: on ? (t.color || "#e5e7eb") : "#fff",
+                      color: on ? "#fff" : (t.color || "#374151"),
+                      cursor: "pointer",
+                    }}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
+              {filterTags.length > 0 && (
+                <button
+                  onClick={() => setFilterTags([])}
+                  style={{ padding: "3px 8px", borderRadius: 999, fontSize: 11, border: "1px solid #d1d5db", background: "#fff", color: "#6b7280", cursor: "pointer" }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
 
           {loading ? (
             <div style={{ textAlign: "center", padding: 40, color: "#6b7280" }}>Loading assets...</div>
-          ) : assets.length === 0 ? (
+          ) : filteredAssets.length === 0 ? (
             <div style={{ textAlign: "center", padding: 40, color: "#6b7280" }}>
-              No assets found.{" "}
-              <button onClick={() => { resetForm(); startTransition(() => setTab("CREATE")); }} style={{ color: "#2563eb", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>
-                Create your first asset
-              </button>
+              {assets.length === 0 ? (
+                <>No assets found.{" "}
+                  <button onClick={() => { resetForm(); startTransition(() => setTab("CREATE")); }} style={{ color: "#2563eb", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>
+                    Create your first asset
+                  </button>
+                </>
+              ) : "No assets match the current filters."}
             </div>
           ) : (
             <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden" }}>
@@ -379,12 +538,13 @@ export default function AssetsPage() {
                     <th style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600 }}>Rate</th>
                     <th style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600 }}>OEM</th>
                     <th style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600 }}>Location</th>
-                    <th style={{ textAlign: "center", padding: "8px 12px", fontWeight: 600 }}>Status</th>
+                    <th style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600 }}>Disposition</th>
+                    <th style={{ textAlign: "left", padding: "8px 12px", fontWeight: 600 }}>Tags</th>
                     <th style={{ padding: "8px 12px" }}></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {assets.map((a) => (
+                  {filteredAssets.map((a) => (
                     <tr
                       key={a.id}
                       style={{ borderBottom: "1px solid #e5e7eb", cursor: "pointer" }}
@@ -430,11 +590,32 @@ export default function AssetsPage() {
                       <td style={{ padding: "8px 12px", color: "#6b7280", fontSize: 12 }}>
                         {a.currentLocation?.name ?? "—"}
                       </td>
-                      <td style={{ padding: "8px 12px", textAlign: "center" }}>
-                        <span style={{
-                          display: "inline-block", width: 8, height: 8, borderRadius: "50%",
-                          background: a.isActive ? "#059669" : "#9ca3af",
-                        }} title={a.isActive ? "Active" : "Inactive"} />
+                      <td style={{ padding: "8px 12px" }}>
+                        {a.disposition ? (
+                          <span style={{
+                            display: "inline-block", padding: "2px 8px", borderRadius: 999, fontSize: 10, fontWeight: 600,
+                            background: a.disposition.color ? `${a.disposition.color}20` : "#f3f4f6",
+                            color: a.disposition.color || "#374151",
+                            border: `1px solid ${a.disposition.color || "#d1d5db"}`,
+                          }}>
+                            {a.disposition.label}
+                          </span>
+                        ) : (
+                          <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: a.isActive ? "#059669" : "#9ca3af" }} title={a.isActive ? "Active" : "Inactive"} />
+                        )}
+                      </td>
+                      <td style={{ padding: "8px 12px" }}>
+                        <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+                          {(a.tagAssignments ?? []).map((ta) => (
+                            <span key={ta.tag.id} style={{
+                              display: "inline-block", padding: "1px 6px", borderRadius: 999, fontSize: 10, fontWeight: 600,
+                              background: ta.tag.color ? `${ta.tag.color}20` : "#f3f4f6",
+                              color: ta.tag.color || "#6b7280",
+                            }}>
+                              {ta.tag.label}
+                            </span>
+                          ))}
+                        </div>
                       </td>
                       <td style={{ padding: "8px 12px" }}>
                         <button
@@ -452,7 +633,7 @@ export default function AssetsPage() {
           )}
 
           <div style={{ marginTop: 12, fontSize: 12, color: "#9ca3af" }}>
-            {assets.length} asset{assets.length !== 1 ? "s" : ""}
+            {filteredAssets.length} asset{filteredAssets.length !== 1 ? "s" : ""}{filteredAssets.length !== assets.length ? ` (${assets.length} total)` : ""}
           </div>
         </>
       )}
@@ -496,6 +677,25 @@ export default function AssetsPage() {
                     {selectedAsset.sharingVisibility === "PRIVATE" ? "Private" : selectedAsset.sharingVisibility === "COMPANY" ? "Shared w/ Company" : "Custom Sharing"}
                   </span>
                 )}
+                {selectedAsset.disposition && (
+                  <span style={{
+                    display: "inline-block", padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600,
+                    background: selectedAsset.disposition.color ? `${selectedAsset.disposition.color}20` : "#f3f4f6",
+                    color: selectedAsset.disposition.color || "#374151",
+                    border: `1px solid ${selectedAsset.disposition.color || "#d1d5db"}`,
+                  }}>
+                    {selectedAsset.disposition.label}
+                  </span>
+                )}
+                {(selectedAsset.tagAssignments ?? []).map((ta) => (
+                  <span key={ta.tag.id} style={{
+                    display: "inline-block", padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 600,
+                    background: ta.tag.color ? `${ta.tag.color}20` : "#f3f4f6",
+                    color: ta.tag.color || "#6b7280",
+                  }}>
+                    {ta.tag.label}
+                  </span>
+                ))}
               </div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
@@ -627,7 +827,7 @@ export default function AssetsPage() {
 
           {/* Meter readings */}
           {selectedAsset.meterReadings && selectedAsset.meterReadings.length > 0 && (
-            <div>
+            <div style={{ marginBottom: 20 }}>
               <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Recent Meter Readings</h3>
               <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -653,6 +853,144 @@ export default function AssetsPage() {
               </div>
             </div>
           )}
+
+          {/* ── Files / Attachments ─────────────────────────────────── */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Files ({selectedAsset.attachments?.length ?? 0})</h3>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <select
+                  value={attachCategory}
+                  onChange={(e) => setAttachCategory(e.target.value as AttachmentCategory)}
+                  style={{ padding: "4px 8px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 12 }}
+                >
+                  {(["PHOTO","TITLE","INSURANCE","MANUAL","RECEIPT","DIAGNOSTIC","CONTRACT","WARRANTY","SCHEMATIC","OTHER"] as AttachmentCategory[]).map((c) => (
+                    <option key={c} value={c}>{c.charAt(0) + c.slice(1).toLowerCase()}</option>
+                  ))}
+                </select>
+                <label
+                  style={{
+                    padding: "4px 12px", border: "1px solid #2563eb", borderRadius: 6, background: "#eff6ff",
+                    cursor: attachUploading ? "wait" : "pointer", fontSize: 12, fontWeight: 600, color: "#1e40af",
+                    display: "inline-flex", alignItems: "center", gap: 4,
+                  }}
+                >
+                  {attachUploading ? "Uploading…" : "+ Upload Files"}
+                  <input
+                    type="file"
+                    multiple
+                    disabled={attachUploading}
+                    style={{ display: "none" }}
+                    onChange={async (e) => {
+                      const fileList = e.target.files;
+                      if (!fileList || fileList.length === 0) return;
+                      setAttachUploading(true);
+                      setError(null);
+                      try {
+                        const formData = new FormData();
+                        for (let i = 0; i < fileList.length; i++) formData.append("file", fileList[i]);
+                        formData.append("category", attachCategory);
+                        const res = await fetch(`${API_BASE}/assets/${selectedAsset.id}/attachments`, {
+                          method: "POST",
+                          headers: { ...authHeaders() },
+                          body: formData,
+                        });
+                        if (!res.ok) throw new Error(await res.text());
+                        // Refresh detail to get updated attachment list
+                        const refreshed = await apiFetch<Asset>(`/assets/${selectedAsset.id}`);
+                        setSelectedAsset(refreshed);
+                      } catch (err: any) {
+                        setError(err?.message ?? "Upload failed");
+                      } finally {
+                        setAttachUploading(false);
+                        e.target.value = "";
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {(selectedAsset.attachments ?? []).length === 0 ? (
+              <div style={{ textAlign: "center", padding: 24, color: "#9ca3af", border: "1px dashed #d1d5db", borderRadius: 8, fontSize: 13 }}>
+                No files attached yet. Use the upload button to add documents, photos, or other files.
+              </div>
+            ) : (
+              <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, overflow: "hidden" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
+                      <th style={{ textAlign: "left", padding: "6px 12px" }}>File</th>
+                      <th style={{ textAlign: "left", padding: "6px 12px" }}>Category</th>
+                      <th style={{ textAlign: "right", padding: "6px 12px" }}>Size</th>
+                      <th style={{ textAlign: "left", padding: "6px 12px" }}>Uploaded</th>
+                      <th style={{ padding: "6px 12px" }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(selectedAsset.attachments ?? []).map((att) => {
+                      const isImage = att.fileType?.startsWith("image/");
+                      const icon = isImage ? "🖼️" : att.fileType?.includes("pdf") ? "📕" : "📄";
+                      const sizeStr = att.fileSize < 1024 ? `${att.fileSize} B`
+                        : att.fileSize < 1024 * 1024 ? `${(att.fileSize / 1024).toFixed(1)} KB`
+                        : `${(att.fileSize / (1024 * 1024)).toFixed(1)} MB`;
+                      return (
+                        <tr key={att.id} style={{ borderBottom: "1px solid #e5e7eb" }}>
+                          <td style={{ padding: "6px 12px" }}>
+                            <span style={{ marginRight: 6 }}>{icon}</span>
+                            <span style={{ fontWeight: 500 }}>{att.fileName}</span>
+                          </td>
+                          <td style={{ padding: "6px 12px" }}>
+                            <span style={{
+                              display: "inline-block", padding: "1px 8px", borderRadius: 999, fontSize: 10, fontWeight: 600,
+                              background: "#f0f9ff", color: "#0369a1",
+                            }}>
+                              {att.category}
+                            </span>
+                          </td>
+                          <td style={{ padding: "6px 12px", textAlign: "right", color: "#6b7280" }}>{sizeStr}</td>
+                          <td style={{ padding: "6px 12px", color: "#6b7280", fontSize: 12 }}>
+                            {new Date(att.createdAt).toLocaleDateString()}
+                            {att.uploadedBy && ` · ${att.uploadedBy.firstName ?? att.uploadedBy.email}`}
+                          </td>
+                          <td style={{ padding: "6px 12px", textAlign: "right" }}>
+                            <a
+                              href={`${API_BASE}/assets/${selectedAsset.id}/attachments/${att.id}/download`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                // Use fetch with auth headers for the download redirect
+                                window.open(`${API_BASE}/assets/${selectedAsset.id}/attachments/${att.id}/download?token=${localStorage.getItem("accessToken") ?? ""}`, "_blank");
+                              }}
+                              style={{ color: "#2563eb", fontSize: 12, fontWeight: 600, marginRight: 8, cursor: "pointer" }}
+                            >
+                              ↓
+                            </a>
+                            <button
+                              onClick={async () => {
+                                if (!confirm(`Delete ${att.fileName}?`)) return;
+                                try {
+                                  await apiFetch(`/assets/${selectedAsset.id}/attachments/${att.id}`, { method: "DELETE" });
+                                  const refreshed = await apiFetch<Asset>(`/assets/${selectedAsset.id}`);
+                                  setSelectedAsset(refreshed);
+                                } catch (err: any) {
+                                  setError(err?.message ?? "Delete failed");
+                                }
+                              }}
+                              style={{ color: "#dc2626", fontSize: 12, fontWeight: 600, background: "none", border: "none", cursor: "pointer" }}
+                            >
+                              ✕
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -697,10 +1035,51 @@ export default function AssetsPage() {
               <select value={formBaseUnit} onChange={(e) => setFormBaseUnit(e.target.value)} style={inputStyle}>
                 <option value="HR">Per Hour</option>
                 <option value="DAY">Per Day</option>
+                <option value="MI">Per Mile</option>
                 <option value="WK">Per Week</option>
                 <option value="MO">Per Month</option>
                 <option value="EA">Each</option>
               </select>
+            </div>
+          </div>
+
+          {/* Disposition */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div>
+              <label style={labelStyle}>Disposition</label>
+              <select value={formDispositionId} onChange={(e) => setFormDispositionId(e.target.value)} style={inputStyle}>
+                <option value="">— None —</option>
+                {dispositions.map((d) => (
+                  <option key={d.id} value={d.id}>{d.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Tags */}
+          <div style={{ marginBottom: 12 }}>
+            <label style={labelStyle}>Tags</label>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {allTags.map((t) => {
+                const sel = formTagIds.includes(t.id);
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setFormTagIds((prev) => sel ? prev.filter((x) => x !== t.id) : [...prev, t.id])}
+                    style={{
+                      padding: "4px 12px", borderRadius: 999, fontSize: 12, fontWeight: 600,
+                      border: `1px solid ${t.color || "#d1d5db"}`,
+                      background: sel ? (t.color || "#e5e7eb") : "#fff",
+                      color: sel ? "#fff" : (t.color || "#374151"),
+                      cursor: "pointer",
+                    }}
+                  >
+                    {sel ? "✓ " : ""}{t.label}
+                  </button>
+                );
+              })}
+              {allTags.length === 0 && <span style={{ fontSize: 12, color: "#9ca3af" }}>No tags defined yet</span>}
             </div>
           </div>
 

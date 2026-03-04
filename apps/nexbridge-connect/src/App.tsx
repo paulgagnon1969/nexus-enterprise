@@ -1,3 +1,4 @@
+import { useState, useCallback } from "react";
 import { Routes, Route, NavLink, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import Login from "./pages/Login";
@@ -5,19 +6,179 @@ import Dashboard from "./pages/Dashboard";
 import VideoAssessment from "./pages/VideoAssessment";
 import { ContactList } from "./components/contacts/ContactList";
 import { DocumentsTab } from "./components/documents/DocumentsTab";
+import { AssetsTab } from "./components/assets/AssetsTab";
 import Settings from "./pages/Settings";
+import { exportMyData } from "./lib/api";
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeTextFile } from "@tauri-apps/plugin-fs";
 
 const NAV_ITEMS = [
   { to: "/", label: "Assessments", icon: "\uD83C\uDFAF" },
   { to: "/contacts", label: "Contacts", icon: "\uD83D\uDC65" },
   { to: "/documents", label: "Documents", icon: "\uD83D\uDCC4" },
+  { to: "/assets", label: "Assets", icon: "\uD83D\uDDC2\uFE0F" },
   { to: "/settings", label: "Settings", icon: "\u2699\uFE0F" },
 ];
+
+// ---------------------------------------------------------------------------
+// Gating screens (rendered before the main app shell)
+// ---------------------------------------------------------------------------
+
+function UpdateRequiredScreen({ minVersion, downloadUrl }: { minVersion: string | null; downloadUrl: string | null }) {
+  return (
+    <div className="flex h-screen flex-col items-center justify-center gap-4 bg-slate-50 px-8 text-center">
+      <div className="text-4xl">\u26A0\uFE0F</div>
+      <h1 className="text-xl font-bold text-slate-900">Update Required</h1>
+      <p className="max-w-md text-sm text-slate-600">
+        A new version of NexBRIDGE Connect is required{minVersion ? ` (v${minVersion}+)` : ""}. Please update to continue.
+      </p>
+      {downloadUrl && (
+        <a
+          href={downloadUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="rounded-lg bg-nexus-600 px-6 py-2 text-sm font-medium text-white hover:bg-nexus-700"
+        >
+          Download Update
+        </a>
+      )}
+    </div>
+  );
+}
+
+function EntitlementBlockedScreen({ onLogout }: { onLogout: () => void }) {
+  return (
+    <div className="flex h-screen flex-col items-center justify-center gap-4 bg-slate-50 px-8 text-center">
+      <div className="text-4xl">\uD83D\uDD12</div>
+      <h1 className="text-xl font-bold text-slate-900">NexBRIDGE Not Enabled</h1>
+      <p className="max-w-md text-sm text-slate-600">
+        Your organization does not have the NexBRIDGE module enabled. Contact your administrator to enable it.
+      </p>
+      <button onClick={onLogout} className="rounded-lg border border-slate-300 px-6 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
+        Sign Out
+      </button>
+    </div>
+  );
+}
+
+function DeviceLimitScreen({
+  devices,
+  onRevoke,
+  revoking,
+}: {
+  devices: { id: string; deviceName: string; platform: string; lastSeenAt: string }[];
+  onRevoke: (id: string) => void;
+  revoking: boolean;
+}) {
+  return (
+    <div className="flex h-screen flex-col items-center justify-center gap-6 bg-slate-50 px-8 text-center">
+      <div className="text-4xl">\uD83D\uDCBB</div>
+      <h1 className="text-xl font-bold text-slate-900">Device Limit Reached</h1>
+      <p className="max-w-md text-sm text-slate-600">
+        You have reached the maximum of 3 registered devices. Remove one to activate this device.
+      </p>
+      <div className="w-full max-w-md space-y-2">
+        {devices.map((d) => (
+          <div key={d.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3">
+            <div className="text-left">
+              <p className="text-sm font-medium text-slate-900">{d.deviceName}</p>
+              <p className="text-xs text-slate-500">{d.platform} — Last seen {new Date(d.lastSeenAt).toLocaleDateString()}</p>
+            </div>
+            <button
+              onClick={() => onRevoke(d.id)}
+              disabled={revoking}
+              className="rounded bg-red-50 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LockedScreen({ onLogout, onExport }: { onLogout: () => void; onExport: () => void }) {
+  return (
+    <div className="flex h-screen flex-col items-center justify-center gap-4 bg-slate-50 px-8 text-center">
+      <div className="text-4xl">\uD83D\uDEAB</div>
+      <h1 className="text-xl font-bold text-slate-900">License Expired</h1>
+      <p className="max-w-md text-sm text-slate-600">
+        Your NexBRIDGE license has expired and the grace period has ended. You can export your data before signing out.
+      </p>
+      <div className="flex gap-3">
+        <button onClick={onExport} className="rounded-lg bg-nexus-600 px-6 py-2 text-sm font-medium text-white hover:bg-nexus-700">
+          Export My Data
+        </button>
+        <button onClick={onLogout} className="rounded-lg border border-slate-300 px-6 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
+          Sign Out
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function GracePeriodBanner({ endsAt }: { endsAt: string }) {
+  const date = new Date(endsAt);
+  const daysLeft = Math.max(0, Math.ceil((date.getTime() - Date.now()) / 86_400_000));
+  return (
+    <div className="flex items-center justify-center gap-2 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-800">
+      <span>\u26A0\uFE0F</span>
+      <span>Your subscription has lapsed. You have {daysLeft} day{daysLeft !== 1 ? "s" : ""} remaining before data export-only mode.</span>
+    </div>
+  );
+}
+
+function ExportOnlyBanner({ onExport }: { onExport: () => void }) {
+  return (
+    <div className="flex items-center justify-center gap-2 bg-red-50 px-4 py-2 text-xs font-medium text-red-800">
+      <span>\uD83D\uDCE6</span>
+      <span>Read-only mode — your subscription has lapsed.</span>
+      <button onClick={onExport} className="ml-2 underline hover:text-red-900">Export My Data</button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main App
+// ---------------------------------------------------------------------------
 
 export default function App() {
   const auth = useAuth();
   const location = useLocation();
+  const [revoking, setRevoking] = useState(false);
 
+  const handleExport = useCallback(async () => {
+    try {
+      const data = await exportMyData();
+      const json = JSON.stringify(data, null, 2);
+      const filePath = await save({
+        defaultPath: `nexbridge-export-${new Date().toISOString().slice(0, 10)}.json`,
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+      if (filePath) {
+        await writeTextFile(filePath, json);
+      }
+    } catch (err) {
+      console.error("[export] failed:", err);
+    }
+  }, []);
+
+  const handleRevokeDevice = useCallback(
+    async (deviceRecordId: string) => {
+      setRevoking(true);
+      try {
+        await auth.revokeDeviceAndRetry(deviceRecordId);
+      } catch (err) {
+        console.error("[device] revoke failed:", err);
+      } finally {
+        setRevoking(false);
+      }
+    },
+    [auth],
+  );
+
+  // --- Loading ---
   if (auth.loading) {
     return (
       <div className="flex h-screen flex-col items-center justify-center gap-4 bg-slate-50">
@@ -30,89 +191,119 @@ export default function App() {
     );
   }
 
+  // --- Not authenticated ---
   if (!auth.authenticated) {
     return <Login onLogin={auth.login} />;
   }
 
+  // --- Gating: Update required (426) ---
+  if (auth.updateRequired) {
+    return <UpdateRequiredScreen minVersion={auth.updateMinVersion} downloadUrl={auth.updateDownloadUrl} />;
+  }
+
+  // --- Gating: Entitlement blocked ---
+  if (auth.entitlementBlocked) {
+    return <EntitlementBlockedScreen onLogout={auth.logout} />;
+  }
+
+  // --- Gating: Device limit ---
+  if (auth.deviceLimitReached) {
+    return <DeviceLimitScreen devices={auth.existingDevices} onRevoke={handleRevokeDevice} revoking={revoking} />;
+  }
+
+  // --- Gating: License LOCKED (past grace period) ---
+  if (auth.licenseStatus === "LOCKED") {
+    return <LockedScreen onLogout={auth.logout} onExport={handleExport} />;
+  }
+
   // Hide sidebar on the /assess route (full-screen video assessment)
   const isAssessRoute = location.pathname === "/assess";
+  const showGraceBanner = auth.licenseStatus === "GRACE_PERIOD" && auth.graceEndsAt;
+  const showExportOnlyBanner = auth.licenseStatus === "EXPORT_ONLY";
 
   return (
-    <div className="flex h-screen bg-slate-50">
-      {/* Sidebar */}
-      {!isAssessRoute && (
-        <aside className="flex w-56 flex-col border-r border-slate-200 bg-white">
-          {/* Brand */}
-          <div className="flex items-center gap-2 px-4 py-4">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-nexus-600">
-              <span className="text-sm font-bold text-white">N</span>
-            </div>
-            <div>
-              <h1 className="text-sm font-semibold text-slate-900">NexBRIDGE Connect</h1>
-              <span className="text-[10px] text-slate-400">v1.0.0</span>
-            </div>
-          </div>
+    <div className="flex h-screen flex-col bg-slate-50">
+      {/* License banners */}
+      {showGraceBanner && <GracePeriodBanner endsAt={auth.graceEndsAt!} />}
+      {showExportOnlyBanner && <ExportOnlyBanner onExport={handleExport} />}
 
-          {/* Nav links */}
-          <nav className="flex-1 space-y-1 px-2 py-2">
-            {NAV_ITEMS.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === "/"}
-                className={({ isActive }) =>
-                  `flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                    isActive
-                      ? "bg-nexus-50 text-nexus-700"
-                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                  }`
-                }
-              >
-                <span>{item.icon}</span>
-                <span>{item.label}</span>
-              </NavLink>
-            ))}
-          </nav>
-
-          {/* User footer */}
-          <div className="border-t border-slate-200 px-4 py-3">
-            <div className="flex items-center justify-between">
-              <div className="min-w-0">
-                <p className="truncate text-xs text-slate-600">{auth.userEmail}</p>
-                {auth.companyName && (
-                  <p className="truncate text-[10px] text-slate-400">{auth.companyName}</p>
-                )}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar */}
+        {!isAssessRoute && (
+          <aside className="flex w-56 flex-col border-r border-slate-200 bg-white">
+            {/* Brand */}
+            <div className="flex items-center gap-2 px-4 py-4">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-nexus-600">
+                <span className="text-sm font-bold text-white">N</span>
               </div>
-              <button
-                onClick={auth.logout}
-                className="shrink-0 rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-              >
-                Sign out
-              </button>
+              <div>
+                <h1 className="text-sm font-semibold text-slate-900">NexBRIDGE Connect</h1>
+                <span className="text-[10px] text-slate-400">v1.0.0</span>
+              </div>
             </div>
-          </div>
-        </aside>
-      )}
 
-      {/* Main content */}
-      <main className="flex-1 overflow-auto">
-        {isAssessRoute && (
-          <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-white px-4 py-2">
-            <NavLink to="/" className="text-sm text-nexus-600 hover:text-nexus-700">
-              \u2190 Back
-            </NavLink>
-            <span className="text-xs text-slate-400">{auth.userEmail}</span>
-          </div>
+            {/* Nav links */}
+            <nav className="flex-1 space-y-1 px-2 py-2">
+              {NAV_ITEMS.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.to === "/"}
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                      isActive
+                        ? "bg-nexus-50 text-nexus-700"
+                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                    }`
+                  }
+                >
+                  <span>{item.icon}</span>
+                  <span>{item.label}</span>
+                </NavLink>
+              ))}
+            </nav>
+
+            {/* User footer */}
+            <div className="border-t border-slate-200 px-4 py-3">
+              <div className="flex items-center justify-between">
+                <div className="min-w-0">
+                  <p className="truncate text-xs text-slate-600">{auth.userEmail}</p>
+                  {auth.companyName && (
+                    <p className="truncate text-[10px] text-slate-400">{auth.companyName}</p>
+                  )}
+                </div>
+                <button
+                  onClick={auth.logout}
+                  className="shrink-0 rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  Sign out
+                </button>
+              </div>
+            </div>
+          </aside>
         )}
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/assess" element={<VideoAssessment />} />
-          <Route path="/contacts" element={<div className="p-4 h-full"><ContactList /></div>} />
-          <Route path="/documents" element={<div className="p-4 h-full"><DocumentsTab /></div>} />
-          <Route path="/settings" element={<div className="p-4"><Settings /></div>} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </main>
+
+        {/* Main content */}
+        <main className="flex-1 overflow-auto">
+          {isAssessRoute && (
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-white px-4 py-2">
+              <NavLink to="/" className="text-sm text-nexus-600 hover:text-nexus-700">
+                \u2190 Back
+              </NavLink>
+              <span className="text-xs text-slate-400">{auth.userEmail}</span>
+            </div>
+          )}
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/assess" element={<VideoAssessment />} />
+            <Route path="/contacts" element={<div className="p-4 h-full"><ContactList /></div>} />
+            <Route path="/documents" element={<div className="p-4 h-full"><DocumentsTab /></div>} />
+            <Route path="/assets" element={<div className="p-4 h-full"><AssetsTab /></div>} />
+            <Route path="/settings" element={<div className="p-4"><Settings /></div>} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </main>
+      </div>
     </div>
   );
 }

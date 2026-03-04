@@ -6,6 +6,15 @@ import { loadAuth, saveAuth, clearAuth, setCachedCredentials, clearCachedCredent
 // ---------------------------------------------------------------------------
 let baseUrl = "";
 let accessToken = "";
+let appVersion = "1.0.0"; // Updated on init from Tauri
+let deviceId = ""; // Set after device fingerprint is computed
+let licenseStatus = "ACTIVE"; // Updated from X-License-Status response header
+let graceEndsAt: string | null = null;
+
+export function setAppVersion(v: string) { appVersion = v; }
+export function setDeviceId(id: string) { deviceId = id; }
+export function getLicenseStatus() { return licenseStatus; }
+export function getGraceEndsAt() { return graceEndsAt; }
 
 export function setApiConfig(url: string, token: string) {
   baseUrl = url.replace(/\/$/, "");
@@ -26,6 +35,22 @@ async function parseJson<T>(res: Response): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+function platformHeaders(): Record<string, string> {
+  const h: Record<string, string> = {
+    "X-App-Platform": "nexbridge",
+    "X-App-Version": appVersion,
+  };
+  if (deviceId) h["X-Device-Id"] = deviceId;
+  return h;
+}
+
+function readLicenseHeaders(res: Response) {
+  const status = res.headers.get("x-license-status");
+  if (status) licenseStatus = status;
+  const grace = res.headers.get("x-grace-ends-at");
+  if (grace) graceEndsAt = grace;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   console.log(`[api] ${options.method || "GET"} ${baseUrl}${path}`);
 
@@ -36,12 +61,34 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`,
+        ...platformHeaders(),
         ...(options.headers as Record<string, string>),
       },
     });
   } catch (fetchErr) {
     console.error(`[api] fetch() threw:`, fetchErr);
     throw fetchErr;
+  }
+
+  readLicenseHeaders(res);
+
+  // 426 Upgrade Required
+  if (res.status === 426) {
+    const body = await parseJson<any>(res);
+    throw Object.assign(new Error(body?.message || "Update required"), {
+      code: "UPDATE_REQUIRED",
+      minVersion: body?.minVersion,
+      downloadUrl: body?.downloadUrl,
+    });
+  }
+
+  // 402 License lapsed / locked
+  if (res.status === 402) {
+    const body = await parseJson<any>(res);
+    throw Object.assign(new Error(body?.message || "License expired"), {
+      code: body?.error || "LICENSE_ERROR",
+      exportOnly: body?.exportOnly ?? false,
+    });
   }
 
   if (res.status === 401) {
@@ -52,9 +99,11 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
+          ...platformHeaders(),
           ...(options.headers as Record<string, string>),
         },
       });
+      readLicenseHeaders(retry);
       if (!retry.ok) throw new Error(`API error: ${retry.status}`);
       return parseJson<T>(retry);
     }
@@ -90,7 +139,7 @@ export async function login(
   const url = apiUrl.replace(/\/$/, "");
   const res = await fetch(`${url}/auth/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...platformHeaders() },
     body: JSON.stringify({ email, password }),
   });
 
@@ -369,4 +418,173 @@ export async function confirmTeach(
     method: "PATCH",
     body: JSON.stringify({ confirmed, correctionJson }),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Assets
+// ---------------------------------------------------------------------------
+export interface AssetListItem {
+  id: string;
+  name: string;
+  code: string | null;
+  serialNumberOrVin: string | null;
+  assetType: string;
+  isActive: boolean;
+  manufacturer: string | null;
+  model: string | null;
+  year: number | null;
+  disposition?: { id: string; label: string; color: string } | null;
+}
+
+export async function listAssets(ownershipFilter?: "COMPANY" | "PERSONAL"): Promise<AssetListItem[]> {
+  const params = new URLSearchParams();
+  if (ownershipFilter) params.set("ownershipType", ownershipFilter);
+  const qs = params.toString();
+  return request(`/assets${qs ? `?${qs}` : ""}`);
+}
+
+export interface AssetAttachmentRecord {
+  id: string;
+  assetId: string;
+  fileName: string;
+  fileType: string | null;
+  fileSize: number;
+  storageKey: string;
+  category: string;
+  notes: string | null;
+  createdAt: string;
+}
+
+/**
+ * Upload a file as an asset attachment via multipart POST.
+ * Uses the Tauri HTTP plugin's fetch which supports FormData-like bodies.
+ */
+export async function uploadAssetAttachment(
+  assetId: string,
+  fileBytes: Uint8Array,
+  fileName: string,
+  mimeType: string,
+  category: string,
+): Promise<AssetAttachmentRecord[]> {
+  // Build a multipart/form-data body manually using Blob + FormData
+  const formData = new FormData();
+  const blob = new Blob([fileBytes.buffer as ArrayBuffer], { type: mimeType });
+  formData.append("files", blob, fileName);
+  formData.append("category", category);
+
+  const res = await fetch(`${baseUrl}/assets/${assetId}/attachments`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...platformHeaders(),
+      // Do NOT set Content-Type — fetch sets it with the boundary automatically
+    },
+    body: formData,
+  });
+
+  if (res.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (!refreshed) throw new Error("Session expired");
+    const retry = await fetch(`${baseUrl}/assets/${assetId}/attachments`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, ...platformHeaders() },
+      body: formData,
+    });
+    if (!retry.ok) throw new Error(`Upload failed: ${retry.status}`);
+    return parseJson<AssetAttachmentRecord[]>(retry);
+  }
+
+  if (!res.ok) {
+    let body = "";
+    try { body = await res.text(); } catch { /* ignore */ }
+    throw new Error(`Upload failed ${res.status}: ${body}`);
+  }
+
+  return parseJson<AssetAttachmentRecord[]>(res);
+}
+
+// ---------------------------------------------------------------------------
+// Device registration
+// ---------------------------------------------------------------------------
+export interface UserDeviceRecord {
+  id: string;
+  deviceId: string;
+  platform: string;
+  deviceName: string;
+  appVersion: string;
+  licenseType: string;
+  lastSeenAt: string;
+  createdAt: string;
+}
+
+export async function registerDevice(payload: {
+  deviceId: string;
+  platform: string;
+  deviceName: string;
+  appVersion: string;
+}): Promise<UserDeviceRecord> {
+  return request("/auth/register-device", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listDevices(): Promise<UserDeviceRecord[]> {
+  return request("/auth/my-devices");
+}
+
+export async function revokeDevice(deviceRecordId: string): Promise<void> {
+  return request(`/auth/devices/${deviceRecordId}`, { method: "DELETE" });
+}
+
+// ---------------------------------------------------------------------------
+// Entitlements
+// ---------------------------------------------------------------------------
+export interface EntitlementInfo {
+  modules: string[];
+  hasNexBridge: boolean;
+}
+
+export async function checkEntitlements(): Promise<EntitlementInfo> {
+  const data = await request<{ modules: string[] }>("/billing/entitlements");
+  return {
+    modules: data.modules || [],
+    hasNexBridge: (data.modules || []).includes("NEXBRIDGE"),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Rental pool
+// ---------------------------------------------------------------------------
+export async function offerRental(
+  assetId: string,
+  dailyRate?: number,
+  notes?: string,
+): Promise<void> {
+  return request(`/assets/${assetId}/offer-rental`, {
+    method: "POST",
+    body: JSON.stringify({ dailyRate, notes }),
+  });
+}
+
+export async function withdrawRental(assetId: string): Promise<void> {
+  return request(`/assets/${assetId}/offer-rental`, { method: "DELETE" });
+}
+
+export async function listRentalPool(): Promise<AssetListItem[]> {
+  return request("/assets/rental-pool");
+}
+
+// ---------------------------------------------------------------------------
+// Data export
+// ---------------------------------------------------------------------------
+export interface ExportPayload {
+  assets: any[];
+  contacts: any[];
+  devices: any[];
+  metadata: Record<string, any>;
+}
+
+export async function exportMyData(): Promise<ExportPayload> {
+  return request("/export/my-data");
 }

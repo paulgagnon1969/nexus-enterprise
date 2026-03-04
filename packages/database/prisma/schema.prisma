@@ -16,6 +16,7 @@ enum DocumentTemplateType {
   INVOICE
   QUOTE
   SOP
+  CAM
   GENERIC
 }
 
@@ -229,6 +230,12 @@ model Company {
   // CSV Import — vendor receipts, credit card & bank statement imports
   csvImportBatches      CsvImportBatch[]
   importedTransactions  ImportedTransaction[]
+  prescreenFeedbacks    PrescreenFeedback[]
+
+  // Purchase Reconciliation + NexPRICE
+  creditCardPaymentLinks  CreditCardPaymentLink[]
+  receiptLineDispositions ReceiptLineDisposition[]
+  pmReviewItems           PmReviewItem[]
 
   // Local Supplier Index (scraped geographic suppliers)
   localSuppliers LocalSupplier[]
@@ -238,6 +245,13 @@ model Company {
 
   // Asset Scanner (3D Object Capture + AI Tag Read)
   assetScans AssetScan[]
+
+  // Asset Dispositions & Tags
+  assetDispositions AssetDisposition[]
+  assetTags         AssetTag[]
+
+  // Asset Attachments
+  assetAttachments AssetAttachment[]
 
   // Nex-Plac QR Placards
   assetPlacards   AssetPlacard[]
@@ -271,6 +285,9 @@ model Company {
 
   // Project favorites
   projectFavorites ProjectFavorite[]
+
+  // NexBridge Connect — registered devices
+  userDevices UserDevice[]
 }
 
 model OrganizationTemplate {
@@ -632,6 +649,12 @@ model User {
   // CSV Transaction Imports
   csvImportBatchesUploaded CsvImportBatch[] @relation("CsvImportBatchUploadedBy")
 
+  // Purchase Reconciliation
+  ccPaymentLinksLinked        CreditCardPaymentLink[] @relation("CcPaymentLinkLinkedBy")
+  receiptLineDispositionsBy   ReceiptLineDisposition[] @relation("ReceiptLineDispositionBy")
+  pmReviewItemsAssigned       PmReviewItem[] @relation("PmReviewAssignedTo")
+  pmReviewItemsReviewed       PmReviewItem[] @relation("PmReviewReviewedBy")
+
   // Local Supplier Index — flag/review relations
   localSuppliersFlagged  LocalSupplier[] @relation("LocalSupplierFlaggedBy")
   localSuppliersReviewed LocalSupplier[] @relation("LocalSupplierReviewedBy")
@@ -669,6 +692,9 @@ model User {
   placardsAssigned AssetPlacard[] @relation("PlacardAssignedBy")
   placardsVoided   AssetPlacard[] @relation("PlacardVoidedBy")
 
+  // Asset Attachments
+  assetAttachmentsUploaded AssetAttachment[] @relation("AssetAttachmentUploadedBy")
+
   // Agreements & Contracts
   agreementTemplatesCreated        AgreementTemplate[]        @relation("AgreementTemplateCreatedBy")
   agreementsCreated                Agreement[]                @relation("AgreementCreatedBy")
@@ -683,9 +709,12 @@ model User {
 
   // Project favorites
   projectFavorites ProjectFavorite[]
+
+  // NexBridge Connect — registered devices
+  userDevices UserDevice[]
 }
 
-/// Notification delivered to a single user, optionally scoped to a company
+/// Notification delivered to a single user
 /// and/or project. Used for alerts like "Your referral confirmed you" or
 /// "New daily log submitted".
 model Notification {
@@ -1384,6 +1413,7 @@ model Project {
   // Banking transactions tagged to this project (reconciliation)
   bankTransactions     BankTransaction[]     @relation("BankTransactionProject")
   importedTransactions ImportedTransaction[] @relation("ImportedTransactionProject")
+  prescreenedTransactions ImportedTransaction[] @relation("ImportedTransactionPrescreenProject")
 
   // Email Receipt Capture (supplier receipts from email)
   emailReceipts EmailReceipt[]
@@ -1413,6 +1443,11 @@ model Project {
 
   // User favorites
   favorites ProjectFavorite[]
+
+  // Purchase Reconciliation
+  receiptLineDispositionsSource ReceiptLineDisposition[] @relation("ReceiptLineDispositionSource")
+  receiptLineDispositionsTarget ReceiptLineDisposition[] @relation("ReceiptLineDispositionTarget")
+  pmReviewItems                 PmReviewItem[]
 
   @@index([companyId, groupId], map: "Project_company_group_idx")
   @@index([tenantClientId], map: "Project_tenant_client_idx")
@@ -1902,10 +1937,77 @@ enum ProjectPaymentStatus {
 }
 
 enum ProjectBillStatus {
+  TENTATIVE
   DRAFT
   POSTED
   PAID
   VOID
+}
+
+enum PrescreenStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  OVERRIDDEN
+}
+
+// ===================================================================
+// Purchase Reconciliation + NexPRICE enums
+// ===================================================================
+
+enum ReconciliationStatus {
+  UNLINKED
+  SUGGESTED
+  LINKED
+  PM_REVIEW
+  CONFIRMED
+}
+
+enum ExpenseClassification {
+  PROJECT_MATERIAL
+  ENTERTAINMENT
+  PERSONAL
+  FUEL
+  TOOL_EQUIPMENT
+  UNCLASSIFIED
+}
+
+enum DispositionType {
+  KEEP_ON_JOB
+  CREDIT_PERSONAL
+  MOVE_TO_PROJECT
+}
+
+enum CcPaymentLinkStatus {
+  SUGGESTED
+  LINKED
+  REJECTED
+}
+
+enum PmReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  MODIFIED
+}
+
+enum PmReviewTransactionType {
+  IMPORTED
+  BANK
+  RECEIPT_LINE
+}
+
+enum RegionType {
+  ZIP3
+  METRO
+  STATE
+  COUNTRY
+}
+
+enum NexPriceConfidence {
+  HIGH
+  MEDIUM
+  LOW
 }
 
 enum ProjectBillLineItemKind {
@@ -2263,6 +2365,11 @@ model ProjectBill {
   // Link to source daily log (for receipts submitted via daily log)
   sourceDailyLogId String?
 
+  // Link to source imported/bank transaction (for prescreened tentative bills)
+  sourceTransactionId     String? // ImportedTransaction.id or BankTransaction.id
+  sourceTransactionSource String? // HD_PRO_XTRA, CHASE_BANK, APPLE_CARD, PLAID
+  prescreenConfidence     Float?  // Confidence at time of bill creation
+
   createdByUserId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -2282,6 +2389,8 @@ model ProjectBill {
   @@index([projectId, billDate], map: "ProjectBill_project_date_idx")
   @@index([sourceDailyLogId], map: "ProjectBill_source_daily_log_idx")
   @@index([targetInvoiceId], map: "ProjectBill_target_invoice_idx")
+  @@index([projectId, status], map: "ProjectBill_project_status_idx")
+  @@index([sourceTransactionId], map: "ProjectBill_source_transaction_idx")
 }
 
 model ProjectBillLineItem {
@@ -2373,6 +2482,7 @@ model ReceiptOcrResult {
   bill          ProjectBill?  @relation(fields: [billId], references: [id], onDelete: Cascade)
   projectFile   ProjectFile   @relation(fields: [projectFileId], references: [id], onDelete: Cascade)
   emailReceipt  EmailReceipt?
+  lineDispositions ReceiptLineDisposition[]
 
   @@index([status], map: "ReceiptOcrResult_status_idx")
   @@index([projectFileId], map: "ReceiptOcrResult_project_file_idx")
@@ -3267,6 +3377,9 @@ model DailyLog {
   /// Material lots created from this daily log (receipt)
   sourceMaterialLots MaterialLot[] @relation("MaterialLotSourceDailyLog")
 
+  // Purchase Reconciliation
+  receiptLineDispositions ReceiptLineDisposition[]
+
   @@index([projectId], map: "DailyLog_project_idx")
   @@index([projectId, roomParticleId], map: "DailyLog_project_room_idx")
   @@index([projectId, sowItemId], map: "DailyLog_project_sow_idx")
@@ -3620,6 +3733,15 @@ model PriceListItem {
   /// Optional link to the canonical product catalog item.
   catalogItemId      String?
 
+  // NexPRICE — global Master Cost Book fields
+  sku                    String?  // Vendor SKU for materials (e.g. HD SKU)
+  contributorCount       Int      @default(0)  // Anonymized: how many tenants submitted this SKU
+  lastSeenPrice          Float?   // Most recent raw purchase price across all tenants
+  lastSeenAt             DateTime? // When the most recent purchase was recorded
+  regionZip              String?  // 3-digit ZIP prefix or region code where price was observed
+  normalizedPrice        Float?   // rawPrice / localMultiplier (normalized to NYC base)
+  priceObservationCount  Int      @default(0)  // How many price observations contributed
+
   components         PriceListComponent[]
   division           Division?              @relation(fields: [divisionCode], references: [code])
   priceList          PriceList              @relation(fields: [priceListId], references: [id])
@@ -3627,12 +3749,14 @@ model PriceListItem {
   assets             Asset[]
   companyItems       CompanyPriceListItem[] @relation("CompanyItemGoldenSource")
   masterCompanyItems CompanyPriceListItem[] @relation("CompanyItemMasterSource")
+  globalBackLinks    CompanyPriceListItem[] @relation("CompanyItemGlobalBackLink")
 
   @@unique([priceListId, canonicalKeyHash], map: "PriceListItem_priceList_canonical_hash_key")
   @@index([priceListId, cat, sel], map: "PriceListItem_priceList_cat_sel_idx")
   @@index([divisionCode], map: "PriceListItem_division_code_idx")
   @@index([sourceCategory], map: "PriceListItem_source_category_idx")
   @@index([catalogItemId], map: "PriceListItem_catalog_item_idx")
+  @@index([priceListId, sku, sourceVendor], map: "PriceListItem_priceList_sku_vendor_idx")
 }
 
 model PriceListComponent {
@@ -3762,9 +3886,16 @@ model CompanyPriceListItem {
   lastPriceChangedSourceImportJobId String?
   lastPriceChangedSource            String?
 
+  // NexPRICE — tenant cost book fields
+  sku                    String?  // Vendor SKU for materials
+  globalPriceListItemId  String?  // Back-link to global Master Cost Book entry
+  regionZip              String?  // Tenant's region for this item (auto-detected)
+  localizedPrice         Float?   // normalizedPrice × tenantMultiplier
+
   companyPriceList          CompanyPriceList          @relation(fields: [companyPriceListId], references: [id])
   priceListItem             PriceListItem?            @relation("CompanyItemGoldenSource", fields: [priceListItemId], references: [id])
   masterPriceListItem       PriceListItem?            @relation("CompanyItemMasterSource", fields: [masterPriceListItemId], references: [id])
+  globalPriceListItem       PriceListItem?            @relation("CompanyItemGlobalBackLink", fields: [globalPriceListItemId], references: [id])
   division                  Division?                 @relation("CompanyPriceListItemDivision", fields: [divisionCode], references: [code])
   priceUpdates              TenantPriceUpdateLog[]
   petlReconciliationEntries PetlReconciliationEntry[]
@@ -3778,6 +3909,8 @@ model CompanyPriceListItem {
   @@index([divisionCode])
   @@index([sourceProjectId])
   @@index([masterPriceListItemId])
+  @@index([companyPriceListId, sku], map: "CompanyPriceListItem_priceList_sku_idx")
+  @@index([globalPriceListItemId], map: "CompanyPriceListItem_globalBackLink_idx")
 }
 
 /// Project-level regional pricing factors learned from PETL imports.
@@ -4286,6 +4419,53 @@ enum ReputationModerationStatus {
 }
 
 /// v1 Asset-centric models (coexist alongside legacy v0 schema)
+
+model AssetDisposition {
+  id         String   @id @default(cuid())
+  companyId  String
+  code       String
+  label      String
+  color      String?  /// Hex color for UI badges (e.g. "#059669")
+  sortOrder  Int      @default(0)
+  isSystem   Boolean  @default(false) /// System-seeded rows cannot be deleted
+  isTerminal Boolean  @default(false) /// Terminal dispositions mark asset as out of circulation
+  createdAt  DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id])
+  assets  Asset[]
+
+  @@unique([companyId, code], map: "AssetDisposition_company_code_key")
+  @@index([companyId])
+}
+
+model AssetTag {
+  id        String   @id @default(cuid())
+  companyId String
+  label     String
+  color     String?  /// Hex color for UI pills
+  createdAt DateTime @default(now())
+
+  company     Company              @relation(fields: [companyId], references: [id])
+  assignments AssetTagAssignment[]
+
+  @@unique([companyId, label], map: "AssetTag_company_label_key")
+  @@index([companyId])
+}
+
+model AssetTagAssignment {
+  id         String   @id @default(cuid())
+  assetId    String
+  tagId      String
+  assignedAt DateTime @default(now())
+
+  asset Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  tag   AssetTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, tagId], map: "AssetTagAssignment_asset_tag_key")
+  @@index([assetId])
+  @@index([tagId])
+}
+
 model Asset {
   id              String    @id @default(cuid())
   companyId       String
@@ -4301,12 +4481,16 @@ model Asset {
   isConsumable    Boolean   @default(false)
   priceListItemId String?
 
+  // Disposition (replaces blunt isActive for richer status)
+  dispositionId String?
+  disposition   AssetDisposition? @relation(fields: [dispositionId], references: [id])
+
   // Identity / OEM
   manufacturer      String?
   model             String?
   serialNumberOrVin String?
   year              Int?
-  isActive          Boolean @default(true)
+  isActive          Boolean @default(true) /// Derived from disposition.isTerminal
 
   // Ownership & sharing
   ownershipType     AssetOwnershipType     @default(COMPANY)
@@ -4314,6 +4498,13 @@ model Asset {
   owner             User?                  @relation("AssetOwner", fields: [ownerId], references: [id])
   sharingVisibility AssetSharingVisibility @default(COMPANY)
   shareGrants       AssetShareGrant[]
+
+  // Rental offering (personal assets offered to company pool)
+  availableForRent   Boolean  @default(false)
+  rentalDailyRate    Decimal? @db.Decimal(12, 4)
+  rentalNotes        String?
+  offeredAt          DateTime?
+  offeredToCompanyId String?
 
   // Maintenance assignment
   maintenanceAssigneeId String?
@@ -4356,6 +4547,12 @@ model Asset {
   transactions  AssetTransaction[]
   scans         AssetScan[]
 
+  // Tags
+  tagAssignments AssetTagAssignment[]
+
+  // Attachments (files stored in MinIO)
+  attachments AssetAttachment[]
+
   // Maintenance relations
   maintenanceSchedules AssetMaintenanceSchedule[]
   maintenanceTodos     MaintenanceTodo[]
@@ -4364,6 +4561,7 @@ model Asset {
 
   @@index([companyId, assetType], map: "Asset_company_type_idx")
   @@index([companyId, currentLocationId])
+  @@index([companyId, dispositionId])
   @@index([ownerId])
   @@index([maintenancePoolId])
   @@index([templateAssetId], map: "Asset_template_idx")
@@ -4460,6 +4658,39 @@ enum TransactionKind {
   ADJUSTMENT
 }
 
+enum AssetAttachmentCategory {
+  PHOTO
+  TITLE
+  INSURANCE
+  MANUAL
+  RECEIPT
+  DIAGNOSTIC
+  CONTRACT
+  WARRANTY
+  SCHEMATIC
+  OTHER
+}
+
+model AssetAttachment {
+  id               String                  @id @default(cuid())
+  companyId        String
+  assetId          String
+  fileName         String
+  fileType         String?                 /// MIME type
+  fileSize         Int                     /// Bytes
+  storageKey       String                  /// MinIO key: asset-attachments/{companyId}/{assetId}/{timestamp}-{filename}
+  category         AssetAttachmentCategory @default(OTHER)
+  notes            String?
+  uploadedByUserId String?
+  createdAt        DateTime                @default(now())
+
+  company    Company @relation(fields: [companyId], references: [id])
+  asset      Asset   @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  uploadedBy User?   @relation("AssetAttachmentUploadedBy", fields: [uploadedByUserId], references: [id])
+
+  @@index([companyId, assetId], map: "AssetAttachment_company_asset_idx")
+}
+
 enum PlacardStatus {
   ACTIVE
   VOID
@@ -4538,6 +4769,13 @@ enum AssetSharingVisibility {
   PRIVATE
   COMPANY
   CUSTOM
+}
+
+enum DeviceLicenseType {
+  CLOUD_SUBSCRIPTION
+  STANDALONE
+  STANDALONE_WITH_UPDATES
+  EXPIRED
 }
 
 model Location {
@@ -4863,6 +5101,34 @@ model MaintenancePoolMember {
   @@index([userId])
 }
 
+/// Registered device for NexBridge Connect / mobile app. Used for device
+/// binding (max N devices per user) and license enforcement.
+model UserDevice {
+  id           String   @id @default(cuid())
+  userId       String
+  companyId    String
+  deviceId     String   /// Machine fingerprint hash
+  platform     String   /// "nexbridge-macos", "nexbridge-windows", "mobile-ios", etc.
+  deviceName   String?  /// Friendly name: "Paul's MacBook Pro"
+  appVersion   String?
+  lastSeenAt   DateTime @default(now())
+  registeredAt DateTime @default(now())
+  isRevoked    Boolean  @default(false)
+  revokedAt    DateTime?
+
+  // License state machine
+  licenseType       DeviceLicenseType @default(CLOUD_SUBSCRIPTION)
+  licenseExpiresAt  DateTime? /// Null for standalone lifetime
+  graceEndsAt       DateTime? /// Set when subscription lapses (now + 14 days)
+  exportCompletedAt DateTime? /// Tracks whether user exported their data
+
+  user    User    @relation(fields: [userId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([userId, deviceId], name: "UserDevice_user_device_key")
+  @@index([userId])
+  @@index([companyId])
+}
 /// Grants visibility of a personal asset to a specific user.
 model AssetShareGrant {
   id              String @id @default(cuid())
@@ -7896,9 +8162,10 @@ model BankTransaction {
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
 
-  company        Company        @relation(fields: [companyId], references: [id])
-  bankConnection BankConnection @relation(fields: [bankConnectionId], references: [id], onDelete: Cascade)
-  project        Project?       @relation("BankTransactionProject", fields: [projectId], references: [id])
+  company        Company              @relation(fields: [companyId], references: [id])
+  bankConnection BankConnection       @relation(fields: [bankConnectionId], references: [id], onDelete: Cascade)
+  project        Project?             @relation("BankTransactionProject", fields: [projectId], references: [id])
+  ccPaymentLinks CreditCardPaymentLink[]
 
   @@index([companyId, date], map: "BankTransaction_company_date_idx")
   @@index([bankConnectionId], map: "BankTransaction_connection_idx")
@@ -7962,6 +8229,9 @@ model ImportedTransaction {
   purchaser   String?
   qty         Float?
   unitPrice   Float?
+  storeNumber String?         // HD store ID (e.g. "6528")
+  transactionRef String?      // HD Transaction ID / Order Number / Invoice Number
+  registerNumber String?      // HD register number
 
   // Chase bank statement fields
   postingDate     DateTime?   @db.Date
@@ -7980,11 +8250,28 @@ model ImportedTransaction {
   // Reconciliation — optional project linkage
   projectId   String?
 
+  // Prescreening — intelligent project suggestion
+  prescreenProjectId       String?
+  prescreenConfidence      Float?          // 0.0–1.0
+  prescreenReason          String?         // Human-readable explanation of signals
+  prescreenStatus          PrescreenStatus @default(PENDING)
+  prescreenRejectionReason String?         // User explanation when rejected
+
+  // Store-to-card reconciliation — links HD line items to credit card charges
+  reconciledWithId         String?         // ID of the matching ImportedTransaction
+  reconciledAt             DateTime?
+
+  // Purchase Reconciliation — CC-to-checking audit chain
+  reconciliationStatus     ReconciliationStatus  @default(UNLINKED)
+  expenseClassification    ExpenseClassification @default(UNCLASSIFIED)
+
   createdAt   DateTime        @default(now())
 
-  company Company          @relation(fields: [companyId], references: [id])
-  batch   CsvImportBatch   @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  project Project?         @relation("ImportedTransactionProject", fields: [projectId], references: [id])
+  company          Company              @relation(fields: [companyId], references: [id])
+  batch            CsvImportBatch       @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  project          Project?             @relation("ImportedTransactionProject", fields: [projectId], references: [id])
+  prescreenProject Project?             @relation("ImportedTransactionPrescreenProject", fields: [prescreenProjectId], references: [id])
+  ccPaymentLinks   CreditCardPaymentLink[]
 
   @@unique([companyId, source, fingerprint], name: "ImportedTransaction_company_source_fingerprint_key")
   @@index([companyId, date], map: "ImportedTransaction_company_date_idx")
@@ -7992,6 +8279,47 @@ model ImportedTransaction {
   @@index([batchId], map: "ImportedTransaction_batch_idx")
   @@index([companyId, jobName], map: "ImportedTransaction_company_jobName_idx")
   @@index([companyId, merchant], map: "ImportedTransaction_company_merchant_idx")
+  @@index([companyId, prescreenStatus], map: "ImportedTransaction_company_prescreen_idx")
+  @@index([companyId, storeNumber], map: "ImportedTransaction_company_store_idx")
+  @@index([reconciledWithId], map: "ImportedTransaction_reconciledWith_idx")
+  @@index([companyId, reconciliationStatus], map: "ImportedTransaction_company_reconStatus_idx")
+  @@index([companyId, expenseClassification], map: "ImportedTransaction_company_expenseClass_idx")
+}
+
+// ===================================================================
+// Prescreening Feedback — learning loop for smart project allocation
+// ===================================================================
+
+enum PrescreenFeedbackType {
+  ACCEPTED
+  REJECTED
+  OVERRIDDEN
+}
+
+/// Records user feedback on prescreened transaction-to-project matches.
+/// Used by the learning algorithm to improve future confidence scores.
+model PrescreenFeedback {
+  id                  String                @id @default(cuid())
+  companyId           String
+  transactionId       String                // ImportedTransaction.id
+  prescreenProjectId  String?               // What was suggested
+  actualProjectId     String?               // What user chose (null if rejected outright)
+  feedbackType        PrescreenFeedbackType
+  reason              String?               // User explanation
+  source              String?               // CsvImportSource at feedback time
+  merchant            String?
+  jobNameNormalized   String?               // Captured for pattern learning
+  storeNumber         String?               // Captured for store-affinity learning
+  purchaser           String?               // Captured for purchaser-affinity learning
+  descriptionKeywords String?               // Extracted keywords for description-pattern learning
+  createdByUserId     String?
+  createdAt           DateTime              @default(now())
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, source, merchant], map: "PrescreenFeedback_company_source_merchant_idx")
+  @@index([companyId, jobNameNormalized], map: "PrescreenFeedback_company_jobName_idx")
+  @@index([companyId, storeNumber], map: "PrescreenFeedback_company_store_idx")
 }
 
 // ===================================================================
@@ -9039,4 +9367,125 @@ model KioskDelegation {
 
   @@index([companyId, projectId], map: "KioskDelegation_company_project_idx")
   @@index([delegatedToUserId, expiresAt], map: "KioskDelegation_delegate_expiry_idx")
+}
+
+// ===================================================================
+// Purchase Reconciliation — CC-to-Checking Audit Chain
+// ===================================================================
+
+/// Links a checking account outflow (payment to CC company) to individual
+/// credit card charges it covers. Enables the audit trail:
+/// Checking outflow → CC charges → Receipt line items → Project costs.
+model CreditCardPaymentLink {
+  id               String              @id @default(cuid())
+  companyId        String
+  checkingTxnId    String              // BankTransaction.id (the checking outflow)
+  creditCardTxnId  String              // ImportedTransaction.id (individual CC charge)
+  status           CcPaymentLinkStatus @default(SUGGESTED)
+  confidence       Float?              // 0.0–1.0 match confidence
+  linkedByUserId   String?
+  linkedAt         DateTime?
+  createdAt        DateTime            @default(now())
+
+  company        Company             @relation(fields: [companyId], references: [id])
+  checkingTxn    BankTransaction     @relation(fields: [checkingTxnId], references: [id])
+  creditCardTxn  ImportedTransaction @relation(fields: [creditCardTxnId], references: [id])
+  linkedBy       User?               @relation("CcPaymentLinkLinkedBy", fields: [linkedByUserId], references: [id])
+
+  @@unique([companyId, creditCardTxnId], name: "CreditCardPaymentLink_company_ccTxn_key")
+  @@index([companyId, checkingTxnId], map: "CreditCardPaymentLink_company_checking_idx")
+  @@index([companyId, status], map: "CreditCardPaymentLink_company_status_idx")
+}
+
+/// Per-line-item disposition from OCR receipts. Structured, auditable record
+/// replacing the bulk excludedLineItemsJson. Each receipt line item can be
+/// kept on job, credited (personal), or moved to another project.
+model ReceiptLineDisposition {
+  id                   String         @id @default(cuid())
+  companyId            String
+  dailyLogId           String
+  ocrResultId          String
+  lineItemIndex        Int            // Position in the OCR lineItemsJson array
+  description          String?        // Snapshot from OCR
+  amount               Float?         // Snapshot from OCR
+  sourceProjectId      String         // Project from the daily log
+  dispositionType      DispositionType
+  targetProjectId      String?        // If MOVE_TO_PROJECT
+  creditReason         String?        // If CREDIT_PERSONAL
+  dispositionedByUserId String?
+  dispositionedAt      DateTime       @default(now())
+  createdAt            DateTime       @default(now())
+
+  company        Company          @relation(fields: [companyId], references: [id])
+  dailyLog       DailyLog         @relation(fields: [dailyLogId], references: [id], onDelete: Cascade)
+  ocrResult      ReceiptOcrResult @relation(fields: [ocrResultId], references: [id], onDelete: Cascade)
+  sourceProject  Project          @relation("ReceiptLineDispositionSource", fields: [sourceProjectId], references: [id])
+  targetProject  Project?         @relation("ReceiptLineDispositionTarget", fields: [targetProjectId], references: [id])
+  dispositionedBy User?           @relation("ReceiptLineDispositionBy", fields: [dispositionedByUserId], references: [id])
+
+  @@unique([ocrResultId, lineItemIndex], name: "ReceiptLineDisposition_ocr_lineItem_key")
+  @@index([companyId, dailyLogId], map: "ReceiptLineDisposition_company_dailyLog_idx")
+}
+
+/// PM reconciliation review queue. Transactions pushed to a project
+/// require PM confirmation before being marked as CONFIRMED.
+model PmReviewItem {
+  id                 String                   @id @default(cuid())
+  companyId          String
+  projectId          String
+  transactionType    PmReviewTransactionType
+  transactionId      String                   // Polymorphic: ImportedTransaction, BankTransaction, or ReceiptLineDisposition ID
+  assignedToUserId   String                   // Project PM
+  status             PmReviewStatus           @default(PENDING)
+  suggestedAmount    Float?
+  suggestedProjectId String?                  // What the system suggested
+  reviewNote         String?
+  reviewedAt         DateTime?
+  reviewedByUserId   String?
+  createdAt          DateTime                 @default(now())
+
+  company      Company  @relation(fields: [companyId], references: [id])
+  project      Project  @relation(fields: [projectId], references: [id])
+  assignedTo   User     @relation("PmReviewAssignedTo", fields: [assignedToUserId], references: [id])
+  reviewedBy   User?    @relation("PmReviewReviewedBy", fields: [reviewedByUserId], references: [id])
+
+  @@index([companyId, projectId, status], map: "PmReviewItem_company_project_status_idx")
+  @@index([assignedToUserId, status], map: "PmReviewItem_assignee_status_idx")
+}
+
+// ===================================================================
+// NexPRICE — Regional Pricing Intelligence
+// ===================================================================
+
+/// Cost-of-living index lookup table for NexPRICE regional normalization.
+/// Maps geographic regions to COL multipliers (NYC = 100 as base).
+model RegionalCostIndex {
+  id            String     @id @default(cuid())
+  regionCode    String     // ZIP3 prefix, metro code, state code, or country code
+  regionName    String     // Human-readable: "Houston Metro", "NYC", "Rural Alabama"
+  regionType    RegionType
+  costIndex     Float      // Raw COL index value (NYC = 100)
+  multiplier    Float      // Precomputed costIndex / 100 (e.g., 0.82 for Houston)
+  source        String?    // "C2ER", "NUMBEO", "BLS", "MANUAL"
+  effectiveYear Int        // Year this index applies to (refresh annually)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@unique([regionCode, effectiveYear], name: "RegionalCostIndex_region_year_key")
+  @@index([regionType, regionCode], map: "RegionalCostIndex_type_code_idx")
+}
+
+/// Home Depot store location lookup for NexPRICE region resolution.
+/// Maps HD store numbers to physical ZIP codes for regional pricing.
+model HdStoreLocation {
+  id          String  @id @default(cuid())
+  storeNumber String  @unique  // e.g., "0604", "6528"
+  zip         String
+  city        String?
+  state       String?
+  lat         Float?
+  lng         Float?
+  createdAt   DateTime @default(now())
+
+  @@index([zip], map: "HdStoreLocation_zip_idx")
 }

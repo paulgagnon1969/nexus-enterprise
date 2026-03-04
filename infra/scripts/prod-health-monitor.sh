@@ -32,12 +32,28 @@ REQUIRED_CONTAINERS=(
   nexus-shadow-receipt-poller
 )
 
-# Health endpoints (local only — no Cloudflare dependency)
+# Health endpoints — local (container-level)
 HEALTH_ENDPOINTS=(
   "http://localhost:8000/health|API"
   "http://localhost:8001/health|Worker"
   "http://localhost:3001|Web"
 )
+
+# External endpoints — public URLs through Cloudflare (what users actually hit)
+EXTERNAL_ENDPOINTS=(
+  "https://staging-api.nfsgrp.com/health|API (external)"
+  "https://staging-ncc.nfsgrp.com|Web (external)"
+)
+
+# DNS hostnames that MUST resolve (used for proactive DNS cache validation)
+REQUIRED_DNS_HOSTS=(
+  staging-api.nfsgrp.com
+  staging-ncc.nfsgrp.com
+)
+
+# Cooldown: don't flush DNS cache more than once per 5 minutes
+DNS_FLUSH_COOLDOWN_FILE="/tmp/nexus-monitor-dns-flush-cooldown"
+DNS_FLUSH_COOLDOWN_SECONDS=300
 
 # Docker Desktop startup timeout (seconds)
 DOCKER_STARTUP_TIMEOUT=120
@@ -239,7 +255,119 @@ check_health_endpoints() {
   return 0
 }
 
-# ── Check 4: Verify restart policies ────────────────────────────────────────
+# ── Check 4: DNS resolution ──────────────────────────────────────────────────
+check_dns_resolution() {
+  local all_resolved=true
+  local flush_needed=false
+
+  for host in "${REQUIRED_DNS_HOSTS[@]}"; do
+    # Test with the system resolver (what curl/browsers use)
+    local local_result
+    local_result=$(dig +short "${host}" A 2>/dev/null | head -1)
+
+    if [[ -z "${local_result}" ]]; then
+      # Local DNS failed — check if a public resolver can resolve it
+      local public_result
+      public_result=$(dig @1.1.1.1 +short "${host}" A 2>/dev/null | head -1)
+
+      if [[ -n "${public_result}" ]]; then
+        # Public resolver works, local doesn't → stale DNS cache
+        log WARN "DNS stale for ${host}: local=NXDOMAIN, public=${public_result}"
+        flush_needed=true
+      else
+        # Both fail → real DNS issue (record missing in Cloudflare)
+        log ERROR "DNS missing for ${host}: no resolution on local or public (1.1.1.1) resolvers"
+        all_resolved=false
+        notify_critical "DNS Missing" "${host} has no DNS record. Check Cloudflare dashboard."
+      fi
+    fi
+  done
+
+  # Auto-flush macOS DNS cache if stale entries detected
+  if ${flush_needed}; then
+    local now
+    now=$(date +%s)
+    local last_flush=0
+    [[ -f "${DNS_FLUSH_COOLDOWN_FILE}" ]] && last_flush=$(cat "${DNS_FLUSH_COOLDOWN_FILE}" 2>/dev/null || echo 0)
+
+    if (( now - last_flush >= DNS_FLUSH_COOLDOWN_SECONDS )); then
+      log INFO "Flushing macOS DNS cache (stale entries detected)"
+      sudo -n dscacheutil -flushcache 2>/dev/null
+      sudo -n killall -HUP mDNSResponder 2>/dev/null
+      echo "${now}" > "${DNS_FLUSH_COOLDOWN_FILE}"
+      notify "DNS Cache Flushed" "Stale DNS entries detected and auto-flushed. Re-checking next cycle."
+    else
+      log INFO "DNS flush skipped — cooldown active"
+    fi
+
+    all_resolved=false
+  fi
+
+  ${all_resolved}
+}
+
+# ── Check 5: External (public) health endpoints ─────────────────────────────
+# Bypasses local DNS by resolving hostnames via 1.1.1.1 (Cloudflare public DNS).
+# This gives an accurate picture of internet reachability regardless of local
+# DNS cache state on the Mac Studio.
+check_external_endpoints() {
+  local all_healthy=true
+  local failed_endpoints=()
+
+  for entry in "${EXTERNAL_ENDPOINTS[@]}"; do
+    local url="${entry%%|*}"
+    local label="${entry##*|}"
+
+    # Extract hostname from URL for --resolve
+    local host
+    host=$(echo "${url}" | sed -E 's|https?://([^/:]+).*|\1|')
+
+    # Resolve via public DNS (1.1.1.1) to bypass local cache
+    local resolved_ip
+    resolved_ip=$(dig @1.1.1.1 +short "${host}" A 2>/dev/null | head -1)
+
+    if [[ -z "${resolved_ip}" ]]; then
+      all_healthy=false
+      failed_endpoints+=("${label}(DNS FAIL)")
+      log ERROR "External check: ${host} failed to resolve via public DNS (1.1.1.1)"
+      continue
+    fi
+
+    local http_code
+    http_code=$(curl -s -o /dev/null -w '%{http_code}' \
+      --resolve "${host}:443:${resolved_ip}" \
+      --connect-timeout 10 --max-time 15 "${url}" 2>/dev/null)
+
+    if [[ "${http_code}" == "200" ]]; then
+      continue
+    fi
+
+    all_healthy=false
+    failed_endpoints+=("${label}(HTTP ${http_code})")
+    log WARN "External health check failed: ${label} (${url}) — HTTP ${http_code} (resolved ${host}→${resolved_ip})"
+  done
+
+  if ! ${all_healthy}; then
+    local fail_list
+    fail_list=$(IFS=', '; echo "${failed_endpoints[*]}")
+
+    # Check if local endpoints are fine — if so, the problem is DNS/tunnel, not containers
+    local local_api_ok
+    local_api_ok=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 http://localhost:8000/health 2>/dev/null)
+
+    if [[ "${local_api_ok}" == "200" ]]; then
+      notify_critical "External Access Down" "${fail_list} — containers healthy but unreachable from internet. Check DNS/tunnel."
+    else
+      # Both local and external down — container issue (already handled by check_health_endpoints)
+      log WARN "External endpoints down alongside local — container issue"
+    fi
+    return 1
+  fi
+
+  return 0
+}
+
+# ── Check 6: Verify restart policies ────────────────────────────────────────
 check_restart_policies() {
   for container in "${REQUIRED_CONTAINERS[@]}"; do
     local policy
@@ -252,7 +380,7 @@ check_restart_policies() {
   done
 }
 
-# ── Check 5: Verify unified project ownership ───────────────────────────────
+# ── Check 7: Verify unified project ownership ───────────────────────────────
 check_project_consistency() {
   for container in "${REQUIRED_CONTAINERS[@]}"; do
     local project
@@ -285,17 +413,31 @@ main() {
     overall_status="DEGRADED"
   fi
 
-  # Check 3: Health endpoints
+  # Check 3: Health endpoints (local)
   if ! check_health_endpoints; then
     if [[ "${overall_status}" == "OK" ]]; then
       overall_status="WARN"
     fi
   fi
 
-  # Check 4: Restart policies (advisory only)
+  # Check 4: DNS resolution (with auto-flush)
+  if ! check_dns_resolution; then
+    if [[ "${overall_status}" == "OK" ]]; then
+      overall_status="WARN"
+    fi
+  fi
+
+  # Check 5: External endpoints (public internet path)
+  if ! check_external_endpoints; then
+    if [[ "${overall_status}" == "OK" || "${overall_status}" == "WARN" ]]; then
+      overall_status="EXTERNAL_DOWN"
+    fi
+  fi
+
+  # Check 6: Restart policies (advisory only)
   check_restart_policies
 
-  # Check 5: Project consistency (advisory only)
+  # Check 7: Project consistency (advisory only)
   check_project_consistency
 
   local elapsed=$(( $(date +%s) - start_time ))

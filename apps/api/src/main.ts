@@ -12,7 +12,7 @@ import fastifyStatic from "@fastify/static";
 import * as path from "node:path";
 import * as net from "node:net";
 
-async function assertPortAvailable(port: number, host = "0.0.0.0") {
+async function assertPortAvailable(port: number, host = "::") {
   await new Promise<void>((resolve, reject) => {
     const server = net.createServer();
 
@@ -42,7 +42,7 @@ async function bootstrap() {
   const port = Number(process.env.API_PORT || process.env.PORT || 8000);
 
   try {
-    await assertPortAvailable(port, "0.0.0.0");
+    await assertPortAvailable(port, "::");
   } catch (err: any) {
     // Fail fast with a clear message instead of starting Nest on an unknown port.
     // This keeps the contract with apps/web (NEXT_PUBLIC_API_BASE_URL) predictable.
@@ -88,7 +88,9 @@ async function bootstrap() {
     })
   );
 
-  await app.listen({ port, host: "0.0.0.0" });
+  // Bind to "::" for dual-stack (IPv4 + IPv6). Chrome resolves localhost to
+  // ::1 (IPv6) first; binding only to 0.0.0.0 causes ERR_CONNECTION_REFUSED.
+  await app.listen({ port, host: "::" });
   console.log(`API listening on http://localhost:${port}`);
 
   console.log("Registered routes:");
