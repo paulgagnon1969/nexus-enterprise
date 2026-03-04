@@ -80,15 +80,14 @@ This file provides guidance to WARP (warp.dev) when working with code in this re
 
 **Production deployment:**
 - Uses the same Docker image as the API (`apps/api/Dockerfile`) but with CMD overridden to `node dist/worker-http.js`.
-- Deployed as `nexus-shadow-worker` container via `docker compose -p nexus-shadow -f infra/docker/docker-compose.shadow.yml up -d --build worker`.
-- Always deploy API and Worker together: `docker compose -p nexus-shadow -f infra/docker/docker-compose.shadow.yml up -d --build api worker`
+- Deploy API and Worker together: `npm run deploy:shadow` (or `bash scripts/deploy-shadow.sh`)
 
 **CRITICAL: API and Worker must stay in sync.**
 Both services use the same Docker image. When deploying API changes that affect import logic (worker.ts, import-xact.ts, pricing.service.ts), the worker MUST be redeployed too.
 
 **Common worker workflows:**
 - Run worker locally (alongside API dev server): `npm run dev:worker`
-- Deploy worker to prod: `docker compose -p nexus-shadow -f infra/docker/docker-compose.shadow.yml up -d --build api worker`
+- Deploy worker to prod: `npm run deploy:shadow` (rebuilds API + worker together)
 - Check worker health in prod: `curl http://localhost:8001/health`
 - View worker logs: `docker logs nexus-shadow-worker --tail 50 -f`
 
@@ -211,9 +210,9 @@ The canonical dev database is **`NEXUSDEVv3`** on `localhost:5433`. Every file t
 - Nuke & restart dev (safe): `npm run dev:nuke`
 - Start full dev stack: `bash scripts/dev-start.sh`
 - Check prod health: `docker ps --filter name=nexus-shadow`
-- Deploy to prod (API + Worker): `docker compose -p nexus-shadow -f infra/docker/docker-compose.shadow.yml up -d --build api worker`
-- Deploy to prod (all services): `docker compose -p nexus-shadow -f infra/docker/docker-compose.shadow.yml up -d --build`
-- Rebuild only web: `docker compose -p nexus-shadow -f infra/docker/docker-compose.shadow.yml up -d --build web`
+- Deploy to prod (API + Worker): `npm run deploy:shadow` (or `bash scripts/deploy-shadow.sh`)
+- Deploy to prod (all services): `npm run deploy:shadow:all`
+- Deploy only web: `npm run deploy:shadow:web`
 
 ## Production Environment — Local Docker on Mac Studio
 
@@ -255,24 +254,29 @@ All production secrets live in `.env.shadow` at the repo root (git-ignored). Thi
 
 ### Deploying to production
 
-**CRITICAL: Always use `-p nexus-shadow`** when running any `docker compose` command against the shadow stack. Omitting the project name causes Docker to derive a project name from the directory, which splits containers across projects and breaks restart policies, health checks, and compose lifecycle management.
+**Always use the deploy script** — it handles env loading, build, restart, migrations, and health checks:
 
-**Deploy API + Worker (most common — after backend code changes):**
 ```bash
-docker compose -p nexus-shadow -f infra/docker/docker-compose.shadow.yml up -d --build api worker
+# Deploy API + Worker (most common — after backend code changes):
+npm run deploy:shadow
+
+# Deploy web only (after frontend changes):
+npm run deploy:shadow:web
+
+# Deploy everything (rare — full rebuild):
+npm run deploy:shadow:all
 ```
 
-**Deploy web only (after frontend changes):**
-```bash
-docker compose -p nexus-shadow -f infra/docker/docker-compose.shadow.yml up -d --build web
-```
+The script (`scripts/deploy-shadow.sh`) does the following automatically:
+1. Loads `.env.shadow` so secrets interpolate into compose `environment:` blocks
+2. Builds images with `--no-cache`
+3. Removes old containers and starts new ones on the correct `nexus-shadow` network
+4. Runs pending Prisma migrations against the shadow DB
+5. Verifies health endpoints (`staging-api.nfsgrp.com`, `staging-ncc.nfsgrp.com`)
 
-**Deploy everything (rare — full rebuild):**
-```bash
-docker compose -p nexus-shadow -f infra/docker/docker-compose.shadow.yml up -d --build
-```
+**Network isolation:** Both compose files now have a top-level `name:` property (`nexus-shadow` / `nexus-dev`), so the `-p` flag is no longer needed. Docker will always place containers on the correct project network regardless of how compose is invoked.
 
-**CRITICAL: API and Worker must stay in sync.** Both use the same Docker image (`apps/api/Dockerfile`). When deploying API changes that affect import logic, always rebuild both `api` and `worker` together.
+**CRITICAL: API and Worker must stay in sync.** Both use the same Docker image (`apps/api/Dockerfile`). `npm run deploy:shadow` always rebuilds both together.
 
 Typical downtime per deploy: ~30–60 seconds while containers rebuild and restart.
 
@@ -291,16 +295,16 @@ PGPASSWORD=$SHADOW_PG_PASSWORD psql -h 127.0.0.1 -p 5435 -U ${SHADOW_PG_USER:-ne
 
 ### Production Prisma migrations
 
-Run from `packages/database` with `DATABASE_URL` pointing at the shadow Postgres:
+Migrations are run **automatically** by `scripts/deploy-shadow.sh` when deploying the API. If you need to run them manually:
 ```bash
 set -a; source .env.shadow; set +a
-DATABASE_URL="postgresql://${SHADOW_PG_USER:-nexus_user}:${SHADOW_PG_PASSWORD}@127.0.0.1:5435/NEXUSPRODv3" \
-  npx --prefix packages/database prisma migrate deploy
+DATABASE_URL="postgresql://${SHADOW_PG_USER:-nexus_user}:${SHADOW_PG_PASSWORD}@*********:5435/NEXUSPRODv3" \
+  npx prisma migrate deploy --config packages/database/prisma.config.ts
 ```
 
-After applying migrations, rebuild the API + Worker so the Prisma client in the containers picks up the new schema:
+After applying migrations manually, rebuild the API + Worker:
 ```bash
-docker compose -p nexus-shadow -f infra/docker/docker-compose.shadow.yml up -d --build api worker
+npm run deploy:shadow
 ```
 
 ### Production health checks
@@ -337,7 +341,7 @@ The Mac Studio runs an automated health monitor via launchd that checks every 60
 
 **What it monitors:**
 1. Docker Desktop daemon — auto-restarts via `open -a Docker` if crashed (with 10-minute cooldown)
-2. All 8 `nexus-shadow-*` containers — runs `docker compose -p nexus-shadow up -d` if any are down
+2. All 8 `nexus-shadow-*` containers — runs `docker compose -f infra/docker/docker-compose.shadow.yml up -d` if any are down
 3. Health endpoints: API (`:8000/health`), Worker (`:8001/health`), Web (`:3001`)
 4. Restart policy drift — alerts if any container loses `restart: unless-stopped`
 5. Compose project consistency — alerts if containers split across projects
