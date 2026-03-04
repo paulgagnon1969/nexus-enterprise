@@ -20,7 +20,7 @@ export class DocumentsService {
     const isAdmin = actor.role === "OWNER" || actor.role === "ADMIN";
 
     // Run counts in parallel for efficiency
-    const [inbox, published, templates, pnp, unpublished, systemDocs] = await Promise.all([
+    const [inbox, published, templates, pnp, unpublished, systemDocs, stagedSops] = await Promise.all([
       // Inbox: TenantDocumentCopy with UNRELEASED status (pending review)
       this.prisma.tenantDocumentCopy.count({
         where: { companyId, status: "UNRELEASED" },
@@ -55,6 +55,13 @@ export class DocumentsService {
             where: { active: true },
           }).catch(() => 0) // Table might not exist
         : Promise.resolve(0),
+
+      // Staged SOPs (admin only): DocumentTemplate with type SOP and active = false
+      isAdmin
+        ? this.prisma.documentTemplate.count({
+            where: { companyId, active: false, type: "SOP" },
+          })
+        : Promise.resolve(0),
     ]);
 
     // Safety sections - hardcoded for now (could query from a safety_sections table later)
@@ -69,6 +76,7 @@ export class DocumentsService {
       // Admin-only stats
       unpublished: isAdmin ? unpublished : undefined,
       systemDocs: isAdmin ? systemDocs : undefined,
+      stagedSops: isAdmin ? stagedSops : undefined,
     };
   }
 
@@ -86,6 +94,7 @@ export class DocumentsService {
             createdAt: true,
           },
         },
+        _count: { select: { versions: true } },
       },
     });
   }

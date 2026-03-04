@@ -24,8 +24,13 @@
     "deploy:prod:api:env": "bash ./scripts/deploy-api-prod-env.sh",
     "sops:sync": "ts-node scripts/import-sops.ts --all",
     "sops:sync:dry": "ts-node scripts/import-sops.ts --all --dry-run",
+    "sops:sync:dev": "NEXUS_API_URL=http://localhost:8001 ts-node scripts/import-sops.ts --all",
     "cams:sync": "ts-node scripts/import-sops.ts --all --dir docs/cams",
+    "cams:sync:dev": "NEXUS_API_URL=http://localhost:8001 ts-node scripts/import-sops.ts --all --dir docs/cams",
     "docs:sync": "npm run sops:sync && npm run cams:sync",
+    "docs:sync:dev": "npm run sops:sync:dev && npm run cams:sync:dev",
+    "docs:sync:both": "bash scripts/docs-sync-both.sh",
+    "docs:sync:both:dry": "bash scripts/docs-sync-both.sh --dry-run",
     "api-token:generate": "ts-node scripts/generate-api-token.ts",
     "seed:checklist": "ts-node scripts/seed-checklist-costbook.ts",
     "compile:cam-manual": "ts-node scripts/compile-cam-manual.ts"

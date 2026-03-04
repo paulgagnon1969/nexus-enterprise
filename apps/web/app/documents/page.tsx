@@ -170,6 +170,17 @@ export default function DocumentsHomePage() {
                   statLabel="documents"
                   adminCard
                 />
+
+                {/* Unpublished SOPs */}
+                <DashboardCard
+                  href="/documents/templates?filter=unpublished-sops"
+                  icon="📑"
+                  title="Unpublished SOPs"
+                  description="SOPs synced from staging, pending review and activation."
+                  stat={stats?.stagedSops}
+                  statLabel="SOPs"
+                  adminCard
+                />
               </div>
             </div>
           </section>
