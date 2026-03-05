@@ -147,7 +147,7 @@ Production uses Grok 4.1 Fast — approximately **10x cheaper** than GPT-4o with
 ## Related Modules
 - [GCP Full Isolation SOP](gcp-full-isolation-sop.md)
 - [NexEXTRACT Adaptive Frame Extraction SOP](nexextract-adaptive-frame-extraction-sop.md)
-- CAM: [TECH-ACC-0002 — NexEXTRACT](../../cams/TECH-ACC-0002-nexextract-adaptive-frame-extraction.md)
+- CAM: [TECH-INTL-0001 — NexEXTRACT](../../cams/TECH-INTL-0001-nexextract-adaptive-intelligence.md)
 
 ## Revision History
 

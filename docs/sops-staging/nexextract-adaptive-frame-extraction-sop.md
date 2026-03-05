@@ -148,7 +148,7 @@ This creates a **proprietary accuracy flywheel** — the more assessments a comp
 ## Related Modules
 - [Vision AI Provider Migration SOP](vision-ai-provider-migration-sop.md)
 - [GCP Full Isolation SOP](gcp-full-isolation-sop.md)
-- CAM: [TECH-ACC-0002 — NexEXTRACT](../../cams/TECH-ACC-0002-nexextract-adaptive-frame-extraction.md)
+- CAM: [TECH-INTL-0001 — NexEXTRACT](../../cams/TECH-INTL-0001-nexextract-adaptive-intelligence.md)
 
 ## Revision History
 

@@ -1,20 +1,20 @@
 ---
-cam_id: "TECH-ACC-0002"
-title: "NexEXTRACT™ — Adaptive Motion-Aware Frame Extraction"
+cam_id: "TECH-INTL-0001"
+title: "NexEXTRACT™ — Adaptive Intelligence Video Assessment"
 mode: TECH
-category: ACC
-revision: "1.0"
-tags: [cam, tech, accuracy, video-assessment, drone, nexextract, ai, proprietary]
+category: INTL
+revision: "2.0"
+tags: [cam, tech, intelligence, video-assessment, drone, nexextract, ai, proprietary, learning-loop]
 status: draft
 created: 2026-03-05
 updated: 2026-03-05
 author: Warp
 cam_score:
   uniqueness: 9
-  value: 8
+  value: 9
   demonstrable: 9
-  defensible: 7
-  total: 33
+  defensible: 8
+  total: 35
 visibility:
   public: false
   internal: true
@@ -22,7 +22,7 @@ visibility:
 website: true
 ---
 
-# NexEXTRACT™ — Adaptive Motion-Aware Frame Extraction
+# NexEXTRACT™ — Adaptive Intelligence Video Assessment
 
 ## Executive Summary
 
@@ -167,3 +167,4 @@ For sales demos or client presentations:
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-03-05 | Initial release — adaptive extraction engine, Grok 4.1 integration, Zoom & Teach loop |
+| 2.0 | 2026-03-05 | Reclassified ACC → INTL. Core differentiator is the per-company learning intelligence, not just extraction accuracy. Bumped defensibility (8) and value (9) scores to reflect learning flywheel moat. |
