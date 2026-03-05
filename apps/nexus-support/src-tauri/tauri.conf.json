@@ -1,0 +1,37 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicegui/nice-gui/main/src-tauri/tauri.conf.json",
+  "productName": "Nexus Support",
+  "version": "1.0.0",
+  "identifier": "com.nfsgrp.nexus-support",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1422",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Nexus Support",
+        "width": 480,
+        "height": 600,
+        "resizable": true,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' https://staging-api.nfsgrp.com wss://staging-api.nfsgrp.com; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

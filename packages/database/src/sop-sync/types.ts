@@ -2,6 +2,15 @@
  * SOP (Standard Operating Procedure) sync types
  */
 
+export type SopType =
+  | "CAM"
+  | "Session Log"
+  | "Feature SOP"
+  | "Infrastructure"
+  | "Admin SOP"
+  | "Policy"
+  | "Orphan SOP";
+
 export interface SopFrontmatter {
   title: string;
   module: string;
@@ -15,6 +24,18 @@ export interface SopFrontmatter {
   module_code?: string;
   /** CAM-specific: unique CAM identifier */
   cam_id?: string;
+  /** CAM scores (parsed from nested YAML) */
+  scores?: {
+    uniqueness?: number;
+    value?: number;
+    demonstrable?: number;
+    defensible?: number;
+    total?: number;
+  };
+  /** CAM mode code (EST, FIN, OPS, etc.) */
+  mode?: string;
+  /** CAM category code (AUTO, SPD, VIS, etc.) */
+  category?: string;
 }
 
 export interface ParsedSop {

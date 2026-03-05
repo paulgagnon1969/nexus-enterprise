@@ -76,6 +76,7 @@ import { VideoAssessmentModule } from "./modules/video-assessment/video-assessme
 import { AgreementsModule } from "./modules/agreements/agreements.module";
 import { NexCheckModule } from "./modules/nexcheck/nexcheck.module";
 import { ExportModule } from "./modules/export/export.module";
+import { SupportSessionModule } from "./modules/support-session/support-session.module";
 
 @Module({
   imports: [
@@ -157,6 +158,7 @@ import { ExportModule } from "./modules/export/export.module";
     AgreementsModule,
     NexCheckModule,
     ExportModule,
+    SupportSessionModule,
   ],
   controllers: [DevController],
   providers: [

@@ -32,6 +32,7 @@
     "react-dom": "^19.0.0",
     "react-map-gl": "^8.1.0",
     "react-plaid-link": "^4.1.1",
+    "@repo/support-client": "*",
     "react-virtualized": "^9.22.5",
     "react-window": "^2.2.6"
   },

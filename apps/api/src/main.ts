@@ -1,4 +1,25 @@
 // Nexus Enterprise API - Production deployment 2026-02-14
+
+// ── Browser-API stubs for pdf-parse / pdfjs-dist on Alpine ──────────────
+// pdf-parse bundles pdfjs-dist which expects DOMMatrix, ImageData, and Path2D.
+// @napi-rs/canvas can't load its native binding on Alpine, so we provide
+// lightweight no-op stubs so the module can be imported without crashing.
+// These are only used for PDF text extraction (no actual rendering).
+if (typeof globalThis.DOMMatrix === "undefined") {
+  (globalThis as any).DOMMatrix = class DOMMatrix {
+    constructor() { return Object.create(DOMMatrix.prototype); }
+  };
+}
+if (typeof globalThis.ImageData === "undefined") {
+  (globalThis as any).ImageData = class ImageData {
+    constructor(public width = 0, public height = 0) {}
+  };
+}
+if (typeof globalThis.Path2D === "undefined") {
+  (globalThis as any).Path2D = class Path2D {};
+}
+// ────────────────────────────────────────────────────────────────────────
+
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import {
@@ -9,6 +30,7 @@ import { ValidationPipe } from "@nestjs/common";
 import { AppModule } from "./app.module";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
+import { IoAdapter } from "@nestjs/platform-socket.io";
 import * as path from "node:path";
 import * as net from "node:net";
 
@@ -80,6 +102,9 @@ async function bootstrap() {
     root: path.resolve(process.cwd(), "uploads"),
     prefix: "/uploads/",
   });
+
+  // Socket.IO adapter for WebSocket gateways (support session signaling)
+  app.useWebSocketAdapter(new IoAdapter(app));
 
   app.useGlobalPipes(
     new ValidationPipe({

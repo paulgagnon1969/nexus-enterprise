@@ -1219,9 +1219,25 @@ export default function DocumentImportPage() {
                     >
                       <div style={{ flex: 1 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                          <span style={{ fontSize: 14, fontWeight: 500, color: "#1f2937" }}>
+                          <button
+                            type="button"
+                            onClick={() => router.push(`/system/documents/${doc.id}`)}
+                            title="Open document"
+                            style={{
+                              padding: 0,
+                              margin: 0,
+                              border: "none",
+                              background: "none",
+                              fontSize: 14,
+                              fontWeight: 500,
+                              color: "#1d4ed8",
+                              cursor: "pointer",
+                              textDecoration: "underline",
+                              textAlign: "left",
+                            }}
+                          >
                             {doc.title}
-                          </span>
+                          </button>
                           <span
                             style={{
                               fontSize: 10,

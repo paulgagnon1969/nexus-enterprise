@@ -12,6 +12,7 @@ interface DashboardStats {
   systemDocs: number;
   systemManuals: number;
   stagedSops: number;
+  camCount: number;
   publications: number;
   tenantCopies: number;
 }
@@ -105,6 +106,17 @@ export default function SystemDocumentsPage() {
                 description="Review and sync SOPs from docs/sops-staging/ into the NccPM manual."
                 stat={stats?.stagedSops}
                 statLabel="pending"
+                adminCard
+              />
+
+              {/* CAM System Manual */}
+              <DashboardCard
+                href="/system/documents/cam-manual"
+                icon="🏆"
+                title="CAM System Manual"
+                description="Competitive Advantage Modules grouped by area, sorted by aggregate score."
+                stat={stats?.camCount}
+                statLabel="CAMs"
                 adminCard
               />
             </div>

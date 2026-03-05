@@ -32,10 +32,11 @@ REQUIRED_CONTAINERS=(
   nexus-shadow-receipt-poller
 )
 
-# Health endpoints — local (container-level)
+# Health endpoints — local (container-level, production only)
+# NOTE: The prod worker (nexus-shadow-worker) does NOT expose a port to the host.
+# Its health is verified via docker exec below, not localhost.
 HEALTH_ENDPOINTS=(
   "http://localhost:8000/health|API"
-  "http://localhost:8001/health|Worker"
   "http://localhost:3001|Web"
 )
 
@@ -186,6 +187,17 @@ check_containers() {
   down_list=$(IFS=', '; echo "${down_containers[*]}")
   notify_critical "Containers Down" "${down_list}"
 
+  # Load production secrets so compose env vars resolve correctly
+  if [[ -f "${REPO_ROOT}/.env.shadow" ]]; then
+    set -a
+    source "${REPO_ROOT}/.env.shadow"
+    set +a
+  else
+    log ERROR ".env.shadow not found — compose recovery will fail (env vars unset)"
+    notify_critical "Missing Secrets" ".env.shadow not found. Cannot recover containers."
+    return 1
+  fi
+
   # Attempt recovery via compose up
   log INFO "Attempting container recovery via compose up..."
   local compose_output
@@ -255,7 +267,23 @@ check_health_endpoints() {
   return 0
 }
 
-# ── Check 4: DNS resolution ──────────────────────────────────────────────────
+# ── Check 3b: Worker health (inside Docker) ──────────────────────────────────
+# The prod worker doesn't expose a port to the host, so we check via docker exec.
+check_worker_health() {
+  local http_code
+  http_code=$(docker exec nexus-shadow-worker node -e \
+    "fetch('http://localhost:8001/health').then(r=>process.stdout.write(String(r.status))).catch(()=>process.stdout.write('000'))" \
+    2>/dev/null)
+
+  if [[ "${http_code}" == "200" ]]; then
+    return 0
+  fi
+
+  log WARN "Worker health check failed (inside container) — HTTP ${http_code:-000}"
+  return 1
+}
+
+# ── Check 4: DNS resolution
 check_dns_resolution() {
   local all_resolved=true
   local flush_needed=false
@@ -413,8 +441,15 @@ main() {
     overall_status="DEGRADED"
   fi
 
-  # Check 3: Health endpoints (local)
+  # Check 3: Health endpoints (local — API + Web)
   if ! check_health_endpoints; then
+    if [[ "${overall_status}" == "OK" ]]; then
+      overall_status="WARN"
+    fi
+  fi
+
+  # Check 3b: Worker health (inside Docker container)
+  if ! check_worker_health; then
     if [[ "${overall_status}" == "OK" ]]; then
       overall_status="WARN"
     fi

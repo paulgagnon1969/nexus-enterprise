@@ -8,6 +8,7 @@ import { ContactList } from "./components/contacts/ContactList";
 import { DocumentsTab } from "./components/documents/DocumentsTab";
 import { AssetsTab } from "./components/assets/AssetsTab";
 import Settings from "./pages/Settings";
+import Support from "./pages/Support";
 import { exportMyData } from "./lib/api";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
@@ -17,6 +18,7 @@ const NAV_ITEMS = [
   { to: "/contacts", label: "Contacts", icon: "\uD83D\uDC65" },
   { to: "/documents", label: "Documents", icon: "\uD83D\uDCC4" },
   { to: "/assets", label: "Assets", icon: "\uD83D\uDDC2\uFE0F" },
+  { to: "/support", label: "Support", icon: "\uD83D\uDEE0\uFE0F" },
   { to: "/settings", label: "Settings", icon: "\u2699\uFE0F" },
 ];
 
@@ -299,6 +301,7 @@ export default function App() {
             <Route path="/contacts" element={<div className="p-4 h-full"><ContactList /></div>} />
             <Route path="/documents" element={<div className="p-4 h-full"><DocumentsTab /></div>} />
             <Route path="/assets" element={<div className="p-4 h-full"><AssetsTab /></div>} />
+            <Route path="/support" element={<div className="p-4 h-full"><Support /></div>} />
             <Route path="/settings" element={<div className="p-4"><Settings /></div>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

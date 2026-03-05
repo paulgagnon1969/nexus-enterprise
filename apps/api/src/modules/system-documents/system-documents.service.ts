@@ -20,6 +20,7 @@ import { ManualVersionChangeType } from "@prisma/client";
 // Paths to document sources relative to repo root
 const STAGING_DIR = path.resolve(__dirname, "../../../../../docs/sops-staging");
 const POLICIES_DIR = path.resolve(__dirname, "../../../../../docs/policies");
+const CAMS_DIR = path.resolve(__dirname, "../../../../../docs/cams");
 const SOURCE_DIRS = [STAGING_DIR, POLICIES_DIR];
 
 const NEXUS_SYSTEM_COMPANY_ID = "cmjr7o4zs000101s6z1rt1ssz";
@@ -229,6 +230,15 @@ export class SystemDocumentsService {
       }
     }
 
+    // Count CAM documents
+    let camCount = 0;
+    try {
+      const camFiles = fs.readdirSync(CAMS_DIR);
+      camCount = camFiles.filter((f) => f.endsWith(".md")).length;
+    } catch {
+      // Directory may not exist
+    }
+
     return {
       // Tenant-equivalent stats
       inbox: 0, // Would need to query tenant inbox for NEXUS System company
@@ -241,6 +251,7 @@ export class SystemDocumentsService {
       systemDocs,
       systemManuals, // NEXUS-internal manuals (NccPM, etc.)
       stagedSops,
+      camCount,
       publications,
       tenantCopies,
     };

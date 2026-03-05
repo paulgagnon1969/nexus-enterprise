@@ -9,6 +9,8 @@ import {
   type ParsedSop,
   type SopSyncResult,
   type SopSyncReport,
+  type SopType,
+  type SopFrontmatter,
 } from "@repo/database";
 
 // Paths to document sources relative to repo root
@@ -32,6 +34,51 @@ export class SopSyncService {
   ) {}
 
   /**
+   * Derive the SOP type from filename pattern, frontmatter, and source directory.
+   */
+  private deriveSopType(code: string, fm: SopFrontmatter, sourceDir: string): SopType {
+    // CAM: has cam_id or comes from cams directory
+    if (fm.cam_id || sourceDir === "cams") return "CAM";
+
+    // Policy: from policies directory
+    if (sourceDir === "policies") return "Policy";
+
+    // Session Log: filename starts with session-
+    if (code.startsWith("session-")) return "Session Log";
+
+    const mod = (fm.module || "").toLowerCase();
+
+    // Infrastructure: infra / deployment / dev-env / database / redis / cloudflare / shadow / cicd / check-types
+    const infraKeywords = [
+      "infrastructure", "dev-environment", "dev-infrastructure", "deployment",
+      "cicd", "redis", "shadow", "database", "cloudflare", "check-types",
+      "ssl", "dns", "docker",
+    ];
+    if (infraKeywords.some((k) => mod.includes(k))) return "Infrastructure";
+
+    // Admin SOP: admin / system / asset-management / company-management / cam-system / cam-manual
+    const adminKeywords = ["admin", "system", "asset-management", "asset-logistics", "company", "cam-system", "cam-manual"];
+    if (adminKeywords.some((k) => mod.includes(k))) return "Admin SOP";
+
+    // Feature SOP: recognized feature modules
+    const featureKeywords = [
+      "description-keeper", "saved-phrases", "document", "daily-log", "invoicing",
+      "billing", "timecard", "user", "projects", "project", "petl", "bom",
+      "mobile", "estimating", "xactimate", "field", "video", "voice",
+      "smart", "supplier", "procurement", "receipt", "tucks", "urgency",
+      "unified", "contacts", "client", "cross-tenant", "csv", "purchase",
+      "onboarding", "self-registration", "authentication", "file-management",
+      "manual", "edoc", "ncc", "geofencing", "scannex", "nexcheck", "osha",
+      "nexfind", "local-price", "graceful", "vision", "web-app", "ui-performance",
+      "messaging", "schedule", "bcm", "cms", "token", "app-support",
+    ];
+    if (featureKeywords.some((k) => mod.includes(k))) return "Feature SOP";
+
+    // Fallback
+    return "Orphan SOP";
+  }
+
+  /**
    * Get all staged SOPs with their sync status
    */
   async listStagedSops(): Promise<
@@ -41,6 +88,7 @@ export class SopSyncService {
       revision: string;
       status: string;
       module: string;
+      sopType: SopType;
       fileModifiedAt: string;
       frontmatterUpdated: string;
       syncStatus: "new" | "updated" | "synced";
@@ -96,6 +144,7 @@ export class SopSyncService {
         revision: sop.frontmatter.revision,
         status: sop.frontmatter.status,
         module: sop.frontmatter.module,
+        sopType: this.deriveSopType(sop.code, sop.frontmatter, sop.sourceDir),
         fileModifiedAt: sop.fileModifiedAt,
         frontmatterUpdated: sop.frontmatter.updated,
         syncStatus,
@@ -597,6 +646,128 @@ export class SopSyncService {
         error: err.message,
       };
     }
+  }
+
+  // ───────────────────────────────────────────────
+  // CAM Manual Data
+  // ───────────────────────────────────────────────
+
+  /**
+   * Get CAM data grouped by mode for the CAM System Manual.
+   * Modules sorted by aggregate score (avg of total scores in group) descending.
+   */
+  async getCamManualData(): Promise<{
+    modules: Array<{
+      mode: string;
+      modeLabel: string;
+      camCount: number;
+      aggregateScore: number; // avg of total scores
+      cams: Array<{
+        camId: string;
+        code: string;
+        title: string;
+        category: string;
+        scores: { uniqueness: number; value: number; demonstrable: number; defensible: number; total: number };
+        status: string;
+        systemDocumentId?: string;
+      }>;
+    }>;
+    totalCams: number;
+    overallAvgScore: number;
+  }> {
+    let allCams: ParsedSop[] = [];
+    try {
+      allCams = parseAllSops(CAMS_DIR);
+    } catch {
+      // Directory may not exist
+    }
+
+    const MODE_LABELS: Record<string, string> = {
+      EST: "Pricing & Estimation",
+      FIN: "Financial Operations",
+      OPS: "Project Operations",
+      HR: "Workforce & Time Management",
+      CLT: "Client Collaboration",
+      CMP: "Compliance & Documentation",
+      TECH: "Technology Infrastructure",
+    };
+
+    // Group by mode
+    const moduleMap = new Map<string, {
+      mode: string;
+      cams: Array<{
+        camId: string;
+        code: string;
+        title: string;
+        category: string;
+        scores: { uniqueness: number; value: number; demonstrable: number; defensible: number; total: number };
+        status: string;
+        systemDocumentId?: string;
+      }>;
+    }>();
+
+    for (const cam of allCams) {
+      const fm = cam.frontmatter;
+      const mode = (fm.mode || "UNKNOWN").toUpperCase();
+      const scores = fm.scores || {};
+
+      // Look up system document ID
+      let systemDocumentId: string | undefined;
+      try {
+        const existing = await this.prisma.systemDocument.findUnique({
+          where: { code: cam.code },
+          select: { id: true },
+        });
+        if (existing) systemDocumentId = existing.id;
+      } catch {
+        // ignore
+      }
+
+      if (!moduleMap.has(mode)) {
+        moduleMap.set(mode, { mode, cams: [] });
+      }
+
+      moduleMap.get(mode)!.cams.push({
+        camId: fm.cam_id || cam.code,
+        code: cam.code,
+        title: fm.title,
+        category: (fm.category || "UNKNOWN").toUpperCase(),
+        scores: {
+          uniqueness: scores.uniqueness ?? 0,
+          value: scores.value ?? 0,
+          demonstrable: scores.demonstrable ?? 0,
+          defensible: scores.defensible ?? 0,
+          total: scores.total ?? 0,
+        },
+        status: fm.status,
+        systemDocumentId,
+      });
+    }
+
+    // Compute aggregate score per module and sort descending
+    const modules = Array.from(moduleMap.values()).map((m) => {
+      const totalScoreSum = m.cams.reduce((sum, c) => sum + c.scores.total, 0);
+      const aggregateScore = m.cams.length > 0 ? Math.round((totalScoreSum / m.cams.length) * 10) / 10 : 0;
+
+      // Sort CAMs within module by individual total score descending
+      m.cams.sort((a, b) => b.scores.total - a.scores.total);
+
+      return {
+        mode: m.mode,
+        modeLabel: MODE_LABELS[m.mode] || m.mode,
+        camCount: m.cams.length,
+        aggregateScore,
+        cams: m.cams,
+      };
+    });
+
+    modules.sort((a, b) => b.aggregateScore - a.aggregateScore);
+
+    const totalCams = allCams.length;
+    const totalScoreAll = modules.reduce((s, m) => s + m.cams.reduce((ss, c) => ss + c.scores.total, 0), 0);
+    const overallAvgScore = totalCams > 0 ? Math.round((totalScoreAll / totalCams) * 10) / 10 : 0;
+
+    return { modules, totalCams, overallAvgScore };
   }
 
   /**

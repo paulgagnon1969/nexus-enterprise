@@ -5,12 +5,15 @@ import { useEffect, useState } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
+type SopType = "CAM" | "Session Log" | "Feature SOP" | "Infrastructure" | "Admin SOP" | "Policy" | "Orphan SOP";
+
 interface StagedSop {
   code: string;
   title: string;
   revision: string;
   status: string;
   module: string;
+  sopType: SopType;
   fileModifiedAt: string;
   frontmatterUpdated: string;
   syncStatus: "new" | "updated" | "synced";
@@ -40,7 +43,7 @@ interface SyncReport {
   };
 }
 
-type SortField = "title" | "fileModifiedAt" | "module";
+type SortField = "title" | "fileModifiedAt" | "module" | "sopType";
 type SortDir = "asc" | "desc";
 
 export default function SystemSopsStagingPage() {
@@ -55,6 +58,7 @@ export default function SystemSopsStagingPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [sortField, setSortField] = useState<SortField>("fileModifiedAt");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [typeFilter, setTypeFilter] = useState<SopType | "all">("all");
 
   const loadStagedSops = async () => {
     const token = localStorage.getItem("accessToken");
@@ -170,6 +174,11 @@ export default function SystemSopsStagingPage() {
     setSelectedCodes(new Set(pending.map((s) => s.code)));
   };
 
+  const filterSops = (sops: StagedSop[]) => {
+    if (typeFilter === "all") return sops;
+    return sops.filter((s) => s.sopType === typeFilter);
+  };
+
   const sortSops = (sops: StagedSop[]) => {
     return [...sops].sort((a, b) => {
       let cmp = 0;
@@ -179,6 +188,8 @@ export default function SystemSopsStagingPage() {
         cmp = new Date(a.fileModifiedAt).getTime() - new Date(b.fileModifiedAt).getTime();
       } else if (sortField === "module") {
         cmp = a.module.localeCompare(b.module);
+      } else if (sortField === "sopType") {
+        cmp = a.sopType.localeCompare(b.sopType);
       }
       return sortDir === "asc" ? cmp : -cmp;
     });
@@ -193,9 +204,15 @@ export default function SystemSopsStagingPage() {
     }
   };
 
-  const pendingSops = sortSops(stagedSops?.filter((s) => s.syncStatus !== "synced") ?? []);
-  const syncedSops = sortSops(stagedSops?.filter((s) => s.syncStatus === "synced") ?? []);
+  const pendingSops = sortSops(filterSops(stagedSops?.filter((s) => s.syncStatus !== "synced") ?? []));
+  const syncedSops = sortSops(filterSops(stagedSops?.filter((s) => s.syncStatus === "synced") ?? []));
   const selectedCount = selectedCodes.size;
+
+  // Compute type counts for the filter
+  const typeCounts: Record<string, number> = {};
+  for (const sop of stagedSops ?? []) {
+    typeCounts[sop.sopType] = (typeCounts[sop.sopType] || 0) + 1;
+  }
 
   const formatDate = (isoDate: string) => {
     const d = new Date(isoDate);
@@ -224,7 +241,7 @@ export default function SystemSopsStagingPage() {
   );
 
   return (
-    <div style={{ padding: 24, maxWidth: 1200 }}>
+    <div style={{ padding: 24 }}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
         <div>
@@ -247,6 +264,34 @@ export default function SystemSopsStagingPage() {
         >
           ← Back to Documents
         </Link>
+      </div>
+
+      {/* Type Filter */}
+      <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 12, fontWeight: 500, color: "#6b7280" }}>Filter by type:</span>
+        {(["all", "Feature SOP", "CAM", "Session Log", "Infrastructure", "Admin SOP", "Policy", "Orphan SOP"] as const).map((t) => {
+          const count = t === "all" ? (stagedSops?.length ?? 0) : (typeCounts[t] || 0);
+          if (t !== "all" && count === 0) return null;
+          const isActive = typeFilter === t;
+          return (
+            <button
+              key={t}
+              onClick={() => setTypeFilter(t)}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 999,
+                border: isActive ? "1px solid #2563eb" : "1px solid #d1d5db",
+                background: isActive ? "#dbeafe" : "#ffffff",
+                color: isActive ? "#1d4ed8" : "#374151",
+                fontSize: 11,
+                fontWeight: isActive ? 600 : 400,
+                cursor: "pointer",
+              }}
+            >
+              {t === "all" ? "All" : t} ({count})
+            </button>
+          );
+        })}
       </div>
 
       {/* Sync Actions */}
@@ -433,6 +478,7 @@ export default function SystemSopsStagingPage() {
                 <tr style={{ background: "#fefce8" }}>
                   <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #fde047", width: 40 }}></th>
                   <SortHeader field="title" label="SOP" />
+                  <SortHeader field="sopType" label="Type" width={110} />
                   <SortHeader field="module" label="Module" width={100} />
                   <SortHeader field="fileModifiedAt" label="File Date" width={130} />
                   <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #fde047", width: 80 }}>Rev</th>
@@ -479,6 +525,7 @@ export default function SystemSopsStagingPage() {
                 <tr style={{ background: "#f9fafb" }}>
                   <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #e5e7eb", width: 40 }}></th>
                   <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>SOP</th>
+                  <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #e5e7eb", width: 110 }}>Type</th>
                   <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #e5e7eb", width: 100 }}>Module</th>
                   <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #e5e7eb", width: 130 }}>File Date</th>
                   <th style={{ padding: "10px 12px", textAlign: "left", borderBottom: "1px solid #e5e7eb", width: 80 }}>Rev</th>
@@ -569,6 +616,9 @@ function SopRow({
           <div style={{ fontWeight: 500 }}>{sop.title}</div>
           <div style={{ fontSize: 11, color: "#6b7280" }}>{sop.code}.md</div>
         </td>
+        <td style={{ padding: "10px 12px", borderBottom: "1px solid #f3f4f6" }}>
+          <SopTypeBadge type={sop.sopType} />
+        </td>
         <td style={{ padding: "10px 12px", borderBottom: "1px solid #f3f4f6", fontSize: 12 }}>
           {sop.module}
         </td>
@@ -582,41 +632,42 @@ function SopRow({
           <SyncStatusBadge status={sop.syncStatus} />
         </td>
         <td style={{ padding: "10px 12px", borderBottom: "1px solid #f3f4f6", textAlign: "right" }}>
-          <button
-            onClick={onPreview}
-            style={{
-              padding: "4px 10px",
-              borderRadius: 4,
-              border: "1px solid #d1d5db",
-              background: isPreviewOpen ? "#e5e7eb" : "#ffffff",
-              fontSize: 11,
-              cursor: "pointer",
-              marginRight: 6,
-            }}
-          >
-            {isPreviewOpen ? "Hide" : "Preview"}
-          </button>
-          {sop.systemDocumentId && (
-            <Link
-              href={`/system/documents/${sop.systemDocumentId}`}
+          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", whiteSpace: "nowrap" }}>
+            <button
+              onClick={onPreview}
               style={{
                 padding: "4px 10px",
                 borderRadius: 4,
-                border: "1px solid #2563eb",
-                background: "#eff6ff",
-                color: "#2563eb",
+                border: "1px solid #d1d5db",
+                background: isPreviewOpen ? "#e5e7eb" : "#ffffff",
                 fontSize: 11,
-                textDecoration: "none",
+                cursor: "pointer",
               }}
             >
-              View
-            </Link>
-          )}
+              {isPreviewOpen ? "Hide" : "Preview"}
+            </button>
+            {sop.systemDocumentId && (
+              <Link
+                href={`/system/documents/${sop.systemDocumentId}`}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: 4,
+                  border: "1px solid #2563eb",
+                  background: "#eff6ff",
+                  color: "#2563eb",
+                  fontSize: 11,
+                  textDecoration: "none",
+                }}
+              >
+                View
+              </Link>
+            )}
+          </div>
         </td>
       </tr>
       {isPreviewOpen && (
         <tr>
-          <td colSpan={7} style={{ padding: 0, borderBottom: "1px solid #e5e7eb" }}>
+          <td colSpan={8} style={{ padding: 0, borderBottom: "1px solid #e5e7eb" }}>
             <div
               style={{
                 padding: 16,
@@ -654,6 +705,40 @@ function SopRow({
         </tr>
       )}
     </>
+  );
+}
+
+function SopTypeBadge({ type }: { type: SopType }) {
+  const styles: Record<SopType, { bg: string; color: string; icon: string }> = {
+    "CAM": { bg: "#faf5ff", color: "#7c3aed", icon: "🏆" },
+    "Feature SOP": { bg: "#ecfdf5", color: "#059669", icon: "⚙️" },
+    "Session Log": { bg: "#f0f9ff", color: "#0284c7", icon: "📝" },
+    "Infrastructure": { bg: "#fef3c7", color: "#b45309", icon: "🔧" },
+    "Admin SOP": { bg: "#fce7f3", color: "#be185d", icon: "🛡️" },
+    "Policy": { bg: "#e0e7ff", color: "#4338ca", icon: "📜" },
+    "Orphan SOP": { bg: "#f3f4f6", color: "#6b7280", icon: "❓" },
+  };
+
+  const s = styles[type] ?? styles["Orphan SOP"];
+
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 3,
+        padding: "2px 8px",
+        borderRadius: 999,
+        background: s.bg,
+        color: s.color,
+        fontSize: 10,
+        fontWeight: 500,
+        whiteSpace: "nowrap",
+      }}
+    >
+      <span style={{ fontSize: 10 }}>{s.icon}</span>
+      {type}
+    </span>
   );
 }
 

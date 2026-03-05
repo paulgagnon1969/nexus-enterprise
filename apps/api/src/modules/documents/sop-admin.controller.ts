@@ -97,6 +97,16 @@ export class SopAdminController {
   }
 
   /**
+   * GET /admin/sops/cam-manual
+   * Get CAM data grouped by module for the CAM System Manual.
+   * Modules sorted by aggregate CAM score.
+   */
+  @Get("cam-manual")
+  async getCamManual() {
+    return this.sopSync.getCamManualData();
+  }
+
+  /**
    * POST /admin/sops/sync-cams
    * Sync all CAM files from docs/cams/ to SystemDocument
    * and link to ModuleCatalog via camDocumentId.

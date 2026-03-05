@@ -50,6 +50,21 @@ function parseFrontmatter(content: string): { frontmatter: SopFrontmatter; body:
     }
   }
 
+  // Parse nested scores block (indented under "scores:")
+  let scores: SopFrontmatter["scores"] | undefined;
+  const scoresBlockRegex = /^scores:\s*\n((?:\s+\w+:.*\n?)+)/m;
+  const scoresMatch = yamlContent.match(scoresBlockRegex);
+  if (scoresMatch) {
+    const scoreLines = scoresMatch[1].split("\n");
+    scores = {};
+    for (const sl of scoreLines) {
+      const sm = sl.match(/^\s+(\w+):\s*(\d+)/);
+      if (sm) {
+        (scores as any)[sm[1]] = parseInt(sm[2], 10);
+      }
+    }
+  }
+
   const frontmatter: SopFrontmatter = {
     title: data.title || "Untitled SOP",
     module: data.module || "general",
@@ -61,6 +76,9 @@ function parseFrontmatter(content: string): { frontmatter: SopFrontmatter; body:
     author: data.author || "Unknown",
     ...(data.module_code ? { module_code: data.module_code } : {}),
     ...(data.cam_id ? { cam_id: data.cam_id } : {}),
+    ...(data.mode ? { mode: data.mode } : {}),
+    ...(data.category ? { category: data.category } : {}),
+    ...(scores ? { scores } : {}),
   };
 
   return { frontmatter, body };
