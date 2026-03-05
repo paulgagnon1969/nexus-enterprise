@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { PageCard } from "../../ui-shell";
 
@@ -117,6 +117,14 @@ function SearchResultsModal({ results, query, onClose }: { results: DocTemplateR
 // ---------------------------------------------------------------------------
 
 export default function DocumentTemplatesPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: 32, textAlign: "center", color: "#9ca3af" }}>Loading…</div>}>
+      <DocumentTemplatesInner />
+    </Suspense>
+  );
+}
+
+function DocumentTemplatesInner() {
   const searchParams = useSearchParams();
   const filterParam = searchParams.get("filter");
   const isUnpublishedSopsFilter = filterParam === "unpublished-sops";
