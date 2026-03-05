@@ -27,8 +27,8 @@ RUN npm install
 COPY . .
 
 # The macOS-generated lockfile omits linux-arm64-gnu optional deps.
-# Reinstall next to trigger correct platform-specific SWC binary resolution.
-RUN npm install next@16.1.6 --force --legacy-peer-deps 2>&1 | tail -5
+# Reinstall next + parcel-watcher to pull correct platform binaries.
+RUN npm install next@16.1.6 @parcel/watcher@2.5.6 --force --legacy-peer-deps 2>&1 | tail -5
 
 # Build-time env vars (NEXT_PUBLIC_* are inlined at build time)
 ARG NEXT_PUBLIC_API_BASE_URL
