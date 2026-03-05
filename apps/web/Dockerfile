@@ -22,6 +22,14 @@ COPY packages/database/prisma.config.ts packages/database/prisma.config.ts
 
 # Install all dependencies (needed for next build)
 RUN npm install
+
+# Ensure the glibc native bindings are present for ARM64 Debian.
+RUN npm install --no-save @parcel/watcher-linux-arm64-glibc@2.5.6 2>/dev/null || true
+
+# Copy the full repo (turbo needs workspace context)
+COPY . .
+
+# Build-time env vars (NEXT_PUBLIC_* are inlined at build time)
 ARG NEXT_PUBLIC_API_BASE_URL
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_MAPBOX_TOKEN
@@ -33,10 +41,6 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_MAPBOX_TOKEN=$NEXT_PUBLIC_MAPBOX_TOKEN
 ENV NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=$NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 ENV NEXT_PUBLIC_SECURITY_INSPECTOR_ENABLED=$NEXT_PUBLIC_SECURITY_INSPECTOR_ENABLED
-
-# npm on node:22-alpine misdetects libc as glibc instead of musl (EBADPLATFORM).
-# Force-install the musl native binaries that Next.js & Turbo need at build time.
-RUN npm install --no-save --force @parcel/watcher-linux-arm64-musl@2.5.6 2>&1 || true
 
 # Build the web app via Turbo (resolves workspace deps first)
 ENV NODE_OPTIONS="--max-old-space-size=8192"
