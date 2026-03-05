@@ -20,12 +20,13 @@ COPY packages/database/prisma.config.ts packages/database/prisma.config.ts
 # Install all dependencies (needed for next build)
 RUN npm install
 
-# Ensure native binaries are available for Alpine ARM64 (musl).
-# @parcel/watcher for file watching, @next/swc for Next.js compilation.
-RUN npm install --no-save @parcel/watcher-linux-arm64-musl@2.5.6 2>/dev/null || true
-RUN npm install --no-save @next/swc-linux-arm64-musl 2>/dev/null \
-    || npm rebuild next 2>/dev/null \
-    || true
+# npm on macOS doesn't resolve linux-musl optional deps in the lockfile.
+# Explicitly install the native binaries Next.js needs on Alpine ARM64.
+RUN npm install --no-save \
+      @next/swc-linux-arm64-musl@16.1.6 \
+      @parcel/watcher-linux-arm64-musl@2.5.6 \
+    && echo "Native bindings installed" \
+    || (echo "Prebuilt install failed, rebuilding from source..." && npm rebuild @parcel/watcher next)
 
 # Copy the full repo (turbo needs workspace context)
 COPY . .
