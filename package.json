@@ -35,7 +35,8 @@
     "docs:sync:both:dry": "bash scripts/docs-sync-both.sh --dry-run",
     "api-token:generate": "ts-node scripts/generate-api-token.ts",
     "seed:checklist": "ts-node scripts/seed-checklist-costbook.ts",
-    "compile:cam-manual": "ts-node scripts/compile-cam-manual.ts"
+    "compile:cam-manual": "ts-node scripts/compile-cam-manual.ts",
+    "eval:vision": "ts-node scripts/eval-vision-models.ts"
   },
   "workspaces": [
     "apps/*",

@@ -23,7 +23,9 @@
     "@tauri-apps/plugin-store": "^2.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.13.1"
+    "react-router-dom": "^7.13.1",
+    "expo": "~55.0.2",
+    "react-native": "0.83.2"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",

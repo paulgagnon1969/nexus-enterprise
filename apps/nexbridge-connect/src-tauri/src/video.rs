@@ -116,22 +116,52 @@ pub async fn get_video_metadata(video_path: String) -> Result<VideoMetadata, Str
     })
 }
 
+/// Extraction mode for frame selection strategy.
+/// - "fixed"    — capture every `interval_secs` seconds (simple, predictable).
+/// - "adaptive" — hybrid: guaranteed baseline + extra frames on scene changes.
+///                Never faster than `min_interval`, never slower than `max_interval`.
+///                Best for drone footage where the camera moves at varying speeds.
+/// - "scene"    — pure scene-change detection (no guaranteed interval).
+
+const SCALE_FILTER: &str = "scale=1024:1024:force_original_aspect_ratio=decrease,pad=1024:1024:(ow-iw)/2:(oh-ih)/2";
+
 /// Extract key frames from a video using FFmpeg.
-/// Downscales to 1024x1024, samples every `interval_secs` seconds.
-/// Returns base64-encoded frames ready for the Gemini API.
+///
+/// Supports three extraction modes:
+///   fixed    — every `interval_secs` seconds (default 10)
+///   adaptive — motion-aware: guaranteed every `max_interval` secs, with extra
+///              frames when scene changes, minimum `min_interval` apart
+///   scene    — pure scene-change detection
+///
+/// The `showinfo` filter is used in adaptive/scene modes to capture actual
+/// presentation timestamps from FFmpeg, so frame times are accurate.
 #[tauri::command]
 pub async fn extract_frames(
     app: tauri::AppHandle,
     video_path: String,
+    // Fixed mode params
     interval_secs: Option<f64>,
     max_frames: Option<usize>,
+    // Extraction mode: "fixed" (default), "adaptive", "scene"
+    mode: Option<String>,
+    // Adaptive mode params
+    min_interval: Option<f64>,
+    max_interval: Option<f64>,
+    scene_threshold: Option<f64>,
+    // Legacy compat — treated as mode="scene" when true
     use_scene_detection: Option<bool>,
 ) -> Result<ExtractionResult, String> {
-    let interval = interval_secs.unwrap_or(10.0);
     let max = max_frames.unwrap_or(120);
-    let scene_detect = use_scene_detection.unwrap_or(false);
-
     let metadata = get_video_metadata(video_path.clone()).await?;
+
+    // Resolve extraction mode
+    let extraction_mode = if let Some(ref m) = mode {
+        m.as_str()
+    } else if use_scene_detection.unwrap_or(false) {
+        "scene"
+    } else {
+        "fixed"
+    };
 
     let temp_dir = std::env::temp_dir().join(format!("nexbridge-{}", uuid_v4()));
     tokio::fs::create_dir_all(&temp_dir)
@@ -139,19 +169,55 @@ pub async fn extract_frames(
         .map_err(|e| format!("Failed to create temp dir: {}", e))?;
 
     let output_pattern = temp_dir.join("frame_%04d.jpg");
+    let showinfo_log = temp_dir.join("showinfo.txt");
 
-    let vf = if scene_detect {
-        "select='gt(scene\\,0.3)',scale=1024:1024:force_original_aspect_ratio=decrease,pad=1024:1024:(ow-iw)/2:(oh-ih)/2".to_string()
-    } else {
-        format!(
-            "fps=1/{},scale=1024:1024:force_original_aspect_ratio=decrease,pad=1024:1024:(ow-iw)/2:(oh-ih)/2",
-            interval
-        )
+    // Build the FFmpeg -vf filter chain based on mode
+    let (vf, uses_showinfo) = match extraction_mode {
+        "adaptive" => {
+            // Hybrid extraction: baseline interval + scene-change bonus frames
+            //
+            // Logic: select a frame when ANY of:
+            //   1. It's the first frame (isnan(prev_selected_t))
+            //   2. Enough time has passed AND (max interval exceeded OR scene changed):
+            //      gte(t-prev_selected_t, min) * (gte(t-prev_selected_t, max) + gt(scene, thresh))
+            let min_i = min_interval.unwrap_or(2.0);
+            let max_i = max_interval.unwrap_or(8.0);
+            let thresh = scene_threshold.unwrap_or(0.15);
+
+            let select_expr = format!(
+                "select='isnan(prev_selected_t)+gte(t-prev_selected_t\\,{min_i})*(gte(t-prev_selected_t\\,{max_i})+gt(scene\\,{thresh}))',showinfo,{SCALE_FILTER}",
+            );
+            (select_expr, true)
+        }
+        "scene" => {
+            let thresh = scene_threshold.unwrap_or(0.3);
+            let select_expr = format!(
+                "select='gt(scene\\,{thresh})',showinfo,{SCALE_FILTER}"
+            );
+            (select_expr, true)
+        }
+        _ => {
+            // Fixed interval (original behavior)
+            let interval = interval_secs.unwrap_or(10.0);
+            let vf_str = format!("fps=1/{interval},{SCALE_FILTER}");
+            (vf_str, false)
+        }
+    };
+
+    let mode_desc = match extraction_mode {
+        "adaptive" => format!(
+            "adaptive (min={}s, max={}s, scene>{:.2})",
+            min_interval.unwrap_or(2.0),
+            max_interval.unwrap_or(8.0),
+            scene_threshold.unwrap_or(0.15),
+        ),
+        "scene" => format!("scene detection (threshold={:.2})", scene_threshold.unwrap_or(0.3)),
+        _ => format!("fixed interval ({}s)", interval_secs.unwrap_or(10.0)),
     };
 
     let _ = app.emit("extraction-progress", serde_json::json!({
         "stage": "extracting",
-        "message": format!("Extracting frames from {} ({:.0}s video)...", metadata.file_name, metadata.duration_secs),
+        "message": format!("Extracting frames from {} ({:.0}s, {})...", metadata.file_name, metadata.duration_secs, mode_desc),
     }));
 
     let output = Command::new(ffmpeg_path())
@@ -170,14 +236,32 @@ pub async fn extract_frames(
         .await
         .map_err(|e| format!("FFmpeg failed: {}", e))?;
 
-    if !output.status.success() {
+    // Parse timestamps from showinfo output in stderr (adaptive/scene modes)
+    let mut showinfo_timestamps: Vec<f64> = Vec::new();
+    if uses_showinfo {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        for line in stderr.lines() {
+            if line.contains("showinfo") {
+                // Lines look like: [Parsed_showinfo_1 ...] n:0 pts:12345 pts_time:1.234 ...
+                if let Some(pts_pos) = line.find("pts_time:") {
+                    let after = &line[pts_pos + 9..];
+                    let ts_str: String = after.chars().take_while(|c| *c != ' ' && *c != '\n').collect();
+                    if let Ok(ts) = ts_str.parse::<f64>() {
+                        showinfo_timestamps.push(ts);
+                    }
+                }
+            }
+        }
+    }
+
+    if !output.status.success() && !uses_showinfo {
         let stderr = String::from_utf8_lossy(&output.stderr);
         if !stderr.contains("frame=") && !stderr.contains("Output") {
             return Err(format!("FFmpeg error: {}", stderr));
         }
     }
 
-    let mut frames: Vec<ExtractedFrame> = Vec::new();
+    // Collect output frames
     let mut frame_paths: Vec<PathBuf> = Vec::new();
     let mut dir = tokio::fs::read_dir(&temp_dir)
         .await
@@ -192,6 +276,7 @@ pub async fn extract_frames(
 
     frame_paths.sort();
 
+    // Downsample if we got more frames than max
     if frame_paths.len() > max {
         let step = frame_paths.len() as f64 / max as f64;
         let sampled: Vec<PathBuf> = (0..max)
@@ -205,13 +290,22 @@ pub async fn extract_frames(
         "message": format!("Encoding {} frames for analysis...", frame_paths.len()),
     }));
 
+    let interval_fallback = interval_secs.unwrap_or(10.0);
+    let mut frames: Vec<ExtractedFrame> = Vec::new();
+
     for (i, frame_path) in frame_paths.iter().enumerate() {
         let data = tokio::fs::read(frame_path)
             .await
             .map_err(|e| format!("Failed to read frame: {}", e))?;
 
         let b64 = STANDARD.encode(&data);
-        let timestamp = i as f64 * interval;
+
+        // Use actual timestamp from showinfo if available, otherwise estimate
+        let timestamp = if i < showinfo_timestamps.len() {
+            showinfo_timestamps[i]
+        } else {
+            i as f64 * interval_fallback
+        };
 
         frames.push(ExtractedFrame {
             index: i,
@@ -224,7 +318,7 @@ pub async fn extract_frames(
 
     let _ = app.emit("extraction-progress", serde_json::json!({
         "stage": "complete",
-        "message": format!("Extracted {} frames", frames.len()),
+        "message": format!("Extracted {} frames ({})", frames.len(), mode_desc),
         "frameCount": frames.len(),
     }));
 

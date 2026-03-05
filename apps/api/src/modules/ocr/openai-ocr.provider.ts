@@ -144,13 +144,9 @@ export class OpenAiOcrProvider implements OcrProvider {
         }
       }
 
-      // Fallback: try converting to public URL format
-      const match = imageUrl.match(/^gs:\/\/([^/]+)\/(.+)$/);
-      if (match) {
-        const publicUrl = `https://storage.googleapis.com/${match[1]}/${match[2]}`;
-        this.logger.log(`Converted GCS URI to public URL: ${publicUrl}`);
-        return publicUrl;
-      }
+      // Fallback: if storage service download failed and we have no other option,
+      // log a warning and let it fail gracefully
+      this.logger.warn(`Cannot resolve gs:// URI without storage service: ${imageUrl}`);
     }
 
     throw new Error(`Unsupported image URL format: ${imageUrl}`);

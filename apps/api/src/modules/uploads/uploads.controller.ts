@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Logger, Post, Req, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Logger, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import type { AuthenticatedUser } from "../auth/jwt.strategy";
 import { ObjectStorageService } from "../../infra/storage/object-storage.service";
@@ -62,6 +62,34 @@ export class UploadsController {
    * fails when MinIO is behind Docker / Cloudflare Tunnel (unreachable
    * presigned hostname).
    */
+  /**
+   * GET /uploads/signed?uri=gs://bucket/key
+   *
+   * Returns a time-limited signed URL for a storage URI. Used by the frontend
+   * to display images/files stored in MinIO without exposing raw gs:// URIs.
+   */
+  @Get("signed")
+  async getSignedUrl(
+    @Query("uri") uri: string,
+  ) {
+    if (!uri || (!uri.startsWith("gs://") && !uri.startsWith("s3://"))) {
+      throw new BadRequestException("Invalid storage URI");
+    }
+
+    const match = uri.match(/^(?:gs|s3):\/\/([^/]+)\/(.+)$/);
+    if (!match) {
+      throw new BadRequestException("Malformed storage URI");
+    }
+
+    const signedUrl = await this.gcs.createSignedReadUrl({
+      bucket: match[1]!,
+      key: match[2]!,
+      expiresInSeconds: 60 * 60, // 1 hour
+    });
+
+    return { url: signedUrl };
+  }
+
   @Post("file")
   async uploadFileDirect(@Req() req: FastifyRequest) {
     const actor = (req as any).user as AuthenticatedUser;

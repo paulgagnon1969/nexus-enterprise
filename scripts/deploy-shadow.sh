@@ -49,7 +49,11 @@ fi
 
 # ── Parse arguments ───────────────────────────────────────────────────
 
-SERVICES=("${@:-api worker}")
+if [ $# -eq 0 ]; then
+  SERVICES=(api worker)
+else
+  SERVICES=("$@")
+fi
 if [ "${SERVICES[0]}" = "all" ]; then
   SERVICES=(api worker web receipt-poller)
 fi

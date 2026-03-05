@@ -136,6 +136,17 @@ export class BillingController {
   async grantModuleAccess(@Req() req: any, @Param("code") moduleCode: string) {
     const user = req.user as AuthenticatedUser;
 
+    // Check prerequisites before granting
+    const missing = await this.entitlement.checkPrerequisites(user.companyId, moduleCode);
+    if (missing.length > 0) {
+      return {
+        success: false,
+        moduleCode,
+        message: `Missing prerequisite module(s): ${missing.join(", ")}. Enable those first.`,
+        missingPrerequisites: missing,
+      };
+    }
+
     await this.prisma.tenantModuleSubscription.upsert({
       where: {
         TenantModuleSub_company_module_key: {

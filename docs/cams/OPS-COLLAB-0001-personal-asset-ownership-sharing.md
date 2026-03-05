@@ -4,7 +4,7 @@ module_code: CORE
 title: "Nexus Phantom-Fleet — Making Visible What's Already There"
 mode: OPS
 category: COLLAB
-revision: "2.0"
+revision: "2.1"
 status: draft
 created: 2026-02-28
 updated: 2026-03-05
@@ -62,21 +62,30 @@ In restoration and construction, workers routinely bring personal equipment to j
 6. Assign the pool to a company vehicle → explain the notification chain.
 7. Download the CSV template → point out the ownership columns for bulk onboarding. *"Every sub uploads their phantom fleet in one CSV."*
 
-## Expected Operational Savings
+## Expected Operational Impact
 
-*Based on a mid-size restoration firm: 25 field workers, 60 projects/year, ~$80K/year external equipment rentals.*
+All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes.
 
-| Category | Calculation | Annual Savings |
-|----------|-------------|----------------|
-| **Avoided external rentals** | 3 rentals/month avoided by discovering personal assets × avg $600/rental × 12 months | **$21,600** |
-| **Rental reimbursement accuracy** | 15% of personal-asset usage currently untracked × $40K annual personal equipment value | **$6,000** |
-| **Maintenance compliance** | 2 maintenance failures/yr avoided × avg $2,500 repair/replacement cost | **$5,000** |
-| **PM coordination time saved** | 20 min/week asking "does anyone have a ..." × 5 PMs × 50 weeks @ $55/hr | **$4,580** |
-| **Equipment onboarding time** | 4 hrs/new hire manual inventory × 8 hires/yr @ $35/hr (CSV eliminates 80%) | **$900** |
-| **Insurance documentation** | 2 hrs/quarter compiling personal equipment records × 4 × $55/hr | **$440** |
-| | **Estimated Annual Savings** | **~$38,500** |
+|| Category | % of Revenue | What It Represents |
+||----------|-------------|--------------------|
+|| **Avoided external rentals** | ~0.22% | Equipment already owned by crew members discovered and used instead of rented |
+|| **Rental reimbursement accuracy** | ~0.06% | Personal-asset usage tracked for fair reimbursement instead of going unrecorded |
+|| **Maintenance compliance** | ~0.05% | Equipment failures prevented via pool-based maintenance assignments with resolution chain |
+|| **PM coordination time** | ~0.05% | "Does anyone have a …" calls replaced by searchable phantom fleet inventory |
+|| **Equipment onboarding + insurance** | ~0.01% | CSV bulk import and quarterly insurance documentation automated |
+|| **Total Phantom Fleet Impact** | **~0.39%** | **Combined rental avoidance and equipment visibility as a share of revenue** |
 
-The avoided-rental number dominates — most GCs don't realize their own crews have generators, scaffolding, and specialty tools sitting idle because there's no way to discover them. Making the phantom fleet visible eliminates rental spend that shouldn't exist.
+### Real-World Extrapolation by Tenant Size
+
+|| Annual Revenue | Phantom Fleet Impact (~0.39%) |
+||---------------|-------------------------------|
+|| **$1M** | **~$4,600** |
+|| **$2M** | **~$10,000** |
+|| **$5M** | **~$18,500** |
+|| **$10M** | **~$38,500** |
+|| **$50M** | **~$123,200** |
+
+*The avoided-rental line (~0.22%) dominates — most GCs don’t realize their own crews have generators, scaffolding, and specialty tools sitting idle. Making the phantom fleet visible eliminates rental spend that shouldn’t exist.*
 
 ## Metrics / KPIs
 - **Equipment utilization** — personal assets discovered and used on projects vs. sitting idle
@@ -137,4 +146,5 @@ No competitor offers privacy-first personal asset sharing with owner-controlled 
 |-----|------|---------|
 | 1.0 | 2026-02-28 | Initial draft — personal ownership, maintenance pools, sharing controls |
 | 1.1 | 2026-03-01 | Branded as Nexus Phantom-Fleet; added tagline, refined elevator pitch and demo script |
-| 2.0 | 2026-03-05 | Enriched: operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |
+|| 2.0 | 2026-03-05 | Enriched: operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |
+|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

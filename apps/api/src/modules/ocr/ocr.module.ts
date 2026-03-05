@@ -5,7 +5,6 @@ import { OpenAiOcrProvider } from './openai-ocr.provider';
 import { ReceiptOcrService } from './receipt-ocr.service';
 import { OcrController } from './ocr.controller';
 import { ObjectStorageService } from '../../infra/storage/object-storage.service';
-import { GcsStorageService } from '../../infra/storage/gcs-storage.service';
 import { MinioStorageService } from '../../infra/storage/minio-storage.service';
 import { LocationsModule } from '../locations/locations.module';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -16,10 +15,7 @@ import { NexfindModule } from '../nexfind/nexfind.module';
 
 const StorageProvider = {
   provide: ObjectStorageService,
-  useClass:
-    process.env.STORAGE_PROVIDER === 'minio'
-      ? MinioStorageService
-      : GcsStorageService,
+  useClass: MinioStorageService,
 };
 
 @Module({

@@ -1,12 +1,10 @@
 /**
  * ObjectStorageService — abstract base class for object storage providers.
  *
- * Implementations:
- *   - GcsStorageService  (Google Cloud Storage — production GCP)
- *   - MinioStorageService (MinIO — self-hosted / shadow server)
+ * Implementation:
+ *   - MinioStorageService (MinIO — self-hosted on Mac Studio shadow server)
  *
- * Which implementation is injected is controlled by the STORAGE_PROVIDER env var
- * (see StorageModule). Consumers should always depend on ObjectStorageService.
+ * Injected via StorageModule. Consumers should always depend on ObjectStorageService.
  */
 export abstract class ObjectStorageService {
   /**
@@ -31,8 +29,7 @@ export abstract class ObjectStorageService {
 
   /**
    * Compute a public-facing HTTP URL for a stored object.
-   * For GCS this is `https://storage.googleapis.com/…`.
-   * For MinIO this returns the configured public base URL.
+   * Returns the configured MinIO public base URL.
    */
   abstract getPublicUrlFromUri(uri: string): string;
 

@@ -938,18 +938,22 @@ export function DailyLogsScreen({
                         Attachments ({detailLog.attachments.length})
                       </Text>
                       <View style={styles.detailAttGrid}>
-                        {detailLog.attachments.map((att: any) => {
+                      {detailLog.attachments.map((att: any) => {
                           const isImage = att.mimeType?.startsWith("image/") ||
                             att.fileName?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/);
-                          const fullUrl = att.fileUrl?.startsWith("http")
-                            ? att.fileUrl
-                            : `${getApiBaseUrl()}${att.fileUrl}`;
-                          if (isImage) {
+                          // Build a valid HTTP URL; skip legacy gs:// GCP references
+                          const rawUrl = att.fileUrl;
+                          const fullUrl = rawUrl?.startsWith("http")
+                            ? rawUrl
+                            : rawUrl && !rawUrl.startsWith("gs://")
+                              ? `${getApiBaseUrl()}${rawUrl}`
+                              : null;
+                          if (isImage && fullUrl) {
                             return (
                               <Pressable
                                 key={att.id}
                                 style={styles.detailAttThumb}
-                                onPress={() => fullUrl && Linking.openURL(fullUrl)}
+                                onPress={() => Linking.openURL(fullUrl)}
                               >
                                 <Image
                                   source={{ uri: fullUrl }}

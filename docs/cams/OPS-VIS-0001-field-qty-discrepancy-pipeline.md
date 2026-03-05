@@ -4,7 +4,7 @@ module_code: ESTIMATING
 title: "Field Qty Discrepancy Pipeline"
 mode: OPS
 category: VIS
-revision: "1.0"
+revision: "1.1"
 status: draft
 created: 2026-02-22
 updated: 2026-02-22
@@ -53,17 +53,29 @@ In restoration, estimate quantities frequently don't match field reality. Drywal
 4. Point out the ⚠️ Field Qty Discrepancy banner showing the field note, qty comparison, and pending status.
 5. Show the PM creating a supplement entry informed by the field data.
 
-## Expected Operational Savings
+## Expected Operational Impact
 
-*Based on a mid-size restoration firm: 5 PMs, 60 projects/year, avg 15 flaggable line items per project.*
+All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes.
 
-| Category | Calculation | Annual Savings |
-|----------|-------------|----------------|
-| **Faster supplement filing** | Cash flow acceleration on 30 supplements/yr × $200 time-value | **$6,000** |
-| **Captured under-billed scope** | 2 missed discrepancies/project × avg $800 × 60 projects × 50% capture | **$48,000** |
-| **PM cross-reference time saved** | 30 min/project × 60 projects @ $55/hr | **$1,650** |
-| **Carrier disputes won** | 1 dispute/yr won with audit trail × avg $5,000 | **$5,000** |
-| | **Estimated Annual Savings** | **~$60,650** |
+|| Category | % of Revenue | What It Represents |
+||----------|-------------|--------------------|
+|| **Captured under-billed scope** | ~0.48% | Field-reported qty discrepancies that would otherwise be missed — scope that was done but never billed |
+|| **Faster supplement filing** | ~0.06% | Cash flow acceleration from supplements filed the same day the field flags the discrepancy |
+|| **Carrier disputes won** | ~0.05% | Audit-trailed field flags supporting supplement disputes with carriers |
+|| **PM cross-reference time saved** | ~0.02% | PM time freed from manually comparing field notes against estimate line items |
+|| **Total Field Qty Impact** | **~0.61%** | **Combined scope recovery and labor saved as a share of revenue** |
+
+### Real-World Extrapolation by Tenant Size
+
+|| Annual Revenue | Field Qty Impact (~0.61%) |
+||---------------|---------------------------|
+|| **$1M** | **~$10,100** |
+|| **$2M** | **~$18,000** |
+|| **$5M** | **~$30,300** |
+|| **$10M** | **~$60,650** |
+|| **$50M** | **~$202,000** |
+
+*The under-billed scope line (~0.48%) dominates — this is real revenue that was earned in the field but lost because the discrepancy wasn’t communicated to the PM in time for the supplement.*
 
 ## Competitive Landscape
 
@@ -107,4 +119,5 @@ In restoration, estimate quantities frequently don't match field reality. Drywal
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-02-22 | Initial draft — field discrepancy pipeline |
-| 2.0 | 2026-03-04 | Enriched: operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |
+|| 2.0 | 2026-03-04 | Enriched: operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |
+|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

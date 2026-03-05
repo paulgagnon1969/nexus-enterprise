@@ -3,7 +3,7 @@ cam_id: TECH-INTL-0001
 title: "TUCKS — Telemetry Usage Chart KPI System with Gaming Detection"
 mode: TECH
 category: INTL
-revision: "2.0"
+revision: "2.1"
 status: draft
 created: 2026-02-28
 updated: 2026-03-04
@@ -76,18 +76,30 @@ Raw telemetry lives in Postgres for 2 weeks (for debugging and real-time queries
 - **Demonstrable (8/10)**: Highly visual — dashboards, charts, sparklines, gaming flags. Easy to demo. Slight deduction because full value requires accumulated data over time.
 - **Defensible (7/10)**: The gaming detection algorithm and efficiency correlation logic are non-trivial to replicate, but the individual components (event tracking, rollups, charts) are standard. The defensibility is in the domain-specific calibration and the integration across all Nexus modules.
 
-## Expected Operational Savings
+## Expected Operational Impact
 
-*Based on a mid-size restoration firm: 25 users, $2M annual labor, 60 projects/year.*
+All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes. TUCKS is the #2 value driver in the portfolio because workforce efficiency gains scale directly with labor spend.
 
-| Category | Calculation | Annual Savings |
-|----------|-------------|----------------|
-| **Workforce efficiency improvement** | 5% from visibility/benchmarking × $2M labor | **$100,000** |
-| **Gaming/fraud detection** | 2 incidents/yr caught × avg $2,500 | **$5,000** |
-| **Software adoption ROI** | 15% usage improvement × $50K annual software invest | **$7,500** |
-| **Training targeting** | 20 hrs/yr saved on broad training @ $55/hr | **$1,100** |
-| **Management decision time** | 2 hrs/week saved × 50 weeks @ $55/hr | **$5,500** |
-| | **Estimated Annual Savings** | **~$119,100** |
+|| Category | % of Revenue | What It Represents |
+||----------|-------------|--------------------|
+|| **Workforce efficiency improvement** | ~1.00% | Visibility and benchmarking drive measurable productivity gains across all crews |
+|| **Software adoption ROI** | ~0.08% | Usage analytics identify underutilized modules, directing training where it has the most impact |
+|| **Management decision time** | ~0.06% | Exec/PM hours freed from manual performance tracking |
+|| **Gaming/fraud detection** | ~0.05% | Inflated activity flagged before it corrupts workforce analytics |
+|| **Training targeting** | ~0.01% | Broad training replaced by data-driven, role-specific coaching |
+|| **Total TUCKS Impact** | **~1.19%** | **Combined workforce efficiency and analytics value as a share of revenue** |
+
+### Real-World Extrapolation by Tenant Size
+
+|| Annual Revenue | Est. Labor Spend | TUCKS Impact (~1.19%) |
+||---------------|------------------|-----------------------|
+|| **$1M** | ~$350K | **~$11,900** |
+|| **$2M** | ~$700K | **~$26,000** |
+|| **$5M** | ~$1.5M | **~$47,600** |
+|| **$10M** | ~$2M | **~$119,100** |
+|| **$50M** | ~$8M | **~$476,400** |
+
+*The ~1% workforce efficiency line dominates because even small productivity gains on a $2M+ labor budget produce six-figure returns. Scales super-linearly — larger firms have more process waste for analytics to surface.*
 
 ## Competitive Landscape
 
@@ -117,4 +129,5 @@ Raw telemetry lives in Postgres for 2 weeks (for debugging and real-time queries
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-02-28 | Initial draft — TUCKS telemetry concept |
-| 2.0 | 2026-03-04 | Enriched: elevator pitch, operational savings, competitive landscape, related CAMs, revision history |
+|| 2.0 | 2026-03-04 | Enriched: elevator pitch, operational savings, competitive landscape, related CAMs, revision history |
+|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

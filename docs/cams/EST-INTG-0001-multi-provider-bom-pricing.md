@@ -3,7 +3,7 @@ cam_id: EST-INTG-0001
 title: "Multi-Provider BOM Pricing Pipeline"
 mode: EST
 category: INTG
-revision: "2.0"
+revision: "2.1"
 status: draft
 created: 2026-02-26
 updated: 2026-03-04
@@ -50,20 +50,30 @@ NCC's BOM Pricing Pipeline solves all four problems in a single workflow:
 
 **Key insight**: Material pricing is a multi-supplier, time-sensitive, location-aware problem. NCC treats it as such — not as a simple product lookup.
 
-## Expected Operational Savings
+## Expected Operational Impact
 
-*Based on a mid-size restoration firm: 5 PMs, 60 projects/year, avg $75K materials budget per project.*
+All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes. BOM Pricing is the highest-impact individual CAM in the portfolio because material cost savings scale directly with spend.
 
-| Category | Calculation | Annual Savings |
-|----------|-------------|----------------|
-| **PM time saved** | 4 hrs saved/project (manual lookup eliminated) × 60 projects × $55/hr | **$13,200** |
-| **Material cost savings found** | 8% avg supplier delta identified × $75K budget × 60 projects × 50% capture rate | **$180,000** |
-| **Insurance supplement wins** | 3 supplements/yr supported by price snapshot evidence × avg $8K supplement | **$24,000** |
-| **Wrong-store delivery avoided** | 5 incidents/yr avoided × avg $400 rework/redelivery cost | **$2,000** |
-| **Estimator productivity** | 2 additional estimates/week enabled × 50 weeks × $800 avg margin/estimate | **$80,000** |
-| | **Estimated Annual Savings** | **~$299,000** |
+|| Category | % of Revenue | What It Represents |
+||----------|-------------|--------------------|
+|| **Material cost savings** | ~1.80% | Supplier delta identified by comparing HD vs. Lowe’s prices side-by-side; captured through better purchasing decisions |
+|| **Estimator productivity** | ~0.80% | Additional estimates per week enabled by eliminating manual multi-tab price lookup |
+|| **Insurance supplement wins** | ~0.24% | Timestamped price snapshots supporting supplement negotiations with carriers |
+|| **PM time saved** | ~0.13% | 3–4 hours per project of manual lookup eliminated |
+|| **Wrong-store delivery avoided** | ~0.02% | POs reference the correct pickup location from store-level results |
+|| **Total BOM Pricing Impact** | **~2.99%** | **Combined material savings, productivity, and evidence value as a share of revenue** |
 
-The material cost savings dominate — a 5-15% supplier delta on $4.5M annual materials spend is transformative. Even capturing half of that through better purchasing decisions represents six-figure annual savings.
+### Real-World Extrapolation by Tenant Size
+
+|| Annual Revenue | Est. Materials Budget | BOM Pricing Impact (~2.99%) |
+||---------------|----------------------|----------------------------|
+|| **$1M** | ~$96K | **~$15,000** |
+|| **$2M** | ~$200K | **~$49,000** |
+|| **$5M** | ~$420K | **~$100,000** |
+|| **$10M** | ~$900K | **~$299,000** |
+|| **$50M** | ~$3.6M | **~$950,000** |
+
+*Material cost savings dominate at every tier. A 5–15% supplier delta on annual materials spend is transformative — even capturing half of it through better purchasing decisions represents six-figure annual savings for firms above $5M.*
 
 ## Competitive Landscape
 
@@ -124,4 +134,5 @@ Normalization: Unicode-aware regex for Xactimate dimension markers
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-02-26 | Initial draft — BOM pricing pipeline concept |
-| 2.0 | 2026-03-04 | Enriched: standardized frontmatter, elevator pitch, operational savings, scoring rationale, related CAMs, expansion opportunities |
+|| 2.0 | 2026-03-04 | Enriched: standardized frontmatter, elevator pitch, operational savings, scoring rationale, related CAMs, expansion opportunities |
+|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

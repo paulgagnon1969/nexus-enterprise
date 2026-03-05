@@ -477,33 +477,47 @@ export class DailyLogService {
   }
 
   /**
-   * Try to generate a signed read URL for a GCS-hosted file URL.
-   * Returns the original URL if GCS is not configured or the URL isn't GCS.
+   * Try to generate a signed read URL for a storage-hosted file.
+   * Handles gs:// URIs (MinIO/GCS), public HTTP URLs from the storage
+   * provider, and returns anything else as-is.
    */
   private async signFileUrl(fileUrl: string): Promise<string> {
     if (!fileUrl) return fileUrl;
 
-    // Only sign storage.googleapis.com URLs
+    // Sign gs:// or s3:// storage URIs directly
+    if (fileUrl.startsWith("gs://") || fileUrl.startsWith("s3://")) {
+      const match = fileUrl.match(/^(?:gs|s3):\/\/([^/]+)\/(.+)$/);
+      if (!match) return fileUrl;
+      try {
+        return await this.gcs.createSignedReadUrl({
+          bucket: match[1]!,
+          key: match[2]!,
+          expiresInSeconds: 60 * 60,
+        });
+      } catch (err: any) {
+        this.logger.warn(`Failed to sign URI ${fileUrl}: ${err?.message ?? err}`);
+        return fileUrl;
+      }
+    }
+
+    // Sign storage.googleapis.com or MinIO public URLs
     const gcsMatch = fileUrl.match(
       /^https:\/\/storage\.googleapis\.com\/([^/]+)\/(.+)$/,
     );
-    if (!gcsMatch) return fileUrl;
-
-    const bucket = gcsMatch[1]!;
-    const key = gcsMatch[2]!;
-
-    try {
-      return await this.gcs.createSignedReadUrl({
-        bucket,
-        key,
-        expiresInSeconds: 60 * 60, // 1 hour for viewing
-      });
-    } catch (err: any) {
-      this.logger.warn(
-        `Failed to sign URL for ${key}: ${err?.message ?? err}`,
-      );
-      return fileUrl;
+    if (gcsMatch) {
+      try {
+        return await this.gcs.createSignedReadUrl({
+          bucket: gcsMatch[1]!,
+          key: gcsMatch[2]!,
+          expiresInSeconds: 60 * 60,
+        });
+      } catch (err: any) {
+        this.logger.warn(`Failed to sign URL for ${gcsMatch[2]}: ${err?.message ?? err}`);
+        return fileUrl;
+      }
     }
+
+    return fileUrl;
   }
 
   /**

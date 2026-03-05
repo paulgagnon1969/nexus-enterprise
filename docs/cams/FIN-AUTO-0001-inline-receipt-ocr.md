@@ -3,7 +3,7 @@ cam_id: FIN-AUTO-0001
 title: "Inline Receipt OCR — Multi-Receipt Scan, Line Item Selection & Credit Deductions"
 mode: FIN
 category: AUTO
-revision: "2.0"
+revision: "2.1"
 status: draft
 created: 2026-02-21
 updated: 2026-03-04
@@ -75,17 +75,29 @@ Field crews capture dozens of receipts per week across job sites. Nexus uses GPT
 - Base64 encoding for OpenAI Vision API with `detail: high` for receipt text clarity
 - Low-temperature (0.1) structured JSON extraction for consistent, parseable results
 
-## Expected Operational Savings
+## Expected Operational Impact
 
-*Based on a mid-size restoration firm: 12 field crew, ~50 receipts/week, 5 PMs.*
+All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes.
 
-| Category | Calculation | Annual Savings |
-|----------|-------------|----------------|
-| **Manual entry eliminated** | 5 min/receipt × 50/week × 50 weeks @ $40/hr | **$8,330** |
-| **Data entry errors reduced** | 3% error rate on $60K/month expenses × 12 months × 50% detection | **$10,800** |
-| **Personal expense caught** | 2% of CC spend is personal × $720K annual CC spend | **$14,400** |
-| **PM re-entry time saved** | 15 min/day × 5 PMs × 250 days @ $55/hr | **$3,440** |
-| | **Estimated Annual Savings** | **~$37,000** |
+|| Category | % of Revenue | What It Represents |
+||----------|-------------|--------------------|
+|| **Manual entry elimination** | ~0.08% | Field crew time no longer spent typing vendor, amount, date, and line items on a phone |
+|| **Data entry error reduction** | ~0.11% | Incorrect amounts, wrong vendors, and transposed digits caught by AI extraction |
+|| **Personal expense identification** | ~0.14% | Personal purchases on company cards surfaced via line-item visibility |
+|| **PM re-entry time saved** | ~0.03% | PMs no longer re-keying receipt data from photos or paper |
+|| **Total Receipt OCR Impact** | **~0.37%** | **Combined financial accuracy and labor recovered as a share of revenue** |
+
+### Real-World Extrapolation by Tenant Size
+
+|| Annual Revenue | Receipt OCR Impact (~0.37%) |
+||---------------|----------------------------|
+|| **$1M** | **~$3,700** |
+|| **$2M** | **~$8,000** |
+|| **$5M** | **~$14,800** |
+|| **$10M** | **~$37,000** |
+|| **$50M** | **~$148,000** |
+
+*Scales with receipt volume and CC spend. Firms with more field workers and more cards see proportionally greater impact.*
 
 ## Competitive Landscape
 
@@ -127,4 +139,5 @@ Field crews capture dozens of receipts per week across job sites. Nexus uses GPT
 |-----|------|---------|
 | 1.0 | 2026-02-21 | Initial draft |
 | 1.1 | 2026-03-03 | Multi-receipt merge, line item selection, credit deductions |
-| 2.0 | 2026-03-04 | Enriched: elevator pitch, operational savings, competitive landscape, scoring rationale, related CAMs |
+|| 2.0 | 2026-03-04 | Enriched: elevator pitch, operational savings, competitive landscape, scoring rationale, related CAMs |
+|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

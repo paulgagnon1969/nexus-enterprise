@@ -59,6 +59,7 @@ import { NotificationsService, CreateNotificationParams } from "../notifications
 import { GeocodingService } from "../geocoding/geocoding.service";
 import { NexfindService } from "../nexfind/nexfind.service";
 import { EntitlementService } from "../billing/entitlement.service";
+import { ObjectStorageService } from "../../infra/storage/object-storage.service";
 
 type PetlArchiveBundleV1 = {
   schemaVersion: 1;
@@ -192,20 +193,17 @@ export class ProjectService {
     private readonly geocoding: GeocodingService,
     private readonly nexfind: NexfindService,
     private readonly entitlements: EntitlementService,
+    private readonly storage: ObjectStorageService,
   ) {}
 
   /**
-   * Convert a GCS URI (gs://bucket/path) to a public HTTP URL.
-   * Returns the original URL if it's not a GCS URI.
+   * Convert a storage URI (gs://bucket/path) to a public HTTP URL.
+   * Returns the original URL if it's not a storage URI.
    */
   private toPublicFileUrl(url: string | null | undefined): string | null {
     if (!url) return null;
-    if (url.startsWith("gs://")) {
-      const match = url.match(/^gs:\/\/([^/]+)\/(.+)$/);
-      if (match) {
-        const base = process.env.GCS_PUBLIC_BASE_URL || "https://storage.googleapis.com";
-        return `${base}/${match[1]}/${match[2]}`;
-      }
+    if (url.startsWith("gs://") || url.startsWith("s3://")) {
+      return this.storage.getPublicUrlFromUri(url);
     }
     return url;
   }

@@ -6,14 +6,18 @@
  *
  *   1. ProjectFile  — receipt screenshot (PNG) stored in GCS
  *   2. ReceiptOcrResult — structured parsed data (vendor, items, totals)
- *   3. ProjectBill  — DRAFT bill with line items
+ *   3. ProjectBill  — DRAFT bill with line items (PRIMARY role)
  *   4. ProjectBillAttachment — links bill ↔ ProjectFile
  *   5. EmailReceipt — ingestion record with match metadata
+ *   6. Bill Sibling Group — if a duplicate CC/tentative bill exists,
+ *      the OCR bill becomes PRIMARY and the existing bill becomes VERIFICATION
  */
 
 import { PrismaClient, EmailReceiptStatus } from "@prisma/client";
 import type { ParsedReceipt } from "./parsers/types";
 import type { MatchResult } from "./matcher";
+import { DuplicateBillDetectorService } from "../banking/duplicate-bill-detector.service";
+import type { ObjectStorageService } from "../../infra/storage/object-storage.service";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -33,6 +37,12 @@ export interface BillCreateInput {
 
   /** Source .emlx file path (for audit trail) */
   sourceFilePath: string;
+
+  /** Optional: duplicate bill detector for sibling group creation */
+  duplicateDetector?: DuplicateBillDetectorService;
+
+  /** Storage service for uploading screenshots. When omitted, a placeholder URL is returned. */
+  storageService?: ObjectStorageService;
 }
 
 export interface BillCreateResult {
@@ -46,20 +56,30 @@ export interface BillCreateResult {
 // ── Helpers ──────────────────────────────────────────────────────────
 
 /**
- * Upload a buffer to GCS and return the public URL.
- * For the initial CLI import, we write to a local tmp path and generate
- * a placeholder URL.  Production code should use the real GCS uploader.
+ * Upload a screenshot buffer to object storage and return the storage URI.
+ * When a storageService is provided, the buffer is uploaded to the configured
+ * bucket (MinIO or GCS depending on STORAGE_PROVIDER). Otherwise a placeholder
+ * URI is returned (CLI import only).
  */
 async function uploadScreenshot(
   buffer: Buffer,
   companyId: string,
   projectId: string,
   fileName: string,
+  storageService?: ObjectStorageService,
 ): Promise<string> {
-  // TODO: Replace with real GCS upload (e.g. @google-cloud/storage)
-  // For now, return a placeholder path — the CLI import stores locally
-  const path = `receipts/${companyId}/${projectId}/${fileName}`;
-  return `https://storage.googleapis.com/nexus-uploads/${path}`;
+  const key = `receipts/${companyId}/${projectId}/${fileName}`;
+
+  if (storageService) {
+    return storageService.uploadBuffer({
+      key,
+      buffer,
+      contentType: "image/png",
+    });
+  }
+
+  // Fallback placeholder for CLI import (no DI context)
+  return `gs://nexus-uploads/${key}`;
 }
 
 // ── Main ─────────────────────────────────────────────────────────────
@@ -105,7 +125,7 @@ export async function createBillFromReceipt(
 
     if (input.screenshotBuffer) {
       const fileName = `${receipt.vendor}_receipt_${receipt.store.storeNumber || "unknown"}_${receipt.receiptDate || "nodate"}.png`;
-      fileUrl = await uploadScreenshot(input.screenshotBuffer, companyId, projectId, fileName);
+      fileUrl = await uploadScreenshot(input.screenshotBuffer, companyId, projectId, fileName, input.storageService);
 
       const projectFile = await tx.projectFile.create({
         data: {
@@ -124,15 +144,17 @@ export async function createBillFromReceipt(
     const billDate = receipt.receiptDate
       ? new Date(receipt.receiptDate)
       : input.receivedAt;
+    const vendorName = receipt.vendor === "HOME_DEPOT" ? "Home Depot" : "Lowe's";
 
     const bill = await tx.projectBill.create({
       data: {
         companyId,
         projectId,
-        vendorName: receipt.vendor === "HOME_DEPOT" ? "Home Depot" : "Lowe's",
+        vendorName,
         billNumber: receipt.transactionNumber || null,
         billDate,
         status: "DRAFT",
+        billRole: "PRIMARY", // OCR receipts are always the source of truth
         memo: buildMemo(receipt, match),
         totalAmount: receipt.totalAmount || 0,
       },
@@ -233,6 +255,37 @@ export async function createBillFromReceipt(
         rawEmailJson: { sourceFile: input.sourceFilePath },
       },
     });
+
+    // 7. Duplicate detection — retroactive swap
+    //    If a tentative/draft CC bill already exists for this purchase,
+    //    the OCR receipt (richer data) takes over as PRIMARY and the
+    //    existing bill becomes VERIFICATION with a $0 offset.
+    if (input.duplicateDetector) {
+      try {
+        const dupes = await input.duplicateDetector.findDuplicateBills(
+          companyId,
+          projectId,
+          vendorName,
+          receipt.totalAmount || 0,
+          billDate,
+        );
+
+        // Only match against bills that are NOT this newly created bill
+        const existingDupe = dupes.find((d) => d.billId !== bill.id);
+        if (existingDupe) {
+          await input.duplicateDetector.retroactiveSwap(
+            companyId,
+            projectId,
+            existingDupe.billId,  // Existing CC bill → becomes VERIFICATION
+            bill.id,              // New OCR bill → stays PRIMARY
+            existingDupe.confidence,
+            existingDupe.reason,
+          );
+        }
+      } catch {
+        // Non-fatal — the bill is created regardless
+      }
+    }
 
     return {
       emailReceiptId: emailReceipt.id,

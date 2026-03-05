@@ -78,6 +78,30 @@ export class EntitlementService {
   }
 
   /**
+   * Check if a module's prerequisites are satisfied before enabling it.
+   * Returns the list of missing prerequisite module codes, or empty if all met.
+   */
+  async checkPrerequisites(
+    companyId: string,
+    moduleCode: string,
+  ): Promise<string[]> {
+    const catalog = await this.prisma.moduleCatalog.findUnique({
+      where: { code: moduleCode },
+    });
+    if (!catalog) return [];
+
+    const prerequisites = (catalog as any).prerequisites as string[] ?? [];
+    if (!prerequisites.length) return [];
+
+    const missing: string[] = [];
+    for (const prereq of prerequisites) {
+      const enabled = await this.isModuleEnabled(companyId, prereq);
+      if (!enabled) missing.push(prereq);
+    }
+    return missing;
+  }
+
+  /**
    * Check if a PER_PROJECT feature is unlocked on a specific project.
    * Returns true if a ProjectFeatureUnlock record exists, or if the
    * company is on an active trial.

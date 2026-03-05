@@ -3,7 +3,7 @@ cam_id: TECH-SPD-0003
 title: "Smart Media Upload — Network-Aware Compression & Video"
 mode: TECH
 category: SPD
-revision: "2.0"
+revision: "2.1"
 status: draft
 created: 2026-02-21
 updated: 2026-03-04
@@ -49,20 +49,30 @@ Construction sites have notoriously unreliable connectivity — steel structures
 5. **Metadata-first sync** — Log text, timestamps, GPS coordinates, and field notes sync instantly on any connection. Binary files (photos/videos) queue separately so the log record is never delayed by media.
 6. **Resume capability** — Each upload tracks byte-level progress. If the connection drops, the upload resumes from where it left off — no re-upload of the entire file.
 
-## Expected Operational Savings
+## Expected Operational Impact
 
-*Based on a mid-size restoration firm: 12 field workers, ~15 photos/day each, 5 active projects.*
+All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes.
 
-| Category | Calculation | Annual Savings |
-|----------|-------------|----------------|
-| **Field time saved** | 8 min/day saved per worker (no upload waits) × 12 workers × 250 days @ $35/hr | **$14,000** |
-| **Cellular data cost reduction** | ~60% compression savings × $350/month avg overage | **$2,520** |
-| **Prevented lost media** | 5 lost-photo incidents/month avoided × 20 min re-capture @ $35/hr | **$700** |
-| **Video documentation enabled** | 2 rework incidents/yr prevented by video evidence × avg $1,500 rework cost | **$3,000** |
-| **PM time saved** | 15 min/day not chasing missing photos from field × 5 PMs × 250 days @ $55/hr | **$3,440** |
-| | **Estimated Annual Savings** | **~$23,700** |
+|| Category | % of Revenue | What It Represents |
+||----------|-------------|--------------------|
+|| **Field time saved** | ~0.14% | Upload waits eliminated — crews document and move on instead of watching progress bars |
+|| **PM time saved** | ~0.03% | PMs no longer chasing missing photos from field workers |
+|| **Video documentation enabled** | ~0.03% | Rework prevented by video evidence that was previously impossible to upload from the field |
+|| **Cellular data cost reduction** | ~0.03% | ~60% compression savings on metered data plans across all field devices |
+|| **Prevented lost media** | ~0.01% | Upload failures with no retry eliminated — every photo and video arrives |
+|| **Total Smart Media Impact** | **~0.24%** | **Combined field efficiency and documentation reliability as a share of revenue** |
 
-The video documentation savings compound over time — insurance carriers increasingly accept video evidence for supplement support, and a single video walkthrough can prevent $5K+ in disputed scope.
+### Real-World Extrapolation by Tenant Size
+
+|| Annual Revenue | Smart Media Impact (~0.24%) |
+||---------------|----------------------------|
+|| **$1M** | **~$3,200** |
+|| **$2M** | **~$7,000** |
+|| **$5M** | **~$12,000** |
+|| **$10M** | **~$23,700** |
+|| **$50M** | **~$89,000** |
+
+*Scales with field crew size and photo volume. The video documentation savings compound over time — insurance carriers increasingly accept video evidence for supplement support, and a single video walkthrough can prevent $5K+ in disputed scope.*
 
 ## Competitive Landscape
 
@@ -125,4 +135,5 @@ No competitor offers the full stack: adaptive compression + WiFi-gated video + r
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-02-21 | Initial draft — smart media upload concept |
-| 2.0 | 2026-03-04 | Full rewrite: standardized format, elevator pitch, operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |
+|| 2.0 | 2026-03-04 | Full rewrite: standardized format, elevator pitch, operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |
+|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

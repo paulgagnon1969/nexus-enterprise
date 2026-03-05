@@ -4,7 +4,7 @@ module_code: ESTIMATING
 title: "Instant Price List Access via Redis Caching"
 mode: EST
 category: SPD
-revision: "2.0"
+revision: "2.1"
 status: draft
 created: 2026-02-21
 updated: 2026-03-04
@@ -48,19 +48,29 @@ Competitors like Xactimate use desktop-app file sync; Buildertrend and CoConstru
 
 **Key insight**: Price lists change infrequently (monthly imports) but are read constantly — a textbook caching candidate. NCC exploits this read/write asymmetry.
 
-## Expected Operational Savings
+## Expected Operational Impact
 
-*Based on a mid-size restoration firm: 3 estimators, 5 PMs, ~10 estimates/week.*
+All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes.
 
-| Category | Calculation | Annual Savings |
-|----------|-------------|----------------|
-| **Estimator time saved** | 750ms saved × 100 lookups/day × 8 users × 250 days = 41.7 hrs/yr @ $55/hr | **$2,290** |
-| **Faster estimate turnaround** | 15 min saved/estimate × 500 estimates/yr @ $55/hr | **$6,875** |
-| **Eliminated stale-data errors** | 2 mispriced bids/yr avoided × avg $1,500 margin impact | **$3,000** |
-| **IT/support burden reduced** | ~10 hrs/yr debugging "slow price list" tickets @ $65/hr | **$650** |
-| | **Estimated Annual Savings** | **~$12,800** |
+|| Category | % of Revenue | What It Represents |
+||----------|-------------|--------------------|
+|| **Faster estimate turnaround** | ~0.07% | 15 min saved per estimate from instant price list access |
+|| **Stale-data error elimination** | ~0.03% | Mispriced bids avoided via auto-invalidated cache on every import |
+|| **Estimator time recovered** | ~0.02% | Cumulative latency savings across hundreds of daily lookups |
+|| **IT/support burden reduced** | ~0.01% | "Slow price list" support tickets eliminated |
+|| **Total Redis Caching Impact** | **~0.13%** | **Combined speed and accuracy value as a share of revenue** |
 
-The time-saved figure is conservative — the real value compounds when estimators can create more estimates per day, winning more bids.
+### Real-World Extrapolation by Tenant Size
+
+|| Annual Revenue | Redis Caching Impact (~0.13%) |
+||---------------|------------------------------|
+|| **$1M** | **~$1,600** |
+|| **$2M** | **~$3,000** |
+|| **$5M** | **~$5,100** |
+|| **$10M** | **~$12,800** |
+|| **$50M** | **~$38,400** |
+
+*The time-saved figure is conservative — the real value compounds when estimators can create more estimates per day, winning more bids. Scales with user count and lookup volume.*
 
 ## Competitive Landscape
 
@@ -118,4 +128,5 @@ Stack: NestJS → ioredis → PostgreSQL (via Prisma)
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-02-21 | Initial draft — Redis caching concept |
-| 2.0 | 2026-03-04 | Full rewrite: standardized format, elevator pitch, operational savings, demo script, scoring rationale, related CAMs, expansion opportunities |
+|| 2.0 | 2026-03-04 | Full rewrite: standardized format, elevator pitch, operational savings, demo script, scoring rationale, related CAMs, expansion opportunities |
+|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

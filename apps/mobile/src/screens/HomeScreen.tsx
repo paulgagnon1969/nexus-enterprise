@@ -596,20 +596,38 @@ export function HomeScreen({
 
   return (
     <View style={styles.container}>
-      {/* Header row: org/project dropdown left, sync center, wifi/pending right */}
+      {/* Header row: tenant + project selectors, sync center, pending right */}
       <View style={[styles.headerRow, isLandscape && styles.headerRowLandscape]}>
-        {/* Left: Combined Org + Project dropdown */}
+        {/* Tenant selector */}
         <Pressable
-          style={styles.orgDropdown}
-          onPress={() => setShowProjectPicker(true)}
-          disabled={companyLoading || feedLoading}
+          style={styles.tenantDropdown}
+          onPress={() => {
+            if (companies.length > 1) {
+              void Haptics.selectionAsync();
+              setShowCompanyPicker(true);
+            }
+          }}
+          disabled={companyLoading || companies.length <= 1}
         >
-          <Text style={styles.orgDropdownText} numberOfLines={1}>
-            {selectedProject
-              ? selectedProject.name
-              : currentCompanyName || "Select..."}
+          <Text style={styles.tenantDropdownText} numberOfLines={1}>
+            🏢 {currentCompanyName || "Org"}
           </Text>
-          <Text style={styles.orgDropdownArrow}>▼</Text>
+          {companies.length > 1 && <Text style={styles.dropdownArrow}>▼</Text>}
+        </Pressable>
+
+        {/* Project selector */}
+        <Pressable
+          style={[styles.projectDropdown, selectedProject && styles.projectDropdownActive]}
+          onPress={() => {
+            void Haptics.selectionAsync();
+            setShowProjectPicker(true);
+          }}
+          disabled={feedLoading || !tenantConfirmed}
+        >
+          <Text style={styles.projectDropdownText} numberOfLines={1}>
+            {selectedProject ? `📋 ${selectedProject.name}` : "All Projects"}
+          </Text>
+          <Text style={styles.dropdownArrow}>▼</Text>
         </Pressable>
 
         {/* Center: Sync bar (shrunk) */}
@@ -1034,7 +1052,7 @@ export function HomeScreen({
               </Pressable>
             </View>
             <ScrollView style={styles.modalBody}>
-              {companies.map((c) => {
+              {companies.filter((c) => c.kind !== "SYSTEM").map((c) => {
                 const selected = c.id === currentCompanyId;
                 const switching = companySwitchingId === c.id;
                 return (
@@ -1048,7 +1066,7 @@ export function HomeScreen({
                     disabled={switching}
                   >
                     <Text style={[styles.tenantOptionText, selected && styles.tenantOptionTextSelected]}>
-                      {c.name}
+                      🏢 {c.name}
                     </Text>
                     {selected && <Text style={styles.tenantOptionCheck}>✓</Text>}
                     {switching && <Text style={styles.tenantOptionSwitching}>...</Text>}
@@ -1189,16 +1207,20 @@ export function HomeScreen({
                             att.fileName?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/);
                           const isVideo = att.mimeType?.startsWith("video/") ||
                             att.fileName?.toLowerCase().match(/\.(mp4|mov|avi|m4v)$/);
-                          const fullUrl = att.fileUrl?.startsWith("http")
-                            ? att.fileUrl
-                            : `${getApiBaseUrl()}${att.fileUrl}`;
+                          // Build a valid HTTP URL; skip legacy gs:// GCP references
+                          const rawUrl = att.fileUrl;
+                          const fullUrl = rawUrl?.startsWith("http")
+                            ? rawUrl
+                            : rawUrl && !rawUrl.startsWith("gs://")
+                              ? `${getApiBaseUrl()}${rawUrl}`
+                              : null;
 
-                          if (isImage) {
+                          if (isImage && fullUrl) {
                             return (
                               <Pressable
                                 key={att.id}
                                 style={styles.attachmentThumb}
-                                onPress={() => fullUrl && Linking.openURL(fullUrl)}
+                                onPress={() => Linking.openURL(fullUrl)}
                               >
                                 <Image
                                   source={{ uri: fullUrl }}
@@ -1274,7 +1296,7 @@ export function HomeScreen({
         </View>
       </Modal>
 
-      {/* Combined Org + Project picker modal */}
+      {/* Project picker modal */}
       <Modal
         visible={showProjectPicker}
         animationType="slide"
@@ -1284,49 +1306,26 @@ export function HomeScreen({
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select</Text>
+              <Text style={styles.modalTitle}>Select Project</Text>
               <Pressable onPress={() => setShowProjectPicker(false)}>
                 <Text style={styles.modalClose}>✕</Text>
               </Pressable>
             </View>
             <ScrollView style={styles.modalBody}>
-              {/* Current Tenant Banner */}
-              {currentCompanyName && (
-                <View style={styles.tenantBanner}>
-                  <Text style={styles.tenantBannerLabel}>Current Tenant</Text>
-                  <Text style={styles.tenantBannerName}>{currentCompanyName}</Text>
-                </View>
-              )}
-
-              {/* Organizations Section — only show if multiple tenants */}
-              {companies.length > 1 && (
-                <>
-                  <Text style={styles.pickerSectionTitle}>Switch Tenant</Text>
-                  {companies.map((c) => {
-                    const isCurrent = c.id === currentCompanyId;
-                    const switching = companySwitchingId === c.id;
-                    return (
-                      <Pressable
-                        key={`org-${c.id}`}
-                        style={[styles.tenantOption, isCurrent && styles.tenantOptionSelected]}
-                        onPress={async () => {
-                          if (isCurrent) return;
-                          await handleSelectCompany(c.id);
-                          // Keep picker open so user can select a project in the new tenant
-                        }}
-                        disabled={switching || isCurrent}
-                      >
-                        <Text style={[styles.tenantOptionText, isCurrent && styles.tenantOptionTextSelected]}>
-                          🏢 {c.name}
-                        </Text>
-                        {isCurrent && <Text style={styles.tenantOptionCheck}>✓ Active</Text>}
-                        {switching && <ActivityIndicator size="small" color="#2563eb" style={{ marginLeft: 8 }} />}
-                      </Pressable>
-                    );
-                  })}
-                  <View style={styles.tenantDivider} />
-                </>
-              )}
+              {/* All Projects — deselects current project */}
+              <Pressable
+                style={[styles.tenantOption, !selectedProject && styles.tenantOptionSelected]}
+                onPress={() => {
+                  setSelectedProject(null);
+                  setShowProjectPicker(false);
+                }}
+              >
+                <Text style={[styles.tenantOptionText, !selectedProject && styles.tenantOptionTextSelected]}>
+                  📂 All Projects
+                </Text>
+                {!selectedProject && <Text style={styles.tenantOptionCheck}>✓</Text>}
+              </Pressable>
+              <View style={styles.tenantDivider} />
 
               {/* ★ Favorites Section */}
               {(() => {
@@ -1504,25 +1503,48 @@ const styles = StyleSheet.create({
     gap: 16,
   },
 
-  // Organization/Project dropdown (left) - dynamic width based on content
-  orgDropdown: {
+  // Tenant dropdown - compact company selector
+  tenantDropdown: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#f3f4f6",
     borderRadius: 8,
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     paddingVertical: 8,
-    flexShrink: 0,
-    maxWidth: "60%",
+    flexShrink: 1,
+    maxWidth: "30%",
   },
-  orgDropdownText: {
-    fontSize: 13,
+  tenantDropdownText: {
+    fontSize: 12,
     fontWeight: "600",
     color: "#1f2937",
+    flexShrink: 1,
+  },
+  // Project dropdown - primary project selector
+  projectDropdown: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#eff6ff",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexShrink: 1,
+    maxWidth: "35%",
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+  },
+  projectDropdownActive: {
+    backgroundColor: "#dbeafe",
+    borderColor: "#93c5fd",
+  },
+  projectDropdownText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#1e3a8a",
     marginRight: 4,
     flexShrink: 1,
   },
-  orgDropdownArrow: {
+  dropdownArrow: {
     fontSize: 10,
     color: "#6b7280",
     marginLeft: 2,

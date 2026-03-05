@@ -1868,8 +1868,8 @@ export default function ProjectsPage() {
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                         {log.attachments.map((att: any, idx: number) => {
                           const url = att.fileUrl || att.storageUrl || "";
-                          const displayUrl = url.startsWith("gs://")
-                            ? `https://storage.googleapis.com/${url.replace("gs://", "")}`
+                          const displayUrl = url.startsWith("gs://") || url.startsWith("s3://")
+                            ? `${API_BASE}/uploads/signed?uri=${encodeURIComponent(url)}`
                             : url;
                           const isImage = att.mimeType?.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp)$/i.test(att.fileName || "");
                           return (

@@ -3,7 +3,7 @@ cam_id: TECH-ACC-0001
 title: "Graceful Synchronous Fallback for Infrastructure Resilience"
 mode: TECH
 category: ACC
-revision: "2.0"
+revision: "2.1"
 status: draft
 created: 2026-02-21
 updated: 2026-03-04
@@ -58,20 +58,29 @@ async function processImport(file) {
 }
 ```
 
-## Expected Operational Savings
+## Expected Operational Impact
 
-*Based on a mid-size restoration firm running ~120 imports/month (PETL, HD CSV, Apple Card, receipts).*
+All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes. This CAM has the smallest direct percentage but the **highest trust multiplier** — a single lost import can permanently damage platform confidence.
 
-| Category | Calculation | Annual Savings |
-|----------|-------------|----------------|
-| **Prevented data loss** | ~3 queue failures/month × avg 45 min to diagnose + re-import × $45/hr | **$2,430** |
-| **Eliminated support tickets** | 36 "lost import" tickets/yr avoided × 30 min resolution @ $45/hr | **$810** |
-| **Prevented re-work** | 2 full re-imports/yr from lost data × 3 hrs each @ $55/hr | **$330** |
-| **Infrastructure maintenance freedom** | Redis restarts/upgrades without scheduling around imports | **$1,200** |
-| **User trust / retention** | Avoided 1 churn event/yr from "lost my data" frustration (est. LTV impact) | **$3,600** |
-| | **Estimated Annual Savings** | **~$8,400** |
+|| Category | % of Revenue | What It Represents |
+||----------|-------------|--------------------|
+|| **User trust / retention** | ~0.04% | Avoided churn from "lost my data" frustration (LTV protection) |
+|| **Prevented data loss** | ~0.02% | Queue failures transparently handled — imports complete even when Redis is down |
+|| **Infrastructure maintenance freedom** | ~0.01% | Redis restarts and upgrades without scheduling around active imports |
+|| **Support ticket + rework elimination** | ~0.01% | "Lost import" tickets and manual re-imports eliminated |
+|| **Total Graceful Fallback Impact** | **~0.08%** | **Combined reliability and trust value as a share of revenue** |
 
-The trust/retention value is the hardest to quantify but often the most impactful — a single lost import can permanently damage a user's confidence in the platform.
+### Real-World Extrapolation by Tenant Size
+
+|| Annual Revenue | Fallback Impact (~0.08%) |
+||---------------|-------------------------|
+|| **$1M** | **~$2,100** |
+|| **$2M** | **~$3,000** |
+|| **$5M** | **~$4,200** |
+|| **$10M** | **~$8,400** |
+|| **$50M** | **~$16,800** |
+
+*The percentage is small but the impact is binary — one lost import erodes trust in a way that no feature can repair. This is infrastructure-level insurance.*
 
 ## Competitive Landscape
 
@@ -140,4 +149,5 @@ Applied at: PETL imports, HD CSV processing, Apple Card imports, receipt OCR que
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-02-21 | Initial draft — graceful fallback concept |
-| 2.0 | 2026-03-04 | Full rewrite: standardized format, elevator pitch, operational savings, demo script, scoring rationale, related CAMs, expansion opportunities |
+|| 2.0 | 2026-03-04 | Full rewrite: standardized format, elevator pitch, operational savings, demo script, scoring rationale, related CAMs, expansion opportunities |
+|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

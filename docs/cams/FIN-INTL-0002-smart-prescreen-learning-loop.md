@@ -3,7 +3,7 @@ cam_id: FIN-INTL-0002
 title: "Smart Transaction Prescreening with Self-Improving Learning Loop & Store-to-Card Reconciliation"
 mode: FIN
 category: INTL
-revision: "2.0"
+revision: "2.1"
 status: draft
 created: 2026-03-04
 updated: 2026-03-04
@@ -112,20 +112,30 @@ Every imported financial transaction — HD Pro Xtra line items, Apple Card char
 
 No competitor offers predictive project-level allocation with a self-improving feedback loop. Most require fully manual transaction assignment.
 
-## Expected Operational Savings
+## Expected Operational Impact
 
-*Based on a mid-size restoration firm: 400 CC transactions/month, 2 bookkeepers, 5 PMs, ~$60K/month CC spend.*
+All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes.
 
-| Category | Calculation | Annual Savings |
-|----------|-------------|----------------|
-| **Transaction allocation time** | 2 min/txn × 400/month × 12 months @ $45/hr | **$7,200** |
-| **Bulk accept efficiency** | 70% auto-accepted at ≥0.70 confidence; saves 15 hrs/month @ $45/hr | **$8,100** |
-| **Misattributed cost identification** | 5% of $720K annual CC spend | **$36,000** |
-| **Store-card discrepancy catches** | 2/month × avg $150 | **$3,600** |
-| **Tentative bill acceleration** | Cash flow visibility improvement | **$5,000** |
-| | **Estimated Annual Savings** | **~$59,900** |
+|| Category | % of Revenue | What It Represents |
+||----------|-------------|--------------------|
+|| **Transaction allocation automation** | ~0.07% | Bookkeeper time eliminated by predictive project assignment |
+|| **Bulk accept efficiency** | ~0.08% | High-confidence transactions accepted with one click instead of individual review |
+|| **Misattributed cost identification** | ~0.36% | Expenses landing on wrong projects caught by 6-signal scoring before they corrupt financials |
+|| **Store-card discrepancy detection** | ~0.04% | HD store totals vs. CC charge mismatches surfaced before reconciliation close |
+|| **Tentative bill acceleration** | ~0.05% | Cash flow visibility from instant project-level cost recognition on import |
+|| **Total Prescreen Impact** | **~0.60%** | **Combined allocation accuracy and labor recovered as a share of revenue** |
 
-Accuracy rises from ~60% to ~85% after the first month, approaching zero-touch for routine purchases by month 3.
+### Real-World Extrapolation by Tenant Size
+
+|| Annual Revenue | Prescreen Impact (~0.60%) |
+||---------------|---------------------------|
+|| **$1M** | **~$4,500** |
+|| **$2M** | **~$12,000** |
+|| **$5M** | **~$22,500** |
+|| **$10M** | **~$59,900** |
+|| **$50M** | **~$225,000** |
+
+*Scales with CC transaction volume and spend. Accuracy rises from ~60% to ~85% after the first month, approaching zero-touch for routine purchases by month 3.*
 
 ## Scoring Rationale
 
@@ -157,4 +167,5 @@ Accuracy rises from ~60% to ~85% after the first month, approaching zero-touch f
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-03-04 | Initial draft — 6-signal prescreening with learning loop |
-| 2.0 | 2026-03-04 | Enriched: elevator pitch, operational savings, scoring rationale, related CAMs |
+|| 2.0 | 2026-03-04 | Enriched: elevator pitch, operational savings, scoring rationale, related CAMs |
+|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

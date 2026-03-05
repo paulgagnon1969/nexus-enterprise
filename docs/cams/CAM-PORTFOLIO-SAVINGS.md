@@ -1,6 +1,6 @@
 ---
-title: "CAM Portfolio — Expected Operational Savings by Company Size"
-revision: "1.1"
+title: "NexOP Portfolio — Nexus Operating Percentage by Company Size"
+revision: "2.1"
 created: 2026-03-04
 updated: 2026-03-05
 author: Warp
@@ -8,16 +8,18 @@ visibility:
   public: false
   internal: true
   roles: [admin, exec]
-tags: [cam, portfolio, savings, revenue-tiers, roi]
+tags: [cam, portfolio, nexop, operating-percentage, revenue-tiers, roi]
 ---
 
-# CAM Portfolio — Expected Operational Savings by Company Size
+# NexOP Portfolio — Nexus Operating Percentage by Company Size
 
 ## Overview
 
-This document breaks down the expected annual operational savings from all 15 Nexus CAMs across four company revenue tiers. Savings are estimated based on scaling factors that reflect real-world differences in headcount, project volume, material spend, and transaction counts at each tier.
+All CAM financial impact figures are expressed using **NexOP (Nexus Operating Percentage)** — the percentage of annual revenue that Nexus recovers through operational impact. A $1M startup and a $50M GC experience the same proportional exposure — and the same proportional recovery when Nexus is active.
 
-**Key takeaway**: Nexus pays for itself at every tier. A $1M company saves ~$90K/year. A $50M company saves over $3M/year.
+This document aggregates the NexOP from all 17 Nexus CAMs and extrapolates real-dollar values across five revenue tiers. See `TECH-VIS-0001` for the full NexOP methodology and dashboard design.
+
+**Key takeaway**: Nexus delivers a **NexOP of ~6–12%** at every tier. The percentage, not the dollar figure, is the metric.
 
 ## Company Profiles by Revenue Tier
 
@@ -65,111 +67,95 @@ This document breaks down the expected annual operational savings from all 15 Ne
 - **Receipts**: ~200/week
 - **CC transactions**: ~1,500/month
 
-## Savings by CAM and Revenue Tier
+## NexOP by CAM and Revenue Tier
 
-### Financial Module
+Each CAM’s NexOP is computed against the $10M baseline. Dollar values at other tiers use validated scaling factors (see Methodology below).
 
-| CAM | <$1M | $5M | $10M | $50M | Primary Scaling Factor |
-|-----|------|-----|------|------|----------------------|
-| **FIN-AUTO-0001** Receipt OCR | $3,700 | $14,800 | $37,000 | $148,000 | Receipts/week, CC spend |
-| **FIN-INTL-0002** Smart Prescreen | $4,500 | $22,500 | $59,900 | $225,000 | CC transactions, CC spend |
-| **FIN-INTL-0003** NexPRICE | $4,000 | $11,900 | $23,700 | $79,000 | Materials spend, projects |
-| **FIN-VIS-0001** Purchase Recon | $6,600 | $26,200 | $65,600 | $262,400 | CC spend, card count |
-| **Financial Subtotal** | **$18,800** | **$75,400** | **$186,200** | **$714,400** | |
+### Financial Module (NexOP ~9.37%)
 
-*FIN-INTL-0003 additionally reduces **bid accuracy exposure** by $22K (<$1M) to $900K ($50M) — not included in the totals above.*
+|| CAM | NexOP | $1M | $5M | $10M | $50M |
+||-----|-------|-----|-----|------|------|
+|| **FIN-ACC-0001** NexVERIFY | ~7.50% | $75K | $375K | $750K | $3.75M |
+|| **FIN-VIS-0001** Purchase Recon | ~0.66% | $6.6K | $26.2K | $65.6K | $262K |
+|| **FIN-INTL-0002** Smart Prescreen | ~0.60% | $4.5K | $22.5K | $59.9K | $225K |
+|| **FIN-AUTO-0001** Receipt OCR | ~0.37% | $3.7K | $14.8K | $37K | $148K |
+|| **FIN-INTL-0003** NexPRICE | ~0.24% | $4K | $11.9K | $23.7K | $79K |
+|| **Financial Subtotal** | **~9.37%** | | | | |
 
-### Estimating Module
+*NexVERIFY (~7.5%) dominates because phantom duplicate distortion and PM decision corruption scale proportionally with CC spend. FIN-INTL-0003 additionally reduces bid accuracy exposure by ~2.25% — not included in the direct savings total.*
 
-| CAM | <$1M | $5M | $10M | $50M | Primary Scaling Factor |
-|-----|------|-----|------|------|----------------------|
-| **EST-SPD-0001** Redis Caching | $1,600 | $5,100 | $12,800 | $38,400 | Users, lookup volume |
-| **EST-INTG-0001** BOM Pricing | $15,000 | $100,000 | $299,000 | $950,000 | Projects, materials budget |
-| **Estimating Subtotal** | **$16,600** | **$105,100** | **$311,800** | **$988,400** | |
+### Estimating Module (NexOP ~3.12%)
+
+|| CAM | NexOP | $1M | $5M | $10M | $50M |
+||-----|-------|-----|-----|------|------|
+|| **EST-INTG-0001** BOM Pricing | ~2.99% | $15K | $100K | $299K | $950K |
+|| **EST-SPD-0001** Redis Caching | ~0.13% | $1.6K | $5.1K | $12.8K | $38.4K |
+|| **Estimating Subtotal** | **~3.12%** | | | | |
 
 *BOM Pricing dominates at every tier because material cost savings scale directly with spend.*
 
-### Operations Module
+### Operations Module (NexOP ~1.81%)
 
-| CAM | <$1M | $5M | $10M | $50M | Primary Scaling Factor |
-|-----|------|-----|------|------|----------------------|
-| **OPS-VIS-0001** Field Qty Discrepancy | $10,100 | $30,300 | $60,650 | $202,000 | Projects, line items |
-| **OPS-VIS-0002** Task Dashboard | $4,500 | $10,800 | $26,900 | $80,700 | PMs, projects |
-| **OPS-INTL-0001** NexFIND | $5,400 | $22,000 | $54,100 | $180,000 | Field crew, projects, runs |
-| **OPS-COLLAB-0001** Phantom Fleet | $4,600 | $18,500 | $38,500 | $123,200 | Headcount, personal assets |
-| **Operations Subtotal** | **$24,600** | **$81,600** | **$180,150** | **$585,900** | |
+|| CAM | NexOP | $1M | $5M | $10M | $50M |
+||-----|-------|-----|-----|------|------|
+|| **OPS-VIS-0001** Field Qty Discrepancy | ~0.61% | $10.1K | $30.3K | $60.6K | $202K |
+|| **OPS-INTL-0001** NexFIND | ~0.54% | $5.4K | $22K | $54.1K | $180K |
+|| **OPS-COLLAB-0001** Phantom Fleet | ~0.39% | $4.6K | $18.5K | $38.5K | $123K |
+|| **OPS-VIS-0002** Task Dashboard | ~0.27% | $4.5K | $10.8K | $26.9K | $80.7K |
+|| **Operations Subtotal** | **~1.81%** | | | | |
 
-### Compliance Module
+### Compliance Module (NexOP ~0.60%)
 
-| CAM | <$1M | $5M | $10M | $50M | Primary Scaling Factor |
-|-----|------|-----|------|------|----------------------|
-| **CMP-AUTO-0001** NexCheck | $6,700 | $23,200 | $39,600 | $148,500 | Sites, workers |
-| **CMP-INTG-0001** OSHA Sync | $5,900 | $9,900 | $19,700 | $49,300 | PMs (partially fixed) |
-| **Compliance Subtotal** | **$12,600** | **$33,100** | **$59,300** | **$197,800** | |
+|| CAM | NexOP | $1M | $5M | $10M | $50M |
+||-----|-------|-----|-----|------|------|
+|| **CMP-AUTO-0001** NexCheck | ~0.40% | $6.7K | $23.2K | $39.6K | $148.5K |
+|| **CMP-INTG-0001** OSHA Sync | ~0.20% | $5.9K | $9.9K | $19.7K | $49.3K |
+|| **Compliance Subtotal** | **~0.60%** | | | | |
 
-*Compliance savings have a higher floor than other modules because OSHA fines are the same regardless of company size.*
+*Compliance savings have a higher floor than other modules because OSHA fines are the same regardless of company size. The NexOP is proportionally higher at $1M.*
 
-### Technology Module
+### Technology Module (NexOP ~1.51%)
 
-| CAM | <$1M | $5M | $10M | $50M | Primary Scaling Factor |
-|-----|------|-----|------|------|----------------------|
-| **TECH-ACC-0001** Graceful Fallback | $2,100 | $4,200 | $8,400 | $16,800 | Import volume |
-| **TECH-INTL-0001** TUCKS Telemetry | $11,900 | $47,600 | $119,100 | $476,400 | Labor spend, headcount |
-| **TECH-SPD-0003** Smart Media Upload | $3,200 | $12,000 | $23,700 | $89,000 | Field crew, photo volume |
-| **Technology Subtotal** | **$17,200** | **$63,800** | **$151,200** | **$582,200** | |
+|| CAM | NexOP | $1M | $5M | $10M | $50M |
+||-----|-------|-----|-----|------|------|
+|| **TECH-INTL-0001** TUCKS Telemetry | ~1.19% | $11.9K | $47.6K | $119.1K | $476.4K |
+|| **TECH-SPD-0003** Smart Media Upload | ~0.24% | $3.2K | $12K | $23.7K | $89K |
+|| **TECH-ACC-0001** Graceful Fallback | ~0.08% | $2.1K | $4.2K | $8.4K | $16.8K |
+|| **Technology Subtotal** | **~1.51%** | | | | |
 
 ## Portfolio Totals
 
-| Revenue Tier | Annual Savings | Monthly Equivalent | Per-Employee | Savings as % of Revenue |
-|-------------|---------------|-------------------|-------------|------------------------|
-| **<$1M** | **$89,800** | $7,480 | $29,930 | **~9–12%** |
-| **$5M** | **$359,000** | $29,920 | $29,920 | **~7%** |
-| **$10M** | **$888,650** | $74,050 | $35,550 | **~9%** |
-| **$50M** | **$3,068,700** | $255,730 | $38,360 | **~6%** |
+|| Revenue Tier | NexOP | Dollar Equivalent | Per-Employee/Yr |
+||-------------|-------|-------------------|-----------------|
+|| **$1M** | **~9–12%** | **~$90K–$120K** | ~$30K |
+|| **$2M** | **~8–10%** | **~$160K–$200K** | ~$25K |
+|| **$5M** | **~7–9%** | **~$350K–$450K** | ~$30K |
+|| **$10M** | **~9%** | **~$890K** | ~$36K |
+|| **$50M** | **~6–8%** | **~$3M–$4M** | ~$38K |
 
-### Key Observations
+### Why NexOP Is the Right Metric
 
-1. **Nexus delivers 6–12% of revenue in operational savings at every tier.** This is an exceptional ROI for a SaaS platform.
+1. **The percentage is the headline, not the dollar figure.** A prospect reads "NexOP: ~9%" and immediately knows what it means for their company — regardless of size.
 
-2. **The savings-per-employee increases with company size** — larger companies have more process waste, more transactions, and more opportunities for automation to compound.
+2. **Savings-per-employee increases with company size** — larger companies have more process waste, more transactions, and more opportunities for automation to compound.
 
-3. **The <$1M tier still saves ~$90K/year** — enough to justify the platform even for a 3-person operation. The value comes primarily from Field Qty Discrepancy ($10.1K — catching under-billed scope), BOM Pricing ($15K — finding material savings), and TUCKS ($11.9K — even small efficiency gains on labor are meaningful).
+3. **The $1M tier still delivers NexOP ~9–12%** — enough to justify the platform even for a 3-person operation. NexOP is proportionally *higher* for small firms because compliance fines are fixed and under-billed scope hurts more at lower revenue.
 
-4. **The $50M tier exceeds $3M/year** — driven by BOM Pricing ($950K — 8% supplier deltas on $3.6M materials is transformative), TUCKS ($476K — 5% on $8M labor), and Purchase Reconciliation ($262K — 5% of $3M CC spend misattributed).
+4. **The $50M tier delivers NexOP ~6–8%** — the percentage compresses slightly because some categories (compliance, support) have fixed components, but the absolute dollar value exceeds $3M/year.
 
-5. **Compliance savings have the flattest curve** — OSHA fines don't scale with revenue, so the compliance module delivers relatively consistent value across tiers. This makes compliance features especially valuable for smaller companies as a percentage of revenue.
+5. **Compliance has the flattest curve** — OSHA fines don’t scale with revenue. The compliance module’s NexOP is proportionally higher at lower tiers.
 
-6. **Financial module savings scale super-linearly** — more transactions × more spend × more cards = exponentially more reconciliation complexity that automation eliminates.
+6. **Financial module scales super-linearly** — more transactions × more spend × more cards = exponentially more reconciliation complexity that automation eliminates. NexVERIFY alone is NexOP ~7.5%.
 
-## Top 5 CAMs by Tier
+## Top 5 CAMs by NexOP (at $10M baseline)
 
-### <$1M (Total: $89,800)
-1. EST-INTG-0001 BOM Pricing — **$15,000** (17%)
-2. TECH-INTL-0001 TUCKS — **$11,900** (13%)
-3. OPS-VIS-0001 Field Qty — **$10,100** (11%)
-4. CMP-AUTO-0001 NexCheck — **$6,700** (7%)
-5. FIN-VIS-0001 Purchase Recon — **$6,600** (7%)
+1. **FIN-ACC-0001** NexVERIFY — **NexOP ~7.50%** (duplicate expense distortion + PM decision corruption)
+2. **EST-INTG-0001** BOM Pricing — **NexOP ~2.99%** (material cost savings + estimator productivity)
+3. **TECH-INTL-0001** TUCKS Telemetry — **NexOP ~1.19%** (workforce efficiency + analytics)
+4. **FIN-VIS-0001** Purchase Recon — **NexOP ~0.66%** (CC reconciliation + personal expense identification)
+5. **OPS-VIS-0001** Field Qty Discrepancy — **NexOP ~0.61%** (under-billed scope recovery)
 
-### $5M (Total: $359,000)
-1. EST-INTG-0001 BOM Pricing — **$100,000** (28%)
-2. TECH-INTL-0001 TUCKS — **$47,600** (13%)
-3. OPS-VIS-0001 Field Qty — **$30,300** (8%)
-4. FIN-VIS-0001 Purchase Recon — **$26,200** (7%)
-5. CMP-AUTO-0001 NexCheck — **$23,200** (6%)
-
-### $10M (Total: $888,650)
-1. EST-INTG-0001 BOM Pricing — **$299,000** (34%)
-2. TECH-INTL-0001 TUCKS — **$119,100** (13%)
-3. FIN-VIS-0001 Purchase Recon — **$65,600** (7%)
-4. OPS-VIS-0001 Field Qty — **$60,650** (7%)
-5. FIN-INTL-0002 Prescreen — **$59,900** (7%)
-
-### $50M (Total: $3,068,700)
-1. EST-INTG-0001 BOM Pricing — **$950,000** (31%)
-2. TECH-INTL-0001 TUCKS — **$476,400** (16%)
-3. FIN-VIS-0001 Purchase Recon — **$262,400** (9%)
-4. FIN-INTL-0002 Prescreen — **$225,000** (7%)
-5. OPS-VIS-0001 Field Qty — **$202,000** (7%)
+These five CAMs alone account for **NexOP ~12.95%**. The remaining 12 CAMs add **~4.46%**.
 
 ## Scaling Methodology
 
@@ -196,23 +182,26 @@ Each CAM uses 1–3 primary scaling drivers depending on where its value comes f
 ## How to Use This Document
 
 ### Sales / Demo
-- Lead with the tier that matches the prospect's revenue
-- Highlight the top 3 CAMs for their tier
-- Use "savings as % of revenue" as the headline ROI metric
+- Lead with NexOP: *"Your NexOP is ~9% — Nexus recovers 9% of your revenue."*
+- Let the prospect self-identify their tier, then show the dollar extrapolation
+- Highlight the top 3 CAMs by NexOP for their industry/role
+- See `TECH-VIS-0001` for full NexOP dashboard demo script
 
 ### Pricing
 - Platform pricing should capture 10–20% of the value delivered (industry standard for SaaS ROI)
-- At the $10M tier: $889K savings → platform priced at $89K–$178K/year is justified
-- At the $5M tier: $359K savings → $36K–$72K/year
+- At NexOP ~9% on $10M: ~$890K impact → $89K–$178K/year platform pricing is justified
+- At NexOP ~8% on $5M: ~$400K impact → $40K–$80K/year
 
 ### Product Prioritization
-- BOM Pricing and TUCKS are the #1 and #2 value drivers at every tier
-- Purchase Reconciliation and Field Qty Discrepancy round out the top 4
-- These four CAMs alone account for ~65% of total portfolio savings
+- NexVERIFY and BOM Pricing are the #1 and #2 NexOP drivers (~7.5% + ~3.0%)
+- TUCKS and Purchase Reconciliation round out the top 4
+- These four CAMs alone account for NexOP ~12.3%
 
 ## Revision History
 
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-03-04 | Initial portfolio savings breakdown by revenue tier |
-| 1.1 | 2026-03-05 | Reconciled NexCheck ($30K→$39.6K) and Phantom Fleet ($50.2K→$38.5K) with enriched individual CAMs; recalculated all subtotals and portfolio totals |
+|| 1.1 | 2026-03-05 | Reconciled NexCheck ($30K→$39.6K) and Phantom Fleet ($50.2K→$38.5K) with enriched individual CAMs; recalculated all subtotals and portfolio totals |
+|| 2.0 | 2026-03-05 | Full AOP rewrite: all tables now lead with % of revenue; added NexVERIFY (FIN-ACC-0001); added $2M tier; Top 5 ranked by AOP; sales/pricing guidance updated to AOP-first language |
+|| 2.1 | 2026-03-05 | Rebranded AOP → NexOP (Nexus Operating Percentage); linked to TECH-VIS-0001 NexOP CAM; updated all column headers, headings, and narrative to NexOP terminology |

@@ -4,7 +4,7 @@ module_code: FINANCIALS
 title: "Purchase Reconciliation — Full Audit Chain with PM Compliance"
 mode: FIN
 category: VIS
-revision: "1.1"
+revision: "1.2"
 tags: [cam, purchase-reconciliation, audit-chain, credit-card, checking, receipt-disposition, pm-review, compliance, financial-visibility]
 status: draft
 created: 2026-03-04
@@ -115,20 +115,30 @@ Checking outflow ($14,832.71 to Apple Card)
 
 Every dollar is traced. Every classification is recorded. Every PM decision is timestamped. An auditor can start at the checking outflow and drill all the way down to a single receipt line item.
 
-## Expected Operational Savings
+## Expected Operational Impact
 
-*Based on a mid-size restoration firm: 3 CC cards, $60K/month CC spend, 5 PMs, 2 bookkeepers.*
+All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes.
 
-| Category | Calculation | Annual Savings |
-|----------|-------------|----------------|
-| **Reconciliation time saved** | 20 hrs/month saved (6-8 hrs/card → 15 min/card) × 12 months @ $45/hr | **$10,800** |
-| **Personal expense caught** | 5% of $720K annual CC spend misattributed | **$36,000** |
-| **Audit prep time saved** | From 3 days to 30 min per quarterly audit × 4 audits × $55/hr | **$4,620** |
-| **PM review prevents surprise costs** | 5 surprise expenses/month caught × avg $200 margin impact | **$12,000** |
-| **Year-end audit** | Complete trail eliminates reconstruction; est. 40 hrs saved @ $55/hr | **$2,200** |
-| | **Estimated Annual Savings** | **~$65,600** |
+|| Category | % of Revenue | What It Represents |
+||----------|-------------|--------------------|
+|| **Reconciliation time saved** | ~0.11% | Monthly CC reconciliation reduced from hours per card to minutes |
+|| **Personal expense identification** | ~0.36% | Misattributed personal spending on company cards surfaced via PM review gate |
+|| **Audit prep acceleration** | ~0.05% | Quarterly audit prep reduced from days to minutes with full drill-down chain |
+|| **PM surprise cost prevention** | ~0.12% | Expenses caught and corrected before they corrupt project budget decisions |
+|| **Year-end audit trail** | ~0.02% | Complete checking → CC → receipt → line-item chain eliminates audit reconstruction |
+|| **Total Purchase Recon Impact** | **~0.66%** | **Combined financial visibility and labor recovered as a share of revenue** |
 
-The personal expense identification is the highest-impact line — most firms don't realize how much personal spending leaks into project costs until they have line-item visibility with forced PM review.
+### Real-World Extrapolation by Tenant Size
+
+|| Annual Revenue | Purchase Recon Impact (~0.66%) |
+||---------------|-------------------------------|
+|| **$1M** | **~$6,600** |
+|| **$2M** | **~$14,000** |
+|| **$5M** | **~$26,200** |
+|| **$10M** | **~$65,600** |
+|| **$50M** | **~$262,400** |
+
+*The personal expense line (~0.36%) dominates — most firms don't realize how much personal spending leaks into project costs until they have line-item visibility with forced PM review.*
 
 ## Competitive Landscape
 
@@ -214,4 +224,5 @@ Enterprise construction accounting with receipt scanning, but no auto-classifica
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-03-04 | Initial CAM — Purchase Reconciliation full audit chain with PM compliance |
-| 1.1 | 2026-03-04 | Added operational savings section, aligned frontmatter to `scores:` key |
+|| 1.1 | 2026-03-04 | Added operational savings section, aligned frontmatter to `scores:` key |
+|| 1.2 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

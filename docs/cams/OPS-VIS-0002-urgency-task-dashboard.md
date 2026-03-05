@@ -3,7 +3,7 @@ cam_id: OPS-VIS-0002
 title: "Urgency-Based Task Dashboard with Daily Log Integration"
 mode: OPS
 category: VIS
-revision: "2.0"
+revision: "2.1"
 status: draft
 created: 2026-02-22
 updated: 2026-03-04
@@ -57,17 +57,29 @@ In construction, missed follow-ups on daily log action items lead to schedule sl
 - Mobile: `DailyLogDetailScreen.tsx` Tasks section with inline create modal
 - Schema: Uses existing `Task.relatedEntityType` + `Task.relatedEntityId` for polymorphic linking
 
-## Expected Operational Savings
+## Expected Operational Impact
 
-*Based on a mid-size restoration firm: 5 PMs, 12 field crew, 60 projects/year.*
+All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes.
 
-| Category | Calculation | Annual Savings |
-|----------|-------------|----------------|
-| **Prevented schedule slips** | 3 missed follow-ups/month avoided × avg 4 hrs rework @ $55/hr | **$7,920** |
-| **PM follow-up time saved** | 20 min/day not manually tracking task status × 5 PMs × 250 days @ $55/hr | **$4,580** |
-| **Faster issue resolution** | Daily log → task pipeline cuts response from 2 days to same-day; 2 incidents/month × $500 avg delay cost | **$12,000** |
-| **Field accountability** | 10% improvement in task completion rate → fewer repeat site visits; 1 avoided visit/month × $200 | **$2,400** |
-| | **Estimated Annual Savings** | **~$26,900** |
+|| Category | % of Revenue | What It Represents |
+||----------|-------------|--------------------|
+|| **Faster issue resolution** | ~0.12% | Daily log → task pipeline cuts response from 2 days to same-day, preventing delay costs |
+|| **Prevented schedule slips** | ~0.08% | Missed follow-ups caught by urgency bucketing before they compound into rework |
+|| **PM follow-up time saved** | ~0.05% | Manual task status tracking replaced by live badge counts and color-coded buckets |
+|| **Field accountability** | ~0.02% | Improved task completion rates reduce repeat site visits |
+|| **Total Task Dashboard Impact** | **~0.27%** | **Combined schedule protection and labor saved as a share of revenue** |
+
+### Real-World Extrapolation by Tenant Size
+
+|| Annual Revenue | Task Dashboard Impact (~0.27%) |
+||---------------|-------------------------------|
+|| **$1M** | **~$4,500** |
+|| **$2M** | **~$7,000** |
+|| **$5M** | **~$10,800** |
+|| **$10M** | **~$26,900** |
+|| **$50M** | **~$80,700** |
+
+*Scales with PM count and project volume. The daily-log-to-task pipeline is the differentiator — issues flagged in the field become tracked tasks instantly instead of lost verbal hand-offs.*
 
 ## Competitive Landscape
 
@@ -110,4 +122,5 @@ No competitor connects daily log observations directly to urgency-bucketed task 
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-02-22 | Initial draft — urgency task dashboard concept |
-| 2.0 | 2026-03-04 | Enriched: elevator pitch, operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |
+|| 2.0 | 2026-03-04 | Enriched: elevator pitch, operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |
+|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

@@ -117,11 +117,18 @@ export default function VideoAssessment() {
     setProgress("Starting extraction…");
 
     try {
+      const isDrone = sourceType === "DRONE";
       const result = await invoke<ExtractionResult>("extract_frames", {
         videoPath,
-        intervalSecs: sourceType === "DRONE" ? 6 : 12,
-        maxFrames: 24,
-        useSceneDetection: false,
+        // Drone uses adaptive (motion-aware); handheld uses fixed interval
+        mode: isDrone ? "adaptive" : "fixed",
+        // Adaptive mode params (drone)
+        minInterval: isDrone ? 2.0 : undefined,
+        maxInterval: isDrone ? 8.0 : undefined,
+        sceneThreshold: isDrone ? 0.15 : undefined,
+        // Fixed mode params (handheld)
+        intervalSecs: isDrone ? undefined : 8,
+        maxFrames: isDrone ? 60 : 30,
       });
       setExtraction(result);
       setStage("analyzing");

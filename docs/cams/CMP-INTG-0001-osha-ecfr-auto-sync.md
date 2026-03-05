@@ -3,7 +3,7 @@ cam_id: CMP-INTG-0001
 title: "Live OSHA Construction Standards (29 CFR 1926) — Auto-Synced from eCFR"
 mode: CMP
 category: INTG
-revision: "2.1"
+revision: "2.2"
 status: draft
 created: 2026-02-21
 updated: 2026-03-05
@@ -82,18 +82,30 @@ The eCFR API is public, so the data source isn't proprietary. However, the XML p
 - **Frontend**: Admin panel at `/system/osha-sync`, integrated card on eDocs dashboard
 - **PETL integration** (planned): SowItem → OSHA section cross-reference based on category codes, activity types, and keyword matching
 
-## Expected Operational Savings
+## Expected Operational Impact
 
-*Based on a mid-size restoration firm: 5 PMs, 60 projects/year, quarterly safety audits.*
+All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes. Like NexCheck, OSHA-related savings have a **partially fixed floor** because regulatory fines don’t scale with revenue.
 
-| Category | Calculation | Annual Savings |
-|----------|-------------|----------------|
-| **Compliance research time** | 3 hrs/month per PM × 5 PMs × 12 months @ $55/hr | **$9,900** |
-| **Safety meeting prep** | 30 min/meeting saved × 50 meetings/yr @ $55/hr | **$1,375** |
-| **Audit readiness** | 4 hrs/quarter not updating manual × 4 @ $55/hr | **$880** |
-| **Regulatory change detection** | 2 changes/yr caught automatically × avg $3,000 impact | **$6,000** |
-| **OSHA fine risk reduction** | 10% reduction in violation probability × $15,876 avg fine | **$1,588** |
-| | **Estimated Annual Savings** | **~$19,700** |
+|| Category | % of Revenue | What It Represents |
+||----------|-------------|--------------------|
+|| **Compliance research time** | ~0.10% | PM hours freed from manual OSHA regulation lookup — standards embedded in platform |
+|| **Regulatory change detection** | ~0.06% | OSHA amendments auto-detected via eCFR sync before they create compliance gaps |
+|| **OSHA fine risk reduction** | ~0.02% | Violation probability reduced by having provable, current regulations on file |
+|| **Safety meeting prep** | ~0.01% | Pre-built OSHA sections eliminate meeting prep research |
+|| **Audit readiness** | ~0.01% | Manual safety manual updates eliminated by auto-sync |
+|| **Total OSHA Sync Impact** | **~0.20%** | **Combined compliance labor and risk avoidance as a share of revenue** |
+
+### Real-World Extrapolation by Tenant Size
+
+|| Annual Revenue | OSHA Sync Impact (~0.20%) |
+||---------------|---------------------------|
+|| **$1M** | **~$5,900** |
+|| **$2M** | **~$8,000** |
+|| **$5M** | **~$9,900** |
+|| **$10M** | **~$19,700** |
+|| **$50M** | **~$49,300** |
+
+*The curve is flatter than most CAMs because OSHA fines and PM research time have a significant fixed component. A $1M firm saves nearly as much in absolute terms as a $5M firm.*
 
 ## Competitive Landscape
 
@@ -131,4 +143,5 @@ The eCFR API is public, so the data source isn't proprietary. However, the XML p
 |-----|------|---------|
 | 1.0 | 2026-02-21 | Initial draft — OSHA eCFR auto-sync concept |
 | 2.0 | 2026-03-04 | Enriched: operational savings, competitive landscape, related CAMs, revision history |
-| 2.1 | 2026-03-05 | Added expansion opportunities section |
+|| 2.1 | 2026-03-05 | Added expansion opportunities section |
+|| 2.2 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

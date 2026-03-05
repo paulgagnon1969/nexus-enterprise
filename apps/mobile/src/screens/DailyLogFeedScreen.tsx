@@ -205,7 +205,8 @@ export function DailyLogFeedScreen({ onSelectLog, onEditLog, onCreateLog }: Prop
             >
               {imageAttachments.slice(0, 4).map((att, idx) => {
                 const imageUri = att.fileUrl || att.thumbnailUrl;
-                if (!imageUri) return null;
+                // Skip non-HTTP URLs (legacy gs:// GCP references)
+                if (!imageUri || !imageUri.startsWith("http")) return null;
                 return (
                   <Image
                     key={att.id || idx}

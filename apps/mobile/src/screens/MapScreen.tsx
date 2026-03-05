@@ -41,31 +41,42 @@ import { DirectionsDialog } from "../components/DirectionsDialog";
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
-type StatusKey = "active" | "pending" | "closed";
+type StatusKey = "active" | "open" | "pending" | "completed" | "closed";
 
 const STATUS_CHIPS: { key: StatusKey; label: string; color: string }[] = [
   { key: "active", label: "Active", color: "#22c55e" },
+  { key: "open", label: "Open", color: "#3b82f6" },
   { key: "pending", label: "Pending", color: "#f59e0b" },
+  { key: "completed", label: "Completed", color: "#6366f1" },
   { key: "closed", label: "Closed", color: "#9ca3af" },
 ];
 
-function normalizeStatus(s?: string | null): StatusKey {
-  switch (s?.toLowerCase()) {
+/** Statuses that should be hidden from the project list entirely */
+const HIDDEN_STATUSES = new Set(["archived", "deleted"]);
+
+function normalizeStatus(s?: string | null): StatusKey | null {
+  const lower = s?.toLowerCase();
+  if (!lower || HIDDEN_STATUSES.has(lower)) return null;
+  switch (lower) {
     case "active":
     case "in_progress":
       return "active";
+    case "open":
+      return "open";
     case "pending":
     case "draft":
       return "pending";
-    case "closed":
     case "completed":
+      return "completed";
+    case "closed":
       return "closed";
     default:
       return "active";
   }
 }
 
-function statusColor(s: StatusKey): string {
+function statusColor(s: StatusKey | null): string {
+  if (!s) return "#9ca3af";
   return STATUS_CHIPS.find((c) => c.key === s)?.color ?? "#0ea5e9";
 }
 
@@ -133,10 +144,9 @@ function toGeoJson(
   return {
     type: "FeatureCollection",
     features: projects
-      .filter((p) => p.latitude != null && p.longitude != null)
+      .filter((p) => p.latitude != null && p.longitude != null && normalizeStatus(p.status) !== null)
       .map((p) => ({
         type: "Feature" as const,
-        id: p.id,
         geometry: {
           type: "Point" as const,
           coordinates: [p.longitude!, p.latitude!],
@@ -233,7 +243,6 @@ function suppliersToGeoJson(
     type: "FeatureCollection",
     features: suppliers.map((s) => ({
       type: "Feature" as const,
-      id: s.id,
       geometry: {
         type: "Point" as const,
         coordinates: [s.lng, s.lat],
@@ -288,7 +297,7 @@ export function MapScreen({ onSelectProject }: Props) {
   // Filters
   const [search, setSearch] = useState("");
   const [statusFilters, setStatusFilters] = useState<Set<StatusKey>>(
-    new Set(["active", "pending", "closed"]),
+    new Set(["active", "open"]),
   );
   const [showSuppliers, setShowSuppliers] = useState(true);
 
@@ -387,8 +396,11 @@ export function MapScreen({ onSelectProject }: Props) {
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
     return projects.filter((p) => {
+      // Exclude archived/deleted entirely
+      const status = normalizeStatus(p.status);
+      if (status === null) return false;
       // Status filter
-      if (!statusFilters.has(normalizeStatus(p.status))) return false;
+      if (!statusFilters.has(status)) return false;
 
       // Radius filter (requires user location)
       if (radiusMiles != null && userLoc) {
@@ -434,7 +446,7 @@ export function MapScreen({ onSelectProject }: Props) {
     return calcBounds(geoData);
   }, [radiusMiles, userLoc, geoData]);
 
-  const isFiltered = search.length > 0 || statusFilters.size < 3 || !showSuppliers || productResults.length > 0;
+  const isFiltered = search.length > 0 || statusFilters.size < 5 || !showSuppliers || productResults.length > 0;
 
   // Product search GeoJSON
   const productGeo = useMemo((): GeoJSON.FeatureCollection<GeoJSON.Point> => ({
@@ -469,7 +481,7 @@ export function MapScreen({ onSelectProject }: Props) {
     setProductSearch("");
     setProductResults([]);
     setSearchMode("projects");
-    setStatusFilters(new Set(["active", "pending", "closed"]));
+    setStatusFilters(new Set(["active", "open", "pending", "completed", "closed"]));
     setShowSuppliers(true);
   };
 
@@ -536,6 +548,14 @@ export function MapScreen({ onSelectProject }: Props) {
     (project: ProjectListItem) => {
       setSelectedSupplier(null);
       setSelected(project);
+      // Fly to the project location
+      if (project.latitude != null && project.longitude != null) {
+        cameraRef.current?.setCamera({
+          centerCoordinate: [project.longitude, project.latitude],
+          zoomLevel: 14,
+          animationDuration: 800,
+        });
+      }
       RNAnimated.spring(calloutSlide, {
         toValue: 0,
         useNativeDriver: true,
@@ -574,34 +594,23 @@ export function MapScreen({ onSelectProject }: Props) {
   // ── Map event handlers ────────────────────────────────────────────────────
 
   const handleClusterPress = useCallback(
-    async (e: MapPressEvent) => {
+    (e: MapPressEvent) => {
       const feature = e.features?.[0];
       if (!feature) return;
 
       const isCluster = feature.properties?.cluster === true;
 
       if (isCluster) {
-        // Zoom into the cluster
-        try {
-          const clusterId = feature.properties?.cluster_id;
-          if (clusterId != null && shapeRef.current) {
-            const zoom = await shapeRef.current.getClusterExpansionZoom(clusterId);
-            const coords = (feature.geometry as GeoJSON.Point).coordinates;
-            cameraRef.current?.setCamera({
-              centerCoordinate: coords as [number, number],
-              zoomLevel: zoom,
-              animationDuration: 500,
-            });
-          }
-        } catch {
-          // Fallback: just zoom in
-          const coords = (feature.geometry as GeoJSON.Point).coordinates;
-          cameraRef.current?.setCamera({
-            centerCoordinate: coords as [number, number],
-            zoomLevel: 12,
-            animationDuration: 500,
-          });
-        }
+        // Zoom into the cluster center
+        const coords = (feature.geometry as GeoJSON.Point).coordinates;
+        const count = feature.properties?.point_count ?? 2;
+        // More items → zoom in more aggressively
+        const zoom = count > 20 ? 10 : count > 5 ? 12 : 14;
+        cameraRef.current?.setCamera({
+          centerCoordinate: coords as [number, number],
+          zoomLevel: zoom,
+          animationDuration: 500,
+        });
       } else {
         // Individual pin — show callout
         const projectId = feature.properties?.id;

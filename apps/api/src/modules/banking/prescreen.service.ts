@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { CsvImportSource } from "@prisma/client";
+import { DuplicateBillDetectorService } from "./duplicate-bill-detector.service";
 
 // ---------------------------------------------------------------------------
 // Confidence thresholds
@@ -62,7 +63,10 @@ interface ProjectRef {
 export class PrescreenService {
   private readonly logger = new Logger(PrescreenService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly duplicateDetector: DuplicateBillDetectorService,
+  ) {}
 
   // ─── Main entry: run prescreening on a batch of imported transactions ──
 
@@ -324,30 +328,88 @@ export class PrescreenService {
         },
       });
 
+      // ── Duplicate detection gate ──────────────────────────────────
+      const vendorName = txn.merchant ?? txn.description?.slice(0, 50) ?? "Unknown";
+      let isDuplicate = false;
+      let duplicateMatch: Awaited<ReturnType<DuplicateBillDetectorService["findDuplicateBills"]>>[0] | null = null;
+
+      try {
+        const dupes = await this.duplicateDetector.findDuplicateBills(
+          companyId,
+          bestProjectId,
+          vendorName,
+          txn.amount,
+          txn.date,
+        );
+        if (dupes.length > 0) {
+          isDuplicate = true;
+          duplicateMatch = dupes[0]; // Best match by confidence
+          this.logger.log(
+            `Duplicate detected for txn ${txn.id}: matches bill ${duplicateMatch.billId} ` +
+              `(conf=${duplicateMatch.confidence.toFixed(2)}, ${duplicateMatch.reason})`,
+          );
+        }
+      } catch (err: any) {
+        this.logger.warn(`Duplicate check failed for txn ${txn.id}: ${err.message}`);
+      }
+
       // Create tentative bill in the project
       try {
-        await this.prisma.projectBill.create({
+        const bill = await this.prisma.projectBill.create({
           data: {
             companyId,
             projectId: bestProjectId,
-            vendorName: txn.merchant ?? txn.description?.slice(0, 50) ?? "Unknown",
+            vendorName,
             billDate: txn.date,
             totalAmount: txn.amount,
             status: "TENTATIVE",
             sourceTransactionId: txn.id,
             sourceTransactionSource: txn.source,
             prescreenConfidence: Math.round(bestConfidence * 100) / 100,
-            memo: `Auto-prescreened: ${bestReasons[0]?.slice(0, 200) ?? ""}`,
+            billRole: isDuplicate ? "VERIFICATION" : "PRIMARY",
+            memo: isDuplicate
+              ? `Auto-prescreened (verification): corroborates bill ${duplicateMatch!.billId.slice(-8)}`
+              : `Auto-prescreened: ${bestReasons[0]?.slice(0, 200) ?? ""}`,
             lineItems: {
-              create: [{
-                kind: "MATERIALS",
-                description: txn.description || txn.sku || "Imported transaction",
-                amount: txn.amount,
-                amountSource: "MANUAL",
-              }],
+              create: [
+                {
+                  kind: "MATERIALS",
+                  description: txn.description || txn.sku || "Imported transaction",
+                  amount: txn.amount,
+                  amountSource: "MANUAL",
+                },
+                // Add offset line item if this is a verification bill
+                ...(isDuplicate
+                  ? [
+                      {
+                        kind: "DUPLICATE_OFFSET" as const,
+                        description: `Verification offset — corroborated by [Bill ${duplicateMatch!.billId.slice(-8)}]`,
+                        amount: -txn.amount,
+                        amountSource: "MANUAL" as const,
+                      },
+                    ]
+                  : []),
+              ],
             },
           },
         });
+
+        // Create sibling group if duplicate detected
+        if (isDuplicate && duplicateMatch) {
+          try {
+            await this.duplicateDetector.createSiblingGroup(
+              companyId,
+              bestProjectId,
+              duplicateMatch.billId, // Existing bill is PRIMARY
+              bill.id,               // New bill is VERIFICATION
+              duplicateMatch.confidence,
+              duplicateMatch.reason,
+            );
+          } catch (err: any) {
+            this.logger.warn(`Failed to create sibling group for bill ${bill.id}: ${err.message}`);
+          }
+        }
+
         billsCreated++;
       } catch (err: any) {
         this.logger.warn(`Failed to create tentative bill for txn ${txn.id}: ${err.message}`);

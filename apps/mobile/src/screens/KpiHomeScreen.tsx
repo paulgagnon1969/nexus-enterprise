@@ -138,6 +138,10 @@ export function KpiHomeScreen({ onOpenProject, onCreateProject, onOpenMap, onCom
   // Location
   const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(null);
 
+  // Project filter
+  const [filteredProject, setFilteredProject] = useState<ProjectListItem | null>(null);
+  const [showProjectFilter, setShowProjectFilter] = useState(false);
+
   // Map callout
   const [selectedProject, setSelectedProject] = useState<ProjectListItem | null>(null);
   const calloutSlide = useRef(new RNAnimated.Value(200)).current;
@@ -188,7 +192,7 @@ export function KpiHomeScreen({ onOpenProject, onCreateProject, onOpenMap, onCom
           return cached ?? [];
         }
       })(),
-      fetchDailyLogFeed({ limit: 5 }).catch(() => ({ items: [] as DailyLogListItem[], total: 0, limit: 5, offset: 0 })),
+      fetchDailyLogFeed({ limit: 30 }).catch(() => ({ items: [] as DailyLogListItem[], total: 0, limit: 30, offset: 0 })),
     ]);
 
     if (kpiResult.status === "fulfilled" && kpiResult.value) setKpis(kpiResult.value);
@@ -366,6 +370,15 @@ export function KpiHomeScreen({ onOpenProject, onCreateProject, onOpenMap, onCom
   const getAddress = (p: ProjectListItem) =>
     [p.addressLine1, p.city, p.state].filter(Boolean).join(", ");
 
+  // ── Filtered logs for display ─────────────────────────────────────────────
+
+  const displayLogs = useMemo(() => {
+    const filtered = filteredProject
+      ? recentLogs.filter((log) => log.projectId === filteredProject.id)
+      : recentLogs;
+    return filtered.slice(0, 10);
+  }, [recentLogs, filteredProject]);
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   if (loading) {
@@ -401,6 +414,21 @@ export function KpiHomeScreen({ onOpenProject, onCreateProject, onOpenMap, onCom
             <Text style={styles.headerChevron}>▾</Text>
           )}
         </Pressable>
+
+        {/* Project filter dropdown */}
+        <Pressable
+          style={[styles.projectFilterBtn, filteredProject && styles.projectFilterBtnActive]}
+          onPress={() => {
+            void Haptics.selectionAsync();
+            setShowProjectFilter(true);
+          }}
+        >
+          <Text style={[styles.projectFilterText, filteredProject && styles.projectFilterTextActive]} numberOfLines={1}>
+            {filteredProject ? `📋 ${filteredProject.name}` : "All Projects"}
+          </Text>
+          <Text style={[styles.headerChevron, filteredProject && { color: colors.primary }]}>▾</Text>
+        </Pressable>
+
         {onCreateProject && (
           <Pressable
             style={styles.addBtn}
@@ -451,6 +479,60 @@ export function KpiHomeScreen({ onOpenProject, onCreateProject, onOpenMap, onCom
             <Pressable
               style={styles.pickerCloseBtn}
               onPress={() => setShowCompanyPicker(false)}
+            >
+              <Text style={styles.pickerCloseBtnText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+
+      {/* Project filter picker */}
+      {showProjectFilter && (
+        <View style={styles.pickerOverlay}>
+          <Pressable style={styles.pickerBackdrop} onPress={() => setShowProjectFilter(false)} />
+          <View style={styles.pickerSheet}>
+            <Text style={styles.pickerTitle}>Filter by Project</Text>
+            <ScrollView style={{ maxHeight: 400 }}>
+              <Pressable
+                style={[styles.pickerRow, !filteredProject && styles.pickerRowActive]}
+                onPress={() => {
+                  setFilteredProject(null);
+                  setShowProjectFilter(false);
+                }}
+              >
+                <Text style={[styles.pickerRowText, !filteredProject && styles.pickerRowTextActive]}>
+                  📂 All Projects
+                </Text>
+                {!filteredProject && <Text style={styles.pickerCheck}>✓</Text>}
+              </Pressable>
+              {projects
+                .slice()
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map((p) => {
+                  const active = filteredProject?.id === p.id;
+                  return (
+                    <Pressable
+                      key={p.id}
+                      style={[styles.pickerRow, active && styles.pickerRowActive]}
+                      onPress={() => {
+                        setFilteredProject(p);
+                        setShowProjectFilter(false);
+                      }}
+                    >
+                      <Text
+                        style={[styles.pickerRowText, active && styles.pickerRowTextActive]}
+                        numberOfLines={1}
+                      >
+                        📋 {p.name}
+                      </Text>
+                      {active && <Text style={styles.pickerCheck}>✓</Text>}
+                    </Pressable>
+                  );
+                })}
+            </ScrollView>
+            <Pressable
+              style={styles.pickerCloseBtn}
+              onPress={() => setShowProjectFilter(false)}
             >
               <Text style={styles.pickerCloseBtnText}>Cancel</Text>
             </Pressable>
@@ -510,12 +592,14 @@ export function KpiHomeScreen({ onOpenProject, onCreateProject, onOpenMap, onCom
               <Text style={styles.sectionTitle}>📋 Recent Activity</Text>
             </View>
 
-            {recentLogs.length === 0 ? (
+            {displayLogs.length === 0 ? (
               <View style={styles.emptyActivity}>
-                <Text style={styles.emptyActivityText}>No recent daily logs</Text>
+                <Text style={styles.emptyActivityText}>
+                  {filteredProject ? `No recent logs for ${filteredProject.name}` : "No recent daily logs"}
+                </Text>
               </View>
             ) : (
-              recentLogs.map((log) => (
+              displayLogs.map((log) => (
                 <Pressable
                   key={log.id}
                   style={styles.activityRow}
@@ -797,12 +881,14 @@ export function KpiHomeScreen({ onOpenProject, onCreateProject, onOpenMap, onCom
             <Text style={styles.sectionTitle}>📋 Recent Activity</Text>
           </View>
 
-          {recentLogs.length === 0 ? (
+          {displayLogs.length === 0 ? (
             <View style={styles.emptyActivity}>
-              <Text style={styles.emptyActivityText}>No recent daily logs</Text>
+              <Text style={styles.emptyActivityText}>
+                {filteredProject ? `No recent logs for ${filteredProject.name}` : "No recent daily logs"}
+              </Text>
             </View>
           ) : (
-            recentLogs.map((log) => (
+            displayLogs.map((log) => (
               <Pressable
                 key={log.id}
                 style={styles.activityRow}
@@ -869,7 +955,7 @@ const styles = StyleSheet.create({
   headerTitleRow: {
     flexDirection: "row",
     alignItems: "center",
-    flex: 1,
+    flexShrink: 1,
     gap: 4,
   },
   headerTitle: {
@@ -892,6 +978,34 @@ const styles = StyleSheet.create({
   addBtnText: {
     color: "#fff",
     fontSize: 13,
+    fontWeight: "700",
+  },
+  projectFilterBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#eff6ff",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flex: 1,
+    marginHorizontal: 10,
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    gap: 4,
+  },
+  projectFilterBtnActive: {
+    backgroundColor: "#dbeafe",
+    borderColor: "#93c5fd",
+  },
+  projectFilterText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: colors.primary,
+    flexShrink: 1,
+  },
+  projectFilterTextActive: {
+    color: colors.primary,
     fontWeight: "700",
   },
 

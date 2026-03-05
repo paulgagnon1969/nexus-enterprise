@@ -20,7 +20,6 @@ import {
   EmailReceiptConnectorStatus,
 } from "@prisma/client";
 import { ObjectStorageService } from "./infra/storage/object-storage.service";
-import { GcsStorageService } from "./infra/storage/gcs-storage.service";
 import { MinioStorageService } from "./infra/storage/minio-storage.service";
 import { Queue } from "bullmq";
 import IORedis from "ioredis";
@@ -47,10 +46,7 @@ const COMPANY_ID = process.env.RECEIPT_EMAIL_COMPANY_ID || "";
 // ── Helpers ────────────────────────────────────────────────────────────
 
 const prisma = new PrismaClient();
-const storage: ObjectStorageService =
-  process.env.STORAGE_PROVIDER === "minio"
-    ? new MinioStorageService()
-    : new GcsStorageService();
+const storage: ObjectStorageService = new MinioStorageService();
 
 function log(msg: string, meta?: Record<string, unknown>) {
   const line = meta ? `${msg} ${JSON.stringify(meta)}` : msg;

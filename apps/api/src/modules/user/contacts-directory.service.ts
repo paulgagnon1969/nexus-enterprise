@@ -168,6 +168,58 @@ export class ContactsDirectoryService {
           source: "ncc",
         });
       }
+
+      // ── 2b. Legacy fallback: projects with primaryContact* but no TenantClient
+      const legacyWhere: any = {
+        companyId,
+        tenantClientId: null,
+        OR: [
+          { primaryContactName: { not: null } },
+          { primaryContactEmail: { not: null } },
+          { primaryContactPhone: { not: null } },
+        ],
+      };
+
+      if (projectId) {
+        legacyWhere.id = projectId;
+      }
+
+      const legacyProjects = await this.prisma.project.findMany({
+        where: legacyWhere,
+        select: {
+          id: true,
+          primaryContactName: true,
+          primaryContactEmail: true,
+          primaryContactPhone: true,
+        },
+        take: limit,
+      });
+
+      // Deduplicate by email so the same contact across multiple projects appears once
+      for (const p of legacyProjects) {
+        const email = p.primaryContactEmail?.toLowerCase() ?? null;
+        if (email && seenEmails.has(email)) continue;
+        if (email) seenEmails.add(email);
+
+        // Parse name into first/last as best we can
+        const nameParts = (p.primaryContactName ?? "").trim().split(/\s+/);
+        const firstName = nameParts[0] ?? null;
+        const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : null;
+
+        contacts.push({
+          id: `ncc-project-contact-${p.id}`,
+          firstName,
+          lastName,
+          displayName: p.primaryContactName ?? p.primaryContactEmail ?? null,
+          email: p.primaryContactEmail ?? null,
+          phone: p.primaryContactPhone ?? null,
+          role: "Client",
+          title: null,
+          company: null,
+          category: "clients",
+          source: "ncc",
+        });
+      }
     }
 
     // ── 3. NCC Org: Subs (cross-tenant invites accepted) ─────────────

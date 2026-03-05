@@ -2,7 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuditService } from "../../common/audit.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
-import { GooglePlacesProvider, PlaceResult } from "./google-places.provider";
+import { MapboxPlacesProvider, PlaceResult } from "./mapbox-places.provider";
 import { LocalSupplierStatus } from "@prisma/client";
 
 /** Haversine distance in meters between two lat/lng points. */
@@ -54,7 +54,7 @@ export class NexfindService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    private readonly places: GooglePlacesProvider,
+    private readonly places: MapboxPlacesProvider,
   ) {}
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -475,7 +475,7 @@ export class NexfindService {
         lat: place.lat,
         lng: place.lng,
         category: place.category,
-        source: "google_places",
+        source: "mapbox",
         savedVia,
         placeId: place.placeId,
         status: LocalSupplierStatus.ACTIVE,

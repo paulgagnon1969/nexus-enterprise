@@ -23,6 +23,8 @@ import type { DailyLogDetail, DailyLogType, DailyLogListItem, DailyLogRevision, 
 function resolveAttachmentUrl(url: string | null | undefined): string | null {
   if (!url) return null;
   if (url.startsWith("http")) return url;
+  // Skip legacy gs:// GCP storage URLs — not loadable by React Native
+  if (url.startsWith("gs://")) return null;
   return `${getApiBaseUrl()}${url.startsWith("/") ? "" : "/"}${url}`;
 }
 

@@ -348,12 +348,24 @@ export class BillingService {
 
   /** Preview the upcoming invoice (so tenant sees cost impact before toggling). */
   async getUpcomingInvoice(actor: AuthenticatedUser) {
-    const customerId = await this.ensureStripeCustomer(actor.companyId);
+    // Bail early if the tenant has no active Stripe subscription —
+    // createPreview requires a subscription to exist.
+    const sub = await this.prisma.tenantSubscription.findFirst({
+      where: { companyId: actor.companyId, status: { in: ["ACTIVE", "TRIALING"] } },
+    });
+    if (!sub) return null;
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: actor.companyId },
+      select: { stripeCustomerId: true },
+    });
+    if (!company?.stripeCustomerId) return null;
 
     const stripe = this.requireStripe();
     try {
       const invoice = await stripe.invoices.createPreview({
-        customer: customerId,
+        customer: company.stripeCustomerId,
+        subscription: sub.stripeSubId,
       });
 
       return {
@@ -383,7 +395,13 @@ export class BillingService {
   async listInvoices(actor: AuthenticatedUser) {
     this.ensureBillingPermission(actor);
 
-    const customerId = await this.ensureStripeCustomer(actor.companyId);
+    // Don't create a Stripe customer just to list invoices
+    const company = await this.prisma.company.findUnique({
+      where: { id: actor.companyId },
+      select: { stripeCustomerId: true },
+    });
+    if (!company?.stripeCustomerId) return [];
+    const customerId = company.stripeCustomerId;
 
     const stripe = this.requireStripe();
     const invoices = await stripe.invoices.list({

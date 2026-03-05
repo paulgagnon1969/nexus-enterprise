@@ -30,6 +30,10 @@ model Company {
   reputationOverallOverride Int?
   kind                      CompanyKind @default(ORGANIZATION)
 
+  /// Subscription / business tier. CLIENT = free, invited by a contractor.
+  /// CONTRACTOR = paying tenant with full module access per subscription.
+  tier                      CompanyTier @default(CONTRACTOR)
+
   // Contact information (used on invoices, letterheads, etc.)
   phone        String?
   email        String?
@@ -236,6 +240,7 @@ model Company {
   creditCardPaymentLinks  CreditCardPaymentLink[]
   receiptLineDispositions ReceiptLineDisposition[]
   pmReviewItems           PmReviewItem[]
+  billSiblingGroups       BillSiblingGroup[]
 
   // Local Supplier Index (scraped geographic suppliers)
   localSuppliers LocalSupplier[]
@@ -285,6 +290,9 @@ model Company {
 
   // Project favorites
   projectFavorites ProjectFavorite[]
+
+  // Cross-tenant project collaborations where this company is the collaborating org
+  projectCollaborations ProjectCollaboration[] @relation("CollaborationCompany")
 
   // NexBridge Connect — registered devices
   userDevices UserDevice[]
@@ -712,6 +720,9 @@ model User {
 
   // NexBridge Connect — registered devices
   userDevices UserDevice[]
+
+  // Project Collaboration — invites sent by this user on behalf of their company
+  collaborationInvitesSent ProjectCollaboration[] @relation("CollaborationInvitedBy")
 }
 
 /// Notification delivered to a single user
@@ -1448,6 +1459,10 @@ model Project {
   receiptLineDispositionsSource ReceiptLineDisposition[] @relation("ReceiptLineDispositionSource")
   receiptLineDispositionsTarget ReceiptLineDisposition[] @relation("ReceiptLineDispositionTarget")
   pmReviewItems                 PmReviewItem[]
+  billSiblingGroups             BillSiblingGroup[]
+
+  // Cross-tenant project collaborations (orgs collaborating on this project)
+  collaborations ProjectCollaboration[] @relation("CollaborationProject")
 
   @@index([companyId, groupId], map: "Project_company_group_idx")
   @@index([tenantClientId], map: "Project_tenant_client_idx")
@@ -1538,6 +1553,34 @@ model ProjectGroup {
   projects Project[]
 
   @@index([companyId, label], map: "ProjectGroup_company_label_idx")
+}
+
+/// Cross-tenant project collaboration link.
+/// Connects a collaborating Company (client, sub, consultant, etc.) to a
+/// project owned by another Company. The project owner (Project.companyId)
+/// is always the primary; the collaborating org is subordinate on that project.
+/// Access for individual users within the collaborating org is resolved
+/// dynamically: ProjectCollaboration.visibility caps what the org can see,
+/// and the user's RoleProfile within their own Company further restricts.
+model ProjectCollaboration {
+  id              String                 @id @default(cuid())
+  projectId       String
+  companyId       String
+  role            CollaborationRole
+  visibility      ProjectVisibilityLevel @default(LIMITED)
+  invitedAt       DateTime               @default(now())
+  acceptedAt      DateTime?
+  invitedByUserId String
+  active          Boolean                @default(true)
+  notes           String?                @db.Text
+
+  project   Project @relation("CollaborationProject", fields: [projectId], references: [id])
+  company   Company @relation("CollaborationCompany", fields: [companyId], references: [id])
+  invitedBy User    @relation("CollaborationInvitedBy", fields: [invitedByUserId], references: [id])
+
+  @@unique([projectId, companyId], name: "ProjectCollaboration_project_company_key")
+  @@index([companyId, active], map: "ProjectCollaboration_company_active_idx")
+  @@index([projectId, role], map: "ProjectCollaboration_project_role_idx")
 }
 
 model TaxJurisdiction {
@@ -2010,11 +2053,23 @@ enum NexPriceConfidence {
   LOW
 }
 
+enum BillRole {
+  PRIMARY
+  VERIFICATION
+}
+
+enum BillVerificationStatus {
+  PENDING_VERIFICATION
+  VERIFIED
+  DISPUTED
+}
+
 enum ProjectBillLineItemKind {
   MATERIALS
   LABOR
   EQUIPMENT
   LABOR_AND_MATERIALS
+  DUPLICATE_OFFSET
   OTHER
 }
 
@@ -2370,14 +2425,19 @@ model ProjectBill {
   sourceTransactionSource String? // HD_PRO_XTRA, CHASE_BANK, APPLE_CARD, PLAID
   prescreenConfidence     Float?  // Confidence at time of bill creation
 
+  // Bill Sibling Groups — duplicate detection & verification offset
+  billRole        BillRole  @default(PRIMARY)
+  siblingGroupId  String?   // FK → BillSiblingGroup
+
   createdByUserId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  company       Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  project       Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdBy     User?           @relation("ProjectBillCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  targetInvoice ProjectInvoice? @relation("BillTargetInvoice", fields: [targetInvoiceId], references: [id], onDelete: SetNull)
+  company       Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project       Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy     User?             @relation("ProjectBillCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  targetInvoice ProjectInvoice?   @relation("BillTargetInvoice", fields: [targetInvoiceId], references: [id], onDelete: SetNull)
+  siblingGroup  BillSiblingGroup? @relation(fields: [siblingGroupId], references: [id], onDelete: SetNull)
 
   lineItems      ProjectBillLineItem[]
   attachments    ProjectBillAttachment[]
@@ -2391,6 +2451,7 @@ model ProjectBill {
   @@index([targetInvoiceId], map: "ProjectBill_target_invoice_idx")
   @@index([projectId, status], map: "ProjectBill_project_status_idx")
   @@index([sourceTransactionId], map: "ProjectBill_source_transaction_idx")
+  @@index([siblingGroupId], map: "ProjectBill_sibling_group_idx")
 }
 
 model ProjectBillLineItem {
@@ -4200,6 +4261,11 @@ enum CompanyKind {
   ORGANIZATION
 }
 
+enum CompanyTier {
+  CLIENT     // Free, invited by a contractor. Limited modules.
+  CONTRACTOR // Paying tenant. Full module access per subscription.
+}
+
 enum CompanyTrialStatus {
   ACTIVE
   EXPIRED
@@ -4286,6 +4352,14 @@ enum ProjectVisibilityLevel {
   FULL
   LIMITED
   READ_ONLY
+}
+
+enum CollaborationRole {
+  CLIENT     // Client / property owner
+  SUB        // Subcontractor
+  PRIME_GC   // Prime general contractor (when project owner is the client)
+  CONSULTANT // Third-party consultant / engineer
+  INSPECTOR  // Inspector / compliance auditor
 }
 
 enum ProjectParticleType {
@@ -8038,6 +8112,7 @@ model ModuleCatalog {
   isCore          Boolean      @default(false) // CORE modules can't be toggled off
   sortOrder       Int          @default(0)
   active          Boolean      @default(true)
+  prerequisites   String[]     @default([])   // Module codes that must be enabled first
 
   /// Optional link to a CAM (Competitive Advantage Module) SystemDocument.
   /// Populated by the CAM sync process; allows "Learn more" on billing page.
@@ -9457,6 +9532,33 @@ model PmReviewItem {
 
   @@index([companyId, projectId, status], map: "PmReviewItem_company_project_status_idx")
   @@index([assignedToUserId, status], map: "PmReviewItem_assignee_status_idx")
+}
+
+// ===================================================================
+// Bill Sibling Groups — Duplicate Detection & Verification Offset
+// ===================================================================
+
+/// Groups bills that represent the same economic event from multiple sources
+/// (e.g., OCR receipt + CC transaction). One bill is PRIMARY (source of truth),
+/// others are VERIFICATION (net to $0 via DUPLICATE_OFFSET line items).
+model BillSiblingGroup {
+  id                 String                 @id @default(cuid())
+  companyId          String
+  projectId          String
+  primaryBillId      String?                // The source-of-truth bill (typically OCR receipt)
+  matchConfidence    Float?                 // 0.0–1.0 duplicate detection confidence
+  matchReason        String?                // Human-readable: "Vendor: Home Depot, Amount: $485.23 ±$0.00, Date: ±1 day"
+  verificationStatus BillVerificationStatus @default(PENDING_VERIFICATION)
+  amountVariance     Float?                 // Absolute $ difference between primary and verification amounts
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  company Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  bills   ProjectBill[]
+
+  @@index([companyId, projectId], map: "BillSiblingGroup_company_project_idx")
+  @@index([companyId, verificationStatus], map: "BillSiblingGroup_company_status_idx")
 }
 
 // ===================================================================

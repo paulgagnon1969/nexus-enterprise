@@ -1,10 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import OpenAI from 'openai';
 import { PrismaService } from '../../infra/prisma/prisma.service';
+import { ObjectStorageService } from '../../infra/storage/object-storage.service';
 import { ASSESSMENT_PROMPTS, TEACH_PROMPT, type AssessmentType } from './prompts';
 
 /**
- * Parsed assessment response from Gemini.
+ * Parsed assessment response from the vision model.
  */
 export interface GeminiAssessmentResult {
   summary: {
@@ -32,39 +34,50 @@ export interface GeminiAssessmentResult {
 }
 
 /**
- * GeminiService proxies image analysis requests to Gemini 2.0 Flash
- * via the Google Cloud Vertex AI REST API.
+ * GeminiService proxies image analysis requests to a Vision LLM.
  *
- * Uses the REST API directly to avoid heavy SDK dependencies.
- * Authenticates via Application Default Credentials (ADC) — the
- * same service account the API already uses for GCS.
+ * Supports any OpenAI-compatible API (OpenAI, xAI Grok, Google AI Studio, etc.)
+ * configured via environment variables:
+ *   VISION_MODEL         — model ID (default: gpt-4o)
+ *   VISION_API_KEY       — API key for the vision provider (falls back to OPENAI_API_KEY)
+ *   VISION_API_BASE_URL  — base URL override (e.g. https://api.x.ai/v1 for Grok)
+ *
+ * The class name and interface type (`GeminiAssessmentResult`) are preserved
+ * for backwards compatibility with callers.
  */
 @Injectable()
 export class GeminiService {
   private readonly logger = new Logger(GeminiService.name);
-  private readonly projectId: string;
-  private readonly region: string;
   private readonly model: string;
+  private client: OpenAI | null = null;
 
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly storage: ObjectStorageService,
   ) {
-    this.projectId =
-      config.get<string>('GCP_PROJECT') ||
-      config.get<string>('GCLOUD_PROJECT') ||
-      config.get<string>('PROJECT_ID') ||
-      config.get<string>('GOOGLE_CLOUD_PROJECT') ||
-      '';
-    this.region = config.get<string>('VERTEX_AI_REGION') || 'us-central1';
-    this.model = config.get<string>('GEMINI_MODEL') || 'gemini-2.0-flash-001';
+    this.model = config.get<string>('VISION_MODEL') || 'gpt-4o';
+  }
+
+  private getClient(): OpenAI {
+    if (!this.client) {
+      const apiKey =
+        this.config.get<string>('VISION_API_KEY') ||
+        this.config.get<string>('XAI_API_KEY') ||
+        this.config.get<string>('OPENAI_API_KEY');
+      if (!apiKey) throw new Error('No vision API key configured (set VISION_API_KEY, XAI_API_KEY, or OPENAI_API_KEY)');
+
+      const baseURL = this.config.get<string>('VISION_API_BASE_URL');
+      this.client = new OpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) });
+    }
+    return this.client;
   }
 
   /**
-   * Analyze a set of frame images using Gemini 2.0 Flash.
+   * Analyze a set of frame images using GPT-4o Vision.
    *
-   * Accepts either base64-encoded image data or GCS URIs.
-   * Returns structured assessment JSON parsed from Gemini's response.
+   * Accepts either base64-encoded image data or storage URIs (gs://…).
+   * Returns structured assessment JSON parsed from the model's response.
    */
   async analyzeFrames(opts: {
     frames: Array<{ base64?: string; gcsUri?: string; mimeType: string }>;
@@ -90,97 +103,74 @@ export class GeminiService {
       if (lessons) contextPrefix += lessons;
     }
 
-    // Build the multimodal content parts
-    const parts: any[] = [
-      { text: prompt + contextPrefix },
+    // Build multimodal content parts for OpenAI Vision
+    const contentParts: OpenAI.ChatCompletionContentPart[] = [
+      { type: 'text', text: prompt + contextPrefix },
     ];
 
     for (const frame of frames) {
-      if (frame.base64) {
-        parts.push({
-          inlineData: {
-            mimeType: frame.mimeType || 'image/jpeg',
-            data: frame.base64,
-          },
-        });
-      } else if (frame.gcsUri) {
-        parts.push({
-          fileData: {
-            mimeType: frame.mimeType || 'image/jpeg',
-            fileUri: frame.gcsUri,
-          },
+      const imageUrl = await this.resolveImageUrl(frame);
+      if (imageUrl) {
+        contentParts.push({
+          type: 'image_url',
+          image_url: { url: imageUrl, detail: 'high' },
         });
       }
     }
 
-    // Get access token from ADC
-    const accessToken = await this.getAccessToken();
-
-    const endpoint =
-      `https://${this.region}-aiplatform.googleapis.com/v1/` +
-      `projects/${this.projectId}/locations/${this.region}/` +
-      `publishers/google/models/${this.model}:generateContent`;
+    const client = this.getClient();
 
     this.logger.log(
-      `Gemini analyze: model=${this.model}, frames=${frames.length}, type=${assessmentType}`,
+      `Vision analyze: model=${this.model}, frames=${frames.length}, type=${assessmentType}`,
     );
 
-    const body = {
-      contents: [{ role: 'user', parts }],
-      generationConfig: {
-        temperature: 0.1,
-        maxOutputTokens: 8192,
-        responseMimeType: 'application/json',
-      },
-    };
-
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify(body),
+    const response = await client.chat.completions.create({
+      model: this.model,
+      messages: [
+        {
+          role: 'user',
+          content: contentParts,
+        },
+      ],
+      max_tokens: 8192,
+      temperature: 0.1,
+      response_format: { type: 'json_object' },
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      this.logger.error(`Gemini API error: ${response.status} ${errText}`);
-      throw new Error(`Gemini API error: ${response.status} - ${errText.substring(0, 500)}`);
-    }
-
-    const json: any = await response.json();
-    const content = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+    const content = response.choices[0]?.message?.content;
 
     if (!content) {
-      throw new Error('Empty response from Gemini');
+      throw new Error('Empty response from OpenAI Vision');
     }
 
     // Parse JSON from response (handle potential markdown wrapping)
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      throw new Error(`Invalid JSON response from Gemini: ${content.substring(0, 200)}`);
+      throw new Error(`Invalid JSON response from Vision: ${content.substring(0, 200)}`);
     }
 
     const parsed = JSON.parse(jsonMatch[0]) as GeminiAssessmentResult;
 
     this.logger.log(
-      `Gemini assessment complete: findings=${parsed.findings?.length ?? 0}, ` +
+      `Vision assessment complete: findings=${parsed.findings?.length ?? 0}, ` +
       `confidence=${parsed.summary?.confidence}, zones=${parsed.summary?.zonesAssessed?.join(',')}`,
     );
 
     return { assessment: parsed, rawResponse: content };
   }
 
-  // ── Teach Analysis (with Google Search grounding) ───────────────────
+  // ── Teach Analysis ─────────────────────────────────────────────────
 
   /**
-   * Re-analyze a specific cropped area with the user's hint and Google
-   * Search grounding so Gemini can look up reference materials.
+   * Re-analyze a specific cropped area with the user's hint.
+   *
+   * Note: Google Search grounding (formerly via Vertex AI) has been removed.
+   * The model now relies on its training data and the detailed prompts.
+   * webSources is preserved in the return type for API compatibility.
    */
   async teachAnalysis(opts: {
     companyId: string;
-    imageUri: string; // GCS URI of the cropped frame
+    imageUri: string; // storage URI of the cropped frame
     mimeType?: string;
     userHint: string;
     assessmentType: AssessmentType;
@@ -191,72 +181,52 @@ export class GeminiService {
     rawResponse: string;
     webSources: Array<{ url: string; title: string }>;
   }> {
-    const accessToken = await this.getAccessToken();
-
     // Build lessons from past confirmed teaching examples if not provided
     let lessons = opts.pastLessons || '';
     if (!lessons) {
       lessons = await this.buildLessonsForCompany(opts.companyId);
     }
 
-    const prompt = TEACH_PROMPT(opts.userHint, opts.assessmentType, lessons);
+    const promptText = TEACH_PROMPT(opts.userHint, opts.assessmentType, lessons);
 
-    const parts: any[] = [
-      { text: prompt },
-      {
-        fileData: {
-          mimeType: opts.mimeType || 'image/jpeg',
-          fileUri: opts.imageUri,
-        },
-      },
-    ];
-
-    const endpoint =
-      `https://${this.region}-aiplatform.googleapis.com/v1/` +
-      `projects/${this.projectId}/locations/${this.region}/` +
-      `publishers/google/models/${this.model}:generateContent`;
-
-    this.logger.log(
-      `Gemini teach: model=${this.model}, hint="${opts.userHint.substring(0, 80)}", type=${opts.assessmentType}`,
-    );
-
-    const body = {
-      contents: [{ role: 'user', parts }],
-      tools: [{ google_search_retrieval: {} }],
-      generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 4096,
-      },
-    };
-
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify(body),
+    // Resolve image URI to an accessible URL
+    const imageUrl = await this.resolveImageUrl({
+      gcsUri: opts.imageUri,
+      mimeType: opts.mimeType || 'image/jpeg',
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      this.logger.error(`Gemini teach API error: ${response.status} ${errText}`);
-      throw new Error(`Gemini teach error: ${response.status} - ${errText.substring(0, 500)}`);
+    const contentParts: OpenAI.ChatCompletionContentPart[] = [
+      { type: 'text', text: promptText },
+    ];
+    if (imageUrl) {
+      contentParts.push({
+        type: 'image_url',
+        image_url: { url: imageUrl, detail: 'high' },
+      });
     }
 
-    const json: any = await response.json();
-    const content = json?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    const groundingMeta = json?.candidates?.[0]?.groundingMetadata;
+    const client = this.getClient();
 
-    // Extract web sources from grounding metadata
+    this.logger.log(
+      `Vision teach: model=${this.model}, hint="${opts.userHint.substring(0, 80)}", type=${opts.assessmentType}`,
+    );
+
+    const response = await client.chat.completions.create({
+      model: this.model,
+      messages: [
+        {
+          role: 'user',
+          content: contentParts,
+        },
+      ],
+      max_tokens: 4096,
+      temperature: 0.2,
+    });
+
+    const content = response.choices[0]?.message?.content || '';
+
+    // No web sources — Google Search grounding has been removed
     const webSources: Array<{ url: string; title: string }> = [];
-    if (groundingMeta?.groundingChunks) {
-      for (const chunk of groundingMeta.groundingChunks) {
-        if (chunk.web?.uri) {
-          webSources.push({ url: chunk.web.uri, title: chunk.web.title || '' });
-        }
-      }
-    }
 
     // Parse the finding from response — may be JSON or narrative
     let finding: GeminiAssessmentResult['findings'][0] | null = null;
@@ -279,7 +249,7 @@ export class GeminiService {
     }
 
     this.logger.log(
-      `Gemini teach complete: hasFinding=${!!finding}, webSources=${webSources.length}`,
+      `Vision teach complete: hasFinding=${!!finding}`,
     );
 
     return { finding, narrative, rawResponse: content, webSources };
@@ -318,42 +288,24 @@ export class GeminiService {
     return `\n\n## Lessons from past assessments by this team (USE THESE TO IMPROVE ACCURACY):\n${lines.join('\n')}`;
   }
 
+  // ── Private helpers ────────────────────────────────────────────────
+
   /**
-   * Get an access token from Application Default Credentials.
-   * In Cloud Run, this uses the metadata server.
-   * Locally, it uses `gcloud auth application-default print-access-token`.
+   * Convert a frame's base64 data or storage URI into a URL that OpenAI
+   * can fetch. Base64 → data-URI, gs://… → presigned MinIO URL.
    */
-  private async getAccessToken(): Promise<string> {
-    // Try metadata server first (Cloud Run / GKE / GCE)
-    try {
-      const metadataResponse = await fetch(
-        'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token',
-        { headers: { 'Metadata-Flavor': 'Google' } },
-      );
-      if (metadataResponse.ok) {
-        const tokenData: any = await metadataResponse.json();
-        return tokenData.access_token;
-      }
-    } catch {
-      // Not on GCP — fall through to local auth
+  private async resolveImageUrl(
+    frame: { base64?: string; gcsUri?: string; mimeType?: string },
+  ): Promise<string | null> {
+    if (frame.base64) {
+      const mime = frame.mimeType || 'image/jpeg';
+      return `data:${mime};base64,${frame.base64}`;
     }
-
-    // Fallback: use google-auth-library if available, or gcloud CLI
-    try {
-      const { GoogleAuth } = await import('google-auth-library');
-      const auth = new GoogleAuth({
-        scopes: ['https://www.googleapis.com/auth/cloud-platform'],
-      });
-      const client = await auth.getClient();
-      const tokenResponse = await client.getAccessToken();
-      if (tokenResponse.token) return tokenResponse.token;
-    } catch {
-      // google-auth-library not available
+    if (frame.gcsUri) {
+      const match = frame.gcsUri.match(/^(?:gs|s3):\/\/([^/]+)\/(.+)$/);
+      if (!match) throw new Error(`Invalid storage URI: ${frame.gcsUri}`);
+      return this.storage.createSignedReadUrl({ bucket: match[1]!, key: match[2]!, expiresInSeconds: 3600 });
     }
-
-    throw new Error(
-      'Cannot obtain GCP access token. Ensure Application Default Credentials are configured ' +
-      '(run `gcloud auth application-default login` locally, or deploy on GCP).',
-    );
+    return null;
   }
 }

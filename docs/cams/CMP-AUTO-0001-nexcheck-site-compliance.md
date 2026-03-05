@@ -4,7 +4,7 @@ module_code: COMPLIANCE
 title: "NexCheck — Tap In. Sign Off. Stay Compliant."
 mode: CMP
 category: AUTO
-revision: "2.0"
+revision: "2.1"
 status: draft
 created: 2026-03-02
 updated: 2026-03-05
@@ -66,22 +66,32 @@ Construction and restoration job sites face daily compliance friction:
 7. Show Kiosk Delegation: *"PM is offsite — delegate kiosk access to the foreman for 24 hours. One tap."*
 8. Pull up the end-of-day PDF: names, times, documents acknowledged, embedded signatures. *"This is what you hand OSHA when they ask."*
 
-## Expected Operational Savings
+## Expected Operational Impact
 
-*Based on a mid-size restoration firm: 5 PMs, 60 projects/year, avg 8 workers/site, 200 working days.*
+All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes. Compliance savings have a **higher floor** at smaller firms because OSHA fines are the same regardless of company size.
 
-| Category | Calculation | Annual Savings |
-|----------|-------------|----------------|
-| **Paper sign-in sheet elimination** | 15 min/day × 60 projects × 200 days @ $55/hr | **$16,500** |
-| **JSA/safety document distribution** | 30 min/project/day reduced to 0 × 60 projects × 200 days @ $55/hr | **$5,500** |
-| **OSHA audit prep time** | 8 hrs/audit × 4 audits/yr saved @ $55/hr | **$1,760** |
-| **Compliance gap fines avoided** | 15% reduction in violation probability × $15,876 avg OSHA fine × 2 audits/yr | **$4,763** |
-| **Sign-out tracking labor** | 20 min/day tracking who left × 60 projects × 200 days @ $35/hr | **$7,000** |
-| **Visitor/sub documentation** | 10 min/visitor × 5 visitors/project × 60 projects @ $55/hr | **$2,750** |
-| **PM kiosk delegation** | 45 min/day PM commute to activate kiosk eliminated × 30 instances/yr @ $55/hr | **$1,375** |
-| | **Estimated Annual Savings** | **~$39,600** |
+|| Category | % of Revenue | What It Represents |
+||----------|-------------|--------------------|
+|| **Paper sign-in elimination** | ~0.17% | PM/foreman time freed from daily paper-based attendance tracking across all sites |
+|| **Sign-out tracking labor** | ~0.07% | End-of-day roster reconciliation automated via three-tier sign-out |
+|| **JSA/safety document distribution** | ~0.06% | Printed safety docs replaced by digital queue with one-time acknowledgment |
+|| **Compliance gap fine avoidance** | ~0.05% | Reduced OSHA violation probability via provable, timestamped digital compliance trail |
+|| **Visitor/sub documentation** | ~0.03% | External workers captured in the same workflow as employees |
+|| **OSHA audit prep** | ~0.02% | Audit-ready rosters with embedded signatures produced in seconds, not hours |
+|| **PM kiosk delegation** | ~0.01% | PM commutes to activate kiosk eliminated via remote delegation |
+|| **Total NexCheck Impact** | **~0.40%** | **Combined compliance labor and fine avoidance as a share of revenue** |
 
-The OSHA fine avoidance is conservative — a single willful violation can exceed $150K. Having a provable, timestamped digital compliance trail is the strongest defense.
+### Real-World Extrapolation by Tenant Size
+
+|| Annual Revenue | NexCheck Impact (~0.40%) |
+||---------------|-------------------------|
+|| **$1M** | **~$6,700** |
+|| **$2M** | **~$13,000** |
+|| **$5M** | **~$23,200** |
+|| **$10M** | **~$39,600** |
+|| **$50M** | **~$148,500** |
+
+*OSHA fines are fixed regardless of revenue, so the compliance-related percentage is higher for smaller firms. A single willful violation can exceed $150K — the digital compliance trail is the strongest defense at any tier.*
 
 ## Metrics / KPIs
 - **Compliance rate** — percentage of workers who completed all required documents before starting work (target: 95%+)
@@ -143,4 +153,5 @@ No competitor unifies NFC identification + document queue + signature capture + 
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-03-02 | Initial draft — NexCheck concept, architecture, demo script |
-| 2.0 | 2026-03-05 | Enriched: operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |
+|| 2.0 | 2026-03-05 | Enriched: operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |
+|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

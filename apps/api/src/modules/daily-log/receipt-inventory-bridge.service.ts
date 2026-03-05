@@ -136,8 +136,8 @@ export class ReceiptInventoryBridgeService {
       data: { originLocationId: vendorMatch.locationId },
     });
 
-    // ── 2b. NexFIND: upsert LocalSupplier from receipt data (if module enabled)
-    void this.entitlements.isModuleEnabled(companyId, 'NEXFIND').then((enabled) => {
+    // ── 2b. NexFIND: upsert LocalSupplier from receipt data (if add-on enabled)
+    void this.entitlements.isModuleEnabled(companyId, 'NEXFIND_RECEIPT').then((enabled) => {
       if (!enabled) return;
       return this.nexfind
         .upsertFromReceiptData(companyId, {
