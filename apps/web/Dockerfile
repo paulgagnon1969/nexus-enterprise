@@ -20,6 +20,9 @@ COPY packages/database/prisma.config.ts packages/database/prisma.config.ts
 # Install all dependencies (needed for next build)
 RUN npm install
 
+# Ensure @parcel/watcher has the correct native binary for Alpine (musl)
+RUN npm install --no-save @parcel/watcher-linux-arm64-musl 2>/dev/null || true
+
 # Copy the full repo (turbo needs workspace context)
 COPY . .
 
