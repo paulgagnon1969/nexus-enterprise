@@ -1,10 +1,13 @@
 # ---- Build stage ----
-FROM node:22-alpine AS builder
+# Use Debian slim instead of Alpine — Next.js 16 native bindings (SWC,
+# @parcel/watcher) require glibc which Alpine/musl doesn't provide reliably.
+FROM node:22-slim AS builder
 
 WORKDIR /app
 
-# Install build tooling (includes deps for native addon compilation)
-RUN apk add --no-cache bash python3 make g++ libc-dev
+# Install build tooling
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      bash python3 make g++ && rm -rf /var/lib/apt/lists/*
 
 # Copy root manifests
 COPY package.json package-lock.json ./
@@ -17,16 +20,8 @@ COPY packages/database/package.json packages/database/package.json
 COPY packages/database/prisma packages/database/prisma
 COPY packages/database/prisma.config.ts packages/database/prisma.config.ts
 
-# Install all dependencies (needed for next build).
-# --force ensures platform-specific optional deps (like @parcel/watcher-linux-arm64-musl
-# and @next/swc-linux-arm64-musl) are resolved for this Alpine ARM64 environment,
-# even when the lockfile was generated on macOS.
-RUN npm install --force
-
-# Copy the full repo (turbo needs workspace context)
-COPY . .
-
-# Build-time env vars (NEXT_PUBLIC_* are inlined at build time)
+# Install all dependencies (needed for next build)
+RUN npm install
 ARG NEXT_PUBLIC_API_BASE_URL
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_MAPBOX_TOKEN
@@ -50,7 +45,7 @@ RUN npm run build -- --filter=web
 ENV NODE_OPTIONS=""
 
 # ---- Runtime stage ----
-FROM node:22-alpine AS runner
+FROM node:22-slim AS runner
 
 WORKDIR /app
 
