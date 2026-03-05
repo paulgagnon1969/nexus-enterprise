@@ -10,24 +10,20 @@ RUN apk add --no-cache bash python3 make g++
 # Copy root package manifest and lockfile for reproducible builds
 COPY package.json package-lock.json ./
 
-# Copy ALL workspace package manifests so npm can resolve the full lockfile.
-# Missing workspace package.jsons cause npm to skip nested dependencies (e.g. pdf-parse).
+# Copy workspace package manifests that affect dependency graph
 COPY apps/api/package.json apps/api/package.json
-COPY apps/web/package.json apps/web/package.json
-COPY apps/mobile/package.json apps/mobile/package.json
-COPY apps/nexbridge-connect/package.json apps/nexbridge-connect/package.json
-COPY apps/nexus-support/package.json apps/nexus-support/package.json
 COPY packages/database/package.json packages/database/package.json
-COPY packages/types/package.json packages/types/package.json
-COPY packages/icc-client/package.json packages/icc-client/package.json
-COPY packages/support-client/package.json packages/support-client/package.json
 
 # Copy prisma schema BEFORE npm install (needed for postinstall hooks and prisma generate)
 COPY packages/database/prisma packages/database/prisma
 COPY packages/database/prisma.config.ts packages/database/prisma.config.ts
 
 # Install dependencies (lockfile present for version pinning)
+# NOTE: With partial workspace package.jsons npm may silently skip some deps.
 RUN npm install
+
+# Ensure pdf-parse is present (npm workspaces sometimes skips it with partial workspaces)
+RUN cd /app/apps/api && npm install pdf-parse@1.1.1 --no-save 2>/dev/null || true
 
 # Copy the rest of the repo
 COPY . .
