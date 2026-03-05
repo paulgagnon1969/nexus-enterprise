@@ -45,6 +45,17 @@ ENV NEXT_PUBLIC_MAPBOX_TOKEN=$NEXT_PUBLIC_MAPBOX_TOKEN
 ENV NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=$NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 ENV NEXT_PUBLIC_SECURITY_INSPECTOR_ENABLED=$NEXT_PUBLIC_SECURITY_INSPECTOR_ENABLED
 
+# Debug: verify native bindings are loadable before build
+RUN node -e "
+  const bindings = ['@next/swc', '@parcel/watcher', 'lightningcss'];
+  for (const b of bindings) {
+    try { require(b); console.log('✅', b, 'loaded'); }
+    catch (e) { console.log('❌', b, ':', e.message?.slice(0, 120)); }
+  }
+  console.log('arch:', process.arch, 'platform:', process.platform);
+  try { const os = require('os'); console.log('libc:', os.version?.()); } catch {}
+"
+
 # Build the web app via Turbo (resolves workspace deps first)
 ENV NODE_OPTIONS="--max-old-space-size=8192"
 RUN npm run build -- --filter=web
