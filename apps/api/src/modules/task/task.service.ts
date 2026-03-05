@@ -16,6 +16,31 @@ export class TaskService {
     private readonly push: PushService,
   ) {}
 
+  /** Shared include clause for task queries — includes group members. */
+  private get taskInclude() {
+    return {
+      assignee: {
+        select: { id: true, email: true, firstName: true, lastName: true },
+      },
+      createdBy: {
+        select: { id: true, email: true, firstName: true, lastName: true },
+      },
+      completedBy: {
+        select: { id: true, email: true, firstName: true, lastName: true },
+      },
+      project: {
+        select: { id: true, name: true },
+      },
+      groupMembers: {
+        include: {
+          user: {
+            select: { id: true, email: true, firstName: true, lastName: true },
+          },
+        },
+      },
+    };
+  }
+
   async listTasks(
     actor: AuthenticatedUser,
     filters: {
@@ -46,35 +71,27 @@ export class TaskService {
         : {})
     };
 
-    const include = {
-      assignee: {
-        select: { id: true, email: true, firstName: true, lastName: true },
-      },
-      createdBy: {
-        select: { id: true, email: true, firstName: true, lastName: true },
-      },
-      project: {
-        select: { id: true, name: true },
-      },
-    };
-
     if (actor.role === Role.OWNER || actor.role === Role.ADMIN) {
       return this.prisma.task.findMany({
         where: {
           ...baseWhere,
           ...(assigneeId ? { assigneeId } : {})
         },
-        include,
+        include: this.taskInclude,
         orderBy: { createdAt: "desc" },
       });
     }
 
+    // Non-admin: show tasks where user is direct assignee OR a group member
     return this.prisma.task.findMany({
       where: {
         ...baseWhere,
-        assigneeId: actor.userId
+        OR: [
+          { assigneeId: actor.userId },
+          { groupMembers: { some: { userId: actor.userId } } },
+        ],
       },
-      include,
+      include: this.taskInclude,
       orderBy: { createdAt: "desc" },
     });
   }
@@ -84,6 +101,7 @@ export class TaskService {
     title: string;
     description?: string;
     assigneeId?: string;
+    assigneeIds?: string[];
     priority?: TaskPriorityEnum;
     dueDate?: Date;
     relatedEntityType?: string;
@@ -115,6 +133,13 @@ export class TaskService {
       }
     }
 
+    // Determine assignment mode:
+    // - assigneeIds (2+) → group task (assigneeId=null, create TaskGroupMember rows)
+    // - assigneeIds (1) or assigneeId → single-assignee task
+    const groupIds = dto.assigneeIds?.filter(Boolean) ?? [];
+    const isGroup = groupIds.length > 1;
+    const singleAssigneeId = isGroup ? null : (groupIds[0] ?? dto.assigneeId ?? null);
+
     const task = await this.prisma.task.create({
       data: {
         title: dto.title,
@@ -124,11 +149,23 @@ export class TaskService {
         dueDate: dto.dueDate ?? null,
         companyId: actor.companyId,
         projectId: dto.projectId,
-        assigneeId: dto.assigneeId ?? null,
+        assigneeId: singleAssigneeId,
         createdByUserId: actor.userId,
         relatedEntityType: dto.relatedEntityType ?? null,
         relatedEntityId: dto.relatedEntityId ?? null,
-      }
+        // Create group member rows in the same transaction
+        ...(isGroup
+          ? {
+              groupMembers: {
+                createMany: {
+                  data: groupIds.map((userId) => ({ userId })),
+                  skipDuplicates: true,
+                },
+              },
+            }
+          : {}),
+      },
+      include: this.taskInclude,
     });
 
     // Activity log
@@ -144,10 +181,22 @@ export class TaskService {
     await this.audit.log(actor, "TASK_CREATED", {
       companyId: actor.companyId,
       projectId: dto.projectId,
-      metadata: { taskId: task.id, title: task.title, relatedEntityType: dto.relatedEntityType, relatedEntityId: dto.relatedEntityId }
+      metadata: { taskId: task.id, title: task.title, isGroup, memberCount: groupIds.length, relatedEntityType: dto.relatedEntityType, relatedEntityId: dto.relatedEntityId }
     });
 
     return task;
+  }
+
+  /** Check if actor can act on a task (is assignee, group member, creator, or admin). */
+  private async canActOnTask(actor: AuthenticatedUser, task: { assigneeId: string | null; createdByUserId: string | null; id: string }): Promise<boolean> {
+    if (actor.role === "OWNER" || actor.role === "ADMIN") return true;
+    if (task.assigneeId === actor.userId) return true;
+    if (task.createdByUserId === actor.userId) return true;
+    // Check group membership
+    const member = await this.prisma.taskGroupMember.findUnique({
+      where: { TaskGroupMember_task_user_key: { taskId: task.id, userId: actor.userId } },
+    });
+    return !!member;
   }
 
   async updateStatus(
@@ -166,20 +215,20 @@ export class TaskService {
       throw new NotFoundException("Task not found in this company");
     }
 
-    if (actor.role !== "OWNER" && actor.role !== "ADMIN") {
-      // Allow assignee to update their own task
-      if (task.assigneeId !== actor.userId) {
-        throw new ForbiddenException("You cannot update this task");
-      }
+    if (!(await this.canActOnTask(actor, task))) {
+      throw new ForbiddenException("You cannot update this task");
     }
 
     const updated = await this.prisma.task.update({
       where: { id: taskId },
-      data: { status },
-      include: {
-        assignee: { select: { id: true, email: true, firstName: true, lastName: true } },
-        createdBy: { select: { id: true, email: true, firstName: true, lastName: true } },
+      data: {
+        status,
+        // Record who completed the task (works for both single and group tasks)
+        ...(status === "DONE" ? { completedByUserId: actor.userId } : {}),
+        // Clear completedBy when reopened
+        ...(task.status === "DONE" && status !== "DONE" ? { completedByUserId: null } : {}),
       },
+      include: this.taskInclude,
     });
 
     // Activity log
@@ -218,11 +267,8 @@ export class TaskService {
       throw new NotFoundException("Task not found in this company");
     }
 
-    // Only OWNER/ADMIN or the task creator/assignee can update
-    if (actor.role !== "OWNER" && actor.role !== "ADMIN") {
-      if (task.assigneeId !== actor.userId && task.createdByUserId !== actor.userId) {
-        throw new ForbiddenException("You cannot update this task");
-      }
+    if (!(await this.canActOnTask(actor, task))) {
+      throw new ForbiddenException("You cannot update this task");
     }
 
     const data: any = {};
@@ -236,14 +282,7 @@ export class TaskService {
     const updated = await this.prisma.task.update({
       where: { id: taskId },
       data,
-      include: {
-        assignee: {
-          select: { id: true, email: true, firstName: true, lastName: true },
-        },
-        createdBy: {
-          select: { id: true, email: true, firstName: true, lastName: true },
-        },
-      },
+      include: this.taskInclude,
     });
 
     // Activity log for reassignment
@@ -315,10 +354,8 @@ export class TaskService {
     });
     if (!task) throw new NotFoundException("Task not found in this company");
 
-    if (actor.role !== "OWNER" && actor.role !== "ADMIN") {
-      if (task.assigneeId !== actor.userId && task.createdByUserId !== actor.userId) {
-        throw new ForbiddenException("You cannot dispose this task");
-      }
+    if (!(await this.canActOnTask(actor, task))) {
+      throw new ForbiddenException("You cannot dispose this task");
     }
 
     const data: any = {
@@ -339,10 +376,7 @@ export class TaskService {
     const updated = await this.prisma.task.update({
       where: { id: taskId },
       data,
-      include: {
-        assignee: { select: { id: true, email: true, firstName: true, lastName: true } },
-        createdBy: { select: { id: true, email: true, firstName: true, lastName: true } },
-      },
+      include: this.taskInclude,
     });
 
     // Activity log

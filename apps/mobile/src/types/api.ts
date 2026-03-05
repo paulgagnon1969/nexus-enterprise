@@ -271,6 +271,20 @@ export type TaskStatus = "TODO" | "IN_PROGRESS" | "BLOCKED" | "DONE";
 export type TaskPriority = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 export type TaskDisposition = "NONE" | "APPROVED" | "REJECTED" | "REASSIGNED";
 
+/** Minimal user reference returned by the API. */
+export interface TaskUserRef {
+  id: string;
+  email: string;
+  firstName?: string | null;
+  lastName?: string | null;
+}
+
+export interface TaskGroupMemberItem {
+  id: string;
+  userId: string;
+  user: TaskUserRef;
+}
+
 export interface TaskItem {
   id: string;
   title: string;
@@ -291,18 +305,12 @@ export interface TaskItem {
   dispositionNote?: string | null;
   dispositionAt?: string | null;
   dispositionByUserId?: string | null;
-  assignee?: {
-    id: string;
-    email: string;
-    firstName?: string | null;
-    lastName?: string | null;
-  } | null;
-  createdBy?: {
-    id: string;
-    email: string;
-    firstName?: string | null;
-    lastName?: string | null;
-  } | null;
+  // Group assignment
+  completedByUserId?: string | null;
+  assignee?: TaskUserRef | null;
+  completedBy?: TaskUserRef | null;
+  createdBy?: TaskUserRef | null;
+  groupMembers?: TaskGroupMemberItem[];
 }
 
 export type TaskActivityAction =
@@ -336,6 +344,7 @@ export interface CreateTaskRequest {
   title: string;
   description?: string;
   assigneeId?: string;
+  assigneeIds?: string[];
   priority?: TaskPriority;
   dueDate?: string;
   relatedEntityType?: string;

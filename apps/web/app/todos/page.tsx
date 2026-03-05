@@ -19,6 +19,12 @@ interface TaskProject {
   name: string;
 }
 
+interface TaskGroupMember {
+  id: string;
+  userId: string;
+  user: TaskUser;
+}
+
 interface Task {
   id: string;
   title: string;
@@ -29,8 +35,10 @@ interface Task {
   projectId: string;
   assigneeId: string | null;
   assignee: TaskUser | null;
+  completedBy: TaskUser | null;
   createdBy: TaskUser | null;
   project: TaskProject | null;
+  groupMembers: TaskGroupMember[];
   createdAt: string;
 }
 
@@ -195,7 +203,11 @@ export default function TodosPage() {
   const filteredTasks = useMemo(() => {
     let list = tasks;
     if (viewMode === "my" && currentUserId) {
-      list = list.filter((t) => t.assigneeId === currentUserId);
+      list = list.filter(
+        (t) =>
+          t.assigneeId === currentUserId ||
+          t.groupMembers?.some((gm) => gm.userId === currentUserId)
+      );
     }
     if (searchText.trim()) {
       const q = searchText.toLowerCase();
@@ -588,17 +600,40 @@ export default function TodosPage() {
                   {/* Flex spacer */}
                   <span style={{ flex: 1 }} />
 
-                  {/* Assignee */}
-                  {task.assignee && (
+                  {/* Assignee / Group */}
+                  {(task.groupMembers?.length > 0 || task.assignee) && (
                     <span
                       style={{
                         flexShrink: 0,
                         fontSize: 11,
                         color: "#9ca3af",
                         whiteSpace: "nowrap",
+                        maxWidth: 200,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                      title={
+                        task.groupMembers?.length > 0
+                          ? task.groupMembers.map((gm) => displayName(gm.user)).join(", ")
+                          : task.assignee ? displayName(task.assignee) : undefined
+                      }
+                    >
+                      {task.groupMembers?.length > 0
+                        ? `👥 ${task.groupMembers.map((gm) => displayName(gm.user)).join(", ")}`
+                        : `→ ${displayName(task.assignee!)}`}
+                    </span>
+                  )}
+                  {task.status === "DONE" && task.completedBy && (
+                    <span
+                      style={{
+                        flexShrink: 0,
+                        fontSize: 10,
+                        color: "#16a34a",
+                        fontWeight: 500,
+                        whiteSpace: "nowrap",
                       }}
                     >
-                      → {displayName(task.assignee)}
+                      ✓ {displayName(task.completedBy)}
                     </span>
                   )}
 

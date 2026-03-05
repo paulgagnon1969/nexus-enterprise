@@ -23,7 +23,7 @@ import {
 import type { TeamMember } from "../api/tasks";
 import { colors } from "../theme/colors";
 import * as Haptics from "expo-haptics";
-import type { TaskItem, TaskStatus, TaskDisposition, TaskActivityItem } from "../types/api";
+import type { TaskItem, TaskStatus, TaskDisposition, TaskActivityItem, TaskUserRef } from "../types/api";
 
 // ── Urgency bucketing ───────────────────────────────────────────────
 type UrgencyBucket = "overdue" | "dueSoon" | "upcoming" | "noDue" | "done";
@@ -382,11 +382,12 @@ export function TodosScreen() {
               {!collapsed &&
                 items.map((task) => {
                   const isDone = task.status === "DONE";
-                  const assigneeName = task.assignee
-                    ? [task.assignee.firstName, task.assignee.lastName]
-                        .filter(Boolean)
-                        .join(" ") || task.assignee.email
-                    : null;
+                  const isGroup = (task.groupMembers?.length ?? 0) > 0;
+                  const assigneeLabel = isGroup
+                    ? `👥 ${task.groupMembers!.map((gm) => shortName(gm.user)).join(", ")}`
+                    : task.assignee
+                      ? `👤 ${shortName(task.assignee)}`
+                      : null;
                   const dueDateStr = task.dueDate
                     ? new Date(task.dueDate).toLocaleDateString()
                     : null;
@@ -414,8 +415,11 @@ export function TodosScreen() {
                           </Text>
                         ) : null}
                         <View style={styles.taskMeta}>
-                          {assigneeName && (
-                            <Text style={styles.taskMetaItem}>👤 {assigneeName}</Text>
+                          {assigneeLabel && (
+                            <Text style={styles.taskMetaItem} numberOfLines={1}>{assigneeLabel}</Text>
+                          )}
+                          {isDone && task.completedBy && (
+                            <Text style={styles.taskMetaItem}>✓ {shortName(task.completedBy)}</Text>
                           )}
                           {dueDateStr && (
                             <Text style={styles.taskMetaItem}>📅 {dueDateStr}</Text>
@@ -486,14 +490,24 @@ export function TodosScreen() {
                 </View>
 
                 <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Assignee</Text>
+                  <Text style={styles.detailLabel}>
+                    {(selectedTask.groupMembers?.length ?? 0) > 0 ? "Group" : "Assignee"}
+                  </Text>
                   <Text style={styles.detailValue}>
-                    {selectedTask.assignee
-                      ? [selectedTask.assignee.firstName, selectedTask.assignee.lastName]
-                          .filter(Boolean).join(" ") || selectedTask.assignee.email
-                      : "Unassigned"}
+                    {(selectedTask.groupMembers?.length ?? 0) > 0
+                      ? selectedTask.groupMembers!.map((gm) => shortName(gm.user)).join(", ")
+                      : selectedTask.assignee
+                        ? shortName(selectedTask.assignee)
+                        : "Unassigned"}
                   </Text>
                 </View>
+
+                {selectedTask.completedBy && selectedTask.status === "DONE" && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Completed By</Text>
+                    <Text style={styles.detailValue}>{shortName(selectedTask.completedBy)}</Text>
+                  </View>
+                )}
 
                 {selectedTask.dueDate && (
                   <View style={styles.detailRow}>
@@ -753,6 +767,12 @@ export function useTaskBadgeCounts(tasks: TaskItem[]) {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
+/** Display-friendly short name from a user ref. */
+function shortName(u: TaskUserRef): string {
+  const full = [u.firstName, u.lastName].filter(Boolean).join(" ");
+  return full || u.email;
+}
+
 function getPriorityStyle(priority: string) {
   switch (priority) {
     case "CRITICAL":

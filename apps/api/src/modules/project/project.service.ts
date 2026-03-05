@@ -8551,7 +8551,7 @@ export class ProjectService {
         });
       }
 
-      // Push to PM/owner todo list (tasks).
+      // Push to PM/owner todo list as a SINGLE group task (not one per PM).
       const pmMemberships = await this.prisma.projectMembership.findMany({
         where: {
           projectId,
@@ -8560,20 +8560,21 @@ export class ProjectService {
         select: { userId: true },
       });
 
-      for (const m of pmMemberships) {
-        const existingTask = await this.prisma.task.findFirst({
-          where: {
-            companyId,
-            projectId,
-            assigneeId: m.userId,
-            status: { not: "DONE" },
-            relatedEntityType: "PETL_QTY_DISCREPANCY",
-            relatedEntityId: sowItem.id,
-          },
-          select: { id: true },
-        });
+      // Dedup: skip if an open task for this entity already exists
+      const existingTask = await this.prisma.task.findFirst({
+        where: {
+          companyId,
+          projectId,
+          status: { not: "DONE" },
+          relatedEntityType: "PETL_QTY_DISCREPANCY",
+          relatedEntityId: sowItem.id,
+        },
+        select: { id: true },
+      });
 
-        if (existingTask) continue;
+      if (!existingTask && pmMemberships.length > 0) {
+        const memberIds = pmMemberships.map((m) => m.userId);
+        const isGroup = memberIds.length > 1;
 
         await this.prisma.task.create({
           data: {
@@ -8583,9 +8584,20 @@ export class ProjectService {
             priority: "HIGH",
             companyId,
             projectId,
-            assigneeId: m.userId,
+            // Single PM → direct assignee; multiple PMs → group task
+            assigneeId: isGroup ? null : memberIds[0],
             relatedEntityType: "PETL_QTY_DISCREPANCY",
             relatedEntityId: sowItem.id,
+            ...(isGroup
+              ? {
+                  groupMembers: {
+                    createMany: {
+                      data: memberIds.map((userId) => ({ userId })),
+                      skipDuplicates: true,
+                    },
+                  },
+                }
+              : {}),
           },
         });
       }
