@@ -1,16 +1,17 @@
 // ── Browser-API stubs for pdf-parse / pdfjs-dist on Alpine ──────────────
-if (typeof globalThis.DOMMatrix === "undefined") {
-  (globalThis as any).DOMMatrix = class DOMMatrix {
+const _g = globalThis as any;
+if (typeof _g.DOMMatrix === "undefined") {
+  _g.DOMMatrix = class DOMMatrix {
     constructor() { return Object.create(DOMMatrix.prototype); }
   };
 }
-if (typeof globalThis.ImageData === "undefined") {
-  (globalThis as any).ImageData = class ImageData {
+if (typeof _g.ImageData === "undefined") {
+  _g.ImageData = class ImageData {
     constructor(public width = 0, public height = 0) {}
   };
 }
-if (typeof globalThis.Path2D === "undefined") {
-  (globalThis as any).Path2D = class Path2D {};
+if (typeof _g.Path2D === "undefined") {
+  _g.Path2D = class Path2D {};
 }
 // ────────────────────────────────────────────────────────────────────────
 
