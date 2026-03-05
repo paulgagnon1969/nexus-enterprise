@@ -34,10 +34,9 @@ ENV NEXT_PUBLIC_MAPBOX_TOKEN=$NEXT_PUBLIC_MAPBOX_TOKEN
 ENV NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=$NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 ENV NEXT_PUBLIC_SECURITY_INSPECTOR_ENABLED=$NEXT_PUBLIC_SECURITY_INSPECTOR_ENABLED
 
-# Ensure the @parcel/watcher native binary exists for Alpine ARM64.
-# npm --force may still skip platform-specific optional deps if the lockfile lacks them.
-RUN node -e "try{require('@parcel/watcher')}catch(e){console.log('Missing @parcel/watcher, installing...');process.exit(1)}" \
-    || npm install --no-save @parcel/watcher@latest @parcel/watcher-linux-arm64-musl@latest 2>&1
+# npm on node:22-alpine misdetects libc as glibc instead of musl (EBADPLATFORM).
+# Force-install the musl native binaries that Next.js & Turbo need at build time.
+RUN npm install --no-save --force @parcel/watcher-linux-arm64-musl@2.5.6 2>&1 || true
 
 # Build the web app via Turbo (resolves workspace deps first)
 ENV NODE_OPTIONS="--max-old-space-size=8192"
