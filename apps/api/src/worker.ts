@@ -1,20 +1,3 @@
-// ── Browser-API stubs for pdf-parse / pdfjs-dist on Alpine ──────────────
-const _g = globalThis as any;
-if (typeof _g.DOMMatrix === "undefined") {
-  _g.DOMMatrix = class DOMMatrix {
-    constructor() { return Object.create(DOMMatrix.prototype); }
-  };
-}
-if (typeof _g.ImageData === "undefined") {
-  _g.ImageData = class ImageData {
-    constructor(public width = 0, public height = 0) {}
-  };
-}
-if (typeof _g.Path2D === "undefined") {
-  _g.Path2D = class Path2D {};
-}
-// ────────────────────────────────────────────────────────────────────────
-
 import "reflect-metadata";
 import fs from "node:fs";
 import os from "node:os";

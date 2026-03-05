@@ -6,7 +6,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { promisify } from "util";
 import * as mammoth from "mammoth";
-import { PDFParse } from "pdf-parse";
+import pdfParse from "pdf-parse";
 
 const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
@@ -411,25 +411,13 @@ export class DocumentImportService {
         const text = result.value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
         return { text, html: result.value };
       } else if (ext === "pdf") {
-        // PDF - text extraction (write to temp file, then parse)
-        // The PDFParse library works better with file paths
-        const tempPath = path.join("/tmp", `pdf_${Date.now()}.pdf`);
-        await writeFile(tempPath, buffer);
-        try {
-          const pdfParser = new PDFParse({ url: tempPath });
-          const textResult = await pdfParser.getText();
-          const text = textResult?.text || "";
-          // Create simple HTML from text
-          const paragraphs = text.split(/\n\s*\n/).filter((p: string) => p.trim());
-          const html = paragraphs.map((p: string) => `<p>${this.escapeHtml(p.trim())}</p>`).join("\n");
-          // Clean up temp file
-          fs.unlink(tempPath, () => {});
-          return { text, html };
-        } catch (pdfErr) {
-          // Clean up temp file on error
-          fs.unlink(tempPath, () => {});
-          throw pdfErr;
-        }
+        // PDF - text extraction via pdf-parse v1
+        const result = await pdfParse(buffer);
+        const text = result?.text || "";
+        // Create simple HTML from text
+        const paragraphs = text.split(/\n\s*\n/).filter((p: string) => p.trim());
+        const html = paragraphs.map((p: string) => `<p>${this.escapeHtml(p.trim())}</p>`).join("\n");
+        return { text, html };
       } else if (["txt", "md", "markdown", "csv", "json", "xml", "yaml", "yml"].includes(ext)) {
         // Plain text formats
         const text = buffer.toString("utf-8");
@@ -907,9 +895,9 @@ export class DocumentImportService {
         }
       } else if (ext === "pdf") {
         // PDF - text extraction, wrap in HTML
-        const pdfParser = new PDFParse({ url: doc.filePath });
-        const textResult = await pdfParser.getText();
-        const pdfText = textResult.text || "";
+        const pdfBuffer = await readFile(doc.filePath);
+        const pdfResult = await pdfParse(pdfBuffer);
+        const pdfText = pdfResult?.text || "";
         html = this.convertPdfTextToHtml(pdfText, doc.displayTitle || doc.fileName);
       } else if (ext === "txt" || ext === "md" || ext === "markdown") {
         // Plain text - wrap directly

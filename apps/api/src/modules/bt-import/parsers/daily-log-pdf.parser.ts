@@ -7,7 +7,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { PDFParse } from "pdf-parse";
+import pdfParse from "pdf-parse";
 import type { BtDailyLogEntry } from "../bt-import.types";
 
 // ── Date header: "Jan 23, 2026" on its own line ────────────────────────
@@ -60,9 +60,7 @@ function parseDate(raw: string): Date {
  */
 export async function parseDailyLogPdf(pdfPath: string): Promise<BtDailyLogEntry[]> {
   const buffer = fs.readFileSync(pdfPath);
-  const uint8 = new Uint8Array(buffer);
-  const parser = new PDFParse(uint8);
-  const result = await parser.getText();
+  const result = await pdfParse(buffer);
   const text: string = result.text;
   const lines = text.split("\n");
   const sourcePdf = path.basename(pdfPath);

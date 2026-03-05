@@ -108,13 +108,9 @@ export class TemplateImportService {
   private async convertPdf(buffer: Buffer): Promise<ImportResult> {
     // Try text extraction first
     try {
-      const { PDFParse } = await import("pdf-parse");
-      const tempPath = path.join("/tmp", `pdf_import_${Date.now()}.pdf`);
-      fs.writeFileSync(tempPath, buffer);
-
+      const pdfParseMod = (await import("pdf-parse")).default;
       try {
-        const parser = new PDFParse({ url: tempPath });
-        const textResult = await parser.getText();
+        const textResult = await pdfParseMod(buffer);
         const text = textResult?.text || "";
 
         // Measure text quality: if mostly whitespace or very short, it's scanned
@@ -133,7 +129,6 @@ export class TemplateImportService {
           const html = this.wrapDocumentHtml(paragraphs, "Imported PDF");
           const detectedVariables = this.extractVariables(html);
 
-          fs.unlinkSync(tempPath);
           return {
             html,
             sourceType: "IMPORTED_PDF",
@@ -147,10 +142,8 @@ export class TemplateImportService {
         }
 
         // Poor text → fall through to image mode
-        fs.unlinkSync(tempPath);
       } catch {
         // pdf-parse failed, fall through to image mode
-        try { fs.unlinkSync(tempPath); } catch {}
       }
     } catch {
       // pdf-parse not available or failed entirely

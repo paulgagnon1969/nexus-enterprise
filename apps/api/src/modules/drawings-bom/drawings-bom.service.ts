@@ -6,7 +6,7 @@ import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { DrawingUploadStatus } from "@prisma/client";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
-import { PDFParse } from "pdf-parse";
+import pdfParse from "pdf-parse";
 import { PDFDocument } from "pdf-lib";
 import * as fs from "fs";
 import * as path from "path";
@@ -388,17 +388,12 @@ export class DrawingsBomService {
     // Get the real page count from PDF metadata (not from text extraction)
     const actualPageCount = await this.getPdfPageCount(buffer);
 
-    // Write to temp path for PDFParse text extraction
-    const tempPath = `/tmp/drawings-bom-${Date.now()}.pdf`;
-    await writeFile(tempPath, buffer);
-
     let rawText: string;
     try {
-      const pdfParser = new PDFParse({ url: tempPath });
-      const result = await pdfParser.getText();
-      rawText = result?.text || "";
-    } finally {
-      fs.unlink(tempPath, () => {});
+      rawText = (await pdfParse(buffer))?.text || "";
+    } catch (err: any) {
+      this.logger.warn(`pdf-parse text extraction failed: ${err?.message ?? err}`);
+      rawText = "";
     }
 
     // Split into pages using form-feed or page markers
