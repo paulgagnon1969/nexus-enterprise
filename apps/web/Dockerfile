@@ -27,8 +27,17 @@ RUN npm install
 COPY . .
 
 # The macOS-generated lockfile omits linux-arm64-gnu optional deps.
-# Reinstall next + parcel-watcher to pull correct platform binaries.
-RUN npm install next@16.1.6 @parcel/watcher@2.5.6 --force --legacy-peer-deps 2>&1 | tail -5
+# Directly download and extract the platform-specific native bindings.
+RUN cd /tmp && \
+    npm pack @next/swc-linux-arm64-gnu@16.1.6 && \
+    mkdir -p /app/node_modules/@next/swc-linux-arm64-gnu && \
+    tar xzf next-swc-linux-arm64-gnu-*.tgz -C /app/node_modules/@next/swc-linux-arm64-gnu --strip-components=1 && \
+    npm pack @parcel/watcher-linux-arm64-glibc@2.5.6 && \
+    mkdir -p /app/node_modules/@parcel/watcher-linux-arm64-glibc && \
+    tar xzf parcel-watcher-linux-arm64-glibc-*.tgz -C /app/node_modules/@parcel/watcher-linux-arm64-glibc --strip-components=1 && \
+    rm -rf /tmp/*.tgz && \
+    echo "SWC: $(ls /app/node_modules/@next/swc-linux-arm64-gnu/*.node 2>/dev/null || echo MISSING)" && \
+    echo "Watcher: $(ls /app/node_modules/@parcel/watcher-linux-arm64-glibc/*.node 2>/dev/null || echo MISSING)"
 
 # Build-time env vars (NEXT_PUBLIC_* are inlined at build time)
 ARG NEXT_PUBLIC_API_BASE_URL
