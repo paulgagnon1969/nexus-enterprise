@@ -32,12 +32,13 @@ RUN cd /tmp && \
     npm pack @next/swc-linux-arm64-gnu@16.1.6 && \
     mkdir -p /app/node_modules/@next/swc-linux-arm64-gnu && \
     tar xzf next-swc-linux-arm64-gnu-*.tgz -C /app/node_modules/@next/swc-linux-arm64-gnu --strip-components=1 && \
+    npm pack @swc/core-linux-arm64-gnu@1.15.11 && \
+    mkdir -p /app/node_modules/@swc/core-linux-arm64-gnu && \
+    tar xzf swc-core-linux-arm64-gnu-*.tgz -C /app/node_modules/@swc/core-linux-arm64-gnu --strip-components=1 && \
     npm pack @parcel/watcher-linux-arm64-glibc@2.5.6 && \
     mkdir -p /app/node_modules/@parcel/watcher-linux-arm64-glibc && \
     tar xzf parcel-watcher-linux-arm64-glibc-*.tgz -C /app/node_modules/@parcel/watcher-linux-arm64-glibc --strip-components=1 && \
-    rm -rf /tmp/*.tgz && \
-    echo "SWC: $(ls /app/node_modules/@next/swc-linux-arm64-gnu/*.node 2>/dev/null || echo MISSING)" && \
-    echo "Watcher: $(ls /app/node_modules/@parcel/watcher-linux-arm64-glibc/*.node 2>/dev/null || echo MISSING)"
+    rm -rf /tmp/*.tgz
 
 # Build-time env vars (NEXT_PUBLIC_* are inlined at build time)
 ARG NEXT_PUBLIC_API_BASE_URL
@@ -52,8 +53,8 @@ ENV NEXT_PUBLIC_MAPBOX_TOKEN=$NEXT_PUBLIC_MAPBOX_TOKEN
 ENV NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=$NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 ENV NEXT_PUBLIC_SECURITY_INSPECTOR_ENABLED=$NEXT_PUBLIC_SECURITY_INSPECTOR_ENABLED
 
-# Debug: verify native bindings are loadable before build
-RUN node -e "var bs=['@next/swc','@parcel/watcher','lightningcss'];bs.forEach(function(b){try{require(b);console.log('OK',b)}catch(e){console.log('FAIL',b,String(e).slice(0,100))}});console.log('arch:',process.arch,'platform:',process.platform)"
+# Debug: test loading next.config.mjs the same way next build does
+RUN cd /app/apps/web && node -e "require('next/dist/server/config').default('phase-production-build','/app/apps/web').then(c=>console.log('CONFIG OK')).catch(e=>{console.error('CONFIG ERR:',e.stack||e);process.exit(0)})" || true
 
 # Build the web app via Turbo (resolves workspace deps first)
 ENV NODE_OPTIONS="--max-old-space-size=8192"
