@@ -20,10 +20,11 @@ COPY packages/database/prisma.config.ts packages/database/prisma.config.ts
 # Install all dependencies (needed for next build)
 RUN npm install
 
-# Ensure @parcel/watcher has the correct native binary for Alpine (musl).
-# Try the exact version from the lockfile first, then rebuild from source.
-RUN npm install --no-save @parcel/watcher-linux-arm64-musl@2.5.6 \
-    || npm rebuild @parcel/watcher \
+# Ensure native binaries are available for Alpine ARM64 (musl).
+# @parcel/watcher for file watching, @next/swc for Next.js compilation.
+RUN npm install --no-save @parcel/watcher-linux-arm64-musl@2.5.6 2>/dev/null || true
+RUN npm install --no-save @next/swc-linux-arm64-musl 2>/dev/null \
+    || npm rebuild next 2>/dev/null \
     || true
 
 # Copy the full repo (turbo needs workspace context)
