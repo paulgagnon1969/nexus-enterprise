@@ -27,10 +27,13 @@ RUN npm install
 COPY . .
 
 # The macOS-generated lockfile omits linux-arm64-gnu optional deps.
-# Force-install the glibc native bindings Next.js needs on Debian ARM64.
-RUN npm install --no-save --force \
-      @next/swc-linux-arm64-gnu@16.1.6 \
-      @parcel/watcher-linux-arm64-glibc@2.5.6
+# Install in an isolated temp project (no workspace interference) then copy.
+RUN mkdir -p /tmp/native && cd /tmp/native && npm init -y --silent && \
+    npm install --no-save @next/swc-linux-arm64-gnu@16.1.6 @parcel/watcher-linux-arm64-glibc@2.5.6 && \
+    cp -rn /tmp/native/node_modules/@next /app/node_modules/ 2>/dev/null; \
+    cp -rn /tmp/native/node_modules/@parcel /app/node_modules/ 2>/dev/null; \
+    rm -rf /tmp/native && \
+    echo "Installed: $(ls /app/node_modules/@next/ | grep swc)"
 
 # Build-time env vars (NEXT_PUBLIC_* are inlined at build time)
 ARG NEXT_PUBLIC_API_BASE_URL
