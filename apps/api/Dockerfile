@@ -10,9 +10,17 @@ RUN apk add --no-cache bash python3 make g++
 # Copy root package manifest and lockfile for reproducible builds
 COPY package.json package-lock.json ./
 
-# Copy workspace package manifests that affect dependency graph
+# Copy ALL workspace package manifests so npm can resolve the full lockfile.
+# Missing workspace package.jsons cause npm to skip nested dependencies (e.g. pdf-parse).
 COPY apps/api/package.json apps/api/package.json
+COPY apps/web/package.json apps/web/package.json
+COPY apps/mobile/package.json apps/mobile/package.json
+COPY apps/nexbridge-connect/package.json apps/nexbridge-connect/package.json
+COPY apps/nexus-support/package.json apps/nexus-support/package.json
 COPY packages/database/package.json packages/database/package.json
+COPY packages/types/package.json packages/types/package.json
+COPY packages/icc-client/package.json packages/icc-client/package.json
+COPY packages/support-client/package.json packages/support-client/package.json
 
 # Copy prisma schema BEFORE npm install (needed for postinstall hooks and prisma generate)
 COPY packages/database/prisma packages/database/prisma
