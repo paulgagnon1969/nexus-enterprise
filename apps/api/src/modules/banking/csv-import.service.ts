@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, Logger, Inject, forwardRef } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
-import { CsvImportSource } from "@prisma/client";
+import { CsvImportSource, TransactionDisposition } from "@prisma/client";
 import { parse } from "csv-parse/sync";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
@@ -622,6 +622,7 @@ export class CsvImportService {
       pending?: boolean;
       projectId?: string;
       unassigned?: boolean;
+      disposition?: TransactionDisposition;
       page?: number;
       pageSize?: number;
     },
@@ -670,6 +671,7 @@ export class CsvImportService {
       if (filters.pending !== undefined) where.pending = filters.pending;
       if (filters.projectId) where.projectId = filters.projectId;
       if (filters.unassigned) where.projectId = null;
+      if (filters.disposition) where.disposition = filters.disposition;
       if (filters.search) {
         where.OR = [
           { name: { contains: filters.search, mode: "insensitive" } },
@@ -705,6 +707,7 @@ export class CsvImportService {
             plaidTransactionId: t.plaidTransactionId,
             paymentChannel: t.paymentChannel,
             detailedCategory: t.detailedCategory,
+            disposition: t.disposition,
           },
         });
       }
@@ -726,6 +729,7 @@ export class CsvImportService {
       }
       if (filters.projectId) where.projectId = filters.projectId;
       if (filters.unassigned) where.projectId = null;
+      if (filters.disposition) where.disposition = filters.disposition;
       if (filters.search) {
         const searchOr = [
           { description: { contains: filters.search, mode: "insensitive" } },
@@ -789,6 +793,8 @@ export class CsvImportService {
             prescreenConfidence: t.prescreenConfidence,
             prescreenReason: t.prescreenReason,
             prescreenStatus: t.prescreenStatus,
+            // Disposition
+            disposition: t.disposition,
           },
         });
       }
@@ -832,27 +838,77 @@ export class CsvImportService {
     transactionId: string,
     source: string,
     projectId: string | null,
+    userId?: string,
   ) {
+    const newDisposition = projectId
+      ? TransactionDisposition.PENDING_APPROVAL
+      : TransactionDisposition.UNREVIEWED;
+
+    // Resolve user name for audit log
+    let userName = "System";
+    if (userId) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { firstName: true, lastName: true, email: true },
+      });
+      if (user) userName = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email;
+    }
+
     if (source === "PLAID") {
       const txn = await this.prisma.bankTransaction.findFirst({
         where: { id: transactionId, companyId },
       });
       if (!txn) throw new BadRequestException("Transaction not found.");
-      return this.prisma.bankTransaction.update({
+      const updated = await this.prisma.bankTransaction.update({
         where: { id: transactionId },
-        data: { projectId },
+        data: { projectId, disposition: newDisposition },
         include: { project: { select: { id: true, name: true } } },
       });
+      // Log the disposition change
+      if (userId && txn.disposition !== newDisposition) {
+        await this.prisma.transactionDispositionLog.create({
+          data: {
+            companyId,
+            transactionId,
+            transactionSource: "PLAID",
+            previousDisposition: txn.disposition,
+            newDisposition,
+            note: projectId
+              ? `Assigned to project, pending PM approval`
+              : `Unassigned from project`,
+            userId,
+            userName: userName ?? "System",
+          },
+        });
+      }
+      return updated;
     } else {
       const txn = await this.prisma.importedTransaction.findFirst({
         where: { id: transactionId, companyId },
       });
       if (!txn) throw new BadRequestException("Transaction not found.");
-      return this.prisma.importedTransaction.update({
+      const updated = await this.prisma.importedTransaction.update({
         where: { id: transactionId },
-        data: { projectId },
+        data: { projectId, disposition: newDisposition },
         include: { project: { select: { id: true, name: true } } },
       });
+      if (userId && txn.disposition !== newDisposition) {
+        await this.prisma.transactionDispositionLog.create({
+          data: {
+            companyId,
+            transactionId,
+            transactionSource: txn.source,
+            previousDisposition: txn.disposition,
+            newDisposition,
+            note: projectId
+              ? `Assigned to project, pending PM approval`
+              : `Unassigned from project`,
+            userId,
+            userName: userName ?? "System",
+          },
+        });
+      }
+      return updated;
     }
   }
 
@@ -1479,5 +1535,156 @@ export class CsvImportService {
       unassignedCount: unassignedBank + unassignedImported,
       totalProjects: projectSummaries.length,
     };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Transaction Disposition
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Set the disposition on a transaction (imported or Plaid).
+   * Creates an audit log entry with the mandatory note.
+   */
+  async dispositionTransaction(params: {
+    companyId: string;
+    transactionId: string;
+    source: string;
+    disposition: TransactionDisposition;
+    note: string;
+    userId: string;
+  }) {
+    const { companyId, transactionId, source, disposition, note, userId } = params;
+
+    // Resolve user name for audit log
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true, lastName: true, email: true },
+    });
+    const userName = user ? `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email : "Unknown";
+
+    let previousDisposition: TransactionDisposition;
+
+    if (source === "PLAID") {
+      const txn = await this.prisma.bankTransaction.findFirst({
+        where: { id: transactionId, companyId },
+      });
+      if (!txn) throw new BadRequestException("Transaction not found.");
+      previousDisposition = txn.disposition;
+      await this.prisma.bankTransaction.update({
+        where: { id: transactionId },
+        data: { disposition },
+      });
+    } else {
+      const txn = await this.prisma.importedTransaction.findFirst({
+        where: { id: transactionId, companyId },
+      });
+      if (!txn) throw new BadRequestException("Transaction not found.");
+      previousDisposition = txn.disposition;
+      await this.prisma.importedTransaction.update({
+        where: { id: transactionId },
+        data: { disposition },
+      });
+    }
+
+    // Create audit log
+    const log = await this.prisma.transactionDispositionLog.create({
+      data: {
+        companyId,
+        transactionId,
+        transactionSource: source,
+        previousDisposition,
+        newDisposition: disposition,
+        note,
+        userId,
+        userName,
+      },
+    });
+
+    return { ok: true, disposition, previousDisposition, logId: log.id };
+  }
+
+  /**
+   * Get disposition audit log for a transaction.
+   */
+  async getDispositionLog(companyId: string, transactionId: string) {
+    return this.prisma.transactionDispositionLog.findMany({
+      where: { companyId, transactionId },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  /**
+   * Get disposition summary counts for the company.
+   */
+  async getDispositionCounts(companyId: string) {
+    const [bankCounts, importedCounts] = await Promise.all([
+      this.prisma.bankTransaction.groupBy({
+        by: ["disposition"],
+        where: { companyId },
+        _count: { id: true },
+      }),
+      this.prisma.importedTransaction.groupBy({
+        by: ["disposition"],
+        where: { companyId },
+        _count: { id: true },
+      }),
+    ]);
+
+    const counts: Record<string, number> = {};
+    for (const v of Object.values(TransactionDisposition)) counts[v] = 0;
+    for (const row of bankCounts) counts[row.disposition] = (counts[row.disposition] ?? 0) + row._count.id;
+    for (const row of importedCounts) counts[row.disposition] = (counts[row.disposition] ?? 0) + row._count.id;
+
+    return counts;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Transaction Tags
+  // ═══════════════════════════════════════════════════════════════════
+
+  async createTag(companyId: string, name: string, color?: string) {
+    return this.prisma.transactionTag.create({
+      data: { companyId, name: name.trim(), color: color ?? null },
+    });
+  }
+
+  async listTags(companyId: string) {
+    return this.prisma.transactionTag.findMany({
+      where: { companyId },
+      orderBy: { name: "asc" },
+      include: { _count: { select: { assignments: true } } },
+    });
+  }
+
+  async deleteTag(companyId: string, tagId: string) {
+    const tag = await this.prisma.transactionTag.findFirst({
+      where: { id: tagId, companyId },
+    });
+    if (!tag) throw new BadRequestException("Tag not found.");
+    await this.prisma.transactionTag.delete({ where: { id: tagId } });
+    return { ok: true };
+  }
+
+  async assignTag(transactionId: string, transactionSource: string, tagId: string, userId?: string) {
+    return this.prisma.transactionTagAssignment.create({
+      data: { transactionId, transactionSource, tagId, assignedByUserId: userId ?? null },
+    });
+  }
+
+  async removeTag(transactionId: string, tagId: string) {
+    const assignment = await this.prisma.transactionTagAssignment.findUnique({
+      where: { TransactionTagAssignment_txn_tag_key: { transactionId, tagId } },
+    });
+    if (!assignment) throw new BadRequestException("Tag assignment not found.");
+    await this.prisma.transactionTagAssignment.delete({ where: { id: assignment.id } });
+    return { ok: true };
+  }
+
+  async getTransactionTags(transactionId: string) {
+    return this.prisma.transactionTagAssignment.findMany({
+      where: { transactionId },
+      include: { tag: true },
+      orderBy: { assignedAt: "asc" },
+    });
   }
 }

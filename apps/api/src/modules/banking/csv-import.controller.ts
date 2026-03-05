@@ -15,12 +15,22 @@ import type { FastifyRequest } from "fastify";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CsvImportService } from "./csv-import.service";
-import { CsvImportSource } from "@prisma/client";
+import { CsvImportSource, TransactionDisposition } from "@prisma/client";
 
 const VALID_SOURCES: Record<string, CsvImportSource> = {
   HD_PRO_XTRA: CsvImportSource.HD_PRO_XTRA,
   CHASE_BANK: CsvImportSource.CHASE_BANK,
   APPLE_CARD: CsvImportSource.APPLE_CARD,
+};
+
+const VALID_DISPOSITIONS: Record<string, TransactionDisposition> = {
+  UNREVIEWED: TransactionDisposition.UNREVIEWED,
+  PENDING_APPROVAL: TransactionDisposition.PENDING_APPROVAL,
+  ASSIGNED: TransactionDisposition.ASSIGNED,
+  IGNORED: TransactionDisposition.IGNORED,
+  PERSONAL: TransactionDisposition.PERSONAL,
+  DUPLICATE: TransactionDisposition.DUPLICATE,
+  RETURNED: TransactionDisposition.RETURNED,
 };
 
 @Controller("banking")
@@ -120,6 +130,7 @@ export class CsvImportController {
     @Query("pending") pending?: string,
     @Query("projectId") projectId?: string,
     @Query("unassigned") unassigned?: string,
+    @Query("disposition") disposition?: string,
     @Query("page") page?: string,
     @Query("pageSize") pageSize?: string,
   ) {
@@ -137,6 +148,7 @@ export class CsvImportController {
       pending: pending !== undefined ? pending === "true" : undefined,
       projectId,
       unassigned: unassigned === "true",
+      disposition: disposition ? VALID_DISPOSITIONS[disposition] : undefined,
       page: page ? parseInt(page, 10) : undefined,
       pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
     });
@@ -156,6 +168,7 @@ export class CsvImportController {
       id,
       body.source,
       body.projectId,
+      actor.userId,
     );
   }
 
@@ -296,5 +309,97 @@ export class CsvImportController {
   ) {
     const actor = req.user as AuthenticatedUser;
     return this.csvImport.unlinkReconciliation(actor.companyId, body.transactionIds);
+  }
+
+  // ─── Transaction Disposition ───────────────────────────────────────
+
+  @Patch("transactions/:id/disposition")
+  async dispositionTransaction(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() body: { source: string; disposition: string; note: string },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    const disposition = VALID_DISPOSITIONS[body.disposition];
+    if (!disposition) {
+      throw new BadRequestException(
+        `Invalid disposition. Must be one of: ${Object.keys(VALID_DISPOSITIONS).join(", ")}`,
+      );
+    }
+    if (!body.source) throw new BadRequestException("source is required.");
+    if (!body.note || body.note.trim().length < 3) {
+      throw new BadRequestException("A disposition note is required (minimum 3 characters).");
+    }
+    return this.csvImport.dispositionTransaction({
+      companyId: actor.companyId,
+      transactionId: id,
+      source: body.source,
+      disposition,
+      note: body.note.trim(),
+      userId: actor.userId,
+    });
+  }
+
+  @Get("transactions/:id/disposition-log")
+  async getDispositionLog(
+    @Req() req: any,
+    @Param("id") id: string,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.csvImport.getDispositionLog(actor.companyId, id);
+  }
+
+  @Get("disposition-counts")
+  async getDispositionCounts(@Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.csvImport.getDispositionCounts(actor.companyId);
+  }
+
+  // ─── Transaction Tags ─────────────────────────────────────────────
+
+  @Post("tags")
+  async createTag(
+    @Req() req: any,
+    @Body() body: { name: string; color?: string },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    if (!body.name || !body.name.trim()) throw new BadRequestException("Tag name is required.");
+    return this.csvImport.createTag(actor.companyId, body.name, body.color);
+  }
+
+  @Get("tags")
+  async listTags(@Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.csvImport.listTags(actor.companyId);
+  }
+
+  @Delete("tags/:tagId")
+  async deleteTag(@Req() req: any, @Param("tagId") tagId: string) {
+    const actor = req.user as AuthenticatedUser;
+    return this.csvImport.deleteTag(actor.companyId, tagId);
+  }
+
+  @Post("transactions/:id/tags")
+  async assignTag(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() body: { tagId: string; source: string },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.csvImport.assignTag(id, body.source, body.tagId, actor.userId);
+  }
+
+  @Delete("transactions/:id/tags/:tagId")
+  async removeTag(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Param("tagId") tagId: string,
+  ) {
+    return this.csvImport.removeTag(id, tagId);
+  }
+
+  @Get("transactions/:id/tags")
+  async getTransactionTags(@Param("id") id: string) {
+    return this.csvImport.getTransactionTags(id);
   }
 }

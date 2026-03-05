@@ -20,6 +20,45 @@ enum DocumentTemplateType {
   GENERIC
 }
 
+// =============================================================================
+// Remote Support — Screen Sharing & Remote Control
+// =============================================================================
+
+enum SupportTicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum SupportTicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum SupportSessionStatus {
+  PENDING
+  ACTIVE
+  ENDED
+}
+
+enum SupportSessionMode {
+  VIEW_ONLY
+  REMOTE_CONTROL
+}
+
+enum SupportSessionEventType {
+  CREATED
+  CLIENT_JOINED
+  AGENT_JOINED
+  CONTROL_REQUESTED
+  CONTROL_GRANTED
+  CONTROL_REVOKED
+  ENDED
+}
+
 model Company {
   id                        String      @id @default(cuid())
   name                      String
@@ -32,7 +71,7 @@ model Company {
 
   /// Subscription / business tier. CLIENT = free, invited by a contractor.
   /// CONTRACTOR = paying tenant with full module access per subscription.
-  tier                      CompanyTier @default(CONTRACTOR)
+  tier CompanyTier @default(CONTRACTOR)
 
   // Contact information (used on invoices, letterheads, etc.)
   phone        String?
@@ -43,8 +82,8 @@ model Company {
   city         String?
   state        String?
   postalCode   String?
-  country      String?  @default("US")
-  tagline      String?  // e.g. "Building Excellence, Fortifying Futures"
+  country      String? @default("US")
+  tagline      String? // e.g. "Building Excellence, Fortifying Futures"
 
   /// Optional worker invite / referral token
   /// prospective crew members. When a worker signs up using this token, they
@@ -75,7 +114,7 @@ model Company {
 
   /// NEXUS-owned or internal test tenant — permanently bypasses all module
   /// entitlement checks. Set by SUPER_ADMIN only.
-  isInternal  Boolean             @default(false)
+  isInternal Boolean @default(false)
 
   templateId            String?
   templateVersionId     String?
@@ -204,7 +243,7 @@ model Company {
   videoRooms VideoRoom[]
 
   // BOM Pricing snapshots & price history
-  bomPricingSnapshots      BomPricingSnapshot[]
+  bomPricingSnapshots       BomPricingSnapshot[]
   materialPriceObservations MaterialPriceObservation[]
 
   // Drawings → BOM pipeline
@@ -220,21 +259,25 @@ model Company {
   bidPackages BidPackage[]
 
   // Living Membership — Billing
-  stripeCustomerId       String?               @unique
-  tenantSubscriptions    TenantSubscription[]
-  tenantPaymentMethods   TenantPaymentMethod[]
+  stripeCustomerId          String?                    @unique
+  tenantSubscriptions       TenantSubscription[]
+  tenantPaymentMethods      TenantPaymentMethod[]
   tenantModuleSubscriptions TenantModuleSubscription[]
-  billingEvents          BillingEvent[]
-  projectFeatureUnlocks  ProjectFeatureUnlock[]
+  billingEvents             BillingEvent[]
+  projectFeatureUnlocks     ProjectFeatureUnlock[]
 
   // Banking — Plaid Transactions
   bankConnections  BankConnection[]
   bankTransactions BankTransaction[]
 
   // CSV Import — vendor receipts, credit card & bank statement imports
-  csvImportBatches      CsvImportBatch[]
-  importedTransactions  ImportedTransaction[]
-  prescreenFeedbacks    PrescreenFeedback[]
+  csvImportBatches     CsvImportBatch[]
+  importedTransactions ImportedTransaction[]
+  prescreenFeedbacks   PrescreenFeedback[]
+
+  // Transaction Disposition + Tags
+  transactionDispositionLogs TransactionDispositionLog[]
+  transactionTags            TransactionTag[]
 
   // Purchase Reconciliation + NexPRICE
   creditCardPaymentLinks  CreditCardPaymentLink[]
@@ -263,30 +306,30 @@ model Company {
   placardCounters PlacardCounter[]
 
   // Email Receipt Capture (supplier receipts from email)
-  emailReceipts EmailReceipt[]
+  emailReceipts          EmailReceipt[]
   emailReceiptConnectors EmailReceiptConnector[]
 
   // NexLevelIntegration — Video Property Assessments
-  videoAssessments        VideoAssessment[]
-  videoAssessmentFindings VideoAssessmentFinding[]
+  videoAssessments           VideoAssessment[]
+  videoAssessmentFindings    VideoAssessmentFinding[]
   assessmentTeachingExamples AssessmentTeachingExample[]
 
   // Nex-LevelIntelligence (NLI) — device fleet, watch folders, file scanning, sync
-  nliDevices       NliDevice[]
-  nliWatchFolders  NliWatchFolder[]
-  nliScannedFiles  NliScannedFile[]
-  nliSyncJobs      NliSyncJob[]
+  nliDevices      NliDevice[]
+  nliWatchFolders NliWatchFolder[]
+  nliScannedFiles NliScannedFile[]
+  nliSyncJobs     NliSyncJob[]
 
   // Agreements & Contracts
   agreementTemplates AgreementTemplate[]
   agreements         Agreement[]
 
   // NexCheck — Site compliance kiosk system
-  sitePasses        SitePass[]
-  siteDocuments     SiteDocument[]
-  siteCheckIns      SiteCheckIn[]
-  kioskSessions     KioskSession[]
-  kioskDelegations  KioskDelegation[]
+  sitePasses       SitePass[]
+  siteDocuments    SiteDocument[]
+  siteCheckIns     SiteCheckIn[]
+  kioskSessions    KioskSession[]
+  kioskDelegations KioskDelegation[]
 
   // Project favorites
   projectFavorites ProjectFavorite[]
@@ -296,6 +339,9 @@ model Company {
 
   // NexBridge Connect — registered devices
   userDevices UserDevice[]
+
+  // Remote Support — tickets
+  supportTickets SupportTicket[]
 }
 
 model OrganizationTemplate {
@@ -534,7 +580,7 @@ model User {
   inventoryMovements InventoryMovement[]
 
   // Tasks created by this user (Todos, NTT workflows, etc.)
-  createdTasks      Task[]         @relation("TaskCreatedBy")
+  createdTasks         Task[]            @relation("TaskCreatedBy")
   dispositionedTasks   Task[]            @relation("TaskDispositionBy")
   completedTasks       Task[]            @relation("TaskCompletedBy")
   taskGroupMemberships TaskGroupMember[] @relation("TaskGroupMemberships")
@@ -660,10 +706,13 @@ model User {
   csvImportBatchesUploaded CsvImportBatch[] @relation("CsvImportBatchUploadedBy")
 
   // Purchase Reconciliation
-  ccPaymentLinksLinked        CreditCardPaymentLink[] @relation("CcPaymentLinkLinkedBy")
-  receiptLineDispositionsBy   ReceiptLineDisposition[] @relation("ReceiptLineDispositionBy")
-  pmReviewItemsAssigned       PmReviewItem[] @relation("PmReviewAssignedTo")
-  pmReviewItemsReviewed       PmReviewItem[] @relation("PmReviewReviewedBy")
+  ccPaymentLinksLinked      CreditCardPaymentLink[]  @relation("CcPaymentLinkLinkedBy")
+  receiptLineDispositionsBy ReceiptLineDisposition[] @relation("ReceiptLineDispositionBy")
+  pmReviewItemsAssigned     PmReviewItem[]           @relation("PmReviewAssignedTo")
+  pmReviewItemsReviewed     PmReviewItem[]           @relation("PmReviewReviewedBy")
+
+  // Transaction Disposition Logs
+  transactionDispositionLogs TransactionDispositionLog[] @relation("TransactionDispositionLogUser")
 
   // Local Supplier Index — flag/review relations
   localSuppliersFlagged  LocalSupplier[] @relation("LocalSupplierFlaggedBy")
@@ -676,11 +725,11 @@ model User {
   assetScansCreated AssetScan[] @relation("AssetScanCreatedBy")
 
   // Asset ownership & maintenance
-  ownedAssets                Asset[]                  @relation("AssetOwner")
-  maintenanceAssignedAssets  Asset[]                  @relation("AssetMaintenanceAssignee")
+  ownedAssets                Asset[]                 @relation("AssetOwner")
+  maintenanceAssignedAssets  Asset[]                 @relation("AssetMaintenanceAssignee")
   maintenancePoolMemberships MaintenancePoolMember[]
-  assetShareGrantsReceived   AssetShareGrant[]        @relation("AssetShareGrantReceiver")
-  assetShareGrantsGiven      AssetShareGrant[]        @relation("AssetShareGrantGiver")
+  assetShareGrantsReceived   AssetShareGrant[]       @relation("AssetShareGrantReceiver")
+  assetShareGrantsGiven      AssetShareGrant[]       @relation("AssetShareGrantGiver")
 
   // Email Receipt Capture (supplier receipts from email)
   emailReceiptsAssigned EmailReceipt[] @relation("EmailReceiptAssignedBy")
@@ -689,14 +738,14 @@ model User {
   emailReceiptConnectorsCreated EmailReceiptConnector[] @relation("EmailReceiptConnectorConnectedBy")
 
   // NexLevelIntegration — Video Property Assessments
-  videoAssessmentsCreated  VideoAssessment[] @relation("VideoAssessmentCreatedBy")
-  videoAssessmentsAssigned VideoAssessment[] @relation("VideoAssessmentAssignedBy")
-  videoFindingsOverridden  VideoAssessmentFinding[] @relation("VideoFindingOverriddenBy")
+  videoAssessmentsCreated  VideoAssessment[]           @relation("VideoAssessmentCreatedBy")
+  videoAssessmentsAssigned VideoAssessment[]           @relation("VideoAssessmentAssignedBy")
+  videoFindingsOverridden  VideoAssessmentFinding[]    @relation("VideoFindingOverriddenBy")
   teachingExamplesCreated  AssessmentTeachingExample[] @relation("TeachingExampleCreatedBy")
 
   // Nex-LevelIntelligence (NLI)
-  nliDevicesRegistered NliDevice[]      @relation("NliDeviceRegisteredBy")
-  nliSyncJobsCreated   NliSyncJob[]     @relation("NliSyncJobCreatedBy")
+  nliDevicesRegistered NliDevice[]  @relation("NliDeviceRegisteredBy")
+  nliSyncJobsCreated   NliSyncJob[] @relation("NliSyncJobCreatedBy")
 
   // Nex-Plac QR Placards
   placardsAssigned AssetPlacard[] @relation("PlacardAssignedBy")
@@ -711,11 +760,11 @@ model User {
   agreementTemplateVersionsChanged AgreementTemplateVersion[] @relation("AgreementTemplateVersionChangedBy")
 
   // NexCheck — Site compliance kiosk system
-  sitePasses                   SitePass[]
-  siteDocumentsCreated         SiteDocument[]    @relation("SiteDocumentCreatedBy")
-  kioskSessionsActivated       KioskSession[]    @relation("KioskSessionActivatedBy")
-  kioskDelegationsGranted      KioskDelegation[] @relation("KioskDelegationGrantedBy")
-  kioskDelegationsReceived     KioskDelegation[] @relation("KioskDelegationReceivedBy")
+  sitePasses               SitePass[]
+  siteDocumentsCreated     SiteDocument[]    @relation("SiteDocumentCreatedBy")
+  kioskSessionsActivated   KioskSession[]    @relation("KioskSessionActivatedBy")
+  kioskDelegationsGranted  KioskDelegation[] @relation("KioskDelegationGrantedBy")
+  kioskDelegationsReceived KioskDelegation[] @relation("KioskDelegationReceivedBy")
 
   // Project favorites
   projectFavorites ProjectFavorite[]
@@ -725,6 +774,13 @@ model User {
 
   // Project Collaboration — invites sent by this user on behalf of their company
   collaborationInvitesSent ProjectCollaboration[] @relation("CollaborationInvitedBy")
+
+  // Remote Support — tickets and sessions
+  supportTicketsCreated   SupportTicket[]       @relation("SupportTicketCreatedBy")
+  supportTicketsAssigned  SupportTicket[]       @relation("SupportTicketAssignedTo")
+  supportSessionsAsClient SupportSession[]      @relation("SupportSessionClient")
+  supportSessionsAsAgent  SupportSession[]      @relation("SupportSessionAgent")
+  supportSessionEvents    SupportSessionEvent[] @relation("SupportSessionEventActor")
 }
 
 /// Notification delivered to a single user
@@ -849,10 +905,10 @@ model Message {
   sharedWithSubject Boolean  @default(false)
 
   /// Voice message fields
-  voiceRecordingUrl String?  // GCS URL to audio
-  voiceDurationSecs Int?     // duration for display
-  aiTranscribed     Boolean  @default(false) // body was AI-generated from audio
-  vjnId             String?  // back-link to source VoiceJournalNote
+  voiceRecordingUrl String? // GCS URL to audio
+  voiceDurationSecs Int? // duration for display
+  aiTranscribed     Boolean @default(false) // body was AI-generated from audio
+  vjnId             String? // back-link to source VoiceJournalNote
 
   thread      MessageThread        @relation(fields: [threadId], references: [id])
   sender      User?                @relation(fields: [senderId], references: [id])
@@ -983,19 +1039,19 @@ model DailyTimecard {
   updatedAt       DateTime @updatedAt
 
   /// Foreman-level approval (daily review)
-  foremanStatus     String?   // PENDING | APPROVED | REJECTED
+  foremanStatus     String? // PENDING | APPROVED | REJECTED
   foremanUserId     String?
   foremanApprovedAt DateTime?
   foremanNotes      String?
 
   /// Superintendent+ approval (escalation)
-  superStatus     String?   // PENDING | APPROVED | REJECTED
+  superStatus     String? // PENDING | APPROVED | REJECTED
   superUserId     String?
   superApprovedAt DateTime?
   superNotes      String?
 
   /// Payroll approval (final sign-off for payroll processing)
-  payrollStatus     String?   // PENDING | APPROVED
+  payrollStatus     String? // PENDING | APPROVED
   payrollUserId     String?
   payrollApprovedAt DateTime?
   payrollNotes      String?
@@ -1135,12 +1191,12 @@ model UserPortfolioHr {
 model CompanyMembership {
   userId    String
   companyId String
-  createdAt DateTime     @default(now())
+  createdAt DateTime @default(now())
   role      Role
   /// When false, this membership has been deactivated for the tenant. The user
   /// may still exist in the Nexus System (e.g. as a candidate) but cannot
   /// access this specific company as a member.
-  isActive  Boolean      @default(true)
+  isActive  Boolean  @default(true)
   profileId String?
 
   /// Deactivation tracking — records when and by whom a member was removed
@@ -1151,14 +1207,14 @@ model CompanyMembership {
   /// Black Flag — highly classified per-tenant risk classification.
   /// Only visible to OWNER and SUPER_ADMIN. Marks an individual as a risk
   /// who should not be rehired or given access to the organization.
-  blackFlagged          Boolean   @default(false)
-  blackFlaggedAt        DateTime? @map("black_flagged_at")
-  blackFlaggedByUserId  String?   @map("black_flagged_by_user_id")
-  blackFlagReason       String?   @map("black_flag_reason")
+  blackFlagged         Boolean   @default(false)
+  blackFlaggedAt       DateTime? @map("black_flagged_at")
+  blackFlaggedByUserId String?   @map("black_flagged_by_user_id")
+  blackFlagReason      String?   @map("black_flag_reason")
 
-  company   Company      @relation(fields: [companyId], references: [id])
-  profile   RoleProfile? @relation(fields: [profileId], references: [id])
-  user      User         @relation(fields: [userId], references: [id])
+  company Company      @relation(fields: [companyId], references: [id])
+  profile RoleProfile? @relation(fields: [profileId], references: [id])
+  user    User         @relation(fields: [userId], references: [id])
 
   @@id([userId, companyId])
 }
@@ -1320,7 +1376,7 @@ model Project {
   teamTreeJson Json?
 
   /// Daily log settings
-  personnelFavoritesJson Json?     /// Saved personnel favorites: same shape as personnelOnsiteJson
+  personnelFavoritesJson Json? /// Saved personnel favorites: same shape as personnelOnsiteJson
   jsaReminderEnabled     Boolean   @default(true)
   jsaReminderTime        String    @default("09:00") /// HH:mm in project timezone
   jsaReminderSentDate    DateTime? /// Prevents duplicate reminders same day
@@ -1347,7 +1403,7 @@ model Project {
   componentAllocations      SowComponentAllocation[]
   sowLogicalItems           SowLogicalItem[]
   tasks                     Task[]
-  destinationMaterialLots   MaterialLot[] @relation("MaterialLotDestinationProject")
+  destinationMaterialLots   MaterialLot[]             @relation("MaterialLotDestinationProject")
   assetUsages               AssetUsage[]
   assetTransactions         AssetTransaction[]
   taxJurisdiction           TaxJurisdiction?          @relation(fields: [taxJurisdictionId], references: [id])
@@ -1424,8 +1480,8 @@ model Project {
   crewLocations CrewLocation[]
 
   // Banking transactions tagged to this project (reconciliation)
-  bankTransactions     BankTransaction[]     @relation("BankTransactionProject")
-  importedTransactions ImportedTransaction[] @relation("ImportedTransactionProject")
+  bankTransactions        BankTransaction[]     @relation("BankTransactionProject")
+  importedTransactions    ImportedTransaction[] @relation("ImportedTransactionProject")
   prescreenedTransactions ImportedTransaction[] @relation("ImportedTransactionPrescreenProject")
 
   // Email Receipt Capture (supplier receipts from email)
@@ -1449,10 +1505,10 @@ model Project {
   orgTemplate   OrgTemplate? @relation(fields: [orgTemplateId], references: [id])
 
   // NexCheck — Site compliance kiosk system
-  siteDocuments     SiteDocument[]
-  siteCheckIns      SiteCheckIn[]
-  kioskSessions     KioskSession[]
-  kioskDelegations  KioskDelegation[]
+  siteDocuments    SiteDocument[]
+  siteCheckIns     SiteCheckIn[]
+  kioskSessions    KioskSession[]
+  kioskDelegations KioskDelegation[]
 
   // User favorites
   favorites ProjectFavorite[]
@@ -1527,13 +1583,13 @@ model TenantClient {
 /// Revision-controlled log of project status changes with notes.
 /// Each row captures who changed the status, from/to, and an optional note.
 model ProjectStatusNote {
-  id             String   @id @default(cuid())
-  projectId      String
-  previousStatus String
-  newStatus      String
-  note           String?  @db.Text
+  id              String   @id @default(cuid())
+  projectId       String
+  previousStatus  String
+  newStatus       String
+  note            String?  @db.Text
   createdByUserId String
-  createdAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
 
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdBy User    @relation("ProjectStatusNoteCreatedBy", fields: [createdByUserId], references: [id])
@@ -1852,10 +1908,10 @@ model UserActivityEvent {
   id        String   @id @default(cuid())
   companyId String
   userId    String
-  eventType String   // LOGIN, MODULE_OPEN, RECORD_CREATE, RECORD_UPDATE, RECORD_DELETE, PAGE_VIEW
-  module    String   // projects, financial, daily_logs, messaging, timecards, etc.
-  entityId  String?  // ID of the affected record (optional)
-  metadata  Json?    // Additional context (page path, entity type, etc.)
+  eventType String // LOGIN, MODULE_OPEN, RECORD_CREATE, RECORD_UPDATE, RECORD_DELETE, PAGE_VIEW
+  module    String // projects, financial, daily_logs, messaging, timecards, etc.
+  entityId  String? // ID of the affected record (optional)
+  metadata  Json? // Additional context (page path, entity type, etc.)
   createdAt DateTime @default(now())
 
   @@index([companyId, createdAt], map: "UserActivityEvent_company_created_idx")
@@ -1872,7 +1928,7 @@ model ActivityDailyRollup {
   module     String
   eventType  String
   eventCount Int      @default(0)
-  metadata   Json?    // aggregated metadata (e.g., avg content length)
+  metadata   Json? // aggregated metadata (e.g., avg content length)
 
   @@unique([companyId, userId, date, module, eventType], name: "ActivityDailyRollup_unique")
   @@index([companyId, date], map: "ActivityDailyRollup_company_date_idx")
@@ -1898,22 +1954,22 @@ model ActivityWeeklyRollup {
 /// user's daily-log behaviour scores ≥ 0.4 on the composite gaming metric.
 /// PM+ roles review flags and can dismiss, confirm, or coach.
 model GamingFlag {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   companyId       String
   userId          String
-  flagDate        DateTime @db.Date   // the day being flagged
-  gamingScore     Float               // composite 0.0–1.0
-  volumeScore     Float    @default(0)
-  burstScore      Float    @default(0)
-  entropyScore    Float    @default(0)
-  similarityScore Float    @default(0)
-  ratioScore      Float    @default(0)
-  dailyLogIds     Json?               // string[] of DailyLog IDs that triggered the flag
-  status          String   @default("PENDING") // PENDING | DISMISSED | CONFIRMED | COACHED
+  flagDate        DateTime  @db.Date // the day being flagged
+  gamingScore     Float // composite 0.0–1.0
+  volumeScore     Float     @default(0)
+  burstScore      Float     @default(0)
+  entropyScore    Float     @default(0)
+  similarityScore Float     @default(0)
+  ratioScore      Float     @default(0)
+  dailyLogIds     Json? // string[] of DailyLog IDs that triggered the flag
+  status          String    @default("PENDING") // PENDING | DISMISSED | CONFIRMED | COACHED
   reviewedById    String?
   reviewedAt      DateTime?
   reviewNotes     String?
-  createdAt       DateTime @default(now())
+  createdAt       DateTime  @default(now())
 
   @@unique([companyId, userId, flagDate], name: "GamingFlag_company_user_date_key")
   @@index([companyId, status, flagDate], map: "GamingFlag_company_status_date_idx")
@@ -2021,6 +2077,18 @@ enum DispositionType {
   KEEP_ON_JOB
   CREDIT_PERSONAL
   MOVE_TO_PROJECT
+}
+
+/// Disposition status for bank/imported transaction line items.
+/// Governs whether a transaction appears on the working table.
+enum TransactionDisposition {
+  UNREVIEWED
+  PENDING_APPROVAL
+  ASSIGNED
+  IGNORED
+  PERSONAL
+  DUPLICATE
+  RETURNED
 }
 
 enum CcPaymentLinkStatus {
@@ -2425,11 +2493,11 @@ model ProjectBill {
   // Link to source imported/bank transaction (for prescreened tentative bills)
   sourceTransactionId     String? // ImportedTransaction.id or BankTransaction.id
   sourceTransactionSource String? // HD_PRO_XTRA, CHASE_BANK, APPLE_CARD, PLAID
-  prescreenConfidence     Float?  // Confidence at time of bill creation
+  prescreenConfidence     Float? // Confidence at time of bill creation
 
   // Bill Sibling Groups — duplicate detection & verification offset
-  billRole        BillRole  @default(PRIMARY)
-  siblingGroupId  String?   // FK → BillSiblingGroup
+  billRole       BillRole @default(PRIMARY)
+  siblingGroupId String? // FK → BillSiblingGroup
 
   createdByUserId String?
   createdAt       DateTime @default(now())
@@ -2541,10 +2609,10 @@ model ReceiptOcrResult {
   processedAt  DateTime?
   createdAt    DateTime  @default(now())
 
-  dailyLog      DailyLog?     @relation(fields: [dailyLogId], references: [id], onDelete: Cascade)
-  bill          ProjectBill?  @relation(fields: [billId], references: [id], onDelete: Cascade)
-  projectFile   ProjectFile   @relation(fields: [projectFileId], references: [id], onDelete: Cascade)
-  emailReceipt  EmailReceipt?
+  dailyLog         DailyLog?                @relation(fields: [dailyLogId], references: [id], onDelete: Cascade)
+  bill             ProjectBill?             @relation(fields: [billId], references: [id], onDelete: Cascade)
+  projectFile      ProjectFile              @relation(fields: [projectFileId], references: [id], onDelete: Cascade)
+  emailReceipt     EmailReceipt?
   lineDispositions ReceiptLineDisposition[]
 
   @@index([status], map: "ReceiptOcrResult_status_idx")
@@ -2626,23 +2694,23 @@ model Task {
   escalatedAt    DateTime?
 
   // Disposition workflow
-  disposition          TaskDisposition @default(NONE)
-  dispositionNote      String?
-  dispositionAt        DateTime?
-  dispositionByUserId  String?
+  disposition         TaskDisposition @default(NONE)
+  dispositionNote     String?
+  dispositionAt       DateTime?
+  dispositionByUserId String?
 
   // Group assignment: when a task is assigned to multiple people,
   // assigneeId is null and group members are in TaskGroupMember.
   // completedByUserId records who actually closed the task.
   completedByUserId String?
 
-  assignee        User?            @relation("TaskAssignee", fields: [assigneeId], references: [id])
-  completedBy     User?            @relation("TaskCompletedBy", fields: [completedByUserId], references: [id])
-  company         Company          @relation(fields: [companyId], references: [id])
-  project         Project          @relation(fields: [projectId], references: [id])
-  projectParticle ProjectParticle? @relation(fields: [projectParticleId], references: [id])
-  createdBy       User?            @relation("TaskCreatedBy", fields: [createdByUserId], references: [id])
-  dispositionBy   User?            @relation("TaskDispositionBy", fields: [dispositionByUserId], references: [id])
+  assignee        User?             @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  completedBy     User?             @relation("TaskCompletedBy", fields: [completedByUserId], references: [id])
+  company         Company           @relation(fields: [companyId], references: [id])
+  project         Project           @relation(fields: [projectId], references: [id])
+  projectParticle ProjectParticle?  @relation(fields: [projectParticleId], references: [id])
+  createdBy       User?             @relation("TaskCreatedBy", fields: [createdByUserId], references: [id])
+  dispositionBy   User?             @relation("TaskDispositionBy", fields: [dispositionByUserId], references: [id])
   activities      TaskActivity[]
   groupMembers    TaskGroupMember[]
 
@@ -2673,7 +2741,7 @@ model TaskActivity {
   id            String   @id @default(cuid())
   taskId        String
   actorUserId   String?
-  action        String   // CREATED, DISPOSITION_SET, REOPENED, STATUS_CHANGED, REASSIGNED, NOTE_ADDED, COMPLETED
+  action        String // CREATED, DISPOSITION_SET, REOPENED, STATUS_CHANGED, REASSIGNED, NOTE_ADDED, COMPLETED
   note          String?
   previousValue String?
   newValue      String?
@@ -3398,16 +3466,16 @@ model DailyLog {
   type DailyLogType @default(PUDL)
 
   /// Voice-to-text / AI summarization fields
-  aiGenerated       Boolean  @default(false) // worker accepted AI-generated text
-  aiTranscriptRaw   String?  @db.Text // raw Whisper transcript (verbatim)
-  aiSummary         String?  @db.Text // GPT-cleaned/summarized version
-  voiceRecordingUrl String?  // GCS URL to the audio attachment
-  voiceDurationSecs Int?     // recording duration for display
-  vjnId             String?  // back-link to source VoiceJournalNote (if shared from VJN)
+  aiGenerated       Boolean @default(false) // worker accepted AI-generated text
+  aiTranscriptRaw   String? @db.Text // raw Whisper transcript (verbatim)
+  aiSummary         String? @db.Text // GPT-cleaned/summarized version
+  voiceRecordingUrl String? // GCS URL to the audio attachment
+  voiceDurationSecs Int? // recording duration for display
+  vjnId             String? // back-link to source VoiceJournalNote (if shared from VJN)
 
   /// Multi-language support
-  language         String  @default("en") // ISO 639-1: "en", "es", etc.
-  translationsJson Json?   // { "es": { "title": "...", "workPerformed": "...", ... }, "en": { ... } }
+  language         String @default("en") // ISO 639-1: "en", "es", etc.
+  translationsJson Json? // { "es": { "title": "...", "workPerformed": "...", ... }, "en": { ... } }
 
   /// Receipt/expense fields (used when type = RECEIPT_EXPENSE)
   expenseVendor String?
@@ -3419,13 +3487,13 @@ model DailyLog {
   /// JSON: [{ ocrResultId: string, lineItemIndex: number }]
   excludedLineItemsJson String?
   /// Flat credit/deduction applied to the receipt total
-  creditAmount Decimal? @db.Decimal(12, 2)
+  creditAmount          Decimal? @db.Decimal(12, 2)
 
   /// Fulfillment method for receipt purchases
   fulfillmentMethod         FulfillmentMethod?
   expectedDeliveryDate      DateTime?
   originLocationId          String? // FK → Location (vendor/store)
-  inventoryLedgerJson       Json?   // snapshot of promoted MaterialLot IDs
+  inventoryLedgerJson       Json? // snapshot of promoted MaterialLot IDs
   /// Device geolocation at receipt photo capture
   receiptCaptureLat         Float?
   receiptCaptureLng         Float?
@@ -3434,32 +3502,32 @@ model DailyLog {
   /// Inventory move fields (used when type = INVENTORY_MOVE)
   moveFromLocationId     String? // FK → Location
   moveToLocationId       String? // FK → Location
-  inventoryMoveItemsJson Json?   // [{materialLotId, description, quantity, uom}]
+  inventoryMoveItemsJson Json? // [{materialLotId, description, quantity, uom}]
   moveType               InventoryMoveType?
 
   /// Equipment usage fields (used when type = EQUIPMENT_USAGE)
   /// [{assetId, hours, meterType?, meterReading?, notes?}]
-  equipmentUsageJson     Json?
+  equipmentUsageJson Json?
 
-  createdBy    User                 @relation(fields: [createdById], references: [id])
-  project      Project              @relation(fields: [projectId], references: [id])
-  attachments  DailyLogAttachment[]
-  revisions    DailyLogRevision[]
-  assetUsages  AssetUsage[]
-  building     ProjectBuilding?     @relation("ProjectBuildingDailyLogs", fields: [buildingId], references: [id])
-  unit         ProjectUnit?         @relation("ProjectUnitDailyLogs", fields: [unitId], references: [id])
-  roomParticle ProjectParticle?     @relation("ProjectParticleDailyLogs", fields: [roomParticleId], references: [id])
-  sowItem      SowItem?             @relation("SowItemDailyLogs", fields: [sowItemId], references: [id])
-  delayedBy    User?                @relation("DailyLogDelayedBy", fields: [delayedById], references: [id])
-  publishedBy  User?                @relation("DailyLogPublishedBy", fields: [publishedById], references: [id])
-  sourceBill   ProjectBill?         @relation("DailyLogSourceBill", fields: [sourceBillId], references: [id])
-  ocrResults   ReceiptOcrResult[]
-  sourceJsa    DailyLog?            @relation("DailyLogSourceJsa", fields: [sourceJsaId], references: [id])
-  seededLogs   DailyLog[]           @relation("DailyLogSourceJsa")
-  timeEntries  TimeEntry[]
-  originLocation   Location?  @relation("DailyLogOriginLocation", fields: [originLocationId], references: [id])
-  moveFromLocation Location?  @relation("DailyLogMoveFromLocation", fields: [moveFromLocationId], references: [id])
-  moveToLocation   Location?  @relation("DailyLogMoveToLocation", fields: [moveToLocationId], references: [id])
+  createdBy        User                 @relation(fields: [createdById], references: [id])
+  project          Project              @relation(fields: [projectId], references: [id])
+  attachments      DailyLogAttachment[]
+  revisions        DailyLogRevision[]
+  assetUsages      AssetUsage[]
+  building         ProjectBuilding?     @relation("ProjectBuildingDailyLogs", fields: [buildingId], references: [id])
+  unit             ProjectUnit?         @relation("ProjectUnitDailyLogs", fields: [unitId], references: [id])
+  roomParticle     ProjectParticle?     @relation("ProjectParticleDailyLogs", fields: [roomParticleId], references: [id])
+  sowItem          SowItem?             @relation("SowItemDailyLogs", fields: [sowItemId], references: [id])
+  delayedBy        User?                @relation("DailyLogDelayedBy", fields: [delayedById], references: [id])
+  publishedBy      User?                @relation("DailyLogPublishedBy", fields: [publishedById], references: [id])
+  sourceBill       ProjectBill?         @relation("DailyLogSourceBill", fields: [sourceBillId], references: [id])
+  ocrResults       ReceiptOcrResult[]
+  sourceJsa        DailyLog?            @relation("DailyLogSourceJsa", fields: [sourceJsaId], references: [id])
+  seededLogs       DailyLog[]           @relation("DailyLogSourceJsa")
+  timeEntries      TimeEntry[]
+  originLocation   Location?            @relation("DailyLogOriginLocation", fields: [originLocationId], references: [id])
+  moveFromLocation Location?            @relation("DailyLogMoveFromLocation", fields: [moveFromLocationId], references: [id])
+  moveToLocation   Location?            @relation("DailyLogMoveToLocation", fields: [moveToLocationId], references: [id])
 
   /// Material lots created from this daily log (receipt)
   sourceMaterialLots MaterialLot[] @relation("MaterialLotSourceDailyLog")
@@ -3791,7 +3859,7 @@ model PriceList {
 
 /// Individual price list items (e.g. CAT/SEL codes and unit prices).
 model PriceListItem {
-  id                 String                 @id @default(cuid())
+  id                 String    @id @default(cuid())
   priceListId        String
   lineNo             Int?
   groupCode          String?
@@ -3807,27 +3875,27 @@ model PriceListItem {
   sourceVendor       String?
   sourceDate         DateTime?
   rawJson            Json?
-  createdAt          DateTime               @default(now())
-  updatedAt          DateTime               @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
   lastKnownUnitPrice Float?
   canonicalKeyHash   String?
   divisionCode       String?
 
   /// Origin tag for non-Xactimate items in Master Costbook (e.g. "BWC_CABINETS",
   /// "VENDOR_QUOTE"). Null for Golden/Xactimate items.
-  sourceCategory     String?
+  sourceCategory String?
 
   /// Optional link to the canonical product catalog item.
-  catalogItemId      String?
+  catalogItemId String?
 
   // NexPRICE — global Master Cost Book fields
-  sku                    String?  // Vendor SKU for materials (e.g. HD SKU)
-  contributorCount       Int      @default(0)  // Anonymized: how many tenants submitted this SKU
-  lastSeenPrice          Float?   // Most recent raw purchase price across all tenants
-  lastSeenAt             DateTime? // When the most recent purchase was recorded
-  regionZip              String?  // 3-digit ZIP prefix or region code where price was observed
-  normalizedPrice        Float?   // rawPrice / localMultiplier (normalized to NYC base)
-  priceObservationCount  Int      @default(0)  // How many price observations contributed
+  sku                   String? // Vendor SKU for materials (e.g. HD SKU)
+  contributorCount      Int       @default(0) // Anonymized: how many tenants submitted this SKU
+  lastSeenPrice         Float? // Most recent raw purchase price across all tenants
+  lastSeenAt            DateTime? // When the most recent purchase was recorded
+  regionZip             String? // 3-digit ZIP prefix or region code where price was observed
+  normalizedPrice       Float? // rawPrice / localMultiplier (normalized to NYC base)
+  priceObservationCount Int       @default(0) // How many price observations contributed
 
   components         PriceListComponent[]
   division           Division?              @relation(fields: [divisionCode], references: [code])
@@ -3933,23 +4001,23 @@ model CompanyPriceListItem {
   priceListItemId       String?
   masterPriceListItemId String?
   canonicalKeyHash      String?
-  lineNo             Int?
-  groupCode          String?
-  groupDescription   String?
-  description        String?
-  cat                String?
-  sel                String?
-  unit               String?
-  unitPrice          Float?
-  coverage           String?
-  activity           String?
-  owner              String?
-  sourceVendor       String?
-  sourceDate         DateTime?
-  rawJson            Json?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  lastKnownUnitPrice Float?
+  lineNo                Int?
+  groupCode             String?
+  groupDescription      String?
+  description           String?
+  cat                   String?
+  sel                   String?
+  unit                  String?
+  unitPrice             Float?
+  coverage              String?
+  activity              String?
+  owner                 String?
+  sourceVendor          String?
+  sourceDate            DateTime?
+  rawJson               Json?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  lastKnownUnitPrice    Float?
 
   /// Xactimate cost component breakdown (auto-populated from PETL imports)
   workersWage   Float?
@@ -3974,10 +4042,10 @@ model CompanyPriceListItem {
   lastPriceChangedSource            String?
 
   // NexPRICE — tenant cost book fields
-  sku                    String?  // Vendor SKU for materials
-  globalPriceListItemId  String?  // Back-link to global Master Cost Book entry
-  regionZip              String?  // Tenant's region for this item (auto-detected)
-  localizedPrice         Float?   // normalizedPrice × tenantMultiplier
+  sku                   String? // Vendor SKU for materials
+  globalPriceListItemId String? // Back-link to global Master Cost Book entry
+  regionZip             String? // Tenant's region for this item (auto-detected)
+  localizedPrice        Float? // normalizedPrice × tenantMultiplier
 
   companyPriceList          CompanyPriceList          @relation(fields: [companyPriceListId], references: [id])
   priceListItem             PriceListItem?            @relation("CompanyItemGoldenSource", fields: [priceListItemId], references: [id])
@@ -4207,18 +4275,18 @@ model NotificationPreference {
   pollingCriteria   Json?
 
   /// Daily Brief: preferred delivery time (HH:mm, UTC)
-  dailyBriefTime    String  @default("06:00")
+  dailyBriefTime     String    @default("06:00")
   /// Daily Brief: content config override (lookbackDays, lookaheadDays)
-  dailyBriefContent Json?
+  dailyBriefContent  Json?
   /// Last date the daily brief was sent (prevents double-send within a day)
   dailyBriefSentDate DateTime?
 
   /// Module toggles for push notifications
-  petlChangeAlerts  Boolean @default(true)
-  taskAlerts        Boolean @default(true)
-  scheduleAlerts    Boolean @default(true)
+  petlChangeAlerts Boolean @default(true)
+  taskAlerts       Boolean @default(true)
+  scheduleAlerts   Boolean @default(true)
   /// Also send the Daily Brief via email
-  emailDigest       Boolean @default(false)
+  emailDigest      Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -4288,7 +4356,7 @@ enum CompanyKind {
 }
 
 enum CompanyTier {
-  CLIENT     // Free, invited by a contractor. Limited modules.
+  CLIENT // Free, invited by a contractor. Limited modules.
   CONTRACTOR // Paying tenant. Full module access per subscription.
 }
 
@@ -4381,11 +4449,11 @@ enum ProjectVisibilityLevel {
 }
 
 enum CollaborationRole {
-  CLIENT     // Client / property owner
-  SUB        // Subcontractor
-  PRIME_GC   // Prime general contractor (when project owner is the client)
+  CLIENT // Client / property owner
+  SUB // Subcontractor
+  PRIME_GC // Prime general contractor (when project owner is the client)
   CONSULTANT // Third-party consultant / engineer
-  INSPECTOR  // Inspector / compliance auditor
+  INSPECTOR // Inspector / compliance auditor
 }
 
 enum ProjectParticleType {
@@ -4525,7 +4593,7 @@ model AssetDisposition {
   companyId  String
   code       String
   label      String
-  color      String?  /// Hex color for UI badges (e.g. "#059669")
+  color      String? /// Hex color for UI badges (e.g. "#059669")
   sortOrder  Int      @default(0)
   isSystem   Boolean  @default(false) /// System-seeded rows cannot be deleted
   isTerminal Boolean  @default(false) /// Terminal dispositions mark asset as out of circulation
@@ -4542,7 +4610,7 @@ model AssetTag {
   id        String   @id @default(cuid())
   companyId String
   label     String
-  color     String?  /// Hex color for UI pills
+  color     String? /// Hex color for UI pills
   createdAt DateTime @default(now())
 
   company     Company              @relation(fields: [companyId], references: [id])
@@ -4600,17 +4668,17 @@ model Asset {
   shareGrants       AssetShareGrant[]
 
   // Rental offering (personal assets offered to company pool)
-  availableForRent   Boolean  @default(false)
-  rentalDailyRate    Decimal? @db.Decimal(12, 4)
+  availableForRent   Boolean   @default(false)
+  rentalDailyRate    Decimal?  @db.Decimal(12, 4)
   rentalNotes        String?
   offeredAt          DateTime?
   offeredToCompanyId String?
 
   // Maintenance assignment
   maintenanceAssigneeId String?
-  maintenanceAssignee   User?             @relation("AssetMaintenanceAssignee", fields: [maintenanceAssigneeId], references: [id])
+  maintenanceAssignee   User?            @relation("AssetMaintenanceAssignee", fields: [maintenanceAssigneeId], references: [id])
   maintenancePoolId     String?
-  maintenancePool       MaintenancePool?  @relation(fields: [maintenancePoolId], references: [id])
+  maintenancePool       MaintenancePool? @relation(fields: [maintenancePoolId], references: [id])
 
   // Maintenance configuration (per asset)
   maintenanceProfileCode   String?
@@ -4629,12 +4697,12 @@ model Asset {
   currentLocation   Location? @relation("AssetCurrentLocation", fields: [currentLocationId], references: [id])
 
   // Asset Scanner — template & 3D capture fields
-  isTemplate       Boolean @default(false)  /// Canonical product reference (not a physical unit)
-  templateAssetId  String?                  /// FK → Asset (self-ref). Created-from template link.
-  scanModelUrl     String?                  /// GCS URL to USDZ 3D model from Object Capture
-  scanThumbnailUrl String?                  /// GCS URL to preview image of the 3D scan
-  dimensions       Json?                    /// { length, width, height, unit: "in"|"cm"|"m" }
-  tagPhotoUrl      String?                  /// GCS URL to nameplate/serial plate photo
+  isTemplate       Boolean @default(false) /// Canonical product reference (not a physical unit)
+  templateAssetId  String? /// FK → Asset (self-ref). Created-from template link.
+  scanModelUrl     String? /// GCS URL to USDZ 3D model from Object Capture
+  scanThumbnailUrl String? /// GCS URL to preview image of the 3D scan
+  dimensions       Json? /// { length, width, height, unit: "in"|"cm"|"m" }
+  tagPhotoUrl      String? /// GCS URL to nameplate/serial plate photo
 
   templateAsset Asset?  @relation("AssetTemplate", fields: [templateAssetId], references: [id])
   fleetMembers  Asset[] @relation("AssetTemplate")
@@ -4776,9 +4844,9 @@ model AssetAttachment {
   companyId        String
   assetId          String
   fileName         String
-  fileType         String?                 /// MIME type
-  fileSize         Int                     /// Bytes
-  storageKey       String                  /// MinIO key: asset-attachments/{companyId}/{assetId}/{timestamp}-{filename}
+  fileType         String? /// MIME type
+  fileSize         Int /// Bytes
+  storageKey       String /// MinIO key: asset-attachments/{companyId}/{assetId}/{timestamp}-{filename}
   category         AssetAttachmentCategory @default(OTHER)
   notes            String?
   uploadedByUserId String?
@@ -4803,8 +4871,8 @@ model AssetPlacard {
   id               String        @id @default(cuid())
   companyId        String
   assetId          String
-  code             String        /// Human-readable serial e.g. NP-000123
-  qrPayload        String        /// Full signed URI: nexplac://a/<assetId>?co=<companyId>&sig=<hmac>
+  code             String /// Human-readable serial e.g. NP-000123
+  qrPayload        String /// Full signed URI: nexplac://a/<assetId>?co=<companyId>&sig=<hmac>
   status           PlacardStatus @default(ACTIVE)
   assignedAt       DateTime      @default(now())
   assignedByUserId String
@@ -5175,7 +5243,7 @@ model MaintenancePool {
   name        String
   description String?
 
-  company Company              @relation(fields: [companyId], references: [id])
+  company Company                 @relation(fields: [companyId], references: [id])
   members MaintenancePoolMember[]
   assets  Asset[]
 
@@ -5204,16 +5272,16 @@ model MaintenancePoolMember {
 /// Registered device for NexBridge Connect / mobile app. Used for device
 /// binding (max N devices per user) and license enforcement.
 model UserDevice {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   userId       String
   companyId    String
-  deviceId     String   /// Machine fingerprint hash
-  platform     String   /// "nexbridge-macos", "nexbridge-windows", "mobile-ios", etc.
-  deviceName   String?  /// Friendly name: "Paul's MacBook Pro"
+  deviceId     String /// Machine fingerprint hash
+  platform     String /// "nexbridge-macos", "nexbridge-windows", "mobile-ios", etc.
+  deviceName   String? /// Friendly name: "Paul's MacBook Pro"
   appVersion   String?
-  lastSeenAt   DateTime @default(now())
-  registeredAt DateTime @default(now())
-  isRevoked    Boolean  @default(false)
+  lastSeenAt   DateTime  @default(now())
+  registeredAt DateTime  @default(now())
+  isRevoked    Boolean   @default(false)
   revokedAt    DateTime?
 
   // License state machine
@@ -5229,6 +5297,7 @@ model UserDevice {
   @@index([userId])
   @@index([companyId])
 }
+
 /// Grants visibility of a personal asset to a specific user.
 model AssetShareGrant {
   id              String @id @default(cuid())
@@ -5286,8 +5355,8 @@ model BomPricingSnapshot {
   projectId         String
   estimateVersionId String
 
-  zipCode        String?
-  totalLines     Int
+  zipCode         String?
+  totalLines      Int
   searchableLines Int
 
   status BomPricingSnapshotStatus @default(DRAFT)
@@ -5296,10 +5365,10 @@ model BomPricingSnapshot {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  company         Company          @relation(fields: [companyId], references: [id])
-  project         Project          @relation(fields: [projectId], references: [id])
-  estimateVersion EstimateVersion  @relation(fields: [estimateVersionId], references: [id])
-  createdBy       User?            @relation(fields: [createdByUserId], references: [id])
+  company         Company         @relation(fields: [companyId], references: [id])
+  project         Project         @relation(fields: [projectId], references: [id])
+  estimateVersion EstimateVersion @relation(fields: [estimateVersionId], references: [id])
+  createdBy       User?           @relation(fields: [createdByUserId], references: [id])
 
   hits BomPricingHit[]
 
@@ -5338,10 +5407,10 @@ model BomPricingHit {
 model BomPricingProduct {
   id    String @id @default(cuid())
   hitId String
-  idx   Int    /// Display order (0, 1, 2…)
+  idx   Int /// Display order (0, 1, 2…)
 
-  provider    String  /// e.g. "homedepot", "lowes"
-  productId   String  /// Provider-specific product ID
+  provider    String /// e.g. "homedepot", "lowes"
+  productId   String /// Provider-specific product ID
   title       String
   brand       String?
   modelNumber String?
@@ -5356,9 +5425,9 @@ model BomPricingProduct {
   inStock    Boolean?
 
   storeName    String?
-  storeAddress String?  /// street line
+  storeAddress String? /// street line
   storeCity    String?
-  storeState   String?  /// 2-letter
+  storeState   String? /// 2-letter
   storeZip     String?
   storePhone   String?
 
@@ -5382,8 +5451,8 @@ model MaterialPriceObservation {
   id        String @id @default(cuid())
   companyId String
 
-  provider  String  /// "homedepot", "lowes"
-  productId String  /// Provider-specific product ID
+  provider  String /// "homedepot", "lowes"
+  productId String /// Provider-specific product ID
   title     String
   brand     String?
 
@@ -5413,18 +5482,18 @@ enum VendorProviderType {
 /// Canonical product identity. One row = one real-world product regardless of vendor.
 /// specHash is computed from normalized product attributes.
 model CatalogItem {
-  id          String  @id @default(cuid())
-  specHash    String  @unique
-  category    String  /// "KIT", "LBR", "DRY", "PLM", etc.
-  productType String  /// "Base Cabinet", "2x4", "Type X", etc.
-  description String  /// Human-readable canonical name
-  unit        String  /// "EA", "LF", "SF", etc.
+  id          String   @id @default(cuid())
+  specHash    String   @unique
+  category    String /// "KIT", "LBR", "DRY", "PLM", etc.
+  productType String /// "Base Cabinet", "2x4", "Type X", etc.
+  description String /// Human-readable canonical name
+  unit        String /// "EA", "LF", "SF", etc.
   width       String? /// Normalized dimension
   height      String?
   depth       String?
   finish      String? /// "White Shaker", "#2 Pine", etc.
-  specJson    Json?   /// Full spec attributes for extensibility
-  isActive    Boolean @default(true)
+  specJson    Json? /// Full spec attributes for extensibility
+  isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -5441,8 +5510,8 @@ model CatalogItem {
 model VendorRegistry {
   id           String             @id @default(cuid())
   code         String             @unique /// "RTA", "USKITCHEN", "HOMEDEPOT", "LOWES"
-  name         String             /// Display name
-  websiteUrl   String?            /// Base URL
+  name         String /// Display name
+  websiteUrl   String? /// Base URL
   providerType VendorProviderType /// How we fetch data from this vendor
   isEnabled    Boolean            @default(true)
 
@@ -5465,24 +5534,24 @@ model VendorRegistry {
 
 /// Per-vendor pricing + availability for a canonical product.
 model VendorQuote {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   catalogItemId String
   vendorId      String
-  vendorSku     String?  /// Vendor-specific SKU (e.g. "SW-B24")
+  vendorSku     String? /// Vendor-specific SKU (e.g. "SW-B24")
   unitPrice     Float?
-  wasPrice      Float?   /// Previous/list price if on sale
-  currency      String   @default("USD")
+  wasPrice      Float? /// Previous/list price if on sale
+  currency      String    @default("USD")
   inStock       Boolean?
-  stockQty      Int?     /// Exact quantity if available
-  leadTimeDays  Int?     /// Estimated delivery days
+  stockQty      Int? /// Exact quantity if available
+  leadTimeDays  Int? /// Estimated delivery days
   shippingCost  Float?
-  productUrl    String?  /// Direct link to product page
+  productUrl    String? /// Direct link to product page
   imageUrl      String?
   scrapedAt     DateTime /// When this quote was captured
   expiresAt     DateTime? /// When this quote is considered stale
-  rawJson       Json?    /// Full scrape response for debugging
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  rawJson       Json? /// Full scrape response for debugging
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   catalogItem CatalogItem    @relation(fields: [catalogItemId], references: [id])
   vendor      VendorRegistry @relation(fields: [vendorId], references: [id])
@@ -6471,48 +6540,48 @@ model ClaimJournalAttachment {
 // =============================================================================
 
 enum VoiceJournalNoteStatus {
-  DRAFT    // Private — only the author can see
-  SHARED   // At least one share exists
+  DRAFT // Private — only the author can see
+  SHARED // At least one share exists
   ARCHIVED // Author archived it
 }
 
 /// Personal voice note with AI transcription. Tagged to a source module/entity
 /// but private until explicitly shared.
 model VoiceJournalNote {
-  id          String @id @default(cuid())
+  id          String  @id @default(cuid())
   companyId   String
   projectId   String?
   createdById String
 
   // Audio (primary artifact — always present)
-  voiceRecordingUrl String             // GCS URL
-  voiceDurationSecs Int                // duration for display
+  voiceRecordingUrl String // GCS URL
+  voiceDurationSecs Int // duration for display
 
   // Language support
-  language          String  @default("en")  // ISO 639-1: "en", "es", etc.
-  deviceTranscript  String? @db.Text        // Raw on-device speech recognition output
+  language         String  @default("en") // ISO 639-1: "en", "es", etc.
+  deviceTranscript String? @db.Text // Raw on-device speech recognition output
 
   // AI-derived text
-  aiTranscriptRaw   String? @db.Text     // Whisper verbatim (source language)
-  aiText            String? @db.Text     // GPT-cleaned text (source language)
-  aiSummary         String? @db.Text     // GPT-cleaned summary (source language)
-  aiTextTranslated  String? @db.Text     // English translation (populated when language != "en")
-  aiDetails         String? @db.Text     // GPT-structured details (for journal context)
-  aiGenerated       Boolean @default(true)
+  aiTranscriptRaw  String? @db.Text // Whisper verbatim (source language)
+  aiText           String? @db.Text // GPT-cleaned text (source language)
+  aiSummary        String? @db.Text // GPT-cleaned summary (source language)
+  aiTextTranslated String? @db.Text // English translation (populated when language != "en")
+  aiDetails        String? @db.Text // GPT-structured details (for journal context)
+  aiGenerated      Boolean @default(true)
 
   // Source context: where was this VJN recorded?
-  sourceModule   String?               // 'daily_log' | 'journal' | 'messaging' | null (standalone)
-  sourceEntityId String?               // ID of the daily log, journal entry, thread, etc.
-  sourceLabel    String?               // human-readable: "Daily Log #47 — Johnson Roof"
+  sourceModule   String? // 'daily_log' | 'journal' | 'messaging' | null (standalone)
+  sourceEntityId String? // ID of the daily log, journal entry, thread, etc.
+  sourceLabel    String? // human-readable: "Daily Log #47 — Johnson Roof"
 
   // Publishing
   status    VoiceJournalNoteStatus @default(DRAFT)
   createdAt DateTime               @default(now())
   updatedAt DateTime               @updatedAt
 
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  project   Project? @relation(fields: [projectId], references: [id])
-  createdBy User     @relation("VoiceJournalNoteCreatedBy", fields: [createdById], references: [id])
+  company   Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project   Project?                @relation(fields: [projectId], references: [id])
+  createdBy User                    @relation("VoiceJournalNoteCreatedBy", fields: [createdById], references: [id])
   shares    VoiceJournalNoteShare[]
 
   @@index([createdById, status, createdAt], map: "VoiceJournalNote_creator_status_idx")
@@ -6526,8 +6595,8 @@ model VoiceJournalNoteShare {
   vjnId String
 
   // Where was it shared TO?
-  targetModule   String           // 'daily_log' | 'journal' | 'messaging'
-  targetEntityId String?          // ID of the target entity
+  targetModule   String // 'daily_log' | 'journal' | 'messaging'
+  targetEntityId String? // ID of the target entity
 
   // What was shared? (author may have edited the AI text before sharing)
   sharedSummary String? @db.Text
@@ -6631,14 +6700,14 @@ model SystemDocument {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  currentVersion  SystemDocumentVersion?      @relation("SystemDocCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
-  versions        SystemDocumentVersion[]
-  publications    SystemDocumentPublication[]
-  tenantCopies    TenantDocumentCopy[]
-  manualDocuments ManualDocument[] // Documents included in manuals
-  shareLinks      DocumentShareLink[] // Private share links
-  createdBy       User                        @relation("SystemDocumentCreatedBy", fields: [createdByUserId], references: [id])
-  moduleCatalogCam ModuleCatalog?             @relation("ModuleCamDocument")
+  currentVersion   SystemDocumentVersion?      @relation("SystemDocCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions         SystemDocumentVersion[]
+  publications     SystemDocumentPublication[]
+  tenantCopies     TenantDocumentCopy[]
+  manualDocuments  ManualDocument[] // Documents included in manuals
+  shareLinks       DocumentShareLink[] // Private share links
+  createdBy        User                        @relation("SystemDocumentCreatedBy", fields: [createdByUserId], references: [id])
+  moduleCatalogCam ModuleCatalog?              @relation("ModuleCamDocument")
 
   @@index([category], map: "SystemDocument_category_idx")
   @@index([active], map: "SystemDocument_active_idx")
@@ -6994,23 +7063,23 @@ model OshaSyncState {
 /// Federal Register document tracked by the GovInfo FR monitor.
 /// Created when the FR monitor finds rules/notices affecting watched CFR titles.
 model FederalRegisterAlert {
-  id              String   @id @default(cuid())
-  granuleId       String   @unique // GovInfo granule ID (e.g., "2024-12345")
-  packageId       String             // Parent FR package (e.g., "FR-2024-08-03")
-  documentType    String             // RULE, PRORULE, NOTICE, PRESDOC
-  title           String   @db.Text
-  summary         String?  @db.Text
-  cfrReferences   String[]           // e.g., ["29 CFR 1926", "29 CFR 1910"]
-  agencies        String[]           // e.g., ["OSHA", "EPA"]
+  id              String    @id @default(cuid())
+  granuleId       String    @unique // GovInfo granule ID (e.g., "2024-12345")
+  packageId       String // Parent FR package (e.g., "FR-2024-08-03")
+  documentType    String // RULE, PRORULE, NOTICE, PRESDOC
+  title           String    @db.Text
+  summary         String?   @db.Text
+  cfrReferences   String[] // e.g., ["29 CFR 1926", "29 CFR 1910"]
+  agencies        String[] // e.g., ["OSHA", "EPA"]
   publishedDate   DateTime
   effectiveDate   DateTime?
   commentDeadline DateTime?
-  govInfoUrl      String             // Link to GovInfo page
-  frDocNumber     String?            // Federal Register document number
-  isRead          Boolean  @default(false)
-  isRelevant      Boolean  @default(true) // Admin can mark irrelevant
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  govInfoUrl      String // Link to GovInfo page
+  frDocNumber     String? // Federal Register document number
+  isRead          Boolean   @default(false)
+  isRelevant      Boolean   @default(true) // Admin can mark irrelevant
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@index([publishedDate], map: "FRAlert_published_idx")
   @@index([documentType], map: "FRAlert_type_idx")
@@ -7028,7 +7097,7 @@ model CfrAnnualSnapshot {
   cfrPart      Int
   year         Int
   sectionCount Int      @default(0)
-  contentHash  String   // Hash of entire part XML for that year
+  contentHash  String // Hash of entire part XML for that year
   fetchedAt    DateTime @default(now())
 
   @@unique([cfrTitle, cfrPart, year], map: "CfrAnnualSnapshot_title_part_year_key")
@@ -7041,8 +7110,8 @@ model CfrAnnualDiff {
   cfrPart    Int
   fromYear   Int
   toYear     Int
-  sectionCfr String   // e.g., "1926.501"
-  changeType String   // ADDED, REMOVED, MODIFIED
+  sectionCfr String // e.g., "1926.501"
+  changeType String // ADDED, REMOVED, MODIFIED
   summary    String?  @db.Text // Human-readable summary of changes
   createdAt  DateTime @default(now())
 
@@ -7056,17 +7125,17 @@ model CfrAnnualDiff {
 
 /// Audit log for regulatory AI queries made via the MCP integration.
 model RegQueryLog {
-  id           String   @id @default(cuid())
-  userId       String
-  question     String   @db.Text
-  answer       String?  @db.Text
-  sources      Json?    // Array of { cfrRef, url }
-  contextJson  Json?    // The context passed with the query
-  durationMs   Int?     // How long the query took
-  provider     String   @default("govinfo-mcp") // Which backend answered
-  wasSuccessful Boolean @default(true)
-  errorMessage String?
-  createdAt    DateTime @default(now())
+  id            String   @id @default(cuid())
+  userId        String
+  question      String   @db.Text
+  answer        String?  @db.Text
+  sources       Json? // Array of { cfrRef, url }
+  contextJson   Json? // The context passed with the query
+  durationMs    Int? // How long the query took
+  provider      String   @default("govinfo-mcp") // Which backend answered
+  wasSuccessful Boolean  @default(true)
+  errorMessage  String?
+  createdAt     DateTime @default(now())
 
   @@index([userId, createdAt], map: "RegQueryLog_user_created_idx")
 }
@@ -7566,7 +7635,7 @@ enum CrossTenantInviteStatus {
 /// Enables tenants to invite people from the NEXUS System pool or other tenants
 /// while maintaining audit trail of inviter/invitee relationships.
 model CrossTenantInvite {
-  id              String @id @default(cuid())
+  id              String  @id @default(cuid())
   targetCompanyId String // Tenant inviting the person
   inviterUserId   String // User who initiated the invite
   inviteeUserId   String? // Existing user being invited (null if new person)
@@ -7585,8 +7654,8 @@ model CrossTenantInvite {
 
   expiresAt  DateTime
   acceptedAt DateTime?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   targetCompany Company @relation(fields: [targetCompanyId], references: [id])
   inviter       User    @relation("CrossTenantInviteInviter", fields: [inviterUserId], references: [id])
@@ -7671,11 +7740,11 @@ model AccountLinkEvent {
 /// templates (companyId null, isStock true).
 model OrgTemplate {
   id              String   @id @default(cuid())
-  companyId       String?             // null = system-wide stock template
-  name            String              // "Residential New Construction", "Commercial TI"
+  companyId       String? // null = system-wide stock template
+  name            String // "Residential New Construction", "Commercial TI"
   description     String?
-  vertical        String?             // "residential", "commercial", "restoration"
-  isStock         Boolean  @default(false)  // true = available to all tenants
+  vertical        String? // "residential", "commercial", "restoration"
+  isStock         Boolean  @default(false) // true = available to all tenants
   isActive        Boolean  @default(true)
   createdByUserId String?
   createdAt       DateTime @default(now())
@@ -7693,17 +7762,17 @@ model OrgTemplate {
 model OrgTemplateNode {
   id                  String   @id @default(cuid())
   templateId          String
-  parentNodeId        String?           // null = top-level (under Project Site)
+  parentNodeId        String? // null = top-level (under Project Site)
   sortOrder           Int      @default(0)
-  code                String?           // Group code: "Phase - 01", "Phase - 02"
-  name                String            // Group description: "Soil Test", "Framing"
+  code                String? // Group code: "Phase - 01", "Phase - 02"
+  name                String // Group description: "Soil Test", "Framing"
   defaultPctComplete  Float    @default(0)
-  defaultDurationDays Float?            // optional schedule seed
+  defaultDurationDays Float? // optional schedule seed
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  template OrgTemplate      @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  parent   OrgTemplateNode? @relation("OrgTemplateNodeParent", fields: [parentNodeId], references: [id])
+  template OrgTemplate       @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  parent   OrgTemplateNode?  @relation("OrgTemplateNodeParent", fields: [parentNodeId], references: [id])
   children OrgTemplateNode[] @relation("OrgTemplateNodeParent")
 
   @@index([templateId, parentNodeId, sortOrder], map: "OrgTemplateNode_template_parent_sort_idx")
@@ -7718,8 +7787,8 @@ enum DrawingUploadStatus {
   EXTRACTING_TEXT
   EXTRACTING_BOM
   MATCHING
-  READY         // BOM extracted, matches scored, awaiting user review
-  GENERATING    // PETL generation in progress
+  READY // BOM extracted, matches scored, awaiting user review
+  GENERATING // PETL generation in progress
   COMPLETED
   FAILED
 }
@@ -7731,9 +7800,9 @@ model ProjectDrawingUpload {
   projectId String
   companyId String
 
-  fileName   String
-  storedPath String              // GCS path or local path
-  pageCount  Int     @default(0)
+  fileName      String
+  storedPath    String // GCS path or local path
+  pageCount     Int     @default(0)
   fileSizeBytes BigInt?
 
   status       DrawingUploadStatus @default(UPLOADING)
@@ -7743,22 +7812,22 @@ model ProjectDrawingUpload {
   extractedTextJson Json?
 
   /// AI extraction metadata (model used, token count, etc.)
-  aiModelUsed     String?
-  aiTokensUsed    Int?
-  aiExtractionMs  Int?    // Time taken for AI extraction in ms
+  aiModelUsed    String?
+  aiTokensUsed   Int?
+  aiExtractionMs Int? // Time taken for AI extraction in ms
 
   /// Summary stats
-  totalBomLines    Int @default(0)
-  matchedBomLines  Int @default(0)
+  totalBomLines     Int @default(0)
+  matchedBomLines   Int @default(0)
   unmatchedBomLines Int @default(0)
 
   createdByUserId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  project  Project  @relation(fields: [projectId], references: [id])
-  company  Company  @relation(fields: [companyId], references: [id])
-  bomLines DrawingBomLine[]
+  project    Project          @relation(fields: [projectId], references: [id])
+  company    Company          @relation(fields: [companyId], references: [id])
+  bomLines   DrawingBomLine[]
   planSheets PlanSheet[]
 
   /// Link to the EstimateVersion created when PETL is generated
@@ -7773,34 +7842,34 @@ model ProjectDrawingUpload {
 // =============================================================================
 
 enum PlanSheetStatus {
-  PENDING     // Placeholder created, waiting for worker to process
-  PROCESSING  // Worker is actively generating images
-  READY       // All tiers generated and uploaded to GCS
-  FAILED      // Processing failed
+  PENDING // Placeholder created, waiting for worker to process
+  PROCESSING // Worker is actively generating images
+  READY // All tiers generated and uploaded to GCS
+  FAILED // Processing failed
 }
 
 /// A single page extracted from a construction drawing PDF, stored as
 /// multi-resolution WebP images (thumb / standard / master) in GCS.
 model PlanSheet {
-  id        String @id @default(cuid())
-  uploadId  String
-  pageNo    Int              // 1-indexed PDF page
-  sheetId   String?          // Detected sheet ID: "A2", "S1", "E1"
-  title     String?          // "Floor Plan", "Foundation Plan"
-  section   String?          // "Architectural", "Structural"
+  id       String  @id @default(cuid())
+  uploadId String
+  pageNo   Int // 1-indexed PDF page
+  sheetId  String? // Detected sheet ID: "A2", "S1", "E1"
+  title    String? // "Floor Plan", "Foundation Plan"
+  section  String? // "Architectural", "Structural"
 
-  status      PlanSheetStatus @default(PENDING)
+  status PlanSheetStatus @default(PENDING)
 
-  thumbPath     String?      // GCS path: plan-sheets/{uploadId}/thumb/{pageNo}.webp
-  standardPath  String?      // GCS path: plan-sheets/{uploadId}/standard/{pageNo}.webp
-  masterPath    String?      // GCS path: plan-sheets/{uploadId}/master/{pageNo}.webp
-  thumbBytes    Int @default(0)
-  standardBytes Int @default(0)
-  masterBytes   Int @default(0)
+  thumbPath     String? // GCS path: plan-sheets/{uploadId}/thumb/{pageNo}.webp
+  standardPath  String? // GCS path: plan-sheets/{uploadId}/standard/{pageNo}.webp
+  masterPath    String? // GCS path: plan-sheets/{uploadId}/master/{pageNo}.webp
+  thumbBytes    Int     @default(0)
+  standardBytes Int     @default(0)
+  masterBytes   Int     @default(0)
 
-  sortOrder  Int @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   upload ProjectDrawingUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
 
@@ -7816,43 +7885,43 @@ model DrawingBomLine {
 
   /// CSI division (e.g. "03", "07", "22", "26")
   csiDivision     String?
-  csiDivisionName String?  // "Concrete", "Thermal & Moisture Protection", etc.
+  csiDivisionName String? // "Concrete", "Thermal & Moisture Protection", etc.
 
   /// What was extracted
-  description   String           // e.g. "Standing seam metal roof panels"
-  specification String?          // Manufacturer, model: "074113.A04" or "Kohler K-25077"
+  description   String // e.g. "Standing seam metal roof panels"
+  specification String? // Manufacturer, model: "074113.A04" or "Kohler K-25077"
   qty           Float?
-  unit          String?          // EA, SF, LF, etc.
+  unit          String? // EA, SF, LF, etc.
 
   /// Source reference in the drawing
-  sourcePage    Int?             // PDF page number
-  sourceSheet   String?          // Sheet ID: "A-201", "P-601", "E-501"
+  sourcePage  Int? // PDF page number
+  sourceSheet String? // Sheet ID: "A-201", "P-601", "E-501"
 
   /// Cost book match
-  matchedCostBookItemId String?  // CompanyPriceListItem.id
-  matchConfidence       Float?   // 0–1 score
-  matchMethod           String?  // "exact_cat_sel", "fuzzy_description", "manual"
+  matchedCostBookItemId String? // CompanyPriceListItem.id
+  matchConfidence       Float? // 0–1 score
+  matchMethod           String? // "exact_cat_sel", "fuzzy_description", "manual"
 
   /// Pricing (from matched cost book item or manual entry)
   unitPrice  Float?
   totalPrice Float?
 
   /// AI source tracking
-  aiSource       String?              // "xai", "anthropic", "openai", "consensus"
-  consensusCount Int     @default(1)  // How many providers found this item (2+ = consensus)
+  aiSource       String? // "xai", "anthropic", "openai", "consensus"
+  consensusCount Int     @default(1) // How many providers found this item (2+ = consensus)
 
   /// Status flags
-  isMatched       Boolean @default(false)
-  isManualPrice   Boolean @default(false) // User overrode the price
-  needsReview     Boolean @default(true)
+  isMatched     Boolean @default(false)
+  isManualPrice Boolean @default(false) // User overrode the price
+  needsReview   Boolean @default(true)
 
   notes String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  upload        ProjectDrawingUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
-  costBookItem  CompanyPriceListItem? @relation("DrawingBomCostBookMatch", fields: [matchedCostBookItemId], references: [id])
+  upload       ProjectDrawingUpload  @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  costBookItem CompanyPriceListItem? @relation("DrawingBomCostBookMatch", fields: [matchedCostBookItemId], references: [id])
 
   @@index([uploadId, lineNo], map: "DrawingBomLine_upload_line_idx")
   @@index([uploadId, csiDivision], map: "DrawingBomLine_upload_division_idx")
@@ -7866,32 +7935,32 @@ model DrawingBomLine {
 /// In-app contextual help items displayed via the "?" overlay.
 /// Each item corresponds to a `data-help="{helpKey}"` attribute in the UI.
 model HelpItem {
-  id        String  @id @default(cuid())
-  
+  id String @id @default(cuid())
+
   /// Unique key matching data-help attribute, e.g. "schedule-gantt-toggle"
-  helpKey   String  @unique
-  
+  helpKey String @unique
+
   /// Display title shown in help popover
-  title     String
-  
+  title String
+
   /// Brief 1-2 sentence description
-  brief     String  @db.Text
-  
+  brief String @db.Text
+
   /// Optional link to full SOP document (stores document ID)
-  sopId     String?
-  
+  sopId String?
+
   /// Optional anchor/section within the SOP
   sopSection String?
-  
+
   /// Optional video tutorial URL (YouTube, Loom, etc.)
-  videoUrl  String?
-  
+  videoUrl String?
+
   /// Whether this help item is active/visible
-  isActive  Boolean @default(true)
-  
+  isActive Boolean @default(true)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   @@index([helpKey], map: "HelpItem_helpKey_idx")
   @@index([isActive], map: "HelpItem_isActive_idx")
 }
@@ -7901,168 +7970,168 @@ model HelpItem {
 // ════════════════════════════════════════════════════════════════════
 
 enum BidPackageStatus {
-  DRAFT          // PM is building the package
-  OPEN           // Suppliers can submit bids
-  CLOSED         // Bidding closed, no more submissions
-  AWARDED        // Bid(s) awarded to supplier(s)
-  CANCELED       // Package canceled
+  DRAFT // PM is building the package
+  OPEN // Suppliers can submit bids
+  CLOSED // Bidding closed, no more submissions
+  AWARDED // Bid(s) awarded to supplier(s)
+  CANCELED // Package canceled
 }
 
 enum InvitationStatus {
-  PENDING     // Invite sent, not opened
-  OPENED      // Supplier opened the link
-  SUBMITTED   // Bid submitted
-  DECLINED    // Supplier declined to bid
+  PENDING // Invite sent, not opened
+  OPENED // Supplier opened the link
+  SUBMITTED // Bid submitted
+  DECLINED // Supplier declined to bid
 }
 
 enum BidStatus {
-  DRAFT       // Supplier is working on it
-  SUBMITTED   // Final submission
-  AMENDED     // Supplier amended after initial submission
-  WITHDRAWN   // Supplier withdrew bid
-  AWARDED     // Bid was awarded (winner)
-  DECLINED    // PM declined this bid
+  DRAFT // Supplier is working on it
+  SUBMITTED // Final submission
+  AMENDED // Supplier amended after initial submission
+  WITHDRAWN // Supplier withdrew bid
+  AWARDED // Bid was awarded (winner)
+  DECLINED // PM declined this bid
 }
 
 model BidPackage {
-  id              String            @id @default(cuid())
+  id              String  @id @default(cuid())
   companyId       String
   projectId       String
-  estimateId      String?           // Optional: link to specific estimate version
+  estimateId      String? // Optional: link to specific estimate version
   createdByUserId String
-  
-  title           String            // "Phase 1 Cabinets Bid"
-  description     String?           @db.Text // Instructions, scope notes
-  status          BidPackageStatus  @default(DRAFT)
-  
-  dueDate         DateTime?         // Submission deadline
-  openedAt        DateTime?         // When bidding opened
-  closedAt        DateTime?         // When bidding closed
-  awardedAt       DateTime?         // When bid was awarded
-  
+
+  title       String // "Phase 1 Cabinets Bid"
+  description String?          @db.Text // Instructions, scope notes
+  status      BidPackageStatus @default(DRAFT)
+
+  dueDate   DateTime? // Submission deadline
+  openedAt  DateTime? // When bidding opened
+  closedAt  DateTime? // When bidding closed
+  awardedAt DateTime? // When bid was awarded
+
   // Attachments (plans, SOW, specs)
-  attachmentUrls  Json?             // Array of GCS/S3 URLs
-  
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  
-  company         Company           @relation(fields: [companyId], references: [id])
-  project         Project           @relation(fields: [projectId], references: [id])
-  createdBy       User              @relation("BidPackageCreatedBy", fields: [createdByUserId], references: [id])
-  
-  lineItems       BidPackageLineItem[]
-  invitations     SupplierInvitation[]
-  bids            SupplierBid[]
-  
+  attachmentUrls Json? // Array of GCS/S3 URLs
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company   Company @relation(fields: [companyId], references: [id])
+  project   Project @relation(fields: [projectId], references: [id])
+  createdBy User    @relation("BidPackageCreatedBy", fields: [createdByUserId], references: [id])
+
+  lineItems   BidPackageLineItem[]
+  invitations SupplierInvitation[]
+  bids        SupplierBid[]
+
   @@index([companyId, projectId], map: "BidPackage_company_project_idx")
   @@index([status, dueDate], map: "BidPackage_status_due_idx")
 }
 
 model BidPackageLineItem {
-  id            String  @id @default(cuid())
-  bidPackageId  String
-  lineNo        Int     // Display order (1, 2, 3...)
-  
+  id           String @id @default(cuid())
+  bidPackageId String
+  lineNo       Int // Display order (1, 2, 3...)
+
   // Link to estimate line item (optional)
   estimateLineItemId String?
-  
+
   // Line item details
-  category      String? // "CAB", "DRY", "PLM" (Xactimate cat)
-  description   String  @db.Text // "White Shaker Base Cabinet 24x34.5x24"
-  unit          String  // "EA", "SF", "LF"
-  qty           Float   // 12.0
-  
+  category    String? // "CAB", "DRY", "PLM" (Xactimate cat)
+  description String  @db.Text // "White Shaker Base Cabinet 24x34.5x24"
+  unit        String // "EA", "SF", "LF"
+  qty         Float // 12.0
+
   // Optional: reference specs
-  specHash      String? // Link to CatalogItem if cabinet/material
-  notes         String? @db.Text // Special instructions per line
-  
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  
-  bidPackage    BidPackage           @relation(fields: [bidPackageId], references: [id], onDelete: Cascade)
-  bidLineItems  SupplierBidLineItem[]
-  
+  specHash String? // Link to CatalogItem if cabinet/material
+  notes    String? @db.Text // Special instructions per line
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bidPackage   BidPackage            @relation(fields: [bidPackageId], references: [id], onDelete: Cascade)
+  bidLineItems SupplierBidLineItem[]
+
   @@index([bidPackageId, lineNo], map: "BidPackageLineItem_package_line_idx")
 }
 
 model SupplierInvitation {
-  id            String            @id @default(cuid())
-  bidPackageId  String
-  
+  id           String @id @default(cuid())
+  bidPackageId String
+
   // Supplier contact info (external, not Nexus users)
-  supplierName  String            // "ABC Supply Co."
-  contactName   String?           // "John Smith"
-  contactEmail  String?           // john@abcsupply.com
-  contactPhone  String?           // +1-555-123-4567
-  
+  supplierName String // "ABC Supply Co."
+  contactName  String? // "John Smith"
+  contactEmail String? // john@abcsupply.com
+  contactPhone String? // +1-555-123-4567
+
   // Access token (embedded in link)
-  accessToken   String            @unique // cuid or JWT
-  
-  status        InvitationStatus  @default(PENDING)
-  
-  invitedAt     DateTime          @default(now())
-  openedAt      DateTime?         // When supplier first clicked link
-  submittedAt   DateTime?         // When bid submitted
-  declinedAt    DateTime?
-  
-  bidPackage    BidPackage        @relation(fields: [bidPackageId], references: [id], onDelete: Cascade)
-  bids          SupplierBid[]
-  
+  accessToken String @unique // cuid or JWT
+
+  status InvitationStatus @default(PENDING)
+
+  invitedAt   DateTime  @default(now())
+  openedAt    DateTime? // When supplier first clicked link
+  submittedAt DateTime? // When bid submitted
+  declinedAt  DateTime?
+
+  bidPackage BidPackage    @relation(fields: [bidPackageId], references: [id], onDelete: Cascade)
+  bids       SupplierBid[]
+
   @@index([bidPackageId], map: "SupplierInvitation_package_idx")
   @@index([accessToken], map: "SupplierInvitation_token_idx")
   @@index([contactEmail], map: "SupplierInvitation_email_idx")
 }
 
 model SupplierBid {
-  id            String      @id @default(cuid())
-  bidPackageId  String
-  invitationId  String
-  
-  status        BidStatus   @default(DRAFT)
-  revisionNo    Int         @default(1) // Increments on amend
-  
+  id           String @id @default(cuid())
+  bidPackageId String
+  invitationId String
+
+  status     BidStatus @default(DRAFT)
+  revisionNo Int       @default(1) // Increments on amend
+
   // Supplier notes
-  notes         String?     @db.Text // "Lead time 4-6 weeks"
-  
+  notes String? @db.Text // "Lead time 4-6 weeks"
+
   // Totals (computed from line items)
-  subtotal      Float?
-  tax           Float?
-  shipping      Float?
-  total         Float?
-  
-  submittedAt   DateTime?   // Initial submission
-  amendedAt     DateTime?   // Last amendment
-  awardedAt     DateTime?   // When PM awarded
-  
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  
-  bidPackage    BidPackage         @relation(fields: [bidPackageId], references: [id], onDelete: Cascade)
-  invitation    SupplierInvitation @relation(fields: [invitationId], references: [id])
-  lineItems     SupplierBidLineItem[]
-  
+  subtotal Float?
+  tax      Float?
+  shipping Float?
+  total    Float?
+
+  submittedAt DateTime? // Initial submission
+  amendedAt   DateTime? // Last amendment
+  awardedAt   DateTime? // When PM awarded
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bidPackage BidPackage            @relation(fields: [bidPackageId], references: [id], onDelete: Cascade)
+  invitation SupplierInvitation    @relation(fields: [invitationId], references: [id])
+  lineItems  SupplierBidLineItem[]
+
   @@index([bidPackageId, status], map: "SupplierBid_package_status_idx")
   @@index([invitationId], map: "SupplierBid_invitation_idx")
 }
 
 model SupplierBidLineItem {
-  id                    String  @id @default(cuid())
-  bidId                 String
-  bidPackageLineItemId  String  // Links to BidPackageLineItem
-  
-  unitPrice             Float?  // Supplier's unit price
-  totalPrice            Float?  // unitPrice * qty
-  
+  id                   String @id @default(cuid())
+  bidId                String
+  bidPackageLineItemId String // Links to BidPackageLineItem
+
+  unitPrice  Float? // Supplier's unit price
+  totalPrice Float? // unitPrice * qty
+
   // Supplier notes per line
-  notes                 String? @db.Text // "Substituting with equivalent model XYZ"
-  leadTimeDays          Int?    // Delivery timeline
-  
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
-  bid                   SupplierBid         @relation(fields: [bidId], references: [id], onDelete: Cascade)
-  packageLineItem       BidPackageLineItem  @relation(fields: [bidPackageLineItemId], references: [id])
-  
+  notes        String? @db.Text // "Substituting with equivalent model XYZ"
+  leadTimeDays Int? // Delivery timeline
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bid             SupplierBid        @relation(fields: [bidId], references: [id], onDelete: Cascade)
+  packageLineItem BidPackageLineItem @relation(fields: [bidPackageLineItemId], references: [id])
+
   @@unique([bidId, bidPackageLineItemId], map: "SupplierBidLineItem_bid_line_key")
   @@index([bidId], map: "SupplierBidLineItem_bid_idx")
 }
@@ -8096,8 +8165,8 @@ model TenantPaymentMethod {
   stripePaymentMethodId String            @unique
   type                  PaymentMethodType
   last4                 String?
-  brand                 String?           // visa, mastercard, etc.
-  plaidItemId           String?           // set when linked via Plaid
+  brand                 String? // visa, mastercard, etc.
+  plaidItemId           String? // set when linked via Plaid
   isDefault             Boolean           @default(false)
   createdAt             DateTime          @default(now())
 
@@ -8125,25 +8194,25 @@ model TenantModuleSubscription {
 /// Canonical catalog of all NCC modules available for purchase. Each module
 /// maps to a Stripe Product + Price. Seeded by migration / admin script.
 model ModuleCatalog {
-  id              String       @id @default(cuid())
-  code            String       @unique
-  label           String
-  description     String?
-  stripeProductId String?      // Stripe Product ID
-  stripePriceId   String?      // Default monthly Price ID
-  monthlyPrice    Int?         // Display price in cents (e.g. 4900 = $49.00)
-  pricingModel    PricingModel @default(MONTHLY)
-  projectUnlockPrice Int?      // One-time unlock price in cents (PER_PROJECT only)
-  oneTimePurchasePrice Int?    // One-time lifetime access price (ONE_TIME_PURCHASE only)
-  isCore          Boolean      @default(false) // CORE modules can't be toggled off
-  sortOrder       Int          @default(0)
-  active          Boolean      @default(true)
-  prerequisites   String[]     @default([])   // Module codes that must be enabled first
+  id                   String       @id @default(cuid())
+  code                 String       @unique
+  label                String
+  description          String?
+  stripeProductId      String? // Stripe Product ID
+  stripePriceId        String? // Default monthly Price ID
+  monthlyPrice         Int? // Display price in cents (e.g. 4900 = $49.00)
+  pricingModel         PricingModel @default(MONTHLY)
+  projectUnlockPrice   Int? // One-time unlock price in cents (PER_PROJECT only)
+  oneTimePurchasePrice Int? // One-time lifetime access price (ONE_TIME_PURCHASE only)
+  isCore               Boolean      @default(false) // CORE modules can't be toggled off
+  sortOrder            Int          @default(0)
+  active               Boolean      @default(true)
+  prerequisites        String[]     @default([]) // Module codes that must be enabled first
 
   /// Optional link to a CAM (Competitive Advantage Module) SystemDocument.
   /// Populated by the CAM sync process; allows "Learn more" on billing page.
-  camDocumentId   String?      @unique
-  camDocument     SystemDocument? @relation("ModuleCamDocument", fields: [camDocumentId], references: [id], onDelete: SetNull)
+  camDocumentId String?         @unique
+  camDocument   SystemDocument? @relation("ModuleCamDocument", fields: [camDocumentId], references: [id], onDelete: SetNull)
 }
 
 /// Stripe webhook events stored for idempotency and audit. Every processed
@@ -8152,7 +8221,7 @@ model BillingEvent {
   id            String   @id @default(cuid())
   companyId     String?
   stripeEventId String   @unique
-  eventType     String   // e.g. invoice.paid, customer.subscription.updated
+  eventType     String // e.g. invoice.paid, customer.subscription.updated
   payload       Json
   processedAt   DateTime @default(now())
 
@@ -8176,9 +8245,9 @@ enum PaymentMethodType {
 
 /// Pricing model for a module in the catalog.
 enum PricingModel {
-  MONTHLY           // Standard recurring subscription
-  PER_PROJECT       // One-time unlock fee per project
-  PER_USE           // Pay-per-use (future)
+  MONTHLY // Standard recurring subscription
+  PER_PROJECT // One-time unlock fee per project
+  PER_USE // Pay-per-use (future)
   ONE_TIME_PURCHASE // One-time purchase for lifetime access (Master Costbook, Golden PETL, Golden BOM)
 }
 
@@ -8186,14 +8255,14 @@ enum PricingModel {
 /// PER_PROJECT module on a specific project, a record is created here
 /// and the feature becomes available indefinitely on that project.
 model ProjectFeatureUnlock {
-  id                  String   @id @default(cuid())
-  companyId           String
-  projectId           String
-  featureCode         String   // matches ModuleCatalog.code
+  id                    String   @id @default(cuid())
+  companyId             String
+  projectId             String
+  featureCode           String // matches ModuleCatalog.code
   stripePaymentIntentId String? // Stripe PI for the one-time charge
-  amountCents         Int      // price charged at time of unlock
-  unlockedByUserId    String?  // user who triggered the unlock
-  unlockedAt          DateTime @default(now())
+  amountCents           Int // price charged at time of unlock
+  unlockedByUserId      String? // user who triggered the unlock
+  unlockedAt            DateTime @default(now())
 
   company Company @relation(fields: [companyId], references: [id])
   project Project @relation(fields: [projectId], references: [id])
@@ -8219,23 +8288,23 @@ model BankConnection {
   id                String               @id @default(cuid())
   companyId         String
   plaidItemId       String
-  plaidAccessToken  String               // encrypted at rest via app-level encryption
+  plaidAccessToken  String // encrypted at rest via app-level encryption
   institutionId     String?
   institutionName   String?
-  accountId         String               // Plaid account_id selected during Link
+  accountId         String // Plaid account_id selected during Link
   accountName       String?
-  accountMask       String?              // last 4 digits
-  accountType       String?              // depository, credit, etc.
-  accountSubtype    String?              // checking, savings, credit card, etc.
-  syncCursor        String?              // Plaid transactions/sync cursor; null = initial sync
+  accountMask       String? // last 4 digits
+  accountType       String? // depository, credit, etc.
+  accountSubtype    String? // checking, savings, credit card, etc.
+  syncCursor        String? // Plaid transactions/sync cursor; null = initial sync
   lastSyncedAt      DateTime?
   status            BankConnectionStatus @default(ACTIVE)
   connectedByUserId String
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
 
-  company     Company           @relation(fields: [companyId], references: [id])
-  connectedBy User              @relation("BankConnectionConnectedBy", fields: [connectedByUserId], references: [id])
+  company      Company           @relation(fields: [companyId], references: [id])
+  connectedBy  User              @relation("BankConnectionConnectedBy", fields: [connectedByUserId], references: [id])
   transactions BankTransaction[]
 
   @@unique([companyId, accountId], name: "BankConnection_company_account_key")
@@ -8245,33 +8314,36 @@ model BankConnection {
 
 /// Individual bank transaction pulled from Plaid transactions/sync.
 model BankTransaction {
-  id                   String          @id @default(cuid())
+  id                   String    @id @default(cuid())
   companyId            String
   bankConnectionId     String
-  plaidTransactionId   String          @unique
-  accountId            String          // Plaid account_id
-  date                 DateTime        @db.Date
-  datetime             DateTime?       // Full timestamp when available
-  name                 String          // Transaction description from bank
+  plaidTransactionId   String    @unique
+  accountId            String // Plaid account_id
+  date                 DateTime  @db.Date
+  datetime             DateTime? // Full timestamp when available
+  name                 String // Transaction description from bank
   merchantName         String?
-  amount               Float           // Positive = money out (debit), negative = money in (credit)
-  isoCurrencyCode      String?         @default("USD")
-  primaryCategory      String?         // Plaid personal_finance_category primary
-  detailedCategory     String?         // Plaid personal_finance_category detailed
-  pending              Boolean         @default(false)
-  pendingTransactionId String?         // Links to the posted version
-  paymentChannel       String?         // online, in_store, other
-  transactionType      String?         // place, digital, special, unresolved
+  amount               Float // Positive = money out (debit), negative = money in (credit)
+  isoCurrencyCode      String?   @default("USD")
+  primaryCategory      String? // Plaid personal_finance_category primary
+  detailedCategory     String? // Plaid personal_finance_category detailed
+  pending              Boolean   @default(false)
+  pendingTransactionId String? // Links to the posted version
+  paymentChannel       String? // online, in_store, other
+  transactionType      String? // place, digital, special, unresolved
 
   // Reconciliation — optional project linkage
-  projectId            String?
+  projectId String?
 
-  createdAt            DateTime        @default(now())
-  updatedAt            DateTime        @updatedAt
+  // Transaction disposition — working table lifecycle
+  disposition TransactionDisposition @default(UNREVIEWED)
 
-  company        Company              @relation(fields: [companyId], references: [id])
-  bankConnection BankConnection       @relation(fields: [bankConnectionId], references: [id], onDelete: Cascade)
-  project        Project?             @relation("BankTransactionProject", fields: [projectId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company        Company                 @relation(fields: [companyId], references: [id])
+  bankConnection BankConnection          @relation(fields: [bankConnectionId], references: [id], onDelete: Cascade)
+  project        Project?                @relation("BankTransactionProject", fields: [projectId], references: [id])
   ccPaymentLinks CreditCardPaymentLink[]
 
   @@index([companyId, date], map: "BankTransaction_company_date_idx")
@@ -8279,6 +8351,7 @@ model BankTransaction {
   @@index([companyId, primaryCategory], map: "BankTransaction_company_category_idx")
   @@index([pending], map: "BankTransaction_pending_idx")
   @@index([companyId, projectId], map: "BankTransaction_company_project_idx")
+  @@index([companyId, disposition], map: "BankTransaction_company_disposition_idx")
 }
 
 // ===================================================================
@@ -8297,7 +8370,7 @@ model CsvImportBatch {
   companyId        String
   source           CsvImportSource
   fileName         String
-  rawCsv           String?         @db.Text  // Original CSV content preserved for undo
+  rawCsv           String?         @db.Text // Original CSV content preserved for undo
   rowCount         Int             @default(0)
   totalAmount      Float           @default(0)
   dateRangeStart   DateTime?       @db.Date
@@ -8305,8 +8378,8 @@ model CsvImportBatch {
   uploadedByUserId String
   createdAt        DateTime        @default(now())
 
-  company    Company              @relation(fields: [companyId], references: [id])
-  uploadedBy User                 @relation("CsvImportBatchUploadedBy", fields: [uploadedByUserId], references: [id])
+  company      Company               @relation(fields: [companyId], references: [id])
+  uploadedBy   User                  @relation("CsvImportBatchUploadedBy", fields: [uploadedByUserId], references: [id])
   transactions ImportedTransaction[]
 
   @@index([companyId], map: "CsvImportBatch_company_idx")
@@ -8315,69 +8388,72 @@ model CsvImportBatch {
 
 /// Individual transaction row parsed from an imported CSV.
 model ImportedTransaction {
-  id          String          @id @default(cuid())
-  companyId   String
-  batchId     String
-  source      CsvImportSource
+  id        String          @id @default(cuid())
+  companyId String
+  batchId   String
+  source    CsvImportSource
 
   // Core fields (all sources)
-  date        DateTime        @db.Date
+  date        DateTime @db.Date
   description String
-  amount      Float           // Positive = expense/purchase, negative = return/credit
+  amount      Float // Positive = expense/purchase, negative = return/credit
   merchant    String?
 
   // HD Pro Xtra fields
-  jobNameRaw  String?
-  jobName     String?         // Normalized via job-name-map
-  sku         String?
-  department  String?
-  category    String?
-  subcategory String?
-  purchaser   String?
-  qty         Float?
-  unitPrice   Float?
-  storeNumber String?         // HD store ID (e.g. "6528")
-  transactionRef String?      // HD Transaction ID / Order Number / Invoice Number
-  registerNumber String?      // HD register number
+  jobNameRaw     String?
+  jobName        String? // Normalized via job-name-map
+  sku            String?
+  department     String?
+  category       String?
+  subcategory    String?
+  purchaser      String?
+  qty            Float?
+  unitPrice      Float?
+  storeNumber    String? // HD store ID (e.g. "6528")
+  transactionRef String? // HD Transaction ID / Order Number / Invoice Number
+  registerNumber String? // HD register number
 
   // Chase bank statement fields
-  postingDate     DateTime?   @db.Date
-  txnType         String?     // CHECK_PAID, ACH_CREDIT, DEBIT_CARD, etc.
-  runningBalance  Float?
-  checkOrSlip     String?
+  postingDate    DateTime? @db.Date
+  txnType        String? // CHECK_PAID, ACH_CREDIT, DEBIT_CARD, etc.
+  runningBalance Float?
+  checkOrSlip    String?
 
   // Apple Card fields
-  clearingDate    DateTime?   @db.Date
-  cardCategory    String?
-  cardHolder      String?
+  clearingDate DateTime? @db.Date
+  cardCategory String?
+  cardHolder   String?
 
   // Deduplication fingerprint — SHA-256 of key fields per source type
   fingerprint String?
 
   // Reconciliation — optional project linkage
-  projectId   String?
+  projectId String?
 
   // Prescreening — intelligent project suggestion
   prescreenProjectId       String?
-  prescreenConfidence      Float?          // 0.0–1.0
-  prescreenReason          String?         // Human-readable explanation of signals
+  prescreenConfidence      Float? // 0.0–1.0
+  prescreenReason          String? // Human-readable explanation of signals
   prescreenStatus          PrescreenStatus @default(PENDING)
-  prescreenRejectionReason String?         // User explanation when rejected
+  prescreenRejectionReason String? // User explanation when rejected
 
   // Store-to-card reconciliation — links HD line items to credit card charges
-  reconciledWithId         String?         // ID of the matching ImportedTransaction
-  reconciledAt             DateTime?
+  reconciledWithId String? // ID of the matching ImportedTransaction
+  reconciledAt     DateTime?
 
   // Purchase Reconciliation — CC-to-checking audit chain
-  reconciliationStatus     ReconciliationStatus  @default(UNLINKED)
-  expenseClassification    ExpenseClassification @default(UNCLASSIFIED)
+  reconciliationStatus  ReconciliationStatus  @default(UNLINKED)
+  expenseClassification ExpenseClassification @default(UNCLASSIFIED)
 
-  createdAt   DateTime        @default(now())
+  // Transaction disposition — working table lifecycle
+  disposition TransactionDisposition @default(UNREVIEWED)
 
-  company          Company              @relation(fields: [companyId], references: [id])
-  batch            CsvImportBatch       @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  project          Project?             @relation("ImportedTransactionProject", fields: [projectId], references: [id])
-  prescreenProject Project?             @relation("ImportedTransactionPrescreenProject", fields: [prescreenProjectId], references: [id])
+  createdAt DateTime @default(now())
+
+  company          Company                 @relation(fields: [companyId], references: [id])
+  batch            CsvImportBatch          @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  project          Project?                @relation("ImportedTransactionProject", fields: [projectId], references: [id])
+  prescreenProject Project?                @relation("ImportedTransactionPrescreenProject", fields: [prescreenProjectId], references: [id])
   ccPaymentLinks   CreditCardPaymentLink[]
 
   @@unique([companyId, source, fingerprint], name: "ImportedTransaction_company_source_fingerprint_key")
@@ -8391,6 +8467,67 @@ model ImportedTransaction {
   @@index([reconciledWithId], map: "ImportedTransaction_reconciledWith_idx")
   @@index([companyId, reconciliationStatus], map: "ImportedTransaction_company_reconStatus_idx")
   @@index([companyId, expenseClassification], map: "ImportedTransaction_company_expenseClass_idx")
+  @@index([companyId, disposition], map: "ImportedTransaction_company_disposition_idx")
+}
+
+// ===================================================================
+// Transaction Disposition Audit Log
+// ===================================================================
+
+/// Audit trail for every disposition change on a transaction.
+/// Captures who, when, what changed, and a mandatory note.
+model TransactionDispositionLog {
+  id                  String                @id @default(cuid())
+  companyId           String
+  transactionId       String // ImportedTransaction.id or BankTransaction.id
+  transactionSource   String // "PLAID" | "HD_PRO_XTRA" | "CHASE_BANK" | "APPLE_CARD"
+  previousDisposition TransactionDisposition
+  newDisposition      TransactionDisposition
+  note                String // Mandatory — reason for the disposition change
+  userId              String
+  userName            String // Denormalized for display
+  createdAt           DateTime              @default(now())
+
+  company Company @relation(fields: [companyId], references: [id])
+  user    User    @relation("TransactionDispositionLogUser", fields: [userId], references: [id])
+
+  @@index([companyId, transactionId], map: "TxnDispositionLog_company_txn_idx")
+  @@index([companyId, createdAt], map: "TxnDispositionLog_company_date_idx")
+}
+
+// ===================================================================
+// Transaction Tags — freeform grouping for filtering
+// ===================================================================
+
+/// Company-scoped tag for grouping transactions into eclectic buckets.
+model TransactionTag {
+  id        String  @id @default(cuid())
+  companyId String
+  name      String
+  color     String? // Hex color for UI badge
+  createdAt DateTime @default(now())
+
+  company     Company                    @relation(fields: [companyId], references: [id])
+  assignments TransactionTagAssignment[]
+
+  @@unique([companyId, name], name: "TransactionTag_company_name_key")
+  @@index([companyId], map: "TransactionTag_company_idx")
+}
+
+/// Junction: links a tag to a specific transaction (imported or Plaid).
+model TransactionTagAssignment {
+  id                String   @id @default(cuid())
+  transactionId     String // ImportedTransaction.id or BankTransaction.id
+  transactionSource String // "PLAID" | "HD_PRO_XTRA" | "CHASE_BANK" | "APPLE_CARD"
+  tagId             String
+  assignedByUserId  String?
+  assignedAt        DateTime @default(now())
+
+  tag TransactionTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([transactionId, tagId], name: "TransactionTagAssignment_txn_tag_key")
+  @@index([tagId], map: "TransactionTagAssignment_tag_idx")
+  @@index([transactionId], map: "TransactionTagAssignment_txn_idx")
 }
 
 // ===================================================================
@@ -8408,17 +8545,17 @@ enum PrescreenFeedbackType {
 model PrescreenFeedback {
   id                  String                @id @default(cuid())
   companyId           String
-  transactionId       String                // ImportedTransaction.id
-  prescreenProjectId  String?               // What was suggested
-  actualProjectId     String?               // What user chose (null if rejected outright)
+  transactionId       String // ImportedTransaction.id
+  prescreenProjectId  String? // What was suggested
+  actualProjectId     String? // What user chose (null if rejected outright)
   feedbackType        PrescreenFeedbackType
-  reason              String?               // User explanation
-  source              String?               // CsvImportSource at feedback time
+  reason              String? // User explanation
+  source              String? // CsvImportSource at feedback time
   merchant            String?
-  jobNameNormalized   String?               // Captured for pattern learning
-  storeNumber         String?               // Captured for store-affinity learning
-  purchaser           String?               // Captured for purchaser-affinity learning
-  descriptionKeywords String?               // Extracted keywords for description-pattern learning
+  jobNameNormalized   String? // Captured for pattern learning
+  storeNumber         String? // Captured for store-affinity learning
+  purchaser           String? // Captured for purchaser-affinity learning
+  descriptionKeywords String? // Extracted keywords for description-pattern learning
   createdByUserId     String?
   createdAt           DateTime              @default(now())
 
@@ -8442,24 +8579,24 @@ enum LocalSupplierStatus {
 /// A scraped or manually-added local supplier associated with a company.
 /// Records are never hard-deleted; status transitions track the full lifecycle.
 model LocalSupplier {
-  id          String              @id @default(cuid())
-  companyId   String
-  name        String
-  address     String?
-  phone       String?
-  website     String?
-  lat         Float
-  lng         Float
-  category    String?             // e.g. "Lumber", "Roofing", "Electrical"
-  source      String?             // e.g. "google_places", "manual"
-  placeId     String?             // Google Places ID for de-duplication
+  id        String  @id @default(cuid())
+  companyId String
+  name      String
+  address   String?
+  phone     String?
+  website   String?
+  lat       Float
+  lng       Float
+  category  String? // e.g. "Lumber", "Roofing", "Electrical"
+  source    String? // e.g. "google_places", "manual"
+  placeId   String? // Google Places ID for de-duplication
 
   // NexFIND additions
-  globalSupplierId String?        // FK → GlobalSupplier (network index)
-  savedVia         String?        // how the supplier entered: 'google_places', 'receipt_ocr', 'directions', 'manual'
-  metadata         Json?          // visit count, last navigated, tenant-private notes
+  globalSupplierId String? // FK → GlobalSupplier (network index)
+  savedVia         String? // how the supplier entered: 'google_places', 'receipt_ocr', 'directions', 'manual'
+  metadata         Json? // visit count, last navigated, tenant-private notes
 
-  status      LocalSupplierStatus @default(ACTIVE)
+  status LocalSupplierStatus @default(ACTIVE)
 
   // Flag / review audit trail
   flaggedByUserId  String?
@@ -8469,17 +8606,17 @@ model LocalSupplier {
   reviewedAt       DateTime?
   reviewNote       String?
 
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  company        Company          @relation(fields: [companyId], references: [id])
-  flaggedBy      User?            @relation("LocalSupplierFlaggedBy", fields: [flaggedByUserId], references: [id])
-  reviewedBy     User?            @relation("LocalSupplierReviewedBy", fields: [reviewedByUserId], references: [id])
-  globalSupplier GlobalSupplier?  @relation(fields: [globalSupplierId], references: [id])
+  company        Company         @relation(fields: [companyId], references: [id])
+  flaggedBy      User?           @relation("LocalSupplierFlaggedBy", fields: [flaggedByUserId], references: [id])
+  reviewedBy     User?           @relation("LocalSupplierReviewedBy", fields: [reviewedByUserId], references: [id])
+  globalSupplier GlobalSupplier? @relation(fields: [globalSupplierId], references: [id])
 
+  @@unique([companyId, placeId], map: "LocalSupplier_company_placeId_key")
   @@index([companyId, status], map: "LocalSupplier_company_status_idx")
   @@index([companyId, lat, lng], map: "LocalSupplier_company_geo_idx")
-  @@unique([companyId, placeId], map: "LocalSupplier_company_placeId_key")
   @@index([globalSupplierId], map: "LocalSupplier_global_supplier_idx")
 }
 
@@ -8491,20 +8628,20 @@ model LocalSupplier {
 /// No companyId — this is the shared network index.
 /// Tenant-specific data stays in LocalSupplier; this is anonymized aggregate.
 model GlobalSupplier {
-  id          String   @id @default(cuid())
+  id          String  @id @default(cuid())
   name        String
   address     String?
   phone       String?
   website     String?
   lat         Float
   lng         Float
-  category    String?  // e.g. "Hardware Store", "Lumber Yard"
-  placeId     String?  @unique(map: "GlobalSupplier_placeId_key")
-  source      String?  // first source: 'google_places', 'receipt_ocr', 'directions', 'manual'
-  tenantCount Int      @default(1) // how many tenants have this supplier saved
+  category    String? // e.g. "Hardware Store", "Lumber Yard"
+  placeId     String? @unique(map: "GlobalSupplier_placeId_key")
+  source      String? // first source: 'google_places', 'receipt_ocr', 'directions', 'manual'
+  tenantCount Int     @default(1) // how many tenants have this supplier saved
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   localSuppliers LocalSupplier[]
 
@@ -8523,16 +8660,16 @@ model RoomScan {
   id              String   @id @default(cuid())
   companyId       String
   projectId       String
-  particleId      String?  /// FK → ProjectParticle (room in org tree)
-  label           String?  /// User-provided room label
+  particleId      String? /// FK → ProjectParticle (room in org tree)
+  label           String? /// User-provided room label
   scanMode        String   @default("AI_VISION") /// AI_VISION | LIDAR
   status          String   @default("PROCESSING") /// PROCESSING | COMPLETE | FAILED
-  photoUrls       Json?    /// string[] of GCS URLs (photos used for AI Vision or LiDAR screenshots)
-  assessmentJson  Json?    /// Unified structured assessment (same shape for both modes)
+  photoUrls       Json? /// string[] of GCS URLs (photos used for AI Vision or LiDAR screenshots)
+  assessmentJson  Json? /// Unified structured assessment (same shape for both modes)
   rawAiResponse   String?  @db.Text /// Raw GPT-4o response (AI_VISION mode only)
-  lidarRoomJson   Json?    /// Raw RoomPlan CapturedRoom data (LIDAR mode only)
-  confidenceScore Float?   /// 0.0–1.0 (high for LiDAR, variable for AI)
-  errorMessage    String?  /// Error details if status = FAILED
+  lidarRoomJson   Json? /// Raw RoomPlan CapturedRoom data (LIDAR mode only)
+  confidenceScore Float? /// 0.0–1.0 (high for LiDAR, variable for AI)
+  errorMessage    String? /// Error details if status = FAILED
   notes           String?  @db.Text
   createdById     String
   createdAt       DateTime @default(now())
@@ -8555,26 +8692,26 @@ model RoomScan {
 /// Stores raw outputs (USDZ model, GPT-4o extractions) and links to the
 /// resulting Asset after creation.
 model AssetScan {
-  id          String   @id @default(cuid())
-  companyId   String
-  assetId     String?  /// Linked to the resulting Asset after creation
-  scanType    String   /// OBJECT_CAPTURE | TAG_READ | FLEET_SERIAL
-  status      String   @default("PROCESSING") /// PROCESSING | COMPLETE | FAILED
+  id        String  @id @default(cuid())
+  companyId String
+  assetId   String? /// Linked to the resulting Asset after creation
+  scanType  String /// OBJECT_CAPTURE | TAG_READ | FLEET_SERIAL
+  status    String  @default("PROCESSING") /// PROCESSING | COMPLETE | FAILED
 
   // Object Capture outputs
-  modelUrl     String?  /// GCS URL to USDZ 3D model
-  thumbnailUrl String?  /// GCS URL to preview image
-  boundingBox  Json?    /// { min: [x,y,z], max: [x,y,z] } in meters
-  dimensions   Json?    /// { length, width, height, unit }
+  modelUrl     String? /// GCS URL to USDZ 3D model
+  thumbnailUrl String? /// GCS URL to preview image
+  boundingBox  Json? /// { min: [x,y,z], max: [x,y,z] } in meters
+  dimensions   Json? /// { length, width, height, unit }
 
   // Tag Read / Serial Read outputs
-  tagPhotoUrl       String?  /// GCS URL to compressed nameplate photo (used for AI analysis)
-  originalPhotoUrls Json?    /// string[] of GCS URLs for original hi-res tag photos (uploaded after user verification)
-  extractedData     Json?    /// GPT-4o extracted: { manufacturer, model, serial, specs }
-  rawAiResponse     String?  @db.Text /// Raw GPT-4o response text
+  tagPhotoUrl       String? /// GCS URL to compressed nameplate photo (used for AI analysis)
+  originalPhotoUrls Json? /// string[] of GCS URLs for original hi-res tag photos (uploaded after user verification)
+  extractedData     Json? /// GPT-4o extracted: { manufacturer, model, serial, specs }
+  rawAiResponse     String? @db.Text /// Raw GPT-4o response text
 
   // Common
-  errorMessage String?  /// Error details if status = FAILED
+  errorMessage String? /// Error details if status = FAILED
   createdById  String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -8595,19 +8732,19 @@ model AssetScan {
 /// A receipt ingested from a monitored email inbox (e.g. ncc-email@nfsgrp.com).
 /// Tracks the full lifecycle: email ingestion → OCR → auto-match → PM review.
 model EmailReceipt {
-  id                 String             @id @default(cuid())
+  id                 String @id @default(cuid())
   companyId          String
-  tenantEmailAddress String             /// The inbox this was received on (e.g. ncc-email@nfsgrp.com)
+  tenantEmailAddress String /// The inbox this was received on (e.g. ncc-email@nfsgrp.com)
 
   // Email metadata
   senderEmail  String
   subject      String?
   receivedAt   DateTime
-  messageId    String?   @unique /// IMAP Message-ID for de-duplication
-  rawEmailJson Json?     /// Full parsed email for audit trail
+  messageId    String?  @unique /// IMAP Message-ID for de-duplication
+  rawEmailJson Json? /// Full parsed email for audit trail
 
   // Attachment storage
-  attachmentUrls Json?   /// JSON string[] of GCS URLs for receipt images/PDFs
+  attachmentUrls Json? /// JSON string[] of GCS URLs for receipt images/PDFs
 
   // Processing status
   status EmailReceiptStatus @default(PENDING_OCR)
@@ -8616,9 +8753,9 @@ model EmailReceipt {
   ocrResultId String? @unique
 
   // Auto-match results
-  projectId       String?   /// Set when matched or assigned to a project
-  matchConfidence Float?    /// 0-1 confidence score from auto-match heuristic
-  matchReason     String?   /// Human-readable explanation (e.g. "Store #0604 near 123 Main St")
+  projectId       String? /// Set when matched or assigned to a project
+  matchConfidence Float? /// 0-1 confidence score from auto-match heuristic
+  matchReason     String? /// Human-readable explanation (e.g. "Store #0604 near 123 Main St")
 
   // Manual assignment by PM
   assignedByUserId String?
@@ -8656,27 +8793,27 @@ enum EmailReceiptConnectorStatus {
 /// A configured IMAP mailbox that the receipt poller reads from.
 /// Tenants can add multiple connectors to monitor several inboxes.
 model EmailReceiptConnector {
-  id          String                       @id @default(cuid())
-  companyId   String
-  label       String                       /// Friendly name (e.g. "HD Receipts Inbox")
+  id        String @id @default(cuid())
+  companyId String
+  label     String /// Friendly name (e.g. "HD Receipts Inbox")
 
   // IMAP connection details
-  imapHost              String             /// e.g. imap.gmail.com
-  imapPort              Int                @default(993)
-  imapUser              String             /// e.g. ncc-email@nfsgrp.com
-  imapPasswordEncrypted Bytes              /// AES-256-GCM encrypted password
-  imapMailbox           String             @default("INBOX")
+  imapHost              String /// e.g. imap.gmail.com
+  imapPort              Int    @default(993)
+  imapUser              String /// e.g. ncc-email@nfsgrp.com
+  imapPasswordEncrypted Bytes /// AES-256-GCM encrypted password
+  imapMailbox           String @default("INBOX")
 
   // Status & tracking
   status                EmailReceiptConnectorStatus @default(ACTIVE)
   lastPolledAt          DateTime?
-  lastPollError         String?            /// Last error message if poll failed
-  totalReceiptsIngested Int                @default(0)
+  lastPollError         String? /// Last error message if poll failed
+  totalReceiptsIngested Int                         @default(0)
 
   // Audit
   connectedByUserId String
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   company     Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   connectedBy User           @relation("EmailReceiptConnectorConnectedBy", fields: [connectedByUserId], references: [id])
@@ -8782,46 +8919,46 @@ model VideoAssessment {
   companyId String
   projectId String? /// nullable — unassigned bucket until linked to a project
 
-  sourceType      VideoAssessmentSourceType @default(OTHER)
-  status          VideoAssessmentStatus     @default(PROCESSING)
+  sourceType VideoAssessmentSourceType @default(OTHER)
+  status     VideoAssessmentStatus     @default(PROCESSING)
 
   /// Video metadata (video stays local — only metadata stored)
-  videoFileName   String?
+  videoFileName     String?
   videoDurationSecs Int?
-  videoResolution String?  /// e.g. "3840x2160"
-  frameCount      Int?     /// number of frames analyzed by AI
+  videoResolution   String? /// e.g. "3840x2160"
+  frameCount        Int? /// number of frames analyzed by AI
 
   /// AI analysis outputs
-  thumbnailUrls   Json?    /// string[] of GCS URLs for key frame thumbnails
-  assessmentJson  Json?    /// structured output: narrative + summary + costbook items
-  rawAiResponse   String?  @db.Text /// full Gemini response for audit trail
-  confidenceScore Float?   /// 0.0–1.0 overall confidence
+  thumbnailUrls   Json? /// string[] of GCS URLs for key frame thumbnails
+  assessmentJson  Json? /// structured output: narrative + summary + costbook items
+  rawAiResponse   String? @db.Text /// full Gemini response for audit trail
+  confidenceScore Float? /// 0.0–1.0 overall confidence
 
   /// Context for causation analysis
-  weatherContext  String?  /// optional weather at time of capture
-  captureDate     DateTime? /// when the video was recorded
+  weatherContext String? /// optional weather at time of capture
+  captureDate    DateTime? /// when the video was recorded
 
-  errorMessage    String?  /// error details if status = FAILED
-  notes           String?  @db.Text
+  errorMessage String? /// error details if status = FAILED
+  notes        String? @db.Text
 
   /// Assignment tracking (bucket → project)
-  assignedById    String?
-  assignedAt      DateTime?
+  assignedById String?
+  assignedAt   DateTime?
 
-  createdById     String
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   /// NLI provenance — which device and scanned file produced this assessment
   nliDeviceId      String?
   nliScannedFileId String?
 
-  company       Company         @relation(fields: [companyId], references: [id])
-  project       Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  createdBy     User            @relation("VideoAssessmentCreatedBy", fields: [createdById], references: [id])
-  assignedBy    User?           @relation("VideoAssessmentAssignedBy", fields: [assignedById], references: [id])
-  nliDevice     NliDevice?      @relation(fields: [nliDeviceId], references: [id], onDelete: SetNull)
-  nliScannedFile NliScannedFile? @relation(fields: [nliScannedFileId], references: [id], onDelete: SetNull)
+  company          Company                     @relation(fields: [companyId], references: [id])
+  project          Project?                    @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdBy        User                        @relation("VideoAssessmentCreatedBy", fields: [createdById], references: [id])
+  assignedBy       User?                       @relation("VideoAssessmentAssignedBy", fields: [assignedById], references: [id])
+  nliDevice        NliDevice?                  @relation(fields: [nliDeviceId], references: [id], onDelete: SetNull)
+  nliScannedFile   NliScannedFile?             @relation(fields: [nliScannedFileId], references: [id], onDelete: SetNull)
   findings         VideoAssessmentFinding[]
   teachingExamples AssessmentTeachingExample[]
 
@@ -8835,27 +8972,27 @@ model VideoAssessment {
 /// Each finding maps to a specific frame timestamp and includes
 /// zone, category, severity, causation, and optional NCC costbook mapping.
 model VideoAssessmentFinding {
-  id           String  @id @default(cuid())
+  id           String @id @default(cuid())
   assessmentId String
   companyId    String
 
-  zone         FindingZone
-  category     FindingCategory
-  severity     FindingSeverity
-  causation    FindingCausation @default(UNKNOWN)
+  zone      FindingZone
+  category  FindingCategory
+  severity  FindingSeverity
+  causation FindingCausation @default(UNKNOWN)
 
-  description     String?  @db.Text /// AI-generated narrative for this finding
-  frameTimestamp  Float?   /// seconds into video where damage was spotted
-  thumbnailUrl    String?  /// GCS URL of the specific frame
-  boundingBoxJson Json?    /// optional { x, y, w, h } of damage area in frame
+  description     String? @db.Text /// AI-generated narrative for this finding
+  frameTimestamp  Float? /// seconds into video where damage was spotted
+  thumbnailUrl    String? /// GCS URL of the specific frame
+  boundingBoxJson Json? /// optional { x, y, w, h } of damage area in frame
 
   /// NCC costbook mapping
-  costbookItemCode  String?  /// NCC costbook item code for estimating
+  costbookItemCode  String? /// NCC costbook item code for estimating
   estimatedQuantity Float?
-  estimatedUnit     String?  /// e.g. "SQ", "LF", "SF", "EA"
+  estimatedUnit     String? /// e.g. "SQ", "LF", "SF", "EA"
 
-  confidenceScore Float?   /// 0.0–1.0 for this individual finding
-  sortOrder       Int      @default(0)
+  confidenceScore Float? /// 0.0–1.0 for this individual finding
+  sortOrder       Int    @default(0)
 
   /// Human override tracking
   overriddenByUserId String?
@@ -8883,41 +9020,41 @@ model VideoAssessmentFinding {
 /// Search grounding for reference materials. Confirmed examples are injected
 /// as few-shot context into future assessments for this company.
 model AssessmentTeachingExample {
-  id           String  @id @default(cuid())
+  id           String @id @default(cuid())
   companyId    String
   assessmentId String
 
   /// Which frame in the original assessment was selected
-  frameIndex   Int
+  frameIndex      Int
   /// Normalized crop box { x, y, w, h } (0.0-1.0)
-  cropBox      Json?
+  cropBox         Json?
   /// GCS URI of the cropped/zoomed image sent to Gemini
   croppedImageUri String?
   /// GCS URI of the full frame (fallback if no crop)
   fullFrameUri    String?
 
   /// User's text hint: "hail damage" / "these are 3-tab not architectural"
-  userHint     String  @db.Text
+  userHint String @db.Text
 
   /// Assessment type used for the teach prompt (EXTERIOR, INTERIOR, DRONE_ROOF, TARGETED)
   assessmentType String @default("TARGETED")
 
   /// AI's refined analysis result
-  aiRefinedFinding Json?   /// Structured finding JSON from Gemini
+  aiRefinedFinding Json? /// Structured finding JSON from Gemini
   aiRawResponse    String? @db.Text /// Raw Gemini response for audit
 
   /// Google Search sources Gemini referenced during grounded analysis
-  webSourcesUsed   Json?   /// Array of { url, title, snippet }
+  webSourcesUsed Json? /// Array of { url, title, snippet }
 
   /// User confirmation: did the refined finding accurately capture what they saw?
-  confirmed    Boolean  @default(false)
-  confirmedAt  DateTime?
+  confirmed   Boolean   @default(false)
+  confirmedAt DateTime?
 
   /// If the user corrected the AI's refined output, what did they change?
   userCorrectionJson Json? /// { field: "zone", from: "ROOF", to: "SIDING" }
 
-  createdById  String
-  createdAt    DateTime @default(now())
+  createdById String
+  createdAt   DateTime @default(now())
 
   company    Company         @relation(fields: [companyId], references: [id])
   assessment VideoAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
@@ -8974,36 +9111,36 @@ enum NliSyncJobStatus {
 /// runs the desktop app registers itself with the tenant. Device
 /// capabilities (FFmpeg version, disk space, OS) are reported at heartbeat.
 model NliDevice {
-  id          String            @id @default(cuid())
-  companyId   String
-  userId      String            /// User who registered/owns this device
+  id        String @id @default(cuid())
+  companyId String
+  userId    String /// User who registered/owns this device
 
-  deviceName  String            /// User-provided or hostname (e.g. "Paul's MacBook")
-  platform    NliDevicePlatform
-  osVersion   String?           /// e.g. "macOS 15.3", "Windows 11 23H2"
-  arch        String?           /// e.g. "arm64", "x86_64"
-  appVersion  String?           /// NexBRIDGE Connect version
+  deviceName String /// User-provided or hostname (e.g. "Paul's MacBook")
+  platform   NliDevicePlatform
+  osVersion  String? /// e.g. "macOS 15.3", "Windows 11 23H2"
+  arch       String? /// e.g. "arm64", "x86_64"
+  appVersion String? /// NexBRIDGE Connect version
 
-  status      NliDeviceStatus   @default(OFFLINE)
-  lastSeenAt  DateTime?
+  status     NliDeviceStatus @default(OFFLINE)
+  lastSeenAt DateTime?
 
   /// Capability reporting (updated at heartbeat)
-  ffmpegVersion        String?
+  ffmpegVersion         String?
   storageAvailableBytes BigInt?
-  storageTotalBytes    BigInt?
+  storageTotalBytes     BigInt?
 
   /// Auth fingerprint — unique per installation to prevent duplicates
-  installId   String            @unique
+  installId String @unique
 
-  active      Boolean           @default(true)
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  company      Company          @relation(fields: [companyId], references: [id])
-  registeredBy User             @relation("NliDeviceRegisteredBy", fields: [userId], references: [id])
-  watchFolders NliWatchFolder[]
-  scannedFiles NliScannedFile[]
-  syncJobs     NliSyncJob[]
+  company          Company           @relation(fields: [companyId], references: [id])
+  registeredBy     User              @relation("NliDeviceRegisteredBy", fields: [userId], references: [id])
+  watchFolders     NliWatchFolder[]
+  scannedFiles     NliScannedFile[]
+  syncJobs         NliSyncJob[]
   videoAssessments VideoAssessment[]
 
   @@index([companyId, status], map: "NliDevice_company_status_idx")
@@ -9014,25 +9151,25 @@ model NliDevice {
 /// this folder for new video, photo, and document files. When new files
 /// appear they are cataloged as NliScannedFile and optionally auto-processed.
 model NliWatchFolder {
-  id          String   @id @default(cuid())
-  deviceId    String
-  companyId   String
+  id        String @id @default(cuid())
+  deviceId  String
+  companyId String
 
-  folderPath  String            /// Absolute path on the device (e.g. "/Users/pg/NexBRIDGE/Inbox")
-  label       String?           /// Friendly name (e.g. "Drone SD Card", "Desktop Drop Zone")
+  folderPath String /// Absolute path on the device (e.g. "/Users/pg/NexBRIDGE/Inbox")
+  label      String? /// Friendly name (e.g. "Drone SD Card", "Desktop Drop Zone")
 
   /// Processing flags — what should NexBRIDGE do with new files?
-  autoProcessVideo  Boolean     @default(true)
-  autoProcessPhoto  Boolean     @default(false)
-  autoUploadDocs    Boolean     @default(false)
+  autoProcessVideo Boolean @default(true)
+  autoProcessPhoto Boolean @default(false)
+  autoUploadDocs   Boolean @default(false)
 
   /// Optional auto-assignment: files from this folder → this project
-  projectId   String?
+  projectId String?
 
-  active      Boolean           @default(true)
-  lastScanAt  DateTime?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  active     Boolean   @default(true)
+  lastScanAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   device       NliDevice        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   company      Company          @relation(fields: [companyId], references: [id])
@@ -9047,36 +9184,36 @@ model NliWatchFolder {
 /// discovery through processing to sync. Stores a file hash for
 /// deduplication — won't re-process the same footage twice.
 model NliScannedFile {
-  id             String                @id @default(cuid())
-  deviceId       String
-  companyId      String
-  watchFolderId  String?               /// null if added manually (not from watch folder)
-  projectId      String?               /// auto-assigned from watch folder, or manual
+  id            String  @id @default(cuid())
+  deviceId      String
+  companyId     String
+  watchFolderId String? /// null if added manually (not from watch folder)
+  projectId     String? /// auto-assigned from watch folder, or manual
 
-  filePath       String                /// Absolute path on device
-  fileName       String
-  fileSizeBytes  BigInt
-  mimeType       String?               /// e.g. "video/mp4", "image/jpeg", "application/pdf"
-  fileHash       String?               /// SHA-256 for deduplication
+  filePath      String /// Absolute path on device
+  fileName      String
+  fileSizeBytes BigInt
+  mimeType      String? /// e.g. "video/mp4", "image/jpeg", "application/pdf"
+  fileHash      String? /// SHA-256 for deduplication
 
-  status         NliScannedFileStatus  @default(DISCOVERED)
-  errorMessage   String?
+  status       NliScannedFileStatus @default(DISCOVERED)
+  errorMessage String?
 
   /// Output linkage — what did processing produce?
-  videoAssessmentId String?            /// If this file was processed as a video assessment
+  videoAssessmentId String? /// If this file was processed as a video assessment
 
-  discoveredAt   DateTime              @default(now())
-  processedAt    DateTime?
-  syncedAt       DateTime?
-  createdAt      DateTime              @default(now())
-  updatedAt      DateTime              @updatedAt
+  discoveredAt DateTime  @default(now())
+  processedAt  DateTime?
+  syncedAt     DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  device         NliDevice             @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  company        Company               @relation(fields: [companyId], references: [id])
-  watchFolder    NliWatchFolder?       @relation(fields: [watchFolderId], references: [id], onDelete: SetNull)
-  project        Project?              @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  device           NliDevice         @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  company          Company           @relation(fields: [companyId], references: [id])
+  watchFolder      NliWatchFolder?   @relation(fields: [watchFolderId], references: [id], onDelete: SetNull)
+  project          Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
   videoAssessments VideoAssessment[]
-  syncJobs       NliSyncJob[]
+  syncJobs         NliSyncJob[]
 
   @@unique([deviceId, fileHash], name: "NliScannedFile_device_hash_key")
   @@index([companyId, status], map: "NliScannedFile_company_status_idx")
@@ -9088,37 +9225,37 @@ model NliScannedFile {
 /// executed when connectivity is available. Mirrors ScanNEX's proven
 /// WiFi-background-sync pattern (JSON first, media last).
 model NliSyncJob {
-  id             String            @id @default(cuid())
-  deviceId       String
-  companyId      String
-  projectId      String?
+  id        String  @id @default(cuid())
+  deviceId  String
+  companyId String
+  projectId String?
 
-  type           NliSyncJobType
-  status         NliSyncJobStatus  @default(QUEUED)
-  priority       Int               @default(0) /// Higher = process first
+  type     NliSyncJobType
+  status   NliSyncJobStatus @default(QUEUED)
+  priority Int              @default(0) /// Higher = process first
 
   /// What to sync (request payload, stored as JSON)
-  scannedFileId  String?
-  payloadJson    Json?             /// Flexible payload per job type
+  scannedFileId String?
+  payloadJson   Json? /// Flexible payload per job type
 
   /// Result tracking
-  resultJson     Json?             /// Response/output from the operation
-  errorMessage   String?           /// Error details if status = FAILED
-  retryCount     Int               @default(0)
-  maxRetries     Int               @default(3)
+  resultJson   Json? /// Response/output from the operation
+  errorMessage String? /// Error details if status = FAILED
+  retryCount   Int     @default(0)
+  maxRetries   Int     @default(3)
 
-  createdById    String
-  queuedAt       DateTime          @default(now())
-  startedAt      DateTime?
-  completedAt    DateTime?
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  createdById String
+  queuedAt    DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  device       NliDevice       @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  company      Company         @relation(fields: [companyId], references: [id])
-  project      Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  scannedFile  NliScannedFile? @relation(fields: [scannedFileId], references: [id], onDelete: SetNull)
-  createdBy    User            @relation("NliSyncJobCreatedBy", fields: [createdById], references: [id])
+  device      NliDevice       @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  company     Company         @relation(fields: [companyId], references: [id])
+  project     Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  scannedFile NliScannedFile? @relation(fields: [scannedFileId], references: [id], onDelete: SetNull)
+  createdBy   User            @relation("NliSyncJobCreatedBy", fields: [createdById], references: [id])
 
   @@index([deviceId, status], map: "NliSyncJob_device_status_idx")
   @@index([companyId, status], map: "NliSyncJob_company_status_idx")
@@ -9159,9 +9296,9 @@ enum SignatoryRole {
 }
 
 enum SignatureMethod {
-  TYPED      // Typed full name as signature
-  DRAWN      // Canvas-drawn signature (stored as base64 PNG)
-  UPLOADED   // Uploaded image of signature
+  TYPED // Typed full name as signature
+  DRAWN // Canvas-drawn signature (stored as base64 PNG)
+  UPLOADED // Uploaded image of signature
 }
 
 enum AgreementAuditAction {
@@ -9177,37 +9314,37 @@ enum AgreementAuditAction {
 }
 
 enum TemplateSourceType {
-  MANUAL          // Created from scratch in the builder
-  IMPORTED_DOCX   // Uploaded DOCX converted via mammoth
-  IMPORTED_PDF    // Uploaded PDF converted to HTML or page images
-  IMPORTED_IMAGE  // Scanned document / image (overlay mode)
-  IMPORTED_HTML   // Uploaded HTML file
+  MANUAL // Created from scratch in the builder
+  IMPORTED_DOCX // Uploaded DOCX converted via mammoth
+  IMPORTED_PDF // Uploaded PDF converted to HTML or page images
+  IMPORTED_IMAGE // Scanned document / image (overlay mode)
+  IMPORTED_HTML // Uploaded HTML file
 }
 
 /// Master template for agreements. companyId=null means system-level (available
 /// to all tenants). companyId set means tenant-created custom template.
 model AgreementTemplate {
-  id               String              @id @default(cuid())
-  companyId        String?             // null = system-level template
-  code             String              // e.g. "FL-CONTINGENCY-001"
-  title            String
-  description      String?
-  jurisdiction     String?             // e.g. "FL", "TX", null for non-state-specific
-  category         AgreementCategory   @default(OTHER)
-  htmlContent      String              @db.Text
-  variables        Json?               // Array of { key, label, type, required, group }
-  isActive         Boolean             @default(true)
-  currentVersion   Int                 @default(1)
-  sourceType       TemplateSourceType  @default(MANUAL)
-  originalFileUrl  String?             // GCS path to uploaded source file
-  overlayFields    Json?               // For overlay mode: [{ key, label, type, x, y, width, height, pageIndex }]
-  pageImageUrls    Json?               // For overlay mode: ["url1", "url2", ...] per-page image URLs
-  createdByUserId  String?
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
+  id              String             @id @default(cuid())
+  companyId       String? // null = system-level template
+  code            String // e.g. "FL-CONTINGENCY-001"
+  title           String
+  description     String?
+  jurisdiction    String? // e.g. "FL", "TX", null for non-state-specific
+  category        AgreementCategory  @default(OTHER)
+  htmlContent     String             @db.Text
+  variables       Json? // Array of { key, label, type, required, group }
+  isActive        Boolean            @default(true)
+  currentVersion  Int                @default(1)
+  sourceType      TemplateSourceType @default(MANUAL)
+  originalFileUrl String? // GCS path to uploaded source file
+  overlayFields   Json? // For overlay mode: [{ key, label, type, x, y, width, height, pageIndex }]
+  pageImageUrls   Json? // For overlay mode: ["url1", "url2", ...] per-page image URLs
+  createdByUserId String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 
-  company    Company?                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  createdBy  User?                       @relation("AgreementTemplateCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  company    Company?                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy  User?                      @relation("AgreementTemplateCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   agreements Agreement[]
   versions   AgreementTemplateVersion[]
 
@@ -9223,9 +9360,9 @@ model AgreementTemplateVersion {
   templateId      String
   versionNo       Int
   htmlContent     String   @db.Text
-  variables       Json?    // Snapshot of variables at this version
-  overlayFields   Json?    // Snapshot of overlay fields at this version
-  changeNote      String?  // Optional description of what changed
+  variables       Json? // Snapshot of variables at this version
+  overlayFields   Json? // Snapshot of overlay fields at this version
+  changeNote      String? // Optional description of what changed
   changedByUserId String?
   createdAt       DateTime @default(now())
 
@@ -9238,23 +9375,23 @@ model AgreementTemplateVersion {
 
 /// A concrete agreement instance created from a template (or blank).
 model Agreement {
-  id               String           @id @default(cuid())
-  companyId        String
-  templateId       String?
-  projectId        String?
-  title            String
-  agreementNumber  String           // Auto-generated, e.g. "AGR-2026-0001"
-  status           AgreementStatus  @default(DRAFT)
-  htmlContent      String?          @db.Text  // Rendered HTML with variables filled
-  variables        Json?            // Filled variable values { key: value }
-  dueDate          DateTime?
-  sentAt           DateTime?        // When sent for signatures
-  fullyExecutedAt  DateTime?        // When all signatures collected
-  voidedAt         DateTime?
-  voidReason       String?
-  createdByUserId  String
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  id              String          @id @default(cuid())
+  companyId       String
+  templateId      String?
+  projectId       String?
+  title           String
+  agreementNumber String // Auto-generated, e.g. "AGR-2026-0001"
+  status          AgreementStatus @default(DRAFT)
+  htmlContent     String?         @db.Text // Rendered HTML with variables filled
+  variables       Json? // Filled variable values { key: value }
+  dueDate         DateTime?
+  sentAt          DateTime? // When sent for signatures
+  fullyExecutedAt DateTime? // When all signatures collected
+  voidedAt        DateTime?
+  voidReason      String?
+  createdByUserId String
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
   company     Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
   template    AgreementTemplate?   @relation(fields: [templateId], references: [id], onDelete: SetNull)
@@ -9278,9 +9415,9 @@ model AgreementSignatory {
   email           String?
   phone           String?
   signedAt        DateTime?
-  signatureData   String?          @db.Text  // base64 image or typed name
+  signatureData   String?          @db.Text // base64 image or typed name
   signatureMethod SignatureMethod?
-  signatureToken  String?          @unique   // Unique token for email-based signing links
+  signatureToken  String?          @unique // Unique token for email-based signing links
   ipAddress       String?
   userAgent       String?
   sortOrder       Int              @default(0)
@@ -9295,14 +9432,14 @@ model AgreementSignatory {
 
 /// Immutable audit trail for every action on an agreement.
 model AgreementAuditLog {
-  id           String                @id @default(cuid())
-  agreementId  String
-  action       AgreementAuditAction
-  actorUserId  String?
-  actorName    String?
-  metadata     Json?                 // Additional context per action
-  ipAddress    String?
-  createdAt    DateTime              @default(now())
+  id          String               @id @default(cuid())
+  agreementId String
+  action      AgreementAuditAction
+  actorUserId String?
+  actorName   String?
+  metadata    Json? // Additional context per action
+  ipAddress   String?
+  createdAt   DateTime             @default(now())
 
   agreement Agreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
 
@@ -9322,15 +9459,15 @@ enum SiteDocCategory {
 }
 
 enum SiteDocFrequency {
-  ONCE       // First visit only
-  DAILY      // Every day
-  ON_CHANGE  // Re-acknowledge when document version changes
+  ONCE // First visit only
+  DAILY // Every day
+  ON_CHANGE // Re-acknowledge when document version changes
 }
 
 enum SignOutMethod {
-  MANUAL               // Worker signed out at kiosk
-  SYSTEM_AUTO_SIGNOUT  // Geo-fence departure, grace period expired
-  SYSTEM_EOD_SIGNOUT   // End-of-day cutoff, no departure detected
+  MANUAL // Worker signed out at kiosk
+  SYSTEM_AUTO_SIGNOUT // Geo-fence departure, grace period expired
+  SYSTEM_EOD_SIGNOUT // End-of-day cutoff, no departure detected
 }
 
 /// Unique site pass token for a person (Nexus user or external visitor).
@@ -9338,11 +9475,11 @@ enum SignOutMethod {
 model SitePass {
   id          String    @id @default(cuid())
   companyId   String
-  userId      String?   // Null for external visitors
-  workerId    String?   // Null until linked to a Worker record
+  userId      String? // Null for external visitors
+  workerId    String? // Null until linked to a Worker record
   tokenHash   String    @unique // SHA-256 of the raw 32-byte token
   displayName String
-  companyName String?   // Visitor's company name (not the tenant)
+  companyName String? // Visitor's company name (not the tenant)
   trade       String?
   phone       String?
   email       String?
@@ -9350,11 +9487,11 @@ model SitePass {
   createdAt   DateTime  @default(now())
   revokedAt   DateTime?
 
-  company   Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  user      User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
-  worker    Worker?       @relation(fields: [workerId], references: [id], onDelete: SetNull)
-  checkIns  SiteCheckIn[]
-  acks      SiteDocumentAck[]
+  company  Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user     User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  worker   Worker?           @relation(fields: [workerId], references: [id], onDelete: SetNull)
+  checkIns SiteCheckIn[]
+  acks     SiteDocumentAck[]
 
   @@index([companyId], map: "SitePass_company_idx")
   @@index([userId], map: "SitePass_user_idx")
@@ -9374,7 +9511,7 @@ model SiteDocument {
   sortOrder       Int              @default(0)
   isActive        Boolean          @default(true)
   version         Int              @default(1)
-  sourceDocId     String?          // Optional link to TenantPnpDocument
+  sourceDocId     String? // Optional link to TenantPnpDocument
   createdByUserId String?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
@@ -9394,8 +9531,8 @@ model SiteDocumentAck {
   siteDocumentId   String
   sitePassId       String
   projectId        String
-  documentVersion  Int      // Version of the document at time of ack
-  checkInSessionId String   // Links to the SiteCheckIn session
+  documentVersion  Int // Version of the document at time of ack
+  checkInSessionId String // Links to the SiteCheckIn session
   acknowledgedAt   DateTime @default(now())
 
   siteDocument SiteDocument @relation(fields: [siteDocumentId], references: [id], onDelete: Cascade)
@@ -9410,17 +9547,17 @@ model SiteDocumentAck {
 /// A single check-in session at a project site. Tracks identity confirmation,
 /// document acknowledgments, signature, and sign-out.
 model SiteCheckIn {
-  id              String        @id @default(cuid())
-  companyId       String
-  projectId       String
-  sitePassId      String
-  kioskSessionId  String?       // Null if checked in via personal device
-  checkInAt       DateTime      @default(now())
-  signOutAt       DateTime?
-  signOutMethod   SignOutMethod?
-  signatureSvg    String?       @db.Text // SVG path data from finger signature
-  documentsAcked  Int           @default(0)
-  createdAt       DateTime      @default(now())
+  id             String         @id @default(cuid())
+  companyId      String
+  projectId      String
+  sitePassId     String
+  kioskSessionId String? // Null if checked in via personal device
+  checkInAt      DateTime       @default(now())
+  signOutAt      DateTime?
+  signOutMethod  SignOutMethod?
+  signatureSvg   String?        @db.Text // SVG path data from finger signature
+  documentsAcked Int            @default(0)
+  createdAt      DateTime       @default(now())
 
   company      Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   project      Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -9440,7 +9577,7 @@ model KioskSession {
   id                String    @id @default(cuid())
   companyId         String
   projectId         String
-  deviceId          String    // Unique device fingerprint
+  deviceId          String // Unique device fingerprint
   activatedByUserId String
   isActive          Boolean   @default(true)
   activatedAt       DateTime  @default(now())
@@ -9463,7 +9600,7 @@ model KioskDelegation {
   projectId         String
   delegatedToUserId String
   delegatedByUserId String
-  expiresAt         DateTime  // Default: now + 24h, max: now + 7d
+  expiresAt         DateTime // Default: now + 24h, max: now + 7d
   revokedAt         DateTime? // Set if PM revokes early
   createdAt         DateTime  @default(now())
 
@@ -9484,20 +9621,20 @@ model KioskDelegation {
 /// credit card charges it covers. Enables the audit trail:
 /// Checking outflow → CC charges → Receipt line items → Project costs.
 model CreditCardPaymentLink {
-  id               String              @id @default(cuid())
-  companyId        String
-  checkingTxnId    String              // BankTransaction.id (the checking outflow)
-  creditCardTxnId  String              // ImportedTransaction.id (individual CC charge)
-  status           CcPaymentLinkStatus @default(SUGGESTED)
-  confidence       Float?              // 0.0–1.0 match confidence
-  linkedByUserId   String?
-  linkedAt         DateTime?
-  createdAt        DateTime            @default(now())
+  id              String              @id @default(cuid())
+  companyId       String
+  checkingTxnId   String // BankTransaction.id (the checking outflow)
+  creditCardTxnId String // ImportedTransaction.id (individual CC charge)
+  status          CcPaymentLinkStatus @default(SUGGESTED)
+  confidence      Float? // 0.0–1.0 match confidence
+  linkedByUserId  String?
+  linkedAt        DateTime?
+  createdAt       DateTime            @default(now())
 
-  company        Company             @relation(fields: [companyId], references: [id])
-  checkingTxn    BankTransaction     @relation(fields: [checkingTxnId], references: [id])
-  creditCardTxn  ImportedTransaction @relation(fields: [creditCardTxnId], references: [id])
-  linkedBy       User?               @relation("CcPaymentLinkLinkedBy", fields: [linkedByUserId], references: [id])
+  company       Company             @relation(fields: [companyId], references: [id])
+  checkingTxn   BankTransaction     @relation(fields: [checkingTxnId], references: [id])
+  creditCardTxn ImportedTransaction @relation(fields: [creditCardTxnId], references: [id])
+  linkedBy      User?               @relation("CcPaymentLinkLinkedBy", fields: [linkedByUserId], references: [id])
 
   @@unique([companyId, creditCardTxnId], name: "CreditCardPaymentLink_company_ccTxn_key")
   @@index([companyId, checkingTxnId], map: "CreditCardPaymentLink_company_checking_idx")
@@ -9508,27 +9645,27 @@ model CreditCardPaymentLink {
 /// replacing the bulk excludedLineItemsJson. Each receipt line item can be
 /// kept on job, credited (personal), or moved to another project.
 model ReceiptLineDisposition {
-  id                   String         @id @default(cuid())
-  companyId            String
-  dailyLogId           String
-  ocrResultId          String
-  lineItemIndex        Int            // Position in the OCR lineItemsJson array
-  description          String?        // Snapshot from OCR
-  amount               Float?         // Snapshot from OCR
-  sourceProjectId      String         // Project from the daily log
-  dispositionType      DispositionType
-  targetProjectId      String?        // If MOVE_TO_PROJECT
-  creditReason         String?        // If CREDIT_PERSONAL
+  id                    String          @id @default(cuid())
+  companyId             String
+  dailyLogId            String
+  ocrResultId           String
+  lineItemIndex         Int // Position in the OCR lineItemsJson array
+  description           String? // Snapshot from OCR
+  amount                Float? // Snapshot from OCR
+  sourceProjectId       String // Project from the daily log
+  dispositionType       DispositionType
+  targetProjectId       String? // If MOVE_TO_PROJECT
+  creditReason          String? // If CREDIT_PERSONAL
   dispositionedByUserId String?
-  dispositionedAt      DateTime       @default(now())
-  createdAt            DateTime       @default(now())
+  dispositionedAt       DateTime        @default(now())
+  createdAt             DateTime        @default(now())
 
-  company        Company          @relation(fields: [companyId], references: [id])
-  dailyLog       DailyLog         @relation(fields: [dailyLogId], references: [id], onDelete: Cascade)
-  ocrResult      ReceiptOcrResult @relation(fields: [ocrResultId], references: [id], onDelete: Cascade)
-  sourceProject  Project          @relation("ReceiptLineDispositionSource", fields: [sourceProjectId], references: [id])
-  targetProject  Project?         @relation("ReceiptLineDispositionTarget", fields: [targetProjectId], references: [id])
-  dispositionedBy User?           @relation("ReceiptLineDispositionBy", fields: [dispositionedByUserId], references: [id])
+  company         Company          @relation(fields: [companyId], references: [id])
+  dailyLog        DailyLog         @relation(fields: [dailyLogId], references: [id], onDelete: Cascade)
+  ocrResult       ReceiptOcrResult @relation(fields: [ocrResultId], references: [id], onDelete: Cascade)
+  sourceProject   Project          @relation("ReceiptLineDispositionSource", fields: [sourceProjectId], references: [id])
+  targetProject   Project?         @relation("ReceiptLineDispositionTarget", fields: [targetProjectId], references: [id])
+  dispositionedBy User?            @relation("ReceiptLineDispositionBy", fields: [dispositionedByUserId], references: [id])
 
   @@unique([ocrResultId, lineItemIndex], name: "ReceiptLineDisposition_ocr_lineItem_key")
   @@index([companyId, dailyLogId], map: "ReceiptLineDisposition_company_dailyLog_idx")
@@ -9537,24 +9674,24 @@ model ReceiptLineDisposition {
 /// PM reconciliation review queue. Transactions pushed to a project
 /// require PM confirmation before being marked as CONFIRMED.
 model PmReviewItem {
-  id                 String                   @id @default(cuid())
+  id                 String                  @id @default(cuid())
   companyId          String
   projectId          String
   transactionType    PmReviewTransactionType
-  transactionId      String                   // Polymorphic: ImportedTransaction, BankTransaction, or ReceiptLineDisposition ID
-  assignedToUserId   String                   // Project PM
-  status             PmReviewStatus           @default(PENDING)
+  transactionId      String // Polymorphic: ImportedTransaction, BankTransaction, or ReceiptLineDisposition ID
+  assignedToUserId   String // Project PM
+  status             PmReviewStatus          @default(PENDING)
   suggestedAmount    Float?
-  suggestedProjectId String?                  // What the system suggested
+  suggestedProjectId String? // What the system suggested
   reviewNote         String?
   reviewedAt         DateTime?
   reviewedByUserId   String?
-  createdAt          DateTime                 @default(now())
+  createdAt          DateTime                @default(now())
 
-  company      Company  @relation(fields: [companyId], references: [id])
-  project      Project  @relation(fields: [projectId], references: [id])
-  assignedTo   User     @relation("PmReviewAssignedTo", fields: [assignedToUserId], references: [id])
-  reviewedBy   User?    @relation("PmReviewReviewedBy", fields: [reviewedByUserId], references: [id])
+  company    Company @relation(fields: [companyId], references: [id])
+  project    Project @relation(fields: [projectId], references: [id])
+  assignedTo User    @relation("PmReviewAssignedTo", fields: [assignedToUserId], references: [id])
+  reviewedBy User?   @relation("PmReviewReviewedBy", fields: [reviewedByUserId], references: [id])
 
   @@index([companyId, projectId, status], map: "PmReviewItem_company_project_status_idx")
   @@index([assignedToUserId, status], map: "PmReviewItem_assignee_status_idx")
@@ -9571,16 +9708,16 @@ model BillSiblingGroup {
   id                 String                 @id @default(cuid())
   companyId          String
   projectId          String
-  primaryBillId      String?                // The source-of-truth bill (typically OCR receipt)
-  matchConfidence    Float?                 // 0.0–1.0 duplicate detection confidence
-  matchReason        String?                // Human-readable: "Vendor: Home Depot, Amount: $485.23 ±$0.00, Date: ±1 day"
+  primaryBillId      String? // The source-of-truth bill (typically OCR receipt)
+  matchConfidence    Float? // 0.0–1.0 duplicate detection confidence
+  matchReason        String? // Human-readable: "Vendor: Home Depot, Amount: $485.23 ±$0.00, Date: ±1 day"
   verificationStatus BillVerificationStatus @default(PENDING_VERIFICATION)
-  amountVariance     Float?                 // Absolute $ difference between primary and verification amounts
+  amountVariance     Float? // Absolute $ difference between primary and verification amounts
   createdAt          DateTime               @default(now())
   updatedAt          DateTime               @updatedAt
 
-  company Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   bills   ProjectBill[]
 
   @@index([companyId, projectId], map: "BillSiblingGroup_company_project_idx")
@@ -9595,13 +9732,13 @@ model BillSiblingGroup {
 /// Maps geographic regions to COL multipliers (NYC = 100 as base).
 model RegionalCostIndex {
   id            String     @id @default(cuid())
-  regionCode    String     // ZIP3 prefix, metro code, state code, or country code
-  regionName    String     // Human-readable: "Houston Metro", "NYC", "Rural Alabama"
+  regionCode    String // ZIP3 prefix, metro code, state code, or country code
+  regionName    String // Human-readable: "Houston Metro", "NYC", "Rural Alabama"
   regionType    RegionType
-  costIndex     Float      // Raw COL index value (NYC = 100)
-  multiplier    Float      // Precomputed costIndex / 100 (e.g., 0.82 for Houston)
-  source        String?    // "C2ER", "NUMBEO", "BLS", "MANUAL"
-  effectiveYear Int        // Year this index applies to (refresh annually)
+  costIndex     Float // Raw COL index value (NYC = 100)
+  multiplier    Float // Precomputed costIndex / 100 (e.g., 0.82 for Houston)
+  source        String? // "C2ER", "NUMBEO", "BLS", "MANUAL"
+  effectiveYear Int // Year this index applies to (refresh annually)
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
@@ -9612,8 +9749,8 @@ model RegionalCostIndex {
 /// Home Depot store location lookup for NexPRICE region resolution.
 /// Maps HD store numbers to physical ZIP codes for regional pricing.
 model HdStoreLocation {
-  id          String  @id @default(cuid())
-  storeNumber String  @unique  // e.g., "0604", "6528"
+  id          String   @id @default(cuid())
+  storeNumber String   @unique // e.g., "0604", "6528"
   zip         String
   city        String?
   state       String?
@@ -9622,4 +9759,76 @@ model HdStoreLocation {
   createdAt   DateTime @default(now())
 
   @@index([zip], map: "HdStoreLocation_zip_idx")
+}
+
+// =============================================================================
+// Remote Support — Screen Sharing & Remote Control
+// =============================================================================
+
+/// Trouble ticket that gates screen sharing sessions. A client creates a ticket;
+/// a support agent is assigned and can initiate a screen share session.
+model SupportTicket {
+  id           String                @id @default(cuid())
+  companyId    String
+  createdById  String
+  assignedToId String?
+  status       SupportTicketStatus   @default(OPEN)
+  priority     SupportTicketPriority @default(MEDIUM)
+  subject      String
+  description  String?               @db.Text
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  resolvedAt   DateTime?
+
+  company    Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy  User             @relation("SupportTicketCreatedBy", fields: [createdById], references: [id])
+  assignedTo User?            @relation("SupportTicketAssignedTo", fields: [assignedToId], references: [id])
+  sessions   SupportSession[]
+
+  @@index([companyId, status, createdAt], map: "SupportTicket_company_status_created_idx")
+  @@index([assignedToId, status], map: "SupportTicket_assignee_status_idx")
+  @@index([createdById, createdAt], map: "SupportTicket_creator_created_idx")
+}
+
+/// A screen sharing session tied to a support ticket. The sessionCode is a
+/// short, unique, one-time code used by both parties to join the WebRTC
+/// signaling channel. Sessions expire after 30 min of inactivity.
+model SupportSession {
+  id            String               @id @default(cuid())
+  ticketId      String
+  sessionCode   String               @unique // 6-char alphanumeric, used to join
+  status        SupportSessionStatus @default(PENDING)
+  mode          SupportSessionMode   @default(VIEW_ONLY)
+  clientUserId  String
+  agentUserId   String?
+  clientIp      String?
+  agentIp       String?
+  startedAt     DateTime?
+  endedAt       DateTime?
+  lastHeartbeat DateTime?
+  createdAt     DateTime             @default(now())
+
+  ticket     SupportTicket         @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  clientUser User                  @relation("SupportSessionClient", fields: [clientUserId], references: [id])
+  agentUser  User?                 @relation("SupportSessionAgent", fields: [agentUserId], references: [id])
+  events     SupportSessionEvent[]
+
+  @@index([ticketId], map: "SupportSession_ticket_idx")
+  @@index([sessionCode], map: "SupportSession_code_idx")
+  @@index([status, lastHeartbeat], map: "SupportSession_status_heartbeat_idx")
+}
+
+/// Immutable audit trail for every significant event during a support session.
+model SupportSessionEvent {
+  id          String                  @id @default(cuid())
+  sessionId   String
+  eventType   SupportSessionEventType
+  actorUserId String?
+  metadata    Json?
+  createdAt   DateTime                @default(now())
+
+  session   SupportSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  actorUser User?          @relation("SupportSessionEventActor", fields: [actorUserId], references: [id])
+
+  @@index([sessionId, createdAt], map: "SupportSessionEvent_session_created_idx")
 }

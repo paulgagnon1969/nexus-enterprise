@@ -8,6 +8,7 @@ import {
   PmReviewStatus,
   PmReviewTransactionType,
   CsvImportSource,
+  TransactionDisposition,
 } from "@prisma/client";
 
 // ---------------------------------------------------------------------------
@@ -703,24 +704,67 @@ export class PurchaseReconciliationService {
 
     // Side effects based on decision
     if (decision.status === PmReviewStatus.APPROVED) {
-      // Set reconciliation status to CONFIRMED on the source transaction
+      // Set reconciliation status to CONFIRMED + disposition to ASSIGNED
       if (item.transactionType === PmReviewTransactionType.IMPORTED) {
         await this.prisma.importedTransaction.update({
           where: { id: item.transactionId },
-          data: { reconciliationStatus: ReconciliationStatus.CONFIRMED },
+          data: {
+            reconciliationStatus: ReconciliationStatus.CONFIRMED,
+            disposition: TransactionDisposition.ASSIGNED,
+          },
+        });
+      } else if (item.transactionType === PmReviewTransactionType.BANK) {
+        await this.prisma.bankTransaction.update({
+          where: { id: item.transactionId },
+          data: { disposition: TransactionDisposition.ASSIGNED },
         });
       }
+      // Log the disposition change
+      await this.prisma.transactionDispositionLog.create({
+        data: {
+          companyId,
+          transactionId: item.transactionId,
+          transactionSource: item.transactionType === PmReviewTransactionType.BANK ? "PLAID" : "IMPORTED",
+          previousDisposition: TransactionDisposition.PENDING_APPROVAL,
+          newDisposition: TransactionDisposition.ASSIGNED,
+          note: `PM approved assignment to project${decision.note ? `: ${decision.note}` : ""}`,
+          userId,
+          userName: "PM Review",
+        },
+      });
     } else if (decision.status === PmReviewStatus.REJECTED) {
-      // Reset reconciliation status back to UNLINKED
+      // Reset reconciliation status back to UNLINKED + disposition to UNREVIEWED
       if (item.transactionType === PmReviewTransactionType.IMPORTED) {
         await this.prisma.importedTransaction.update({
           where: { id: item.transactionId },
           data: {
             reconciliationStatus: ReconciliationStatus.UNLINKED,
             projectId: null,
+            disposition: TransactionDisposition.UNREVIEWED,
+          },
+        });
+      } else if (item.transactionType === PmReviewTransactionType.BANK) {
+        await this.prisma.bankTransaction.update({
+          where: { id: item.transactionId },
+          data: {
+            projectId: null,
+            disposition: TransactionDisposition.UNREVIEWED,
           },
         });
       }
+      // Log the disposition change
+      await this.prisma.transactionDispositionLog.create({
+        data: {
+          companyId,
+          transactionId: item.transactionId,
+          transactionSource: item.transactionType === PmReviewTransactionType.BANK ? "PLAID" : "IMPORTED",
+          previousDisposition: TransactionDisposition.PENDING_APPROVAL,
+          newDisposition: TransactionDisposition.UNREVIEWED,
+          note: `PM rejected assignment${decision.note ? `: ${decision.note}` : ""}`,
+          userId,
+          userName: "PM Review",
+        },
+      });
     } else if (decision.status === PmReviewStatus.MODIFIED && decision.reassignProjectId) {
       // Reassign to a different project → create new PM review item
       if (item.transactionType === PmReviewTransactionType.IMPORTED) {

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { PageCard } from "../../ui-shell";
-import { RawDetailModal } from "../../components/RawDataTable";
+import { RawDetailModal, DISPOSITION_OPTIONS, getDispositionStyle } from "../../components/RawDataTable";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -97,6 +97,10 @@ export default function FinancialReconciliationPage() {
   type SourceBreakdown = { source: string; count: number; total: number };
   const [sourceBreakdown, setSourceBreakdown] = useState<SourceBreakdown[]>([]);
 
+  // Disposition filter
+  const [dispositionFilter, setDispositionFilter] = useState<string>("UNREVIEWED");
+  const [dispositionCounts, setDispositionCounts] = useState<Record<string, number>>({});
+
   // Store-to-card reconciliation
   const [storeCardData, setStoreCardData] = useState<StoreCardData | null>(null);
   const [storeCardLoading, setStoreCardLoading] = useState(false);
@@ -124,23 +128,27 @@ export default function FinancialReconciliationPage() {
       if (endDate) params.set("endDate", endDate);
       const qs = params.toString() ? `?${params}` : "";
 
-      const [projRes, summRes, unassRes, projListRes] = await Promise.all([
+      const [projRes, summRes, unassRes, projListRes, dispCountRes] = await Promise.all([
         fetch(`${API_BASE}/banking/projects-summary${qs}`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
         fetch(`${API_BASE}/banking/transactions/summary${qs}`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        fetch(`${API_BASE}/banking/transactions/unified?unassigned=true&pageSize=20&sortBy=date&sortDir=desc${qs ? "&" + params : ""}`, {
+        fetch(`${API_BASE}/banking/transactions/unified?disposition=${dispositionFilter}&pageSize=20&sortBy=date&sortDir=desc${qs ? "&" + params : ""}`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
         fetch(`${API_BASE}/projects`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        fetch(`${API_BASE}/banking/disposition-counts`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ]);
 
       if (projRes.ok) setProjectsSummary(await projRes.json());
       if (summRes.ok) setBankSummary(await summRes.json());
+      if (dispCountRes.ok) setDispositionCounts(await dispCountRes.json());
       if (unassRes.ok) {
         const json = await unassRes.json();
         setUnassigned(json.transactions ?? []);
@@ -255,7 +263,7 @@ export default function FinancialReconciliationPage() {
     if (!token) return;
     try {
       const params = new URLSearchParams();
-      params.set("unassigned", "true");
+      params.set("disposition", dispositionFilter);
       params.set("pageSize", "20");
       params.set("page", String(page));
       params.set("sortBy", "date");
@@ -749,13 +757,45 @@ export default function FinancialReconciliationPage() {
             </div>
           </div>
 
-          {/* ── Unassigned Transactions Queue ── */}
+          {/* ── Transaction Queue ── */}
           <div style={{ marginBottom: 24 }}>
-            <h3 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 8px" }}>
-              Unassigned Transactions ({unassignedTotal.toLocaleString()})
-            </h3>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8, flexWrap: "wrap" }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>
+                Transactions ({unassignedTotal.toLocaleString()})
+              </h3>
+              {/* Disposition filter tabs */}
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                {DISPOSITION_OPTIONS.map((opt) => {
+                  const count = dispositionCounts[opt.value] ?? 0;
+                  const active = dispositionFilter === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => {
+                        setDispositionFilter(opt.value);
+                        // Re-fetch with new filter
+                        setTimeout(() => fetchAll(), 0);
+                      }}
+                      style={{
+                        padding: "3px 10px",
+                        borderRadius: 4,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        border: active ? `1px solid ${opt.color}` : "1px solid #e5e7eb",
+                        background: active ? opt.bg : "#fff",
+                        color: active ? opt.color : "#6b7280",
+                      }}
+                    >
+                      {opt.label} ({count})
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             <p style={{ fontSize: 12, color: "#6b7280", margin: "0 0 12px" }}>
-              Transactions not yet linked to a project. Use the dropdown to assign.
+              {dispositionFilter === "UNREVIEWED" ? "Transactions not yet reviewed. Assign to a project or set a disposition." : `Showing transactions with disposition: ${getDispositionStyle(dispositionFilter).label}`}
             </p>
             <div style={{ overflowX: "auto", borderRadius: 8, border: "1px solid #e5e7eb" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
@@ -766,6 +806,7 @@ export default function FinancialReconciliationPage() {
                     <th style={{ textAlign: "left", padding: "8px 10px" }}>Description</th>
                     <th style={{ textAlign: "left", padding: "8px 10px" }}>Merchant</th>
                     <th style={{ textAlign: "right", padding: "8px 10px" }}>Amount</th>
+                    <th style={{ textAlign: "center", padding: "8px 10px" }}>Disposition</th>
                     <th style={{ textAlign: "left", padding: "8px 10px" }}>Assign to Project</th>
                     <th style={{ textAlign: "center", padding: "8px 10px", width: 32 }}></th>
                   </tr>
@@ -773,8 +814,10 @@ export default function FinancialReconciliationPage() {
                 <tbody>
                   {unassigned.length === 0 && (
                     <tr>
-                      <td colSpan={7} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>
-                        {unassignedTotal === 0 ? "All transactions are assigned to projects." : "No unassigned transactions on this page."}
+                      <td colSpan={8} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>
+                        {unassignedTotal === 0
+                          ? (dispositionFilter === "UNREVIEWED" ? "All transactions have been reviewed!" : `No transactions with disposition: ${getDispositionStyle(dispositionFilter).label}`)
+                          : "No transactions on this page."}
                       </td>
                     </tr>
                   )}
@@ -810,6 +853,50 @@ export default function FinancialReconciliationPage() {
                           color: txn.amount < 0 ? "#22c55e" : "#ef4444",
                         }}>
                           {txn.amount < 0 ? "+" : "-"}${fmt(txn.amount)}
+                        </td>
+                        <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                          {(() => {
+                            const d = txn.extra?.disposition ?? "UNREVIEWED";
+                            const style = getDispositionStyle(d);
+                            return (
+                              <select
+                                value={d}
+                                onChange={async (e) => {
+                                  const newDisp = e.target.value;
+                                  if (newDisp === d) return;
+                                  const token = getToken();
+                                  if (!token) return;
+                                  try {
+                                    await fetch(`${API_BASE}/banking/transactions/${txn.id}/disposition`, {
+                                      method: "PATCH",
+                                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                                      body: JSON.stringify({ source: txn.source, disposition: newDisp, note: `Quick disposition: ${getDispositionStyle(newDisp).label}` }),
+                                    });
+                                    // Remove from list if no longer matching filter
+                                    if (newDisp !== dispositionFilter) {
+                                      setUnassigned(prev => prev.filter(t => t.id !== txn.id));
+                                      setUnassignedTotal(prev => Math.max(0, prev - 1));
+                                    }
+                                  } catch {}
+                                }}
+                                style={{
+                                  padding: "2px 4px",
+                                  borderRadius: 4,
+                                  border: `1px solid ${style.color}`,
+                                  background: style.bg,
+                                  color: style.color,
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                  maxWidth: 120,
+                                }}
+                              >
+                                {DISPOSITION_OPTIONS.map((opt) => (
+                                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                ))}
+                              </select>
+                            );
+                          })()}
                         </td>
                         <td style={{ padding: "8px 10px" }}>
                           <select
@@ -877,6 +964,14 @@ export default function FinancialReconciliationPage() {
         onClose={() => setRawDetailOpen(false)}
         source={rawDetailSource}
         data={rawDetailTxn}
+        transactionId={rawDetailTxn?.id ?? undefined}
+        onDispositionSaved={(txnId, newDisp) => {
+          // Remove from list if no longer matching filter
+          if (newDisp !== dispositionFilter) {
+            setUnassigned(prev => prev.filter(t => t.id !== txnId));
+            setUnassignedTotal(prev => Math.max(0, prev - 1));
+          }
+        }}
       />
     </PageCard>
   );
