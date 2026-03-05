@@ -681,6 +681,22 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
                 Templates
               </Link>
               <Link
+                href="/system/pricing"
+                style={{
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  border: "1px solid #e5e7eb",
+                  background: pathname?.startsWith("/system/pricing")
+                    ? "#f9fafb"
+                    : "transparent",
+                  color: pathname?.startsWith("/system/pricing") ? "#0f172a" : "#f9fafb",
+                  fontSize: 11,
+                  textDecoration: "none",
+                }}
+              >
+                Pricing
+              </Link>
+              <Link
                 href="/system/embedded/ncc-landing"
                 style={{
                   padding: "2px 8px",
