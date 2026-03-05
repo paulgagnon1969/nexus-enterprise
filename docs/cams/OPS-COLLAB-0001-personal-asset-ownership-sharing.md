@@ -1,5 +1,6 @@
 ---
 cam_id: OPS-COLLAB-0001
+module_code: CORE
 title: "Nexus Phantom-Fleet — Making Visible What's Already There"
 mode: OPS
 category: COLLAB

@@ -1,11 +1,15 @@
-import { Body, Controller, Get, Post, Req } from "@nestjs/common";
+import { Body, Controller, Get, Post, Param, Req, NotFoundException } from "@nestjs/common";
 import { BillingService } from "./billing.service";
+import { PrismaService } from "../../infra/prisma/prisma.service";
 import { Public } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 
 @Controller("membership")
 export class MembershipController {
-  constructor(private readonly billing: BillingService) {}
+  constructor(
+    private readonly billing: BillingService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   /** Full module catalog with prices (public — no auth required). */
   @Public()
@@ -54,6 +58,34 @@ export class MembershipController {
   @Post("reactivate")
   reactivateMembership(@Req() req: any) {
     return this.billing.reactivateMembership(req.user as AuthenticatedUser);
+  }
+
+  // ───────────────────────────────────────────────
+  // CAM Reader
+  // ───────────────────────────────────────────────
+
+  /** Get the CAM document HTML for a given module code. */
+  @Get("modules/:code/cam")
+  async getModuleCam(@Param("code") code: string) {
+    const catalog = await this.prisma.moduleCatalog.findUnique({
+      where: { code },
+      include: {
+        camDocument: {
+          include: { currentVersion: true },
+        },
+      },
+    });
+
+    if (!catalog) throw new NotFoundException(`Module '${code}' not found`);
+    if (!catalog.camDocument) throw new NotFoundException(`No CAM linked to module '${code}'`);
+
+    return {
+      moduleCode: code,
+      moduleLabel: catalog.label,
+      documentId: catalog.camDocument.id,
+      title: catalog.camDocument.title,
+      htmlContent: catalog.camDocument.currentVersion?.htmlContent ?? null,
+    };
   }
 
   // ───────────────────────────────────────────────

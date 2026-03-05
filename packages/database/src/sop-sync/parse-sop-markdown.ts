@@ -59,6 +59,8 @@ function parseFrontmatter(content: string): { frontmatter: SopFrontmatter; body:
     created: data.created || new Date().toISOString().split("T")[0],
     updated: data.updated || new Date().toISOString().split("T")[0],
     author: data.author || "Unknown",
+    ...(data.module_code ? { module_code: data.module_code } : {}),
+    ...(data.cam_id ? { cam_id: data.cam_id } : {}),
   };
 
   return { frontmatter, body };

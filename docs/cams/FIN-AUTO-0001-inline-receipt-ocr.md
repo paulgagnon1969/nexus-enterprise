@@ -1,26 +1,33 @@
 ---
-cam_id: "FIN-AUTO-0001"
+cam_id: FIN-AUTO-0001
 title: "Inline Receipt OCR — Multi-Receipt Scan, Line Item Selection & Credit Deductions"
 mode: FIN
 category: AUTO
-score:
+revision: "2.0"
+status: draft
+created: 2026-02-21
+updated: 2026-03-04
+author: Warp
+website: false
+scores:
   uniqueness: 7
   value: 8
   demonstrable: 9
   defensible: 6
   total: 30
-status: draft
-created: 2026-02-21
-updated: 2026-03-03
-author: Warp
-website: false
 visibility:
   public: false
   internal: true
   roles: [admin, exec, pm, accounting]
+tags: [cam, financial, automation, ocr, receipt, line-item, gpt4-vision, daily-log, expense]
 ---
 
 # FIN-AUTO-0001: Inline Receipt OCR with Line Item Control
+
+> *Snap a receipt. Every line item extracted. Personal purchases excluded. Net total instant.*
+
+## Elevator Pitch
+Nexus uses GPT-4 Vision to instantly read any photographed receipt and auto-fill vendor, amount, date, and every individual line item — right in the daily log form. Users can attach multiple receipts, selectively exclude personal items, and apply credit deductions. The net total recalculates live. No construction PM tool offers line-item-level receipt control with AI-powered OCR.
 
 ## Competitive Advantage
 Field crews capture dozens of receipts per week across job sites. Nexus uses GPT-4 Vision to instantly read any photographed receipt and auto-fill vendor, amount, date, and every individual line item — right in the daily log form. Users can attach multiple receipts to a single expense log and all line items merge into one view. Each item gets a checkbox so users can selectively exclude items (personal purchases, duplicates, returns) and apply flat credit deductions. The net total recalculates live. No manual entry, no separate expense app, no waiting.
@@ -68,11 +75,56 @@ Field crews capture dozens of receipts per week across job sites. Nexus uses GPT
 - Base64 encoding for OpenAI Vision API with `detail: high` for receipt text clarity
 - Low-temperature (0.1) structured JSON extraction for consistent, parseable results
 
+## Expected Operational Savings
+
+*Based on a mid-size restoration firm: 12 field crew, ~50 receipts/week, 5 PMs.*
+
+| Category | Calculation | Annual Savings |
+|----------|-------------|----------------|
+| **Manual entry eliminated** | 5 min/receipt × 50/week × 50 weeks @ $40/hr | **$8,330** |
+| **Data entry errors reduced** | 3% error rate on $60K/month expenses × 12 months × 50% detection | **$10,800** |
+| **Personal expense caught** | 2% of CC spend is personal × $720K annual CC spend | **$14,400** |
+| **PM re-entry time saved** | 15 min/day × 5 PMs × 250 days @ $55/hr | **$3,440** |
+| | **Estimated Annual Savings** | **~$37,000** |
+
+## Competitive Landscape
+
+| Competitor | Receipt OCR? | Line Items? | Multi-Receipt? | Exclude/Credit? | In-PM-Tool? |
+|------------|-------------|------------|----------------|----------------|------------|
+| Procore | Partial | No | No | No | Partial |
+| Buildertrend | No | No | No | No | No |
+| CoConstruct | No | No | No | No | No |
+| Expensify | Yes | Yes | No | Partial | No — separate app |
+| Dext | Yes | Partial | No | No | No — separate app |
+
+## Scoring Rationale
+
+- **Uniqueness (7/10)**: Receipt OCR exists in expense tools, but none offer line-item selection with exclude/credit inside a construction PM daily log.
+- **Value (8/10)**: Eliminates the most tedious daily task for field workers and catches personal expense leakage.
+- **Demonstrable (9/10)**: Snap a receipt, watch items appear in 2-3 seconds, uncheck personal items — viscerally satisfying.
+- **Defensible (6/10)**: GPT-4 Vision API is available to anyone. Defensibility is in the full integration: multi-receipt merge, index-based exclusion persistence, credit field as first-class schema.
+
+**Total: 30/40** — Exceeds CAM threshold (24).
+
+## Related CAMs
+
+- `FIN-VIS-0001` — Purchase Reconciliation (receipt line items feed the disposition layer)
+- `FIN-INTL-0002` — Smart Prescreen Learning Loop (OCR amounts feed prescreening signals)
+- `FIN-INTL-0003` — NexPRICE Regional Pricing (receipt line items dual-write to global cost book)
+- `OPS-INTL-0001` — NexFIND Supplier Intelligence (receipt vendor data auto-captures suppliers)
+
 ## Expansion Opportunities
-- **Tax allocation** — distribute tax proportionally across selected line items for per-item cost accuracy
-- **Category tagging** — auto-assign cost categories (Materials, Supplies, Tools) to each line item from OCR
-- **Invoice OCR** — same multi-receipt pattern for scanning vendor invoices and purchase orders
-- **Receipt matching** — auto-match scanned line items to existing purchase orders or budget line items
-- **Approval workflows** — route high-value receipts (>$500) for PM approval before posting to accounting
-- **Export to QuickBooks/Sage** — line-item-level receipt data feeds directly into accounting integrations
-- **Mobile parity** — bring line item selection and credit deduction UI to the mobile app
+- **Tax allocation** — distribute tax proportionally across selected line items
+- **Category tagging** — auto-assign cost categories from OCR
+- **Invoice OCR** — same pattern for vendor invoices and POs
+- **Receipt matching** — auto-match against POs or budget line items
+- **Approval workflows** — route high-value receipts for PM approval
+- **Export to QuickBooks/Sage** — line-item data feeds accounting integrations
+
+## Revision History
+
+| Rev | Date | Changes |
+|-----|------|---------|
+| 1.0 | 2026-02-21 | Initial draft |
+| 1.1 | 2026-03-03 | Multi-receipt merge, line item selection, credit deductions |
+| 2.0 | 2026-03-04 | Enriched: elevator pitch, operational savings, competitive landscape, scoring rationale, related CAMs |

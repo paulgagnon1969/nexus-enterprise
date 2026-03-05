@@ -1,5 +1,6 @@
 ---
 cam_id: CMP-AUTO-0001
+module_code: COMPLIANCE
 title: "NexCheck — Tap In. Sign Off. Stay Compliant."
 mode: CMP
 category: AUTO

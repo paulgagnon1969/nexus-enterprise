@@ -6538,6 +6538,7 @@ model SystemDocument {
   manualDocuments ManualDocument[] // Documents included in manuals
   shareLinks      DocumentShareLink[] // Private share links
   createdBy       User                        @relation("SystemDocumentCreatedBy", fields: [createdByUserId], references: [id])
+  moduleCatalogCam ModuleCatalog?             @relation("ModuleCamDocument")
 
   @@index([category], map: "SystemDocument_category_idx")
   @@index([active], map: "SystemDocument_active_idx")
@@ -8037,6 +8038,11 @@ model ModuleCatalog {
   isCore          Boolean      @default(false) // CORE modules can't be toggled off
   sortOrder       Int          @default(0)
   active          Boolean      @default(true)
+
+  /// Optional link to a CAM (Competitive Advantage Module) SystemDocument.
+  /// Populated by the CAM sync process; allows "Learn more" on billing page.
+  camDocumentId   String?      @unique
+  camDocument     SystemDocument? @relation("ModuleCamDocument", fields: [camDocumentId], references: [id], onDelete: SetNull)
 }
 
 /// Stripe webhook events stored for idempotency and audit. Every processed

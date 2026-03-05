@@ -58,6 +58,7 @@ import { BigBoxProvider } from "../supplier-catalog/bigbox.provider";
 import { NotificationsService, CreateNotificationParams } from "../notifications/notifications.service";
 import { GeocodingService } from "../geocoding/geocoding.service";
 import { NexfindService } from "../nexfind/nexfind.service";
+import { EntitlementService } from "../billing/entitlement.service";
 
 type PetlArchiveBundleV1 = {
   schemaVersion: 1;
@@ -190,6 +191,7 @@ export class ProjectService {
     private readonly notifications: NotificationsService,
     private readonly geocoding: GeocodingService,
     private readonly nexfind: NexfindService,
+    private readonly entitlements: EntitlementService,
   ) {}
 
   /**
@@ -285,12 +287,15 @@ export class ProjectService {
       `Geocoded project ${projectId}: ${result.latitude}, ${result.longitude}`,
     );
 
-    // NexFIND: auto-discover nearby suppliers after geocoding
-    void this.nexfind
-      .discoverNearby(updated.companyId, result.latitude, result.longitude)
-      .catch((err: any) =>
-        this.logger.warn(`NexFIND post-geocode discovery failed (non-fatal): ${err?.message}`),
-      );
+    // NexFIND: auto-discover nearby suppliers after geocoding (if module enabled)
+    void this.entitlements.isModuleEnabled(updated.companyId, "NEXFIND").then((enabled) => {
+      if (!enabled) return;
+      return this.nexfind
+        .discoverNearby(updated.companyId, result.latitude, result.longitude)
+        .catch((err: any) =>
+          this.logger.warn(`NexFIND post-geocode discovery failed (non-fatal): ${err?.message}`),
+        );
+    });
   }
 
   async createProject(dto: CreateProjectDto, actor: AuthenticatedUser) {
@@ -429,13 +434,16 @@ export class ProjectService {
       }
     });
 
-    // NexFIND: auto-discover nearby suppliers when project has coordinates
+    // NexFIND: auto-discover nearby suppliers when project has coordinates (if module enabled)
     if (project.latitude != null && project.longitude != null) {
-      void this.nexfind
-        .discoverNearby(companyId, project.latitude, project.longitude)
-        .catch((err: any) =>
-          this.logger.warn(`NexFIND auto-discovery failed (non-fatal): ${err?.message}`),
-        );
+      void this.entitlements.isModuleEnabled(companyId, "NEXFIND").then((enabled) => {
+        if (!enabled) return;
+        return this.nexfind
+          .discoverNearby(companyId, project.latitude!, project.longitude!)
+          .catch((err: any) =>
+            this.logger.warn(`NexFIND auto-discovery failed (non-fatal): ${err?.message}`),
+          );
+      });
     }
 
     // Auto-create PM review task when a non-OWNER/ADMIN creates a project

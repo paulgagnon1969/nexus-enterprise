@@ -1,26 +1,33 @@
 ---
-cam_id: "OPS-INTL-0001"
+cam_id: OPS-INTL-0001
 title: "NexFIND — Crowdsourced Supplier Discovery & Network Intelligence"
 mode: OPS
 category: INTL
-score:
+revision: "2.0"
+status: draft
+created: 2026-03-02
+updated: 2026-03-04
+author: Warp
+website: false
+scores:
   uniqueness: 9
   value: 9
   demonstrable: 9
   defensible: 8
   total: 35
-status: draft
-created: 2026-03-02
-updated: 2026-03-02
-author: Warp
-website: false
 visibility:
   public: false
   internal: true
   roles: [admin, exec, pm, estimator, field]
+tags: [cam, ops, intelligence, supplier, nexfind, map, network-effect, crowdsource, mobile]
 ---
 
 # OPS-INTL-0001: NexFIND — Crowdsourced Supplier Discovery & Network Intelligence
+
+> *Every crew that uses Nexus makes the supplier map smarter for every other crew.*
+
+## Elevator Pitch
+NexFIND builds a living, crowdsourced supplier map that grows automatically from every tenant's daily activity — receipt captures, product searches, driving directions, and project creation. When a crew enters a new market, they instantly see verified suppliers from the network. The more companies on Nexus, the richer the intelligence. No competitor has anything like it.
 
 ## Competitive Advantage
 Every restoration and construction company faces the same problem: a crew is on-site, needs a specific product, and has no idea which nearby supplier carries it. They waste time calling around, driving to the wrong store, or defaulting to the same big-box retailer regardless of price or availability. **NexFIND** solves this by building a living, crowdsourced supplier map that grows automatically from every tenant's daily activity — receipt captures, product searches, driving directions, and manual saves. The more companies on Nexus, the richer the supplier network becomes for everyone. No competitor in restoration or construction SaaS has a multi-tenant supplier intelligence network with passive data capture.
@@ -96,6 +103,34 @@ Supplier pins render on the existing Mapbox map alongside project pins:
 - **Local knowledge at scale**: a 3-person crew in a new city gets the benefit of every other Nexus crew that has ever worked there. "Institutional knowledge" becomes "network knowledge."
 - **Revenue opportunity**: NexFIND Pro (full network access) is a natural paid add-on that funds the data infrastructure while creating vendor-side marketplace potential.
 
+## Expected Operational Savings
+
+*Based on a mid-size restoration firm: 12 field crew, 60 projects/year, 20 material runs per project.*
+
+| Category | Calculation | Annual Savings |
+|----------|-------------|----------------|
+| **Field time saved on material runs** | 25 min saved/run × 20 runs/project × 60 projects @ $35/hr | **$17,500** |
+| **Fuel cost reduction** | 8 miles/run saved × 1,200 runs/yr × $0.655/mile IRS rate | **$6,300** |
+| **Avoided unnecessary rentals** | 3 rentals/yr avoided by finding local specialty suppliers × avg $800/rental | **$2,400** |
+| **Better pricing through supplier options** | 3% avg savings from supplier comparison × $900K annual materials | **$27,000** |
+| **New-market ramp-up time** | 2 projects/yr in new markets × 8 hrs saved on supplier research @ $55/hr | **$880** |
+| | **Estimated Annual Savings** | **~$54,100** |
+
+Savings scale dramatically with the network effect — as more tenants contribute data, supplier coverage and pricing intelligence improve for everyone.
+
+## Competitive Landscape
+
+| Competitor | Supplier Map? | Auto-Discovery? | Receipt-to-Supplier? | Network Intelligence? | Product Search? |
+|------------|--------------|----------------|---------------------|---------------------|----------------|
+| Procore | No | No | No | No | No |
+| Buildertrend | No | No | No | No | No |
+| CoConstruct | No | No | No | No | No |
+| CompanyCam | No | No | No | No | No |
+| JobNimbus | No | No | No | No | No |
+| Fieldwire | No | No | No | No | No |
+
+No competitor has any form of supplier intelligence, let alone a multi-tenant crowdsourced network.
+
 ## Demo Script
 1. **Project auto-discovery:** Create a new project in Denver, CO. Show the map — supplier pins auto-appear within 15 miles (Home Depot, Lowe's, ABC Supply, local lumber yards).
 2. **Product search:** On mobile, open the project map. Tap the search bar and type "standing seam metal roofing panels." Show the ranked supplier list: ABC Supply (2.3 mi), Home Depot (3.1 mi), Peterson Metals (4.8 mi).
@@ -120,12 +155,26 @@ Supplier pins render on the existing Mapbox map alongside project pins:
 - **Demonstrable (9/10):** Map pins, product search, live directions, receipt auto-capture — every feature is visual and can be demoed in under 5 minutes on a phone.
 - **Defensible (8/10):** Network effect creates a data moat. Each new tenant enriches the supplier index. A competitor would need to build the same user base generating the same passive data — that takes years, not code.
 
+## Related CAMs
+
+- `FIN-AUTO-0001` — Inline Receipt OCR (receipt-to-supplier auto-capture pipeline)
+- `FIN-INTL-0003` — NexPRICE Regional Pricing (supplier pricing data feeds the regional pricing engine)
+- `EST-INTG-0001` — Multi-Provider BOM Pricing (store locations from BOM search enrich the supplier map)
+- `TECH-SPD-0003` — Smart Media Upload (supplier photos from field visits upload reliably)
+
 ## Expansion Opportunities
 
 - **NexFIND Pro (Paid Tier)** — Full network directory access, aggregated spending analytics, vendor-comparison reports by zip code
-- **Vendor Marketplace** — Suppliers pay to appear as "Featured" in search results. Restoration suppliers advertise directly to active project crews.
-- **Price Intelligence** — Cross-reference receipt OCR data across tenants (anonymized) to build price benchmarks by product, region, and season
-- **Delivery Tracking** — Integrate with supplier delivery APIs to show real-time ETA of ordered materials on the project map
-- **Inventory Integration** — When a crew gets directions to a supplier, pre-generate a pick list from the project's material requirements
-- **Supplier Ratings** — Tenant crews rate suppliers on speed, price, stock reliability. Aggregate ratings visible to NexFIND Pro subscribers.
-- **Offline Map Tiles** — Cache supplier pins for areas around active projects so the map works in low-connectivity job sites
+- **Vendor Marketplace** — Suppliers pay to appear as "Featured" in search results
+- **Price Intelligence** — Cross-reference receipt OCR data across tenants (anonymized) to build price benchmarks
+- **Delivery Tracking** — Integrate with supplier delivery APIs to show real-time ETA on the project map
+- **Inventory Integration** — Pre-generate a pick list from project material requirements when navigating to a supplier
+- **Supplier Ratings** — Aggregate crew ratings visible to NexFIND Pro subscribers
+- **Offline Map Tiles** — Cache supplier pins for low-connectivity job sites
+
+## Revision History
+
+| Rev | Date | Changes |
+|-----|------|---------|
+| 1.0 | 2026-03-02 | Initial draft — NexFIND concept and architecture |
+| 2.0 | 2026-03-04 | Enriched: elevator pitch, operational savings, competitive landscape table, related CAMs, revision history |

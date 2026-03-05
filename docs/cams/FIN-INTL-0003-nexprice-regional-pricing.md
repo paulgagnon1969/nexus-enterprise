@@ -1,5 +1,6 @@
 ---
 cam_id: "FIN-INTL-0003"
+module_code: ESTIMATING
 title: "NexPRICE — Regional Pricing Intelligence"
 mode: FIN
 category: INTL
@@ -14,7 +15,7 @@ visibility:
   public: false
   internal: true
   roles: [admin, exec, pm, estimator, accounting]
-scoring:
+scores:
   uniqueness: 9
   value: 9
   demonstrable: 8
@@ -94,6 +95,22 @@ Xactimate provides regional pricing for insurance line items, but not for actual
 ### 4. Freshness
 Traditional cost databases (RS Means, Craftsman) update annually. NexPRICE updates in real-time with every tenant transaction. A price surge at Home Depot is visible in the master cost book within hours, not months.
 
+## Expected Operational Savings
+
+*Based on a mid-size restoration firm: 3 estimators, 5 PMs, 60 projects/year, $75K avg materials budget.*
+
+| Category | Calculation | Annual Savings |
+|----------|-------------|----------------|
+| **Cost book maintenance eliminated** | 8 hrs/month manual updates × 12 months @ $55/hr | **$5,280** |
+| **Bid accuracy improvement** | 5% pricing error reduced on $4.5M annual materials | **$225,000 exposure reduced** |
+| **New-tenant onboarding** | 40 hrs saved on cost book setup per new project market × 2 markets/yr @ $55/hr | **$4,400** |
+| **Price drift detection** | 3 mid-project material spikes/yr caught early × avg $2,000 avoided overpay | **$6,000** |
+| **Insurance supplement evidence** | 2 supplements/yr supported by price trend data × avg $4,000 | **$8,000** |
+| | **Estimated Annual Savings** | **~$23,700** |
+| | **Exposure Reduction** | **$225,000/yr** |
+
+The bid accuracy exposure reduction is the headline number — a 5% material pricing error on a $500K project is $25K of margin at risk. NexPRICE doesn't eliminate the error entirely but dramatically narrows the variance.
+
 ## Monetization
 
 ### NexPRICE Seed (One-Time Purchase)
@@ -151,6 +168,12 @@ Traditional cost databases (RS Means, Craftsman) update annually. NexPRICE updat
 - NexPRICE normalization service: region resolution → COL lookup → normalize → upsert
 - Stripe `ModuleCatalog` entries: `NEXPRICE_SEED`, `NEXPRICE_SYNC`
 
+## Related CAMs
+
+- `FIN-VIS-0001` — Purchase Reconciliation Audit Chain (the primary data source feeding NexPRICE)
+- `FIN-INTL-0002` — Smart Prescreen Learning Loop
+- `FIN-AUTO-0001` — Inline Receipt OCR
+
 ## Scoring Rationale
 
 - **Uniqueness (9/10)**: No construction SaaS offers crowd-sourced, regionally-normalized, SKU-level material pricing from real purchases. RS Means and Craftsman are static annual publications. Xactimate is insurance-focused.
@@ -165,3 +188,4 @@ Traditional cost databases (RS Means, Craftsman) update annually. NexPRICE updat
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-03-04 | Initial CAM — NexPRICE regional pricing intelligence engine |
+| 1.1 | 2026-03-04 | Added operational savings section, aligned frontmatter to `scores:` key |

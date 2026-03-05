@@ -3,10 +3,12 @@ cam_id: TECH-INTL-0001
 title: "TUCKS — Telemetry Usage Chart KPI System with Gaming Detection"
 mode: TECH
 category: INTL
+revision: "2.0"
 status: draft
 created: 2026-02-28
-updated: 2026-02-28
+updated: 2026-03-04
 author: Warp
+tags: [cam, technology, intelligence, telemetry, kpi, analytics, gaming-detection, workforce, efficiency, tucks]
 scores:
   uniqueness: 9
   value: 9
@@ -20,7 +22,12 @@ visibility:
   roles: [admin, exec, pm]
 ---
 
-# TECH-INTL-0001 — TUCKS: Telemetry Usage Chart KPI System
+# TECH-INTL-0001: TUCKS — Telemetry Usage Chart KPI System
+
+> *Is your team using the tool? Is the tool making them better? Now you know.*
+
+## Elevator Pitch
+TUCKS is a full telemetry and analytics platform that tracks every meaningful user action, computes workforce efficiency metrics, provides personal KPI dashboards with anonymous benchmarking, and detects users who game the system. No competing construction PM offers integrated gaming detection, individual benchmarking, or crew-level efficiency correlation.
 
 ## What It Is
 A full telemetry and analytics platform built into Nexus that tracks every meaningful user action, computes workforce efficiency metrics, provides personal KPI dashboards with anonymous benchmarking, and automatically detects users who "game" the system by inflating activity counts. Includes a three-tier storage architecture (live → rollup → encrypted vault) designed to scale from 1K to 100K users at under $1,700/year in infrastructure cost.
@@ -69,15 +76,45 @@ Raw telemetry lives in Postgres for 2 weeks (for debugging and real-time queries
 - **Demonstrable (8/10)**: Highly visual — dashboards, charts, sparklines, gaming flags. Easy to demo. Slight deduction because full value requires accumulated data over time.
 - **Defensible (7/10)**: The gaming detection algorithm and efficiency correlation logic are non-trivial to replicate, but the individual components (event tracking, rollups, charts) are standard. The defensibility is in the domain-specific calibration and the integration across all Nexus modules.
 
-## Related Modules
-- Daily Logs (primary data source for gaming detection)
-- Timecards (workforce efficiency correlation)
-- PETL / Estimating (expected labor benchmarks)
-- Projects / Rooms (completion velocity tracking)
+## Expected Operational Savings
 
-## Future Extensions
-- **Predictive analytics**: Use historical efficiency data to predict project completion dates
-- **AI coaching**: Automated suggestions based on personal KPI trends ("Your daily log frequency dropped 30% this week — everything OK?")
-- **Client-facing efficiency reports**: Share anonymized efficiency metrics with project owners as proof of productivity
-- **Mobile widget**: Show personal KPI summary on the mobile home screen
-- **Seasonal benchmarking**: Compare current efficiency against same-season historical data (construction is seasonal)
+*Based on a mid-size restoration firm: 25 users, $2M annual labor, 60 projects/year.*
+
+| Category | Calculation | Annual Savings |
+|----------|-------------|----------------|
+| **Workforce efficiency improvement** | 5% from visibility/benchmarking × $2M labor | **$100,000** |
+| **Gaming/fraud detection** | 2 incidents/yr caught × avg $2,500 | **$5,000** |
+| **Software adoption ROI** | 15% usage improvement × $50K annual software invest | **$7,500** |
+| **Training targeting** | 20 hrs/yr saved on broad training @ $55/hr | **$1,100** |
+| **Management decision time** | 2 hrs/week saved × 50 weeks @ $55/hr | **$5,500** |
+| | **Estimated Annual Savings** | **~$119,100** |
+
+## Competitive Landscape
+
+| Competitor | Usage Analytics? | Personal KPIs? | Gaming Detection? | Efficiency Correlation? | Benchmarking? |
+|------------|-----------------|---------------|-------------------|----------------------|------------------|
+| Procore | Basic (admin) | No | No | No | No |
+| Buildertrend | Basic views | No | No | No | No |
+| CoConstruct | No | No | No | No | No |
+| BusyBusy | Time tracking | No | No | Partial | No |
+
+## Related CAMs
+
+- `OPS-VIS-0002` — Urgency Task Dashboard (task completion rates feed TUCKS KPIs)
+- `CMP-AUTO-0001` — NexCheck (check-in events are telemetry data points)
+- `OPS-COLLAB-0001` — Phantom Fleet (asset utilization feeds efficiency metrics)
+- `FIN-INTL-0002` — Smart Prescreen (accept/reject rates feed adoption metrics)
+
+## Expansion Opportunities
+- **Predictive analytics** — historical efficiency data to predict project completion dates
+- **AI coaching** — automated suggestions based on personal KPI trends
+- **Client-facing reports** — share anonymized metrics with project owners
+- **Mobile widget** — personal KPI summary on mobile home screen
+- **Seasonal benchmarking** — compare against same-season historical data
+
+## Revision History
+
+| Rev | Date | Changes |
+|-----|------|---------|
+| 1.0 | 2026-02-28 | Initial draft — TUCKS telemetry concept |
+| 2.0 | 2026-03-04 | Enriched: elevator pitch, operational savings, competitive landscape, related CAMs, revision history |

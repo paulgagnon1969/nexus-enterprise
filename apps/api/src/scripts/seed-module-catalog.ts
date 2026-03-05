@@ -154,6 +154,16 @@ const MODULES: ModuleDef[] = [
     isCore: false,
     sortOrder: 11,
   },
+  {
+    code: "NEXFIND",
+    label: "NexFIND — Supplier Discovery & Network Intelligence",
+    description:
+      "Crowdsourced supplier discovery via Google Places, product search, directions capture, and global supplier network sharing.",
+    monthlyPrice: 4900, // $49/mo
+    pricingModel: "MONTHLY",
+    isCore: false,
+    sortOrder: 12,
+  },
 
   // ── Per-project unlock features ───────────────────────────────────
   {

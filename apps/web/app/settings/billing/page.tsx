@@ -17,6 +17,7 @@ interface CatalogModule {
   isCore: boolean;
   sortOrder: number;
   enabled: boolean;
+  camDocumentId: string | null;
 }
 
 interface CompanyStatus {
@@ -110,6 +111,8 @@ export default function BillingPage() {
   const [error, setError] = useState<string | null>(null);
   const [togglingCode, setTogglingCode] = useState<string | null>(null);
   const [showInvoices, setShowInvoices] = useState(false);
+  const [camModal, setCamModal] = useState<{ title: string; html: string } | null>(null);
+  const [camLoading, setCamLoading] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -147,6 +150,23 @@ export default function BillingPage() {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  const openCam = async (mod: CatalogModule) => {
+    if (!mod.camDocumentId) return;
+    setCamLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/membership/modules/${mod.code}/cam`, {
+        headers: authHeaders(),
+      });
+      if (!res.ok) throw new Error("Failed to load CAM");
+      const data = await res.json();
+      setCamModal({ title: data.title ?? mod.label, html: data.htmlContent ?? "" });
+    } catch {
+      setCamModal({ title: mod.label, html: "<p>Unable to load document.</p>" });
+    } finally {
+      setCamLoading(false);
+    }
+  };
 
   const toggleModule = async (mod: CatalogModule) => {
     if (mod.isCore || mod.pricingModel !== "MONTHLY") return;
@@ -338,6 +358,8 @@ export default function BillingPage() {
                 mod={mod}
                 toggling={togglingCode === mod.code}
                 onToggle={() => toggleModule(mod)}
+                onLearnMore={mod.camDocumentId ? () => openCam(mod) : undefined}
+                camLoading={camLoading}
                 allUnlocked={
                   company?.isInternal ||
                   (company?.isTrial && trialDays !== null && trialDays > 0)
@@ -589,11 +611,80 @@ export default function BillingPage() {
           </div>
         )}
       </div>
+      {/* ── CAM Reader Modal ──────────────────────────────────── */}
+      {camModal && (
+        <div
+          onClick={() => setCamModal(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#ffffff",
+              borderRadius: 10,
+              width: "min(720px, 90vw)",
+              maxHeight: "85vh",
+              display: "flex",
+              flexDirection: "column",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
+            }}
+          >
+            {/* Header */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "14px 20px",
+                borderBottom: "1px solid #e5e7eb",
+              }}
+            >
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
+                {camModal.title}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setCamModal(null)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: 20,
+                  color: "#6b7280",
+                  padding: "4px 8px",
+                  lineHeight: 1,
+                }}
+              >
+                ×
+              </button>
+            </div>
+            {/* Body */}
+            <div
+              style={{
+                padding: "20px",
+                overflowY: "auto",
+                fontSize: 13,
+                lineHeight: 1.6,
+                color: "#374151",
+              }}
+              dangerouslySetInnerHTML={{ __html: camModal.html }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// ── Sub-components ───────────────────────────────────────────────────
+// ── Sub-components ───────────────────────────────────────────────────────
 
 function StatusBadge({ company }: { company: CompanyStatus | undefined }) {
   if (!company) return null;
@@ -652,12 +743,16 @@ function ModuleCard({
   mod,
   toggling,
   onToggle,
+  onLearnMore,
   allUnlocked,
+  camLoading,
 }: {
   mod: CatalogModule;
   toggling: boolean;
   onToggle: () => void;
+  onLearnMore?: () => void;
   allUnlocked: boolean | undefined;
+  camLoading?: boolean;
 }) {
   const isEnabled = mod.enabled;
 
@@ -715,6 +810,26 @@ function ModuleCard({
       >
         {mod.description}
       </p>
+
+      {mod.camDocumentId && onLearnMore && (
+        <button
+          type="button"
+          onClick={onLearnMore}
+          disabled={camLoading}
+          style={{
+            background: "none",
+            border: "none",
+            cursor: camLoading ? "wait" : "pointer",
+            padding: 0,
+            fontSize: 12,
+            color: "#2563eb",
+            textDecoration: "underline",
+            textAlign: "left",
+          }}
+        >
+          {camLoading ? "Loading…" : "Learn more"}
+        </button>
+      )}
 
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         {/* Toggle switch */}

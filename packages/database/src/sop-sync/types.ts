@@ -11,6 +11,10 @@ export interface SopFrontmatter {
   created: string; // YYYY-MM-DD
   updated: string; // YYYY-MM-DD
   author: string;
+  /** CAM-specific: maps to ModuleCatalog.code */
+  module_code?: string;
+  /** CAM-specific: unique CAM identifier */
+  cam_id?: string;
 }
 
 export interface ParsedSop {

@@ -3,7 +3,7 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { Store } from "@tauri-apps/plugin-store";
 import type { LoginResponse } from "../lib/api";
 
-const DEFAULT_API_URL = "https://nexus-api-wswbn2e6ta-uc.a.run.app";
+const DEFAULT_API_URL = "https://staging-api.nfsgrp.com";
 const CREDS_STORE = "nexbridge-saved-creds.json";
 
 interface Props {
@@ -125,7 +125,7 @@ export default function Login({ onLogin }: Props) {
               value={apiUrl}
               onChange={(e) => setApiUrl(e.target.value)}
               className="w-full rounded border px-3 py-2 text-sm focus:border-nexus-500 focus:outline-none focus:ring-1 focus:ring-nexus-500"
-              placeholder="https://nexus-api-xxx.a.run.app"
+placeholder="https://staging-api.nfsgrp.com"
             />
             <div className="mt-1 flex items-center gap-1.5">
               <span className={`inline-block h-2 w-2 rounded-full ${statusDot}`} />

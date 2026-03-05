@@ -14,8 +14,9 @@ import {
 // Paths to document sources relative to repo root
 const STAGING_DIR = path.resolve(__dirname, "../../../../../docs/sops-staging");
 const POLICIES_DIR = path.resolve(__dirname, "../../../../../docs/policies");
+const CAMS_DIR = path.resolve(__dirname, "../../../../../docs/cams");
 
-// All source directories for documents
+// All source directories for SOP documents
 const SOURCE_DIRS = [STAGING_DIR, POLICIES_DIR];
 
 // NccPM manual code - all SOPs sync into this manual
@@ -429,6 +430,173 @@ export class SopSyncService {
       newRevision: frontmatter.revision,
       systemDocumentId,
     };
+  }
+
+  // ───────────────────────────────────────────────
+  // CAM Sync
+  // ───────────────────────────────────────────────
+
+  /**
+   * Sync all CAM files from docs/cams/ to SystemDocument
+   * and link to ModuleCatalog via camDocumentId.
+   */
+  async syncAllCams(actor: AuthenticatedUser): Promise<SopSyncReport> {
+    let allCams: ParsedSop[] = [];
+    try {
+      allCams = parseAllSops(CAMS_DIR);
+    } catch {
+      // Directory may not exist
+    }
+
+    const results: SopSyncResult[] = [];
+    for (const cam of allCams) {
+      const result = await this.syncSingleCam(cam, actor);
+      results.push(result);
+    }
+
+    const summary = {
+      total: results.length,
+      created: results.filter((r) => r.action === "created").length,
+      updated: results.filter((r) => r.action === "updated").length,
+      unchanged: results.filter((r) => r.action === "unchanged").length,
+      errors: results.filter((r) => r.action === "error").length,
+    };
+
+    this.logger.log(
+      `CAM sync complete: ${summary.created} created, ${summary.updated} updated, ${summary.unchanged} unchanged, ${summary.errors} errors`,
+    );
+
+    return { timestamp: new Date().toISOString(), results, summary };
+  }
+
+  /**
+   * Internal: sync a single parsed CAM document
+   */
+  private async syncSingleCam(cam: ParsedSop, actor: AuthenticatedUser): Promise<SopSyncResult> {
+    try {
+      const existing = await this.prisma.systemDocument.findUnique({
+        where: { code: cam.code },
+        include: { currentVersion: true },
+      });
+
+      let docId: string;
+      let action: SopSyncResult["action"];
+
+      if (!existing) {
+        // Create new CAM document
+        const result = await this.prisma.$transaction(async (tx) => {
+          const doc = await tx.systemDocument.create({
+            data: {
+              code: cam.code,
+              title: cam.frontmatter.title,
+              description: `CAM: ${cam.frontmatter.cam_id ?? cam.code}`,
+              category: "CAM",
+              subcategory: cam.frontmatter.module_code ?? cam.frontmatter.module,
+              tags: cam.frontmatter.tags,
+              active: true,
+              isPublic: false,
+              createdByUserId: actor.userId,
+            },
+          });
+          const version = await tx.systemDocumentVersion.create({
+            data: {
+              systemDocumentId: doc.id,
+              versionNo: 1,
+              htmlContent: cam.htmlBody,
+              contentHash: cam.contentHash,
+              notes: `Rev ${cam.frontmatter.revision} - Initial CAM import`,
+              createdByUserId: actor.userId,
+            },
+          });
+          await tx.systemDocument.update({
+            where: { id: doc.id },
+            data: { currentVersionId: version.id },
+          });
+          return doc;
+        });
+
+        docId = result.id;
+        action = "created";
+
+        await this.audit.log(actor, "SYSTEM_DOCUMENT_CREATED", {
+          metadata: {
+            systemDocumentId: docId,
+            code: cam.code,
+            title: cam.frontmatter.title,
+            revision: cam.frontmatter.revision,
+            source: "cam-sync",
+          },
+        });
+
+        this.logger.log(`Created CAM SystemDocument: ${cam.code}`);
+      } else if (existing.currentVersion?.contentHash === cam.contentHash) {
+        docId = existing.id;
+        action = "unchanged";
+      } else {
+        // Update existing CAM
+        await this.prisma.$transaction(async (tx) => {
+          const latestVersion = await tx.systemDocumentVersion.findFirst({
+            where: { systemDocumentId: existing.id },
+            orderBy: { versionNo: "desc" },
+          });
+          const newVersionNo = (latestVersion?.versionNo ?? 0) + 1;
+          const version = await tx.systemDocumentVersion.create({
+            data: {
+              systemDocumentId: existing.id,
+              versionNo: newVersionNo,
+              htmlContent: cam.htmlBody,
+              contentHash: cam.contentHash,
+              notes: `Rev ${cam.frontmatter.revision} - Updated CAM`,
+              createdByUserId: actor.userId,
+            },
+          });
+          await tx.systemDocument.update({
+            where: { id: existing.id },
+            data: {
+              currentVersionId: version.id,
+              title: cam.frontmatter.title,
+              tags: cam.frontmatter.tags,
+              subcategory: cam.frontmatter.module_code ?? cam.frontmatter.module,
+            },
+          });
+        });
+
+        docId = existing.id;
+        action = "updated";
+
+        this.logger.log(`Updated CAM SystemDocument: ${cam.code}`);
+      }
+
+      // Link to ModuleCatalog if module_code present
+      if (cam.frontmatter.module_code) {
+        const catalog = await this.prisma.moduleCatalog.findUnique({
+          where: { code: cam.frontmatter.module_code },
+        });
+        if (catalog) {
+          await this.prisma.moduleCatalog.update({
+            where: { code: cam.frontmatter.module_code },
+            data: { camDocumentId: docId },
+          });
+          this.logger.log(`Linked CAM ${cam.code} → ModuleCatalog ${cam.frontmatter.module_code}`);
+        }
+      }
+
+      return {
+        code: cam.code,
+        title: cam.frontmatter.title,
+        action,
+        ...(action === "created" ? { newRevision: cam.frontmatter.revision } : {}),
+        systemDocumentId: docId,
+      };
+    } catch (err: any) {
+      this.logger.error(`Failed to sync CAM ${cam.code}: ${err.message}`);
+      return {
+        code: cam.code,
+        title: cam.frontmatter.title,
+        action: "error",
+        error: err.message,
+      };
+    }
   }
 
   /**

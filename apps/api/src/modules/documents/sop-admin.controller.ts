@@ -96,6 +96,17 @@ export class SopAdminController {
     return this.sopSync.syncSopByCode(code, actor);
   }
 
+  /**
+   * POST /admin/sops/sync-cams
+   * Sync all CAM files from docs/cams/ to SystemDocument
+   * and link to ModuleCatalog via camDocumentId.
+   */
+  @Post("sync-cams")
+  async syncCams(@Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.sopSync.syncAllCams(actor);
+  }
+
   // =============================================
   // System Documents Management (synced documents)
   // =============================================

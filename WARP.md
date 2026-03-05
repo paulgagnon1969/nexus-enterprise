@@ -640,17 +640,50 @@ Before building, bump the version in `apps/mobile/app.json`:
 
 ## File Sharing — WARP TMP Folder
 
-**All files that Warp generates for the user** (CSVs, exports, consolidated data, reports, etc.) MUST be saved to the shared WARP TMP folder, NOT to `/tmp` or any other hidden/system directory.
+**ALL files that Warp saves to disk** — regardless of type — MUST go to the WARP TMP folder. This includes CSVs, exports, reports, build artifacts, binaries, database dumps, logs, screenshots, PDFs, ZIPs, and anything else the user or Warp needs to persist outside the repo.
 
-**Path:** `/Volumes/4T Data/WARP TMP/`
+**Root path:** `/Volumes/4T Data/WARP TMP/`
 
-**Rules:**
-- NEVER save user-facing files to `/tmp`, `/private/tmp`, or any hidden directory. macOS hides these from Finder and file upload dialogs, making them inaccessible to the user.
-- ALWAYS save to `/Volumes/4T Data/WARP TMP/` — this is a visible, browsable location on the 4T external drive.
+### Core Rules
+- NEVER save user-facing files to `/tmp`, `/private/tmp`, or any hidden/system directory. macOS hides these from Finder and file upload dialogs, making them inaccessible to the user.
+- ALWAYS save to `/Volumes/4T Data/WARP TMP/` or an appropriate sub-folder.
 - Use descriptive filenames: `apple-card-all-deduped.csv`, not `output.csv`.
 - Include dates in filenames when the content is time-specific: `hd-transactions-20260303.csv`.
 - The folder is shared between Warp sessions — clean up old files only when the user asks.
 - If the 4T volume is not mounted, fall back to `~/Desktop/` and inform the user.
+
+### Sub-Folder Organization
+Create sub-folders as needed to keep things organized. Create them on the fly — don't pre-create empty directories. Use kebab-case names that describe the content category.
+
+**Standard sub-folders** (create when first needed):
+- `builds/` — App binaries, APKs, DMGs, IPAs (e.g., `builds/nexbridge-connect-v1.0.0.dmg`)
+- `exports/` — Data exports, database dumps, JSON/CSV extracts
+- `reports/` — Generated reports, audits, reconciliations
+- `imports/` — Source files staged for import (CSVs, spreadsheets)
+- `logs/` — Captured logs, debug output
+- `screenshots/` — UI screenshots, test evidence
+- `temp/` — Truly temporary working files (OK to clean up between sessions)
+
+**Rules for sub-folders:**
+- If a file clearly fits a category above, use that sub-folder.
+- If it doesn't fit, create a new descriptive sub-folder (e.g., `migrations/`, `certificates/`).
+- Don't nest deeper than 2 levels unless there's a clear reason.
+- When saving a build artifact, include the app name and version: `builds/nexbridge-connect-v1.0.0-20260304.dmg`.
+
+### Examples
+```
+/Volumes/4T Data/WARP TMP/
+├── builds/
+│   ├── nexbridge-connect-v1.0.0-20260304.dmg
+│   └── nexus-mobile-release-20260301.apk
+├── exports/
+│   ├── nexbridge-export-2026-03-04.json
+│   └── apple-card-all-deduped.csv
+├── reports/
+│   └── hd-transactions-20260303.csv
+└── imports/
+    └── xact-price-list-2026q1.csv
+```
 
 ## How future agents should work here
 

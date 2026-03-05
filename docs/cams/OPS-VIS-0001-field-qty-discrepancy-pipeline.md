@@ -1,5 +1,6 @@
 ---
 cam_id: OPS-VIS-0001
+module_code: ESTIMATING
 title: "Field Qty Discrepancy Pipeline"
 mode: OPS
 category: VIS
@@ -52,17 +53,58 @@ In restoration, estimate quantities frequently don't match field reality. Drywal
 4. Point out the ⚠️ Field Qty Discrepancy banner showing the field note, qty comparison, and pending status.
 5. Show the PM creating a supplement entry informed by the field data.
 
-## Metrics / Value Indicators
-- **Time to supplement decision** — reduced from days (waiting for field reports) to minutes
-- **Supplement accuracy** — field-reported qty available at point of decision, reducing under/over-billing
-- **Discrepancy audit trail** — every flag has a timestamp, author, and resolution status
+## Expected Operational Savings
+
+*Based on a mid-size restoration firm: 5 PMs, 60 projects/year, avg 15 flaggable line items per project.*
+
+| Category | Calculation | Annual Savings |
+|----------|-------------|----------------|
+| **Faster supplement filing** | Cash flow acceleration on 30 supplements/yr × $200 time-value | **$6,000** |
+| **Captured under-billed scope** | 2 missed discrepancies/project × avg $800 × 60 projects × 50% capture | **$48,000** |
+| **PM cross-reference time saved** | 30 min/project × 60 projects @ $55/hr | **$1,650** |
+| **Carrier disputes won** | 1 dispute/yr won with audit trail × avg $5,000 | **$5,000** |
+| | **Estimated Annual Savings** | **~$60,650** |
+
+## Competitive Landscape
+
+| Competitor | Field Qty Flagging? | Flag → Reconciliation? | Review Lifecycle? | Real-Time PM View? |
+|------------|--------------------|-----------------------|-------------------|-------------------|
+| Procore | No | No | No | No |
+| Buildertrend | No | No | No | No |
+| CoConstruct | No | No | No | No |
+| Xactimate | No — estimating only | N/A | N/A | N/A |
+| CompanyCam | Photo annotations | No estimate link | No | No |
+
+## Scoring Rationale
+
+- **Uniqueness (7/10)**: Field-to-estimate qty flagging with direct reconciliation integration is unique.
+- **Value (8/10)**: Under-billed scope is one of the biggest margin leaks in restoration.
+- **Demonstrable (8/10)**: Flag on mobile, see banner on web — immediate and clear.
+- **Defensible (5/10)**: UI + data flow integration, not algorithmically complex, but the SowItem-level flag model creates a defensible workflow.
+
+**Total: 28/40** — Exceeds CAM threshold (24).
+
+## Related CAMs
+
+- `OPS-VIS-0002` — Urgency Task Dashboard (discrepancy flags generate follow-up tasks)
+- `FIN-VIS-0001` — Purchase Reconciliation (flagged materials feed financial reconciliation)
+- `EST-INTG-0001` — Multi-Provider BOM Pricing (re-priced items after correction use BOM search)
 
 ## Technical Implementation
-- **Frontend only** for the reconciliation banner — the API already returned all `qtyField*` data on the SowItem; the display was the missing link.
-- **Field PETL Scope** handles the flag creation (inline editing with persistent note display, chevron toggles, bulk show/hide).
-- **No additional API endpoints** were needed for this feature.
+- **Frontend only** for the reconciliation banner — the API already returned all `qtyField*` data on the SowItem.
+- **Field PETL Scope** handles flag creation (inline editing with persistent note display).
+- **No additional API endpoints** were needed.
+
+## Expansion Opportunities
+
+- **Photo-linked flags** — attach a photo to a qty discrepancy as visual evidence
+- **Auto-supplement generation** — approved discrepancies auto-generate supplement line items
+- **Batch flagging** — flag multiple lines at once from a room walkthrough
+- **Discrepancy analytics** — track which estimators have the most field corrections
 
 ## Revision History
+
 | Rev | Date | Changes |
 |-----|------|---------|
-| 1.0 | 2026-02-22 | Initial draft — field discrepancy pipeline documented |
+| 1.0 | 2026-02-22 | Initial draft — field discrepancy pipeline |
+| 2.0 | 2026-03-04 | Enriched: operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |

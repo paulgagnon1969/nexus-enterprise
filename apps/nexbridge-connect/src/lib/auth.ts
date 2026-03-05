@@ -47,7 +47,7 @@ export function getCachedToken(): string | null {
 }
 
 export function getCachedApiUrl(): string {
-  return cachedApiUrl || "https://nexus-api-wswbn2e6ta-uc.a.run.app";
+  return cachedApiUrl || "https://staging-api.nfsgrp.com";
 }
 
 export function setCachedCredentials(token: string, apiUrl: string): void {

@@ -1,13 +1,15 @@
 ---
-cam_id: "CMP-INTG-0001"
+cam_id: CMP-INTG-0001
 title: "Live OSHA Construction Standards (29 CFR 1926) — Auto-Synced from eCFR"
 mode: CMP
 category: INTG
+revision: "2.0"
 status: draft
 created: 2026-02-21
-updated: 2026-02-21
+updated: 2026-03-04
 author: Warp
 website: false
+tags: [cam, compliance, integration, osha, ecfr, safety, regulations, 29cfr1926, auto-sync]
 scores:
   uniqueness: 8
   value: 9
@@ -80,7 +82,41 @@ The eCFR API is public, so the data source isn't proprietary. However, the XML p
 - **Frontend**: Admin panel at `/system/osha-sync`, integrated card on eDocs dashboard
 - **PETL integration** (planned): SowItem → OSHA section cross-reference based on category codes, activity types, and keyword matching
 
-## Related
+## Expected Operational Savings
+
+*Based on a mid-size restoration firm: 5 PMs, 60 projects/year, quarterly safety audits.*
+
+| Category | Calculation | Annual Savings |
+|----------|-------------|----------------|
+| **Compliance research time** | 3 hrs/month per PM × 5 PMs × 12 months @ $55/hr | **$9,900** |
+| **Safety meeting prep** | 30 min/meeting saved × 50 meetings/yr @ $55/hr | **$1,375** |
+| **Audit readiness** | 4 hrs/quarter not updating manual × 4 @ $55/hr | **$880** |
+| **Regulatory change detection** | 2 changes/yr caught automatically × avg $3,000 impact | **$6,000** |
+| **OSHA fine risk reduction** | 10% reduction in violation probability × $15,876 avg fine | **$1,588** |
+| | **Estimated Annual Savings** | **~$19,700** |
+
+## Competitive Landscape
+
+| Competitor | OSHA Regs Built-In? | Auto-Sync? | Versioned? | Searchable? | PETL Link? |
+|------------|--------------------|-----------|-----------|-----------|-----------|
+| Procore | Links to OSHA.gov | No | No | No | No |
+| Buildertrend | No | No | No | No | No |
+| CoConstruct | No | No | No | No | No |
+| iAuditor/SafetyCulture | Checklists only | No | No | Partial | No |
+
+## Related CAMs
+
+- `CMP-AUTO-0001` — NexCheck (OSHA documents served through the check-in document queue)
+- `OPS-VIS-0001` — Field Qty Discrepancy (OSHA-relevant line items can link to safety sections)
+- `TECH-INTL-0001` — TUCKS Telemetry (safety document access feeds adoption metrics)
+
+## Related Resources
 - SOP: `docs/sops-staging/osha-29cfr1926-import-sync-sop.md`
 - eCFR source: https://www.ecfr.gov/current/title-29/subtitle-B/chapter-XVII/part-1926
-- Manual code: `osha-29cfr1926`
+
+## Revision History
+
+| Rev | Date | Changes |
+|-----|------|---------|
+| 1.0 | 2026-02-21 | Initial draft — OSHA eCFR auto-sync concept |
+| 2.0 | 2026-03-04 | Enriched: operational savings, competitive landscape, related CAMs, revision history |

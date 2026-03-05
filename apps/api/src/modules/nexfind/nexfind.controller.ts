@@ -12,6 +12,7 @@ import {
 import type { FastifyRequest } from "fastify";
 import { JwtAuthGuard, getEffectiveRoleLevel } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
+import { RequiresModule } from "../billing/module.guard";
 import { NexfindService } from "./nexfind.service";
 
 function getUser(req: FastifyRequest): AuthenticatedUser {
@@ -31,6 +32,7 @@ function assertPmOrAbove(user: AuthenticatedUser) {
   }
 }
 
+@RequiresModule("NEXFIND")
 @Controller("nexfind")
 @UseGuards(JwtAuthGuard)
 export class NexfindController {

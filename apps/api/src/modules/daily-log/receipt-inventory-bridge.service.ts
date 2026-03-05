@@ -14,6 +14,7 @@ import { TaskPriorityEnum } from '../task/dto/task.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuthenticatedUser } from '../auth/jwt.strategy';
 import { NexfindService } from '../nexfind/nexfind.service';
+import { EntitlementService } from '../billing/entitlement.service';
 
 /** Shape of a single OCR line item stored in ReceiptOcrResult.lineItemsJson */
 interface OcrLineItem {
@@ -44,6 +45,7 @@ export class ReceiptInventoryBridgeService {
     private readonly tasks: TaskService,
     private readonly notifications: NotificationsService,
     private readonly nexfind: NexfindService,
+    private readonly entitlements: EntitlementService,
   ) {}
 
   /**
@@ -134,21 +136,24 @@ export class ReceiptInventoryBridgeService {
       data: { originLocationId: vendorMatch.locationId },
     });
 
-    // ── 2b. NexFIND: upsert LocalSupplier from receipt data (fire-and-forget)
-    void this.nexfind
-      .upsertFromReceiptData(companyId, {
-        name: ocr.vendorName ?? 'Unknown',
-        address: [ocr.vendorAddress, ocr.vendorCity, ocr.vendorState, ocr.vendorZip]
-          .filter(Boolean)
-          .join(', ') || null,
-        phone: ocr.vendorPhone,
-        lat: ocr.captureLat ?? log.receiptCaptureLat,
-        lng: ocr.captureLng ?? log.receiptCaptureLng,
-        storeNumber: ocr.vendorStoreNumber,
-      })
-      .catch((err: any) =>
-        this.logger.warn(`NexFIND receipt bridge failed (non-fatal): ${err?.message}`),
-      );
+    // ── 2b. NexFIND: upsert LocalSupplier from receipt data (if module enabled)
+    void this.entitlements.isModuleEnabled(companyId, 'NEXFIND').then((enabled) => {
+      if (!enabled) return;
+      return this.nexfind
+        .upsertFromReceiptData(companyId, {
+          name: ocr.vendorName ?? 'Unknown',
+          address: [ocr.vendorAddress, ocr.vendorCity, ocr.vendorState, ocr.vendorZip]
+            .filter(Boolean)
+            .join(', ') || null,
+          phone: ocr.vendorPhone,
+          lat: ocr.captureLat ?? log.receiptCaptureLat,
+          lng: ocr.captureLng ?? log.receiptCaptureLng,
+          storeNumber: ocr.vendorStoreNumber,
+        })
+        .catch((err: any) =>
+          this.logger.warn(`NexFIND receipt bridge failed (non-fatal): ${err?.message}`),
+        );
+    });
 
     // ── 3. Handle RETURN flow ───────────────────────────────────────────
     if (isReturn) {
