@@ -3,10 +3,10 @@ cam_id: CMP-INTG-0001
 title: "Live OSHA Construction Standards (29 CFR 1926) — Auto-Synced from eCFR"
 mode: CMP
 category: INTG
-revision: "2.0"
+revision: "2.1"
 status: draft
 created: 2026-02-21
-updated: 2026-03-04
+updated: 2026-03-05
 author: Warp
 website: false
 tags: [cam, compliance, integration, osha, ecfr, safety, regulations, 29cfr1926, auto-sync]
@@ -110,6 +110,17 @@ The eCFR API is public, so the data source isn't proprietary. However, the XML p
 - `OPS-VIS-0001` — Field Qty Discrepancy (OSHA-relevant line items can link to safety sections)
 - `TECH-INTL-0001` — TUCKS Telemetry (safety document access feeds adoption metrics)
 
+## Expansion Opportunities
+
+- **PETL-level OSHA linking** — parse OSHA section references and link them to relevant SowItem line items (scaffolding → §1926.451, fall protection → §1926.501)
+- **Auto-JSA generation** — generate Job Safety Analysis documents from OSHA sections relevant to the project's scope of work
+- **State-level regulation sync** — extend the eCFR pattern to state OSHA plans (Cal/OSHA, WA L&I, etc.)
+- **Change notification alerts** — push notifications when OSHA publishes updates to sections relevant to active projects
+- **Training curriculum generation** — auto-generate safety training materials from OSHA sections
+- **Inspection checklist builder** — create project-specific safety checklists from applicable OSHA subparts
+- **Multi-regulation support** — extend to EPA (40 CFR), DOT (49 CFR), or NFPA standards using the same import pipeline
+- **Compliance scoring** — score projects against applicable OSHA sections based on NexCheck acknowledgments and training records
+
 ## Related Resources
 - SOP: `docs/sops-staging/osha-29cfr1926-import-sync-sop.md`
 - eCFR source: https://www.ecfr.gov/current/title-29/subtitle-B/chapter-XVII/part-1926
@@ -120,3 +131,4 @@ The eCFR API is public, so the data source isn't proprietary. However, the XML p
 |-----|------|---------|
 | 1.0 | 2026-02-21 | Initial draft — OSHA eCFR auto-sync concept |
 | 2.0 | 2026-03-04 | Enriched: operational savings, competitive landscape, related CAMs, revision history |
+| 2.1 | 2026-03-05 | Added expansion opportunities section |

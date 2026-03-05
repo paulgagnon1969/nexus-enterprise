@@ -126,4 +126,3 @@ No competitor offers the full stack: adaptive compression + WiFi-gated video + r
 |-----|------|---------|
 | 1.0 | 2026-02-21 | Initial draft — smart media upload concept |
 | 2.0 | 2026-03-04 | Full rewrite: standardized format, elevator pitch, operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |
-5. Show metadata synced instantly throughout

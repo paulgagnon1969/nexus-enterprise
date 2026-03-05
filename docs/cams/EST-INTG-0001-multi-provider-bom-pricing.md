@@ -25,7 +25,6 @@ tags: [cam, estimating, integration, bom, pricing, serpapi, home-depot, lowes, m
 # EST-INTG-0001: Multi-Provider BOM Pricing Pipeline
 
 > *200 materials. Two suppliers. Live prices. Three minutes.*
-# Multi-Provider BOM Pricing Pipeline
 
 ## Elevator Pitch
 NCC prices an entire Xactimate BOM against Home Depot and Lowe's simultaneously, streaming results to the browser in real time via SSE. Each result includes the store name, address, and phone number — so POs reference the exact pickup location. Snapshots are timestamped and never overwritten, giving PMs historical price evidence for insurance supplement negotiations. No competitor offers live multi-supplier pricing with streaming, store locations, and snapshot history.

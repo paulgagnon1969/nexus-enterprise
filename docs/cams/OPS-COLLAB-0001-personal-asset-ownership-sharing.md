@@ -4,10 +4,10 @@ module_code: CORE
 title: "Nexus Phantom-Fleet — Making Visible What's Already There"
 mode: OPS
 category: COLLAB
-revision: "1.1"
+revision: "2.0"
 status: draft
 created: 2026-02-28
-updated: 2026-03-01
+updated: 2026-03-05
 author: Warp
 website: false
 scores:
@@ -62,11 +62,41 @@ In restoration and construction, workers routinely bring personal equipment to j
 6. Assign the pool to a company vehicle → explain the notification chain.
 7. Download the CSV template → point out the ownership columns for bulk onboarding. *"Every sub uploads their phantom fleet in one CSV."*
 
-## Metrics / Value Indicators
-- **Equipment utilization** — personal assets become discoverable, reducing unnecessary rentals
+## Expected Operational Savings
+
+*Based on a mid-size restoration firm: 25 field workers, 60 projects/year, ~$80K/year external equipment rentals.*
+
+| Category | Calculation | Annual Savings |
+|----------|-------------|----------------|
+| **Avoided external rentals** | 3 rentals/month avoided by discovering personal assets × avg $600/rental × 12 months | **$21,600** |
+| **Rental reimbursement accuracy** | 15% of personal-asset usage currently untracked × $40K annual personal equipment value | **$6,000** |
+| **Maintenance compliance** | 2 maintenance failures/yr avoided × avg $2,500 repair/replacement cost | **$5,000** |
+| **PM coordination time saved** | 20 min/week asking "does anyone have a ..." × 5 PMs × 50 weeks @ $55/hr | **$4,580** |
+| **Equipment onboarding time** | 4 hrs/new hire manual inventory × 8 hires/yr @ $35/hr (CSV eliminates 80%) | **$900** |
+| **Insurance documentation** | 2 hrs/quarter compiling personal equipment records × 4 × $55/hr | **$440** |
+| | **Estimated Annual Savings** | **~$38,500** |
+
+The avoided-rental number dominates — most GCs don't realize their own crews have generators, scaffolding, and specialty tools sitting idle because there's no way to discover them. Making the phantom fleet visible eliminates rental spend that shouldn't exist.
+
+## Metrics / KPIs
+- **Equipment utilization** — personal assets discovered and used on projects vs. sitting idle
 - **Rental reimbursement accuracy** — clear ownership records for personal equipment used on company jobs
 - **Maintenance compliance** — pool-based assignments with resolution chain eliminate "nobody was responsible" gaps
 - **Onboarding speed** — CSV import with ownership columns enables bulk personal inventory registration
+- **Phantom fleet size** — total personal assets registered vs. estimated available (adoption metric)
+
+## Competitive Landscape
+
+| Competitor | Personal Assets? | Owner-Controlled Sharing? | Maintenance Pools? | CSV Import? | Notification Chain? |
+|------------|-----------------|--------------------------|-------------------|-------------|--------------------|
+| Procore | No — company only | N/A | No | Basic | No |
+| Buildertrend | No — company only | N/A | No | No | No |
+| CoConstruct | No | N/A | No | No | No |
+| ToolWatch | Company assets | No | Basic | Yes | Basic |
+| GoCodes | Company assets | No | No | Yes | No |
+| ShareMyToolbox | Partial — lending | Limited | No | No | No |
+
+No competitor offers privacy-first personal asset sharing with owner-controlled visibility, maintenance pool delegation, and a notification resolution chain.
 
 ## Technical Implementation
 - **Schema**: `AssetOwnershipType` and `AssetSharingVisibility` enums; `MaintenancePool`, `MaintenancePoolMember`, `AssetShareGrant` models
@@ -74,8 +104,37 @@ In restoration and construction, workers routinely bring personal equipment to j
 - **Frontend**: Ownership filter tabs, sharing controls, maintenance pool assignment in create/edit forms, ownership badges on list/detail views
 - **Privacy model**: Personal assets excluded from company queries unless sharing grants exist; owner always retains control
 
+## Scoring Rationale
+
+- **Uniqueness (8/10)**: No construction PM platform tracks personal assets with owner-controlled visibility. Most systems only know about company-owned equipment. The phantom fleet concept is genuinely novel in this vertical.
+- **Value (8/10)**: Equipment costs are the #3 expense category in restoration (after labor and materials). Making personal assets discoverable directly reduces rental spend and improves utilization.
+- **Demonstrable (9/10)**: Extremely visual — toggle personal asset visibility, create a maintenance pool, show the unified equipment list with ownership badges. Easy to demo and immediately understood.
+- **Defensible (6/10)**: The data model (dual ownership, share grants, maintenance pools) is architecturally clean but not algorithmically complex. Defensibility is in the integrated workflow and the network effect of having workers register their personal inventories.
+
+**Total: 31/40** — Exceeds CAM threshold (24).
+
+## Related CAMs
+
+- `CMP-AUTO-0001` — NexCheck (equipment check-in at kiosk could extend to asset tracking per site)
+- `TECH-INTL-0001` — TUCKS Telemetry (asset utilization metrics feed workforce efficiency KPIs)
+- `OPS-INTL-0001` — NexFIND Supplier Intelligence (rental suppliers discovered when phantom fleet can't fill the gap)
+- `OPS-VIS-0002` — Urgency Task Dashboard (maintenance tasks from pool assignments surface in the urgency dashboard)
+- `TECH-SPD-0003` — Smart Media Upload (asset condition photos upload reliably from the field)
+
+## Expansion Opportunities
+
+- **Rental marketplace** — workers list personal equipment for internal rental at company-set rates; payments tracked automatically
+- **Usage tracking** — check-out/check-in workflow to track which project is using which personal asset and for how long
+- **Depreciation calculator** — track personal asset value over time for reimbursement and tax purposes
+- **Insurance integration** — personal assets registered in the system auto-populate certificate of insurance requests
+- **QR/NFC tagging** — physical asset tags link to the digital record; scan to check status, maintenance history, or reserve
+- **Fleet map** — map view showing where all company + shared personal assets are currently deployed
+- **Sub-contractor equipment** — extend the phantom fleet to sub-contractor-owned equipment for cross-company visibility
+- **Predictive maintenance** — maintenance pool tasks auto-generated based on usage hours or calendar intervals
+
 ## Revision History
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-02-28 | Initial draft — personal ownership, maintenance pools, sharing controls |
 | 1.1 | 2026-03-01 | Branded as Nexus Phantom-Fleet; added tagline, refined elevator pitch and demo script |
+| 2.0 | 2026-03-05 | Enriched: operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |

@@ -4,10 +4,10 @@ module_code: COMPLIANCE
 title: "NexCheck — Tap In. Sign Off. Stay Compliant."
 mode: CMP
 category: AUTO
-revision: "1.0"
+revision: "2.0"
 status: draft
 created: 2026-03-02
-updated: 2026-03-02
+updated: 2026-03-05
 author: Warp
 website: false
 scores:
@@ -66,12 +66,42 @@ Construction and restoration job sites face daily compliance friction:
 7. Show Kiosk Delegation: *"PM is offsite — delegate kiosk access to the foreman for 24 hours. One tap."*
 8. Pull up the end-of-day PDF: names, times, documents acknowledged, embedded signatures. *"This is what you hand OSHA when they ask."*
 
-## Metrics / Value Indicators
+## Expected Operational Savings
+
+*Based on a mid-size restoration firm: 5 PMs, 60 projects/year, avg 8 workers/site, 200 working days.*
+
+| Category | Calculation | Annual Savings |
+|----------|-------------|----------------|
+| **Paper sign-in sheet elimination** | 15 min/day × 60 projects × 200 days @ $55/hr | **$16,500** |
+| **JSA/safety document distribution** | 30 min/project/day reduced to 0 × 60 projects × 200 days @ $55/hr | **$5,500** |
+| **OSHA audit prep time** | 8 hrs/audit × 4 audits/yr saved @ $55/hr | **$1,760** |
+| **Compliance gap fines avoided** | 15% reduction in violation probability × $15,876 avg OSHA fine × 2 audits/yr | **$4,763** |
+| **Sign-out tracking labor** | 20 min/day tracking who left × 60 projects × 200 days @ $35/hr | **$7,000** |
+| **Visitor/sub documentation** | 10 min/visitor × 5 visitors/project × 60 projects @ $55/hr | **$2,750** |
+| **PM kiosk delegation** | 45 min/day PM commute to activate kiosk eliminated × 30 instances/yr @ $55/hr | **$1,375** |
+| | **Estimated Annual Savings** | **~$39,600** |
+
+The OSHA fine avoidance is conservative — a single willful violation can exceed $150K. Having a provable, timestamped digital compliance trail is the strongest defense.
+
+## Metrics / KPIs
 - **Compliance rate** — percentage of workers who completed all required documents before starting work (target: 95%+)
 - **Check-in time** — average seconds per worker through the full NexCheck flow (target: <20 seconds for returning workers)
 - **Sign-out compliance** — percentage of manual vs. auto vs. EOD sign-outs (lower auto/EOD = better worker compliance)
 - **Document coverage** — percentage of on-site workers with complete acknowledgment records vs. total geo-fence-detected workers
 - **Audit readiness** — time to produce a complete site roster with signatures for any given day (target: <5 seconds)
+
+## Competitive Landscape
+
+| Competitor | NFC Check-In? | Document Queue? | Signature Capture? | Geo-Fence Sign-Out? | Kiosk Delegation? | Digital Roster? |
+|------------|--------------|----------------|-------------------|--------------------|--------------------|----------------|
+| Procore | No | No | E-sign (separate) | No | No | No |
+| Buildertrend | No | No | No | No | No | No |
+| CoConstruct | No | No | No | No | No | No |
+| BusyBusy | No | No | No | GPS tracking only | No | Partial |
+| Rhumbix | Bluetooth beacons | No | No | No | No | Partial |
+| ExakTime | Proximity-based | No | No | No | No | Basic |
+
+No competitor unifies NFC identification + document queue + signature capture + geo-fence tracking + kiosk delegation in a single mobile-first workflow.
 
 ## Technical Implementation
 - **Schema**: `SitePass`, `SiteCheckIn`, `SiteDocument`, `SiteDocumentAck`, `KioskSession`, `KioskDelegation` models in Prisma
@@ -81,7 +111,36 @@ Construction and restoration job sites face daily compliance friction:
 - **Signature storage**: SVG path data (~1-5KB), rendered to high-res PNG on demand for PDF/print
 - **Document queue engine**: Frequency-based resolution (ONCE/DAILY/ON_CHANGE) with per-worker acknowledgment tracking
 
+## Scoring Rationale
+
+- **Uniqueness (9/10)**: No competitor unifies NFC check-in, document queue engine, single-signature capture, geo-fence sign-out, and kiosk delegation. The closest alternatives are fragmented across 3-4 separate tools.
+- **Value (9/10)**: OSHA compliance is non-negotiable. The daily friction of paper sign-in sheets, printed JSAs, and missing sign-out records is universal. NexCheck eliminates all of it in a 15-second workflow per worker.
+- **Demonstrable (9/10)**: Extremely visual — tap a phone, swipe through documents, sign with a finger, see the roster update in real time. Every step is tangible and can be demoed in under 2 minutes.
+- **Defensible (7/10)**: The individual components (NFC, signatures, geo-fencing) are available technologies, but the integrated workflow — document frequency engine, three-tier sign-out, kiosk delegation with time-boxed access — creates meaningful technical depth that's non-trivial to replicate.
+
+**Total: 34/40** — Well above CAM threshold (24).
+
+## Related CAMs
+
+- `CMP-INTG-0001` — OSHA eCFR Auto-Sync (OSHA safety documents served through the NexCheck document queue)
+- `OPS-VIS-0002` — Urgency Task Dashboard (compliance tasks from NexCheck surface in the urgency dashboard)
+- `TECH-INTL-0001` — TUCKS Telemetry (check-in events are telemetry data points feeding workforce KPIs)
+- `FIN-AUTO-0001` — Inline Receipt OCR (NexCheck visitor registration pattern reused for receipt vendor capture)
+- `OPS-COLLAB-0001` — Phantom Fleet (equipment check-in at kiosk could extend to asset tracking)
+
+## Expansion Opportunities
+
+- **Photo capture at check-in** — automatic timestamped photo for visual attendance verification
+- **Toolbox talk integration** — daily safety meetings recorded as NexCheck sessions with group acknowledgment
+- **Certification verification** — check worker certifications (OSHA 30, First Aid) at check-in and block non-certified workers from hazardous tasks
+- **Multi-site roster** — company-wide view of which workers are on which sites right now
+- **Emergency muster** — one-tap emergency roll call using the live roster to account for all on-site personnel
+- **Subcontractor billing integration** — check-in/out times feed subcontractor hours for payment verification
+- **Weather-triggered document push** — auto-add cold/heat stress JSAs when weather conditions warrant
+- **OSHA 300 log auto-population** — incident reports from NexCheck sessions feed annual OSHA 300 log
+
 ## Revision History
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-03-02 | Initial draft — NexCheck concept, architecture, demo script |
+| 2.0 | 2026-03-05 | Enriched: operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |

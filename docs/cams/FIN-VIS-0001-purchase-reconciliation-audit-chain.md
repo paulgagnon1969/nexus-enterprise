@@ -4,7 +4,7 @@ module_code: FINANCIALS
 title: "Purchase Reconciliation — Full Audit Chain with PM Compliance"
 mode: FIN
 category: VIS
-revision: "1.0"
+revision: "1.1"
 tags: [cam, purchase-reconciliation, audit-chain, credit-card, checking, receipt-disposition, pm-review, compliance, financial-visibility]
 status: draft
 created: 2026-03-04
