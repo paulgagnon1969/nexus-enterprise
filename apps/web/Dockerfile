@@ -23,14 +23,14 @@ COPY packages/database/prisma.config.ts packages/database/prisma.config.ts
 # Install all dependencies (needed for next build)
 RUN npm install
 
-# npm lockfile generated on macOS omits linux-arm64-gnu optional deps.
-# Explicitly install the glibc native bindings Next.js needs on Debian ARM64.
-RUN npm install --no-save \
-      @next/swc-linux-arm64-gnu@16.1.6 \
-      @parcel/watcher-linux-arm64-glibc@2.5.6
-
 # Copy the full repo (turbo needs workspace context)
 COPY . .
+
+# The macOS-generated lockfile omits linux-arm64-gnu optional deps.
+# Force-install the glibc native bindings Next.js needs on Debian ARM64.
+RUN npm install --no-save --force \
+      @next/swc-linux-arm64-gnu@16.1.6 \
+      @parcel/watcher-linux-arm64-glibc@2.5.6
 
 # Build-time env vars (NEXT_PUBLIC_* are inlined at build time)
 ARG NEXT_PUBLIC_API_BASE_URL
