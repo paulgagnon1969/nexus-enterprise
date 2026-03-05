@@ -18321,9 +18321,25 @@ ${htmlBody}
                                     </span>
                                   )}
                                 </div>
-                                <div style={{ fontSize: 11, color: "#6b7280" }}>
+                                <div style={{ fontSize: 11, color: "#6b7280", display: "flex", alignItems: "center", gap: 6 }}>
                                   {b?.billDate ? String(b.billDate).slice(0, 10) : "No date"}
                                   {li?.description && ` · ${li.description}`}
+                                  {sourceDailyLog && (
+                                    <>
+                                      <span style={{ color: "#d1d5db" }}>|</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => setTab("DAILY_LOGS", { deferContentSwitch: true })}
+                                        title={`Origin: Daily Log — ${sourceDailyLog.title ?? "Untitled"}`}
+                                        style={{
+                                          border: "none", background: "none", cursor: "pointer",
+                                          color: "#2563eb", fontSize: 11, padding: 0, textDecoration: "underline",
+                                        }}
+                                      >
+                                        📋 {sourceDailyLog.title ?? "Daily Log"}
+                                      </button>
+                                    </>
+                                  )}
                                 </div>
                               </div>
                               <div style={{ fontWeight: 600, fontSize: 13, color: "#92400e" }}>
@@ -18430,6 +18446,34 @@ ${htmlBody}
                   <div style={{ color: "#6b7280" }}>No bills recorded yet.</div>
                 )}
 
+                {/* Verified Duplicates Summary */}
+                {!projectBillsLoading && projectBills && (() => {
+                  const verificationBills = projectBills.filter((b: any) => b?.billRole === "VERIFICATION");
+                  if (verificationBills.length === 0) return null;
+                  const totalVerified = verificationBills.filter((b: any) => b?.siblingGroup?.verificationStatus === "VERIFIED").length;
+                  const totalPending = verificationBills.length - totalVerified;
+                  const totalVariance = verificationBills.reduce((sum: number, b: any) => sum + Math.abs(Number(b?.siblingGroup?.amountVariance) || 0), 0);
+                  return (
+                    <div style={{
+                      marginBottom: 12, padding: "10px 12px", borderRadius: 6,
+                      background: "#eff6ff", border: "1px solid #bfdbfe",
+                    }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1e40af", marginBottom: 4 }}>
+                        🔍 NexVERIFY — Multi-Source Expense Convergence
+                      </div>
+                      <div style={{ display: "flex", gap: 16, fontSize: 12, color: "#1e3a5f" }}>
+                        <span><strong>{verificationBills.length}</strong> duplicate bill{verificationBills.length !== 1 ? "s" : ""} detected</span>
+                        <span style={{ color: "#16a34a" }}><strong>{totalVerified}</strong> verified</span>
+                        {totalPending > 0 && <span style={{ color: "#b45309" }}><strong>{totalPending}</strong> pending verification</span>}
+                        {totalVariance > 0 && <span>Total variance: <strong>{formatMoney(totalVariance)}</strong></span>}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+                        VERIFICATION bills (blue rows) have GAAP offset line items that net to $0. They corroborate PRIMARY bills from a different source.
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {!projectBillsLoading && !projectBillsError && projectBills && projectBills.length > 0 && (
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -18438,6 +18482,7 @@ ${htmlBody}
                           <th style={{ padding: "6px 8px" }}>Vendor</th>
                           <th style={{ padding: "6px 8px" }}>Bill date</th>
                           <th style={{ padding: "6px 8px" }}>Status</th>
+                          <th style={{ padding: "6px 8px" }}>Role</th>
                           <th style={{ padding: "6px 8px" }}>Kind</th>
                           <th style={{ padding: "6px 8px" }}>Description</th>
                           <th style={{ padding: "6px 8px", textAlign: "right" }}>Amount</th>
@@ -18465,8 +18510,11 @@ ${htmlBody}
                             const gmDollars = isBillable ? cost * (markupPct / 100) : 0;
                             const billableTotal = cost + gmDollars;
                             const gmPercent = isBillable && billableTotal > 0 ? (gmDollars / billableTotal) * 100 : 0;
+                            const billRole = b?.billRole ?? "PRIMARY";
+                            const isVerification = billRole === "VERIFICATION";
+                            const sibGroup = b?.siblingGroup;
                             return (
-                              <tr key={String(b?.id ?? Math.random())}>
+                              <tr key={String(b?.id ?? Math.random())} style={{ background: isVerification ? "#eff6ff" : undefined }}>
                                 <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
                                   {b?.vendorName ?? "—"}
                                 </td>
@@ -18475,6 +18523,25 @@ ${htmlBody}
                                 </td>
                                 <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
                                   {b?.status ?? "—"}
+                                </td>
+                                {/* Role column */}
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                  {isVerification ? (
+                                    <span
+                                      style={{
+                                        padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600,
+                                        background: "#dbeafe", color: "#1d4ed8",
+                                      }}
+                                      title={sibGroup ? `Match: ${(sibGroup.matchConfidence * 100).toFixed(0)}% — ${sibGroup.matchReason}` : "Verification bill"}
+                                    >
+                                      VERIFICATION
+                                      {sibGroup && ` (${(sibGroup.matchConfidence * 100).toFixed(0)}%)`}
+                                    </span>
+                                  ) : (
+                                    <span style={{ padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: "#f3f4f6", color: "#374151" }}>
+                                      PRIMARY
+                                    </span>
+                                  )}
                                 </td>
                                 <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
                                   {li?.kind ?? "—"}

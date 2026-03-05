@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, Logger, Inject, forwardRef } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
-import { CsvImportSource, TransactionDisposition } from "@prisma/client";
+import { CsvImportSource, TransactionDisposition, CategoryStatus } from "@prisma/client";
 import { parse } from "csv-parse/sync";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
@@ -622,7 +622,9 @@ export class CsvImportService {
       pending?: boolean;
       projectId?: string;
       unassigned?: boolean;
-      disposition?: TransactionDisposition;
+      disposition?: string;
+      merchant?: string;
+      accountMask?: string;
       page?: number;
       pageSize?: number;
     },
@@ -639,10 +641,11 @@ export class CsvImportService {
     if (dateLte) dateFilter.lte = dateLte;
     const hasDateFilter = Object.keys(dateFilter).length > 0;
 
-    // Determine which sources to query
-    const wantPlaid = !filters.source || filters.source === "PLAID";
-    const wantImported =
-      !filters.source || ["HD_PRO_XTRA", "CHASE_BANK", "APPLE_CARD"].includes(filters.source);
+    // Determine which sources to query (supports comma-separated multi-select)
+    const sourceValues = filters.source ? filters.source.split(',').map(s => s.trim()).filter(Boolean) : [];
+    const wantPlaid = sourceValues.length === 0 || sourceValues.includes('PLAID');
+    const importedSources = sourceValues.filter(s => s !== 'PLAID');
+    const wantImported = sourceValues.length === 0 || importedSources.length > 0;
 
     type UnifiedRow = {
       id: string;
@@ -667,11 +670,28 @@ export class CsvImportService {
       const where: any = { companyId };
       if (hasDateFilter) where.date = dateFilter;
       if (filters.connectionId) where.bankConnectionId = filters.connectionId;
-      if (filters.category) where.primaryCategory = { contains: filters.category, mode: "insensitive" };
+      if (filters.category) {
+        const cats = filters.category.split(',').map(c => c.trim()).filter(Boolean);
+        where.primaryCategory = cats.length === 1
+          ? { contains: cats[0], mode: "insensitive" }
+          : { in: cats };
+      }
       if (filters.pending !== undefined) where.pending = filters.pending;
       if (filters.projectId) where.projectId = filters.projectId;
       if (filters.unassigned) where.projectId = null;
-      if (filters.disposition) where.disposition = filters.disposition;
+      if (filters.disposition) {
+        const disps = filters.disposition.split(',').map(d => d.trim()).filter(Boolean);
+        where.disposition = disps.length === 1 ? disps[0] : { in: disps };
+      }
+      if (filters.accountMask) {
+        const masks = filters.accountMask.split(',').map(m => m.trim()).filter(Boolean);
+        where.bankConnection = {
+          accountMask: masks.length === 1 ? masks[0] : { in: masks },
+        };
+      }
+      if (filters.merchant) {
+        where.merchantName = { contains: filters.merchant, mode: "insensitive" };
+      }
       if (filters.search) {
         where.OR = [
           { name: { contains: filters.search, mode: "insensitive" } },
@@ -685,7 +705,10 @@ export class CsvImportService {
           orderBy: { date: "desc" },
           skip: wantImported ? 0 : skip,
           take: wantImported ? 10000 : pageSize,
-          include: { project: { select: { id: true, name: true } } },
+          include: {
+            project: { select: { id: true, name: true } },
+            bankConnection: { select: { institutionName: true, accountMask: true } },
+          },
         }),
         this.prisma.bankTransaction.count({ where }),
       ]);
@@ -708,6 +731,10 @@ export class CsvImportService {
             paymentChannel: t.paymentChannel,
             detailedCategory: t.detailedCategory,
             disposition: t.disposition,
+            institutionName: (t as any).bankConnection?.institutionName ?? null,
+            accountMask: (t as any).bankConnection?.accountMask ?? null,
+            categoryOverride: t.categoryOverride ?? null,
+            categoryStatus: t.categoryStatus,
           },
         });
       }
@@ -718,18 +745,35 @@ export class CsvImportService {
       const where: any = { companyId };
       if (hasDateFilter) where.date = dateFilter;
       if (filters.batchId) where.batchId = filters.batchId;
-      if (filters.source && filters.source !== "PLAID") {
-        where.source = filters.source;
+      if (importedSources.length > 0) {
+        where.source = importedSources.length === 1 ? importedSources[0] : { in: importedSources };
       }
       if (filters.category) {
-        where.OR = [
-          { category: { contains: filters.category, mode: "insensitive" } },
-          { cardCategory: { contains: filters.category, mode: "insensitive" } },
-        ];
+        const cats = filters.category.split(',').map(c => c.trim()).filter(Boolean);
+        if (cats.length === 1) {
+          where.OR = [
+            { category: { contains: cats[0], mode: "insensitive" } },
+            { cardCategory: { contains: cats[0], mode: "insensitive" } },
+          ];
+        } else {
+          where.OR = [
+            { category: { in: cats } },
+            { cardCategory: { in: cats } },
+          ];
+        }
       }
       if (filters.projectId) where.projectId = filters.projectId;
       if (filters.unassigned) where.projectId = null;
-      if (filters.disposition) where.disposition = filters.disposition;
+      if (filters.disposition) {
+        const disps = filters.disposition.split(',').map(d => d.trim()).filter(Boolean);
+        where.disposition = disps.length === 1 ? disps[0] : { in: disps };
+      }
+      if (filters.merchant) {
+        where.OR = [
+          { merchant: { contains: filters.merchant, mode: "insensitive" } },
+          { jobName: { contains: filters.merchant, mode: "insensitive" } },
+        ];
+      }
       if (filters.search) {
         const searchOr = [
           { description: { contains: filters.search, mode: "insensitive" } },
@@ -795,6 +839,9 @@ export class CsvImportService {
             prescreenStatus: t.prescreenStatus,
             // Disposition
             disposition: t.disposition,
+            // Category override
+            categoryOverride: t.categoryOverride ?? null,
+            categoryStatus: t.categoryStatus,
           },
         });
       }
@@ -1196,6 +1243,48 @@ export class CsvImportService {
     }
 
     return { ok: true, found: candidates.length, accepted, errors };
+  }
+
+  // ─── Re-run prescreening ───────────────────────────────────────────
+
+  async rerunPrescreening(companyId: string) {
+    // Find all distinct batchIds with unprocessed imported transactions
+    const batches = await this.prisma.importedTransaction.findMany({
+      where: {
+        companyId,
+        prescreenStatus: "PENDING",
+        prescreenProjectId: null,
+      },
+      distinct: ["batchId"],
+      select: { batchId: true },
+    });
+
+    if (batches.length === 0) {
+      return { ok: true, batchesProcessed: 0, totalPrescreened: 0, totalBillsCreated: 0 };
+    }
+
+    let totalPrescreened = 0;
+    let totalBillsCreated = 0;
+    const errors: string[] = [];
+
+    for (const { batchId } of batches) {
+      try {
+        const result = await this.prescreen.prescreenBatch(companyId, batchId);
+        totalPrescreened += result.prescreened;
+        totalBillsCreated += result.billsCreated;
+      } catch (err: any) {
+        this.logger.error(`Prescreening failed for batch ${batchId}: ${err.message}`);
+        errors.push(`Batch ${batchId}: ${err.message}`);
+      }
+    }
+
+    return {
+      ok: true,
+      batchesProcessed: batches.length,
+      totalPrescreened,
+      totalBillsCreated,
+      errors: errors.length > 0 ? errors : undefined,
+    };
   }
 
   // ─── Distinct categories ──────────────────────────────────────────
@@ -1636,6 +1725,170 @@ export class CsvImportService {
     for (const row of importedCounts) counts[row.disposition] = (counts[row.disposition] ?? 0) + row._count.id;
 
     return counts;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Category Override + Verification
+  // ═══════════════════════════════════════════════════════════════════
+
+  async overrideCategory(params: {
+    companyId: string;
+    transactionId: string;
+    source: string;
+    newCategory: string;
+    note?: string;
+    userId: string;
+  }) {
+    const { companyId, transactionId, source, newCategory, note, userId } = params;
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true, lastName: true, email: true },
+    });
+    const userName = user ? `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email : "Unknown";
+
+    let previousCategory: string | null = null;
+    let previousStatus: CategoryStatus = CategoryStatus.ORIGINAL;
+    let merchant: string | null = null;
+
+    if (source === "PLAID") {
+      const txn = await this.prisma.bankTransaction.findFirst({ where: { id: transactionId, companyId } });
+      if (!txn) throw new BadRequestException("Transaction not found.");
+      previousCategory = txn.categoryOverride ?? txn.primaryCategory ?? null;
+      previousStatus = txn.categoryStatus;
+      merchant = txn.merchantName;
+      await this.prisma.bankTransaction.update({
+        where: { id: transactionId },
+        data: {
+          categoryOverride: newCategory,
+          categoryStatus: CategoryStatus.TENTATIVE,
+          categoryOverrideByUserId: userId,
+          categoryOverrideAt: new Date(),
+        },
+      });
+    } else {
+      const txn = await this.prisma.importedTransaction.findFirst({ where: { id: transactionId, companyId } });
+      if (!txn) throw new BadRequestException("Transaction not found.");
+      previousCategory = txn.categoryOverride ?? txn.category ?? txn.cardCategory ?? null;
+      previousStatus = txn.categoryStatus;
+      merchant = txn.merchant;
+      await this.prisma.importedTransaction.update({
+        where: { id: transactionId },
+        data: {
+          categoryOverride: newCategory,
+          categoryStatus: CategoryStatus.TENTATIVE,
+          categoryOverrideByUserId: userId,
+          categoryOverrideAt: new Date(),
+        },
+      });
+    }
+
+    // Audit log
+    await this.prisma.categoryOverrideLog.create({
+      data: {
+        companyId,
+        transactionId,
+        transactionSource: source,
+        previousCategory,
+        newCategory,
+        previousStatus,
+        newStatus: CategoryStatus.TENTATIVE,
+        note: note ?? null,
+        userId,
+        userName,
+      },
+    });
+
+    // Upsert MerchantCategoryRule for learning
+    if (merchant && previousCategory) {
+      const merchantKey = merchant.toLowerCase().trim();
+      try {
+        await this.prisma.merchantCategoryRule.upsert({
+          where: {
+            MerchantCategoryRule_company_merchant_from_key: {
+              companyId,
+              merchantKey,
+              fromCategory: previousCategory,
+            },
+          },
+          update: {
+            toCategory: newCategory,
+            ruleCount: { increment: 1 },
+            lastAppliedAt: new Date(),
+          },
+          create: {
+            companyId,
+            merchantKey,
+            fromCategory: previousCategory,
+            toCategory: newCategory,
+            ruleCount: 1,
+            lastAppliedAt: new Date(),
+          },
+        });
+      } catch (err: any) {
+        this.logger.warn(`Failed to upsert MerchantCategoryRule: ${err.message}`);
+      }
+    }
+
+    return { ok: true, newCategory, previousCategory, categoryStatus: CategoryStatus.TENTATIVE };
+  }
+
+  async verifyCategory(params: {
+    companyId: string;
+    transactionId: string;
+    source: string;
+    userId: string;
+  }) {
+    const { companyId, transactionId, source, userId } = params;
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { firstName: true, lastName: true, email: true },
+    });
+    const userName = user ? `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email : "Unknown";
+
+    let previousCategory: string | null = null;
+
+    if (source === "PLAID") {
+      const txn = await this.prisma.bankTransaction.findFirst({ where: { id: transactionId, companyId } });
+      if (!txn) throw new BadRequestException("Transaction not found.");
+      if (txn.categoryStatus !== CategoryStatus.TENTATIVE) {
+        throw new BadRequestException("Only TENTATIVE categories can be verified.");
+      }
+      previousCategory = txn.categoryOverride ?? txn.primaryCategory ?? null;
+      await this.prisma.bankTransaction.update({
+        where: { id: transactionId },
+        data: { categoryStatus: CategoryStatus.VERIFIED },
+      });
+    } else {
+      const txn = await this.prisma.importedTransaction.findFirst({ where: { id: transactionId, companyId } });
+      if (!txn) throw new BadRequestException("Transaction not found.");
+      if (txn.categoryStatus !== CategoryStatus.TENTATIVE) {
+        throw new BadRequestException("Only TENTATIVE categories can be verified.");
+      }
+      previousCategory = txn.categoryOverride ?? txn.category ?? txn.cardCategory ?? null;
+      await this.prisma.importedTransaction.update({
+        where: { id: transactionId },
+        data: { categoryStatus: CategoryStatus.VERIFIED },
+      });
+    }
+
+    await this.prisma.categoryOverrideLog.create({
+      data: {
+        companyId,
+        transactionId,
+        transactionSource: source,
+        previousCategory,
+        newCategory: previousCategory ?? "",
+        previousStatus: CategoryStatus.TENTATIVE,
+        newStatus: CategoryStatus.VERIFIED,
+        note: "PM verified category",
+        userId,
+        userName,
+      },
+    });
+
+    return { ok: true, categoryStatus: CategoryStatus.VERIFIED };
   }
 
   // ═══════════════════════════════════════════════════════════════════

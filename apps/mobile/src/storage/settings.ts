@@ -73,3 +73,19 @@ export async function setLastSelectedProjectId(projectId: string | null): Promis
     await AsyncStorage.removeItem(LAST_SELECTED_PROJECT_KEY);
   }
 }
+
+// ---- Last-selected Company (tenant auto-select) ----
+
+const LAST_SELECTED_COMPANY_KEY = "nexus.lastSelectedCompany";
+
+export async function getLastSelectedCompanyId(): Promise<string | null> {
+  return AsyncStorage.getItem(LAST_SELECTED_COMPANY_KEY);
+}
+
+export async function setLastSelectedCompanyId(companyId: string | null): Promise<void> {
+  if (companyId) {
+    await AsyncStorage.setItem(LAST_SELECTED_COMPANY_KEY, companyId);
+  } else {
+    await AsyncStorage.removeItem(LAST_SELECTED_COMPANY_KEY);
+  }
+}

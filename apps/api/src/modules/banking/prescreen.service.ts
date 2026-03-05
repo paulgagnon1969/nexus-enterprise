@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
-import { CsvImportSource } from "@prisma/client";
+import { CsvImportSource, CategoryStatus } from "@prisma/client";
 import { DuplicateBillDetectorService } from "./duplicate-bill-detector.service";
 
 // ---------------------------------------------------------------------------
@@ -107,6 +107,11 @@ export class PrescreenService {
 
     // Load ALL feedback for learning loop
     const feedback = await this.computeFeedbackMaps(companyId);
+
+    // Load MerchantCategoryRules for Signal 7 (category learning)
+    const categoryRules = await this.prisma.merchantCategoryRule.findMany({
+      where: { companyId },
+    });
 
     let prescreenedCount = 0;
     let billsCreated = 0;
@@ -277,6 +282,35 @@ export class PrescreenService {
                   signal: "OVERRIDE_LEARNED",
                 });
               }
+            }
+          }
+        }
+      }
+
+      // Signal 7: MerchantCategoryRule — apply learned category corrections
+      if (txn.merchant && categoryRules.length > 0) {
+        const txnMerchantKey = txn.merchant.toLowerCase().trim();
+        const txnCategory = txn.category ?? txn.cardCategory ?? null;
+        if (txnCategory) {
+          const matchingRule = categoryRules.find(
+            (r) => r.merchantKey === txnMerchantKey && r.fromCategory === txnCategory,
+          );
+          if (matchingRule && txn.categoryStatus === CategoryStatus.ORIGINAL) {
+            try {
+              await this.prisma.importedTransaction.update({
+                where: { id: txn.id },
+                data: {
+                  categoryOverride: matchingRule.toCategory,
+                  categoryStatus: CategoryStatus.TENTATIVE,
+                  categoryOverrideAt: new Date(),
+                },
+              });
+              this.logger.debug(
+                `Signal 7: Applied category rule for txn ${txn.id}: ` +
+                  `"${txnCategory}" → "${matchingRule.toCategory}" (merchant: ${txnMerchantKey})`,
+              );
+            } catch (err: any) {
+              this.logger.warn(`Signal 7: Failed to apply category rule for txn ${txn.id}: ${err.message}`);
             }
           }
         }

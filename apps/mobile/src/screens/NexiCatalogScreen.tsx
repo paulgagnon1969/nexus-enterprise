@@ -512,7 +512,15 @@ export function NexiCatalogScreen({ onBack, onEnrollNew }: Props) {
 
               {detailEntry.status === "pending_approval" && (
                 <View style={styles.modalPendingNotice}>
-                  <Text style={styles.modalPendingText}>⏳ Pending admin approval</Text>
+                  <Text style={styles.modalPendingText}>⏳ Pending PM review</Text>
+                  {detailEntry.reviewNote ? (
+                    <Text style={styles.modalReviewNote}>
+                      “{detailEntry.reviewNote}”
+                    </Text>
+                  ) : null}
+                  <Text style={styles.modalPendingHint}>
+                    A PM or above will review this item and assign it to the correct category.
+                  </Text>
                 </View>
               )}
 
@@ -662,4 +670,6 @@ const styles = StyleSheet.create({
     alignItems: "center", marginTop: 12,
   },
   modalPendingText: { color: "#FCD34D", fontSize: 14, fontWeight: "600" },
+  modalReviewNote: { color: "#FDE68A", fontSize: 13, fontStyle: "italic", marginTop: 6, lineHeight: 18 },
+  modalPendingHint: { color: "#D97706", fontSize: 11, marginTop: 6, opacity: 0.8 },
 });

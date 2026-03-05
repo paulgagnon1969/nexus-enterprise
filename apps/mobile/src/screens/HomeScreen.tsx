@@ -25,6 +25,8 @@ import {
   toggleFavoriteProject,
   getLastSelectedProjectId,
   setLastSelectedProjectId,
+  getLastSelectedCompanyId,
+  setLastSelectedCompanyId,
 } from "../storage/settings";
 import { getUserMe, getUserCompanyMe } from "../api/user";
 import { switchCompany as apiSwitchCompany } from "../api/company";
@@ -245,10 +247,12 @@ export function HomeScreen({
       setCompanies(list);
 
       // Best-effort: fetch the current company context so we know which one is active.
+      let activeCompanyId: string | null = null;
       try {
         const companyMe = await getUserCompanyMe();
         if (companyMe?.id) {
-          setCurrentCompanyId(String(companyMe.id));
+          activeCompanyId = String(companyMe.id);
+          setCurrentCompanyId(activeCompanyId);
           setCurrentCompanyName(String(companyMe.name ?? companyMe.id));
         }
       } catch {
@@ -258,6 +262,12 @@ export function HomeScreen({
       // Single-tenant users skip the tenant picker entirely.
       if (list.length <= 1) {
         setTenantConfirmed(true);
+      } else if (activeCompanyId) {
+        // Multi-tenant: auto-confirm if the API's active company matches the last selection.
+        const lastCompanyId = await getLastSelectedCompanyId();
+        if (lastCompanyId && lastCompanyId === activeCompanyId) {
+          setTenantConfirmed(true);
+        }
       }
 
       if (!list.length) {
@@ -461,6 +471,7 @@ export function HomeScreen({
       }
       // Mark tenant as confirmed so we show the project feed.
       setTenantConfirmed(true);
+      void setLastSelectedCompanyId(res.company?.id ?? companyId);
       // Clear current project (belongs to old tenant)
       setSelectedProject(null);
       setProjectLogs([]);
@@ -739,6 +750,7 @@ export function HomeScreen({
                       if (isCurrent) {
                         // Already on this tenant — just confirm and show projects
                         setTenantConfirmed(true);
+                        void setLastSelectedCompanyId(c.id);
                         void loadProjectFeed();
                       } else {
                         void handleSelectCompany(c.id);
@@ -1000,37 +1012,60 @@ export function HomeScreen({
               <Text style={styles.emptyText}>No projects found</Text>
             </View>
           ) : (
-            projectsWithLogs.map((item) => (
-              <Pressable
-                key={item.project.id}
-                style={styles.projectRow}
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  void recordUsage(item.project.id, "open_project");
-                  setSelectedProject(item.project);
-                }}
-              >
-                <View style={styles.projectInfo}>
-                  <Text style={styles.projectName} numberOfLines={1}>
-                    {item.project.name}
-                  </Text>
-                  {item.latestLog ? (
-                    <Text style={styles.logSummary} numberOfLines={1}>
-                      {formatDate(item.latestLog.logDate)}
-                      {item.latestLog.attachments && item.latestLog.attachments.length > 0 ? " 📎" : ""}
-                      {item.latestLog.workPerformed
-                        ? ` — ${item.latestLog.workPerformed}`
-                        : item.latestLog.title
-                        ? ` — ${item.latestLog.title}`
-                        : ""}
+            (() => {
+              const renderProjectRow = (item: ProjectWithLatestLog) => (
+                <Pressable
+                  key={item.project.id}
+                  style={styles.projectRow}
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    void recordUsage(item.project.id, "open_project");
+                    setSelectedProject(item.project);
+                  }}
+                >
+                  <View style={styles.projectInfo}>
+                    <Text style={styles.projectName} numberOfLines={1}>
+                      {item.project.name}
                     </Text>
-                  ) : (
-                    <Text style={styles.noLogText}>No daily logs yet</Text>
-                  )}
-                </View>
-                <Text style={styles.chevron}>›</Text>
-              </Pressable>
-            ))
+                    {item.latestLog ? (
+                      <Text style={styles.logSummary} numberOfLines={1}>
+                        {formatDate(item.latestLog.logDate)}
+                        {item.latestLog.attachments && item.latestLog.attachments.length > 0 ? " 📎" : ""}
+                        {item.latestLog.workPerformed
+                          ? ` — ${item.latestLog.workPerformed}`
+                          : item.latestLog.title
+                          ? ` — ${item.latestLog.title}`
+                          : ""}
+                      </Text>
+                    ) : (
+                      <Text style={styles.noLogText}>No daily logs yet</Text>
+                    )}
+                  </View>
+                  <Text style={styles.chevron}>›</Text>
+                </Pressable>
+              );
+
+              // Fewer than 4 projects — just render sorted by recency
+              if (projectsWithLogs.length <= 3) {
+                return <>{projectsWithLogs.map(renderProjectRow)}</>;
+              }
+
+              // Top 3 most recent, divider, then rest A-Z
+              const recentTop = projectsWithLogs.slice(0, 3);
+              const rest = [...projectsWithLogs.slice(3)].sort((a, b) =>
+                a.project.name.localeCompare(b.project.name),
+              );
+
+              return (
+                <>
+                  <Text style={styles.feedSectionLabel}>Recent</Text>
+                  {recentTop.map(renderProjectRow)}
+                  <View style={styles.feedDivider} />
+                  <Text style={styles.feedSectionLabel}>All Projects</Text>
+                  {rest.map(renderProjectRow)}
+                </>
+              );
+            })()
           )}
 
         </ScrollView>
@@ -1956,6 +1991,22 @@ const styles = StyleSheet.create({
     backgroundColor: "#e5e7eb",
     marginHorizontal: 16,
     marginVertical: 8,
+  },
+  feedSectionLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#9ca3af",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  feedDivider: {
+    height: 1,
+    backgroundColor: "#e5e7eb",
+    marginHorizontal: 16,
+    marginVertical: 6,
   },
 
   // Picker section titles

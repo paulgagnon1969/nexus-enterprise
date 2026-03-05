@@ -131,6 +131,8 @@ export class CsvImportController {
     @Query("projectId") projectId?: string,
     @Query("unassigned") unassigned?: string,
     @Query("disposition") disposition?: string,
+    @Query("merchant") merchant?: string,
+    @Query("accountMask") accountMask?: string,
     @Query("page") page?: string,
     @Query("pageSize") pageSize?: string,
   ) {
@@ -148,7 +150,9 @@ export class CsvImportController {
       pending: pending !== undefined ? pending === "true" : undefined,
       projectId,
       unassigned: unassigned === "true",
-      disposition: disposition ? VALID_DISPOSITIONS[disposition] : undefined,
+      disposition: disposition || undefined,
+      merchant,
+      accountMask: accountMask || undefined,
       page: page ? parseInt(page, 10) : undefined,
       pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
     });
@@ -353,6 +357,53 @@ export class CsvImportController {
   async getDispositionCounts(@Req() req: any) {
     const actor = req.user as AuthenticatedUser;
     return this.csvImport.getDispositionCounts(actor.companyId);
+  }
+
+  // ─── Re-run prescreening on all pending transactions ──────────────
+
+  @Post("prescreen-rerun")
+  async rerunPrescreening(@Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.csvImport.rerunPrescreening(actor.companyId);
+  }
+
+  // ─── Category Override + Verification ──────────────────────────────
+
+  @Patch("transactions/:id/category")
+  async overrideCategory(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() body: { source: string; newCategory: string; note?: string },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    if (!body.source) throw new BadRequestException("source is required.");
+    if (!body.newCategory || !body.newCategory.trim()) {
+      throw new BadRequestException("newCategory is required.");
+    }
+    return this.csvImport.overrideCategory({
+      companyId: actor.companyId,
+      transactionId: id,
+      source: body.source,
+      newCategory: body.newCategory.trim(),
+      note: body.note,
+      userId: actor.userId,
+    });
+  }
+
+  @Patch("transactions/:id/category-verify")
+  async verifyCategory(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() body: { source: string },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    if (!body.source) throw new BadRequestException("source is required.");
+    return this.csvImport.verifyCategory({
+      companyId: actor.companyId,
+      transactionId: id,
+      source: body.source,
+      userId: actor.userId,
+    });
   }
 
   // ─── Transaction Tags ─────────────────────────────────────────────

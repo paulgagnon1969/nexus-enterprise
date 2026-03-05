@@ -10004,6 +10004,17 @@ export class ProjectService {
               },
             },
           },
+          // Include sibling group for duplicate/verification bill display
+          siblingGroup: {
+            select: {
+              id: true,
+              primaryBillId: true,
+              matchConfidence: true,
+              matchReason: true,
+              verificationStatus: true,
+              amountVariance: true,
+            },
+          },
         },
       });
 

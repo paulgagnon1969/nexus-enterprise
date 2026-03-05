@@ -58,7 +58,10 @@ export function InventoryScreen({ onBack }: { onBack: () => void }) {
     void loadCachedBootstrap().then(refreshBootstrapOnline);
   }, []);
 
-  const myAssets = useMemo(() => myHoldings?.assets ?? [], [myHoldings]);
+  const myAssets = useMemo(() => {
+    const assets = myHoldings?.assets ?? [];
+    return [...assets].sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+  }, [myHoldings]);
 
   const loadLocationChildren = async (locationId: string) => {
     const key = `locations.children:${locationId}`;
@@ -245,7 +248,7 @@ export function InventoryScreen({ onBack }: { onBack: () => void }) {
               Select a project to browse: Tenant → Project → Warehouse → Zones, plus Upstream/Downstream.
             </Text>
 
-            {projects.map((p) => (
+            {[...projects].sort((a, b) => a.name.localeCompare(b.name)).map((p) => (
               <Pressable key={p.id} style={styles.moveRow} onPress={() => resolveProjectRoot(p)}>
                 <Text style={styles.moveRowText}>{p.name}</Text>
                 <Text style={styles.cardSub}>{p.id}</Text>

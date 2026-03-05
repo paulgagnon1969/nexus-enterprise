@@ -36,6 +36,8 @@ export interface NexiCatalogEntry {
   synced: boolean;
   /** Approval workflow status (defaults to 'draft' for backwards compat) */
   status?: NexiEntryStatus;
+  /** Free-text note when category is "Other" — describes what the item actually is for PM review */
+  reviewNote?: string;
 }
 
 export interface NexiDimensions {

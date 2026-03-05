@@ -47,6 +47,7 @@ export function NexiEnrollScreen({ onBack, onEnrolled }: Props) {
   const [tags, setTags] = useState("");
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [showMaterialPicker, setShowMaterialPicker] = useState(false);
+  const [reviewNote, setReviewNote] = useState("");
 
   const supported = isNexiSupported();
 
@@ -127,6 +128,10 @@ export function NexiEnrollScreen({ onBack, onEnrolled }: Props) {
       Alert.alert("Category Required", "Select or enter a category.");
       return;
     }
+    if (category === "Other" && !reviewNote.trim()) {
+      Alert.alert("Description Required", "Please describe what this item is so a PM can review and categorize it.");
+      return;
+    }
 
     setStep("SAVING");
 
@@ -152,6 +157,8 @@ export function NexiEnrollScreen({ onBack, onEnrolled }: Props) {
         createdAt: now,
         updatedAt: now,
         synced: false,
+        status: category.trim() === "Other" ? "pending_approval" : "draft",
+        reviewNote: category.trim() === "Other" ? reviewNote.trim() : undefined,
       };
 
       const storedPrints: NexiStoredPrint[] = prints.map((p, i) => ({
@@ -164,7 +171,9 @@ export function NexiEnrollScreen({ onBack, onEnrolled }: Props) {
 
       Alert.alert(
         "NEXI Enrolled ✓",
-        `"${saved.name}" saved with ${saved.featurePrintCount} fingerprints. It will now be recognized in future scans.`,
+        saved.status === "pending_approval"
+          ? `"${saved.name}" saved and flagged for PM review. A project manager will assign it to the correct category.`
+          : `"${saved.name}" saved with ${saved.featurePrintCount} fingerprints. It will now be recognized in future scans.`,
       );
 
       onEnrolled?.(saved);
@@ -173,7 +182,7 @@ export function NexiEnrollScreen({ onBack, onEnrolled }: Props) {
       Alert.alert("Save Failed", err instanceof Error ? err.message : String(err));
       setStep("LABEL");
     }
-  }, [name, category, subcategory, material, tags, prints, photos, onBack, onEnrolled]);
+  }, [name, category, subcategory, material, tags, reviewNote, prints, photos, onBack, onEnrolled]);
 
   // ── Unsupported ────────────────────────────────────────────
 
@@ -316,6 +325,26 @@ export function NexiEnrollScreen({ onBack, onEnrolled }: Props) {
             </View>
           )}
 
+          {/* "Other" category — review note for PM disposition */}
+          {category === "Other" && (
+            <View style={styles.otherNotice}>
+              <Text style={styles.otherNoticeTitle}>⚠ Uncategorized Item</Text>
+              <Text style={styles.otherNoticeDesc}>
+                This item will be flagged for a PM or above to review and assign to the correct category.
+              </Text>
+              <Text style={styles.fieldLabel}>What is this item? *</Text>
+              <TextInput
+                style={[styles.input, { minHeight: 60, textAlignVertical: "top" }]}
+                value={reviewNote}
+                onChangeText={setReviewNote}
+                placeholder="Describe the item — e.g. 'Portable air quality monitor, brand XYZ, used for IAQ testing'"
+                placeholderTextColor="#64748B"
+                multiline
+                numberOfLines={3}
+              />
+            </View>
+          )}
+
           <Text style={styles.fieldLabel}>Subcategory</Text>
           <TextInput
             style={styles.input}
@@ -361,11 +390,13 @@ export function NexiEnrollScreen({ onBack, onEnrolled }: Props) {
           />
 
           <Pressable
-            style={[styles.primaryBtn, (!name.trim() || !category.trim()) && styles.btnDisabled]}
+            style={[styles.primaryBtn, (!name.trim() || !category.trim() || (category === "Other" && !reviewNote.trim())) && styles.btnDisabled]}
             onPress={saveToCatalog}
-            disabled={!name.trim() || !category.trim()}
+            disabled={!name.trim() || !category.trim() || (category === "Other" && !reviewNote.trim())}
           >
-            <Text style={styles.primaryBtnText}>Save to NEXI Catalog</Text>
+            <Text style={styles.primaryBtnText}>
+              {category === "Other" ? "Save & Flag for Review" : "Save to NEXI Catalog"}
+            </Text>
           </Pressable>
 
           <Pressable style={styles.secondaryBtn} onPress={() => setStep("CAPTURE")}>
@@ -458,6 +489,14 @@ const styles = StyleSheet.create({
     backgroundColor: "#1E293B", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 12,
     color: "#fff", fontSize: 15, borderWidth: 1, borderColor: "#334155",
   },
+
+  // Other category notice
+  otherNotice: {
+    backgroundColor: "#78350F", borderRadius: 10, padding: 14, marginTop: 12,
+    borderWidth: 1, borderColor: "#92400E",
+  },
+  otherNoticeTitle: { color: "#FCD34D", fontSize: 14, fontWeight: "700", marginBottom: 4 },
+  otherNoticeDesc: { color: "#FDE68A", fontSize: 12, lineHeight: 18, marginBottom: 10, opacity: 0.85 },
 
   // Picker
   pickerBtn: {

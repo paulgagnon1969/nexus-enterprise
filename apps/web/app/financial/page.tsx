@@ -446,11 +446,12 @@ export default function FinancialPage() {
   const [bankSummary, setBankSummary] = useState<BankSummaryDto | null>(null);
   const [bankTxTotal, setBankTxTotal] = useState(0);
   const [bankTxPage, setBankTxPage] = useState(1);
-  const [bankTxPageSize] = useState(50);
+  const [bankTxPageSize, setBankTxPageSize] = useState(50);
   const [bankLoading, setBankLoading] = useState(false);
   const [bankSyncing, setBankSyncing] = useState(false);
   const [bankError, setBankError] = useState<string | null>(null);
   const [bankSearch, setBankSearch] = useState("");
+  const [bankMerchantFilter, setBankMerchantFilter] = useState("");
   const [bankStartDate, setBankStartDate] = useState("");
   const [bankEndDate, setBankEndDate] = useState("");
   const [bankCategoryFilter, setBankCategoryFilter] = useState("");
@@ -486,6 +487,23 @@ export default function FinancialPage() {
   // Bulk select
   const [bankSelectedIds, setBankSelectedIds] = useState<Set<string>>(new Set());
   const [bankBulkProjectId, setBankBulkProjectId] = useState<string>("");
+
+  // Prescreen rerun
+  const [prescreenRunning, setPrescreenRunning] = useState(false);
+  const [prescreenResult, setPrescreenResult] = useState<string | null>(null);
+
+  // Disposition change modal
+  const [dispositionModalTxn, setDispositionModalTxn] = useState<UnifiedTransactionDto | null>(null);
+  const [dispositionValue, setDispositionValue] = useState("");
+  const [dispositionNote, setDispositionNote] = useState("");
+  const [dispositionSaving, setDispositionSaving] = useState(false);
+  const [bankDispositionFilter, setBankDispositionFilter] = useState("");
+
+  // Category override modal
+  const [categoryModalTxn, setCategoryModalTxn] = useState<UnifiedTransactionDto | null>(null);
+  const [categoryValue, setCategoryValue] = useState("");
+  const [categoryNote, setCategoryNote] = useState("");
+  const [categorySaving, setCategorySaving] = useState(false);
 
   // Last Golden-related import jobs
   const [priceListJob, setPriceListJob] = useState<ImportJobDto | null>(null);
@@ -837,6 +855,7 @@ export default function FinancialPage() {
       params.set("sortBy", bankSortBy);
       params.set("sortDir", bankSortDir);
       if (bankSearch) params.set("search", bankSearch);
+      if (bankMerchantFilter) params.set("merchant", bankMerchantFilter);
       if (bankStartDate) params.set("startDate", bankStartDate);
       if (bankEndDate) params.set("endDate", bankEndDate);
       if (bankSourceFilter) params.set("source", bankSourceFilter);
@@ -844,6 +863,7 @@ export default function FinancialPage() {
       if (bankStatusFilter) params.set("pending", bankStatusFilter);
       if (bankProjectFilter) params.set("projectId", bankProjectFilter);
       if (bankUnassignedFilter) params.set("unassigned", "true");
+      if (bankDispositionFilter) params.set("disposition", bankDispositionFilter);
       if (bankAccountFilter) {
         if (bankAccountFilter.startsWith("conn:")) params.set("connectionId", bankAccountFilter.slice(5));
         else if (bankAccountFilter.startsWith("source:")) params.set("source", bankAccountFilter.slice(7));
@@ -1039,6 +1059,118 @@ export default function FinancialPage() {
     }
   }
 
+  async function handlePrescreenRerun() {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    setPrescreenRunning(true);
+    setPrescreenResult(null);
+    try {
+      const res = await fetch(`${API_BASE}/banking/prescreen-rerun`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`Failed (${res.status})`);
+      const json = await res.json();
+      if (json.totalPrescreened > 0) {
+        setPrescreenResult(`Prescreened ${json.totalPrescreened} transactions across ${json.batchesProcessed} batch(es). ${json.totalBillsCreated} tentative bills created.`);
+      } else {
+        setPrescreenResult(`No new matches found across ${json.batchesProcessed} batch(es). All transactions already prescreened or no matching projects.`);
+      }
+      await fetchBankTransactions(bankTxPage);
+    } catch (err: any) {
+      setPrescreenResult(err?.message ?? "Prescreening failed");
+    } finally {
+      setPrescreenRunning(false);
+    }
+  }
+
+  async function handleDispositionChange() {
+    if (!dispositionModalTxn || !dispositionValue || !dispositionNote.trim()) return;
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    setDispositionSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/banking/transactions/${dispositionModalTxn.id}/disposition`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          source: dispositionModalTxn.source,
+          disposition: dispositionValue,
+          note: dispositionNote.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.message || `Failed (${res.status})`);
+      }
+      // Update local state
+      setBankTransactions(prev => prev.map(t => t.id === dispositionModalTxn.id ? { ...t, extra: { ...t.extra, disposition: dispositionValue } } : t));
+      setDispositionModalTxn(null);
+      setDispositionValue("");
+      setDispositionNote("");
+    } catch (err: any) {
+      setBankError(err?.message ?? "Failed to update disposition");
+    } finally {
+      setDispositionSaving(false);
+    }
+  }
+
+  async function handleCategoryOverride() {
+    if (!categoryModalTxn || !categoryValue.trim()) return;
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    setCategorySaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/banking/transactions/${categoryModalTxn.id}/category`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          source: categoryModalTxn.source,
+          newCategory: categoryValue.trim(),
+          note: categoryNote.trim() || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.message || `Failed (${res.status})`);
+      }
+      setBankTransactions(prev => prev.map(t => t.id === categoryModalTxn.id ? {
+        ...t,
+        category: categoryValue.trim(),
+        extra: { ...t.extra, categoryOverride: categoryValue.trim(), categoryStatus: "TENTATIVE" },
+      } : t));
+      setCategoryModalTxn(null);
+      setCategoryValue("");
+      setCategoryNote("");
+    } catch (err: any) {
+      setBankError(err?.message ?? "Failed to override category");
+    } finally {
+      setCategorySaving(false);
+    }
+  }
+
+  async function handleCategoryVerify(txn: UnifiedTransactionDto) {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/banking/transactions/${txn.id}/category-verify`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ source: txn.source }),
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.message || `Failed (${res.status})`);
+      }
+      setBankTransactions(prev => prev.map(t => t.id === txn.id ? {
+        ...t,
+        extra: { ...t.extra, categoryStatus: "VERIFIED" },
+      } : t));
+    } catch (err: any) {
+      setBankError(err?.message ?? "Failed to verify category");
+    }
+  }
+
   function openRawDetail(txn: UnifiedTransactionDto) {
     const flat = txn.extra ? { ...txn, ...txn.extra } : { ...txn };
     setRawDetailTxn(flat);
@@ -1156,7 +1288,7 @@ export default function FinancialPage() {
     if (activeSection !== "BANKING") return;
     fetchBankTransactions(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bankSortBy, bankSortDir, bankStatusFilter, bankCategoryFilter, bankProjectFilter, bankUnassignedFilter]);
+  }, [bankSortBy, bankSortDir, bankStatusFilter, bankCategoryFilter, bankProjectFilter, bankUnassignedFilter, bankDispositionFilter, bankTxPageSize]);
 
   // Lazy-load Asset Logistics tree when that tab is first opened.
   useEffect(() => {
@@ -4056,7 +4188,15 @@ export default function FinancialPage() {
               value={bankSearch}
               onChange={e => setBankSearch(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") { fetchBankTransactions(1); fetchBankSummary(); } }}
-              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12, width: 200 }}
+              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12, width: 180 }}
+            />
+            <input
+              type="text"
+              placeholder="Merchant / Job…"
+              value={bankMerchantFilter}
+              onChange={e => setBankMerchantFilter(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") { fetchBankTransactions(1); fetchBankSummary(); } }}
+              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12, width: 160 }}
             />
             <select
               value={bankSourceFilter}
@@ -4144,6 +4284,20 @@ export default function FinancialPage() {
               <option value="">All Projects</option>
               {bankProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
+            <select
+              value={bankDispositionFilter}
+              onChange={e => setBankDispositionFilter(e.target.value)}
+              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
+            >
+              <option value="">All Dispositions</option>
+              <option value="UNREVIEWED">Unreviewed</option>
+              <option value="PENDING_APPROVAL">Pending Approval</option>
+              <option value="ASSIGNED">Assigned</option>
+              <option value="IGNORED">Ignored</option>
+              <option value="PERSONAL">Personal</option>
+              <option value="DUPLICATE">Duplicate</option>
+              <option value="RETURNED">Returned</option>
+            </select>
             <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "#374151", cursor: "pointer" }}>
               <input
                 type="checkbox"
@@ -4152,6 +4306,16 @@ export default function FinancialPage() {
               />
               Unassigned only
             </label>
+            <select
+              value={bankTxPageSize}
+              onChange={e => { setBankTxPageSize(Number(e.target.value)); setBankTxPage(1); }}
+              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
+            >
+              <option value={50}>50 / page</option>
+              <option value={100}>100 / page</option>
+              <option value={150}>150 / page</option>
+              <option value={200}>200 / page</option>
+            </select>
             <button
               type="button"
               onClick={() => { fetchBankTransactions(1); fetchBankSummary(); }}
@@ -4180,7 +4344,26 @@ export default function FinancialPage() {
                 ✓ Confirm All High Confidence
               </button>
             )}
+            {/* Re-run prescreening button */}
+            <button
+              type="button"
+              onClick={handlePrescreenRerun}
+              disabled={prescreenRunning}
+              style={{
+                padding: "6px 12px", borderRadius: 6, border: "1px solid #7c3aed", background: prescreenRunning ? "#e5e7eb" : "#f5f3ff",
+                color: prescreenRunning ? "#6b7280" : "#7c3aed", fontSize: 11, fontWeight: 600,
+                cursor: prescreenRunning ? "not-allowed" : "pointer",
+              }}
+            >
+              {prescreenRunning ? "Prescreening…" : "🔄 Re-run Prescreening"}
+            </button>
           </div>
+          {prescreenResult && (
+            <div style={{ fontSize: 12, marginBottom: 8, padding: "6px 10px", borderRadius: 6, background: "#f5f3ff", border: "1px solid #c4b5fd", color: "#5b21b6" }}>
+              {prescreenResult}
+              <button type="button" onClick={() => setPrescreenResult(null)} style={{ marginLeft: 8, border: "none", background: "none", cursor: "pointer", color: "#7c3aed", fontSize: 11 }}>✕</button>
+            </div>
+          )}
 
           {/* Bulk assign bar */}
           {bankSelectedIds.size > 0 && (
@@ -4251,6 +4434,7 @@ export default function FinancialPage() {
                     { field: "category" as BankSortField, label: "Category", align: "left", nowrap: false },
                     { field: "amount" as BankSortField, label: "Amount", align: "right", nowrap: true },
                     { field: "status" as BankSortField, label: "Status", align: "center", nowrap: false },
+                    { field: null, label: "Disposition", align: "center", nowrap: false },
                     { field: null, label: "Prescreen", align: "center", nowrap: false },
                     { field: "project" as BankSortField, label: "Project", align: "left", nowrap: false },
                     { field: null, label: "", align: "center", nowrap: true },
@@ -4279,10 +4463,10 @@ export default function FinancialPage() {
               </thead>
               <tbody>
                 {bankLoading && (
-                  <tr><td colSpan={11} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>Loading…</td></tr>
+                  <tr><td colSpan={12} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>Loading…</td></tr>
                 )}
                 {!bankLoading && bankTransactions.length === 0 && (
-                  <tr><td colSpan={11} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>
+                  <tr><td colSpan={12} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>
                     {bankConnections.length === 0 && csvBatches.length === 0
                       ? "Connect a bank account or import a CSV to see transactions."
                       : "No transactions found."}
@@ -4332,11 +4516,60 @@ export default function FinancialPage() {
                         {merchantOrJob}
                       </td>
                       <td style={{ padding: "8px 10px" }}>
-                        {txn.category ? (
-                          <span style={{ padding: "2px 6px", borderRadius: 4, background: "#f3f4f6", fontSize: 11 }}>
-                            {txn.category}
-                          </span>
-                        ) : "—"}
+                        {(() => {
+                          const catStatus = txn.extra?.categoryStatus ?? "ORIGINAL";
+                          const displayCat = txn.extra?.categoryOverride ?? txn.category;
+                          const chipColors: Record<string, { bg: string; color: string; border: string }> = {
+                            ORIGINAL: { bg: "#f3f4f6", color: "#374151", border: "#d1d5db" },
+                            TENTATIVE: { bg: "#fef9c3", color: "#854d0e", border: "#fde047" },
+                            VERIFIED: { bg: "#dcfce7", color: "#166534", border: "#86efac" },
+                          };
+                          const cs = chipColors[catStatus] ?? chipColors.ORIGINAL;
+                          return displayCat ? (
+                            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setCategoryModalTxn(txn);
+                                  setCategoryValue(displayCat);
+                                  setCategoryNote("");
+                                }}
+                                title={`Category: ${displayCat} (${catStatus}) — click to change`}
+                                style={{
+                                  padding: "2px 6px", borderRadius: 4, fontSize: 11,
+                                  background: cs.bg, color: cs.color, border: `1px solid ${cs.border}`,
+                                  cursor: "pointer", whiteSpace: "nowrap", maxWidth: 120,
+                                  overflow: "hidden", textOverflow: "ellipsis",
+                                }}
+                              >
+                                {displayCat}
+                              </button>
+                              {catStatus === "TENTATIVE" && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCategoryVerify(txn)}
+                                  title="Approve category"
+                                  style={{ border: "none", background: "none", cursor: "pointer", fontSize: 12, padding: 0, color: "#16a34a" }}
+                                >
+                                  ✓
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCategoryModalTxn(txn);
+                                setCategoryValue("");
+                                setCategoryNote("");
+                              }}
+                              title="Set category"
+                              style={{ border: "none", background: "none", cursor: "pointer", fontSize: 11, color: "#9ca3af" }}
+                            >
+                              —
+                            </button>
+                          );
+                        })()}
                       </td>
                       <td style={{
                         padding: "8px 10px", textAlign: "right", fontWeight: 600, whiteSpace: "nowrap",
@@ -4352,6 +4585,40 @@ export default function FinancialPage() {
                         }}>
                           {txn.pending ? "PENDING" : "POSTED"}
                         </span>
+                      </td>
+                      {/* Disposition */}
+                      <td style={{ padding: "8px 6px", textAlign: "center" }}>
+                        {(() => {
+                          const disp = txn.extra?.disposition ?? "UNREVIEWED";
+                          const dispStyles: Record<string, { label: string; bg: string; color: string }> = {
+                            UNREVIEWED: { label: "Unreviewed", bg: "#f3f4f6", color: "#6b7280" },
+                            PENDING_APPROVAL: { label: "Pending", bg: "#fef3c7", color: "#b45309" },
+                            ASSIGNED: { label: "Assigned", bg: "#dcfce7", color: "#166534" },
+                            IGNORED: { label: "Ignored", bg: "#e5e7eb", color: "#4b5563" },
+                            PERSONAL: { label: "Personal", bg: "#fce7f3", color: "#9d174d" },
+                            DUPLICATE: { label: "Duplicate", bg: "#fee2e2", color: "#991b1b" },
+                            RETURNED: { label: "Returned", bg: "#dbeafe", color: "#1d4ed8" },
+                          };
+                          const ds = dispStyles[disp] ?? dispStyles.UNREVIEWED;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDispositionModalTxn(txn);
+                                setDispositionValue(disp);
+                                setDispositionNote("");
+                              }}
+                              title="Click to change disposition"
+                              style={{
+                                padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600,
+                                background: ds.bg, color: ds.color, border: "none", cursor: "pointer",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {ds.label}
+                            </button>
+                          );
+                        })()}
                       </td>
                       {/* Prescreen chip */}
                       <td style={{ padding: "8px 6px", textAlign: "center" }}>
@@ -4416,26 +4683,155 @@ export default function FinancialPage() {
 
           {/* Pagination */}
           {bankTxTotal > bankTxPageSize && (
-            <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 12 }}>
+            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8, marginTop: 12 }}>
               <button
                 type="button"
                 disabled={bankTxPage <= 1}
                 onClick={() => fetchBankTransactions(bankTxPage - 1)}
-                style={{ padding: "4px 12px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12, cursor: "pointer" }}
+                style={{ padding: "4px 12px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12, cursor: bankTxPage <= 1 ? "default" : "pointer", opacity: bankTxPage <= 1 ? 0.5 : 1 }}
               >
                 ← Prev
               </button>
               <span style={{ fontSize: 12, lineHeight: "28px", color: "#6b7280" }}>
-                Page {bankTxPage} of {Math.ceil(bankTxTotal / bankTxPageSize)}
+                Page {bankTxPage} of {Math.ceil(bankTxTotal / bankTxPageSize)} ({bankTxTotal.toLocaleString()} total)
               </span>
               <button
                 type="button"
                 disabled={bankTxPage >= Math.ceil(bankTxTotal / bankTxPageSize)}
                 onClick={() => fetchBankTransactions(bankTxPage + 1)}
-                style={{ padding: "4px 12px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12, cursor: "pointer" }}
+                style={{ padding: "4px 12px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12, cursor: bankTxPage >= Math.ceil(bankTxTotal / bankTxPageSize) ? "default" : "pointer", opacity: bankTxPage >= Math.ceil(bankTxTotal / bankTxPageSize) ? 0.5 : 1 }}
               >
                 Next →
               </button>
+            </div>
+          )}
+
+          {/* Disposition Change Modal */}
+          {dispositionModalTxn && (
+            <div style={{
+              position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 9999,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <div style={{
+                background: "#fff", borderRadius: 12, padding: 24, minWidth: 380, maxWidth: 460,
+                boxShadow: "0 8px 30px rgba(0,0,0,0.2)",
+              }}>
+                <h4 style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 700 }}>Change Disposition</h4>
+                <p style={{ fontSize: 12, color: "#6b7280", margin: "0 0 12px" }}>
+                  {dispositionModalTxn.description.slice(0, 60)}{dispositionModalTxn.description.length > 60 ? "…" : ""}
+                  {" "}&mdash; ${Math.abs(dispositionModalTxn.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </p>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Disposition</label>
+                <select
+                  value={dispositionValue}
+                  onChange={e => setDispositionValue(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 13, marginBottom: 12 }}
+                >
+                  <option value="UNREVIEWED">Unreviewed</option>
+                  <option value="PENDING_APPROVAL">Pending Approval</option>
+                  <option value="ASSIGNED">Assigned</option>
+                  <option value="IGNORED">Ignored</option>
+                  <option value="PERSONAL">Personal</option>
+                  <option value="DUPLICATE">Duplicate</option>
+                  <option value="RETURNED">Returned</option>
+                </select>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Note (required)</label>
+                <textarea
+                  value={dispositionNote}
+                  onChange={e => setDispositionNote(e.target.value)}
+                  placeholder="Reason for this disposition change…"
+                  rows={3}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 13, resize: "vertical", boxSizing: "border-box" }}
+                />
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+                  <button
+                    type="button"
+                    onClick={() => { setDispositionModalTxn(null); setDispositionValue(""); setDispositionNote(""); }}
+                    style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 13, cursor: "pointer" }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDispositionChange}
+                    disabled={dispositionSaving || !dispositionNote.trim() || dispositionNote.trim().length < 3}
+                    style={{
+                      padding: "8px 16px", borderRadius: 6, border: "1px solid #0f172a",
+                      background: dispositionSaving || !dispositionNote.trim() || dispositionNote.trim().length < 3 ? "#e5e7eb" : "#0f172a",
+                      color: dispositionSaving || !dispositionNote.trim() || dispositionNote.trim().length < 3 ? "#6b7280" : "#fff",
+                      fontSize: 13, fontWeight: 600,
+                      cursor: dispositionSaving || !dispositionNote.trim() || dispositionNote.trim().length < 3 ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {dispositionSaving ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Category Override Modal */}
+          {categoryModalTxn && (
+            <div style={{
+              position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 9999,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <div style={{
+                background: "#fff", borderRadius: 12, padding: 24, minWidth: 380, maxWidth: 460,
+                boxShadow: "0 8px 30px rgba(0,0,0,0.2)",
+              }}>
+                <h4 style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 700 }}>Change Category</h4>
+                <p style={{ fontSize: 12, color: "#6b7280", margin: "0 0 12px" }}>
+                  {categoryModalTxn.description.slice(0, 60)}{categoryModalTxn.description.length > 60 ? "…" : ""}
+                  {" "}&mdash; ${Math.abs(categoryModalTxn.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </p>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>New Category</label>
+                <input
+                  type="text"
+                  list="category-suggestions"
+                  value={categoryValue}
+                  onChange={e => setCategoryValue(e.target.value)}
+                  placeholder="Enter category…"
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 13, marginBottom: 12, boxSizing: "border-box" }}
+                />
+                <datalist id="category-suggestions">
+                  {bankCategories.map(c => <option key={c} value={c} />)}
+                </datalist>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Note (optional)</label>
+                <textarea
+                  value={categoryNote}
+                  onChange={e => setCategoryNote(e.target.value)}
+                  placeholder="Reason for category change…"
+                  rows={2}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 13, resize: "vertical", boxSizing: "border-box" }}
+                />
+                <p style={{ fontSize: 11, color: "#9ca3af", margin: "8px 0 0" }}>
+                  This will set category status to <strong style={{ color: "#854d0e" }}>TENTATIVE</strong> (yellow). A PM can verify it later.
+                </p>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+                  <button
+                    type="button"
+                    onClick={() => { setCategoryModalTxn(null); setCategoryValue(""); setCategoryNote(""); }}
+                    style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 13, cursor: "pointer" }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCategoryOverride}
+                    disabled={categorySaving || !categoryValue.trim()}
+                    style={{
+                      padding: "8px 16px", borderRadius: 6, border: "1px solid #0f172a",
+                      background: categorySaving || !categoryValue.trim() ? "#e5e7eb" : "#0f172a",
+                      color: categorySaving || !categoryValue.trim() ? "#6b7280" : "#fff",
+                      fontSize: 13, fontWeight: 600,
+                      cursor: categorySaving || !categoryValue.trim() ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {categorySaving ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 

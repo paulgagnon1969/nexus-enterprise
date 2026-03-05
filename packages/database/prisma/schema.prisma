@@ -279,6 +279,10 @@ model Company {
   transactionDispositionLogs TransactionDispositionLog[]
   transactionTags            TransactionTag[]
 
+  // Category Override Learning
+  merchantCategoryRules MerchantCategoryRule[]
+  categoryOverrideLogs  CategoryOverrideLog[]
+
   // Purchase Reconciliation + NexPRICE
   creditCardPaymentLinks  CreditCardPaymentLink[]
   receiptLineDispositions ReceiptLineDisposition[]
@@ -713,6 +717,9 @@ model User {
 
   // Transaction Disposition Logs
   transactionDispositionLogs TransactionDispositionLog[] @relation("TransactionDispositionLogUser")
+
+  // Category Override Logs
+  categoryOverrideLogs CategoryOverrideLog[] @relation("CategoryOverrideLogUser")
 
   // Local Supplier Index — flag/review relations
   localSuppliersFlagged  LocalSupplier[] @relation("LocalSupplierFlaggedBy")
@@ -8276,6 +8283,13 @@ model ProjectFeatureUnlock {
 // Banking — Plaid Transactions Integration
 // ===================================================================
 
+/// Category verification lifecycle for transaction category overrides.
+enum CategoryStatus {
+  ORIGINAL   // Category from source data, untouched
+  TENTATIVE  // Overridden by user or AI, not yet PM-verified
+  VERIFIED   // PM has confirmed the category is correct
+}
+
 enum BankConnectionStatus {
   ACTIVE
   REQUIRES_REAUTH
@@ -8337,6 +8351,12 @@ model BankTransaction {
 
   // Transaction disposition — working table lifecycle
   disposition TransactionDisposition @default(UNREVIEWED)
+
+  // Category override — user or AI corrected category
+  categoryOverride         String?
+  categoryStatus           CategoryStatus @default(ORIGINAL)
+  categoryOverrideByUserId String?
+  categoryOverrideAt       DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -8448,6 +8468,12 @@ model ImportedTransaction {
   // Transaction disposition — working table lifecycle
   disposition TransactionDisposition @default(UNREVIEWED)
 
+  // Category override — user or AI corrected category
+  categoryOverride         String?
+  categoryStatus           CategoryStatus @default(ORIGINAL)
+  categoryOverrideByUserId String?
+  categoryOverrideAt       DateTime?
+
   createdAt DateTime @default(now())
 
   company          Company                 @relation(fields: [companyId], references: [id])
@@ -8528,6 +8554,52 @@ model TransactionTagAssignment {
   @@unique([transactionId, tagId], name: "TransactionTagAssignment_txn_tag_key")
   @@index([tagId], map: "TransactionTagAssignment_tag_idx")
   @@index([transactionId], map: "TransactionTagAssignment_txn_idx")
+}
+
+// ===================================================================
+// Category Override Learning — merchant→category corrections
+// ===================================================================
+
+/// Learned merchant→category correction rules, company-scoped.
+/// When a user overrides a transaction's category, a rule is upserted here.
+/// Prescreening applies these rules to future transactions from the same merchant.
+model MerchantCategoryRule {
+  id            String    @id @default(cuid())
+  companyId     String
+  merchantKey   String // Normalized merchant name (lowercase, trimmed)
+  fromCategory  String // What the source said (original category)
+  toCategory    String // What the user corrected to
+  ruleCount     Int       @default(1) // Number of times this rule was applied/confirmed
+  lastAppliedAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, merchantKey, fromCategory], name: "MerchantCategoryRule_company_merchant_from_key")
+  @@index([companyId, merchantKey], map: "MerchantCategoryRule_company_merchant_idx")
+}
+
+/// Audit trail for every category override on a transaction.
+model CategoryOverrideLog {
+  id                String         @id @default(cuid())
+  companyId         String
+  transactionId     String // ImportedTransaction.id or BankTransaction.id
+  transactionSource String // "PLAID" | "HD_PRO_XTRA" | "CHASE_BANK" | "APPLE_CARD"
+  previousCategory  String?
+  newCategory       String
+  previousStatus    CategoryStatus
+  newStatus         CategoryStatus
+  note              String?
+  userId            String
+  userName          String // Denormalized for display
+  createdAt         DateTime       @default(now())
+
+  company Company @relation(fields: [companyId], references: [id])
+  user    User    @relation("CategoryOverrideLogUser", fields: [userId], references: [id])
+
+  @@index([companyId, transactionId], map: "CategoryOverrideLog_company_txn_idx")
+  @@index([companyId, createdAt], map: "CategoryOverrideLog_company_date_idx")
 }
 
 // ===================================================================
