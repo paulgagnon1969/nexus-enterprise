@@ -729,12 +729,14 @@ export class ProjectService {
   /**
    * List projects for a client portal user.
    * 
-   * Returns all projects where the user has a ProjectMembership,
-   * grouped by company (since a client can have projects across multiple companies).
+   * Returns all projects the user can access, from two sources:
+   * 1. Individual ProjectMembership (EXTERNAL_CONTACT scope) — existing light-path clients
+   * 2. Cross-tenant ProjectCollaboration — org-to-org collaborations
    * 
-   * Data is filtered based on each membership's visibility level.
+   * Grouped by company (project owner).
    */
   async listProjectsForClientPortal(userId: string) {
+    // 1. Individual membership path (existing)
     const memberships = await this.prisma.projectMembership.findMany({
       where: {
         userId,
@@ -754,9 +756,35 @@ export class ProjectService {
       orderBy: { project: { updatedAt: "desc" } },
     });
 
-    // Group by company
+    // 2. Cross-tenant collaboration path
+    const userCompanyIds = await this.prisma.companyMembership.findMany({
+      where: { userId, isActive: true },
+      select: { companyId: true },
+    });
+    const companyIds = userCompanyIds.map((m) => m.companyId);
+
+    const collaborations = companyIds.length
+      ? await this.prisma.projectCollaboration.findMany({
+          where: {
+            companyId: { in: companyIds },
+            active: true,
+            acceptedAt: { not: null },
+          },
+          include: {
+            project: {
+              include: {
+                company: { select: { id: true, name: true } },
+              },
+            },
+          },
+          orderBy: { project: { updatedAt: "desc" } },
+        })
+      : [];
+
+    // Merge into a single grouped result
     const byCompany = new Map<string, {
       company: { id: string; name: string };
+      source: "individual" | "collaboration" | "mixed";
       projects: Array<{
         id: string;
         name: string;
@@ -765,22 +793,20 @@ export class ProjectService {
         city: string;
         state: string;
         visibility: ProjectVisibilityLevel;
+        collaborationRole?: string;
         updatedAt: Date;
       }>;
     }>();
+    const seenProjectIds = new Set<string>();
 
+    // Add individual membership projects
     for (const m of memberships) {
-      const companyId = m.project.companyId;
-      const companyData = m.project.company;
-
-      if (!byCompany.has(companyId)) {
-        byCompany.set(companyId, {
-          company: companyData,
-          projects: [],
-        });
+      const cid = m.project.companyId;
+      if (!byCompany.has(cid)) {
+        byCompany.set(cid, { company: m.project.company, source: "individual", projects: [] });
       }
-
-      byCompany.get(companyId)!.projects.push({
+      seenProjectIds.add(m.project.id);
+      byCompany.get(cid)!.projects.push({
         id: m.project.id,
         name: m.project.name,
         status: m.project.status,
@@ -789,6 +815,29 @@ export class ProjectService {
         state: m.project.state,
         visibility: m.visibility,
         updatedAt: m.project.updatedAt,
+      });
+    }
+
+    // Add collaboration projects (deduplicate)
+    for (const c of collaborations) {
+      if (seenProjectIds.has(c.project.id)) continue;
+      seenProjectIds.add(c.project.id);
+      const cid = c.project.companyId;
+      if (!byCompany.has(cid)) {
+        byCompany.set(cid, { company: c.project.company, source: "collaboration", projects: [] });
+      } else if (byCompany.get(cid)!.source === "individual") {
+        byCompany.get(cid)!.source = "mixed";
+      }
+      byCompany.get(cid)!.projects.push({
+        id: c.project.id,
+        name: c.project.name,
+        status: c.project.status,
+        addressLine1: c.project.addressLine1,
+        city: c.project.city,
+        state: c.project.state,
+        visibility: c.visibility,
+        collaborationRole: c.role,
+        updatedAt: c.project.updatedAt,
       });
     }
 
@@ -804,17 +853,38 @@ export class ProjectService {
    * - READ_ONLY: Same as LIMITED but emphasizes no edit capability
    */
   async getProjectForClientPortal(projectId: string, userId: string) {
+    // Check individual membership first
     const membership = await this.prisma.projectMembership.findUnique({
       where: {
         userId_projectId: { userId, projectId },
       },
     });
 
-    if (!membership) {
-      throw new ForbiddenException("You do not have access to this project");
-    }
+    // Fall back to cross-tenant collaboration access
+    let visibility: ProjectVisibilityLevel;
+    if (membership) {
+      visibility = membership.visibility;
+    } else {
+      const userCompanyIds = await this.prisma.companyMembership.findMany({
+        where: { userId, isActive: true },
+        select: { companyId: true },
+      });
+      const collab = userCompanyIds.length
+        ? await this.prisma.projectCollaboration.findFirst({
+            where: {
+              projectId,
+              companyId: { in: userCompanyIds.map((m) => m.companyId) },
+              active: true,
+              acceptedAt: { not: null },
+            },
+          })
+        : null;
 
-    const visibility = membership.visibility;
+      if (!collab) {
+        throw new ForbiddenException("You do not have access to this project");
+      }
+      visibility = collab.visibility;
+    }
 
     // Fetch project with all potential includes, then filter based on visibility
     const project = await this.prisma.project.findUnique({

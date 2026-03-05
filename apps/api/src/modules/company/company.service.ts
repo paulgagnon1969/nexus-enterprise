@@ -6,8 +6,9 @@ import { AuditService } from "../../common/audit.service";
 import { EmailService } from "../../common/email.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { NotificationsService } from "../notifications/notifications.service";
-import { $Enums } from "@prisma/client";
+import { $Enums, CompanyTier, UserType } from "@prisma/client";
 import { randomUUID } from "crypto";
+import * as argon2 from "argon2";
 import { UpsertOfficeDto } from "./dto/office.dto";
 import { UpsertLandingConfigDto } from "./dto/landing-config.dto";
 import { UpdateCompanyDto } from "./dto/update-company.dto";
@@ -1222,5 +1223,181 @@ export class CompanyService {
     });
 
     return { success: true };
+  }
+
+  // ── Client Org Invite ────────────────────────────────────────────
+
+  /**
+   * Invite a new client organization. Creates:
+   * 1. A CLIENT-tier Company
+   * 2. An owner User (placeholder password — they set it via onboarding link)
+   * 3. OWNER CompanyMembership
+   * 4. Sends invite email with onboarding link
+   *
+   * If a company with the same name already exists at CLIENT tier, returns it
+   * without creating a duplicate (idempotent for repeated invites).
+   */
+  async inviteClientOrg(
+    actor: AuthenticatedUser,
+    dto: {
+      companyName: string;
+      contactEmail: string;
+      contactFirstName?: string;
+      contactLastName?: string;
+      contactPhone?: string;
+    },
+  ) {
+    const normalizedEmail = dto.contactEmail.trim().toLowerCase();
+
+    // Check if user with this email already exists
+    const existingUser = await this.prisma.user.findFirst({
+      where: { email: { equals: normalizedEmail, mode: "insensitive" } },
+      include: {
+        memberships: {
+          where: { isActive: true },
+          include: { company: { select: { id: true, name: true, tier: true } } },
+        },
+      },
+    });
+
+    // If user exists and already owns a CLIENT-tier company, return it
+    if (existingUser) {
+      const existingClientOrg = existingUser.memberships.find(
+        (m) => m.role === Role.OWNER && m.company.tier === CompanyTier.CLIENT,
+      );
+      if (existingClientOrg) {
+        return {
+          company: { id: existingClientOrg.company.id, name: existingClientOrg.company.name },
+          user: { id: existingUser.id, email: existingUser.email },
+          alreadyExists: true,
+        };
+      }
+    }
+
+    // Create client org + owner in a transaction
+    const result = await this.prisma.$transaction(async (tx) => {
+      const clientCompany = await tx.company.create({
+        data: {
+          name: dto.companyName.trim(),
+          tier: CompanyTier.CLIENT,
+          workerInviteToken: randomUUID(),
+        },
+      });
+
+      let ownerId: string;
+      let ownerEmail: string;
+
+      if (existingUser) {
+        ownerId = existingUser.id;
+        ownerEmail = existingUser.email;
+      } else {
+        // Create user with a placeholder password — they'll set it via onboarding
+        const placeholderHash = await argon2.hash(randomUUID());
+        const newUser = await tx.user.create({
+          data: {
+            email: normalizedEmail,
+            passwordHash: placeholderHash,
+            firstName: dto.contactFirstName?.trim() || null,
+            lastName: dto.contactLastName?.trim() || null,
+            userType: UserType.CLIENT,
+          },
+        });
+        ownerId = newUser.id;
+        ownerEmail = newUser.email;
+      }
+
+      await tx.companyMembership.create({
+        data: {
+          userId: ownerId,
+          companyId: clientCompany.id,
+          role: Role.OWNER,
+        },
+      });
+
+      // Ensure SUPER_ADMINs have access
+      const superAdmins = await tx.user.findMany({
+        where: { globalRole: GlobalRole.SUPER_ADMIN },
+        select: { id: true },
+      });
+      if (superAdmins.length) {
+        await tx.companyMembership.createMany({
+          data: superAdmins.map((u) => ({
+            userId: u.id,
+            companyId: clientCompany.id,
+            role: Role.OWNER,
+          })),
+          skipDuplicates: true,
+        });
+      }
+
+      return { company: clientCompany, user: { id: ownerId, email: ownerEmail } };
+    });
+
+    await this.audit.log(actor, "CLIENT_ORG_CREATED", {
+      companyId: result.company.id,
+      metadata: {
+        clientOrgName: result.company.name,
+        contactEmail: normalizedEmail,
+        invitedByCompanyId: actor.companyId,
+      },
+    });
+
+    // Generate a one-time onboarding token for the client to set their password
+    const onboardingToken = randomUUID();
+    const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000); // 14 days
+
+    await this.prisma.companyInvite.create({
+      data: {
+        companyId: result.company.id,
+        email: normalizedEmail,
+        role: Role.OWNER,
+        token: onboardingToken,
+        expiresAt,
+        createdByUserId: actor.userId ?? null,
+      },
+    });
+
+    // Send onboarding email
+    const webBase = (process.env.WEB_APP_BASE_URL || "").replace(/\/$/, "");
+    const onboardingUrl = `${webBase}/register/client-org?token=${encodeURIComponent(onboardingToken)}`;
+    const inviterCompany = await this.prisma.company.findUnique({
+      where: { id: actor.companyId },
+      select: { name: true },
+    });
+
+    try {
+      await this.email.sendMail({
+        to: normalizedEmail,
+        subject: `${inviterCompany?.name ?? "A contractor"} has invited your organization to Nexus`,
+        html: `
+          <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height: 1.5; max-width: 600px;">
+            <div style="background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%); color: #fff; padding: 24px; border-radius: 8px 8px 0 0;">
+              <h1 style="margin: 0; font-size: 20px;">Welcome to Nexus Contractor-Connect</h1>
+            </div>
+            <div style="background: #fff; border: 1px solid #e5e7eb; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+              <p style="margin: 0 0 16px;">Hi ${dto.contactFirstName || "there"},</p>
+              <p style="margin: 0 0 16px;"><strong>${inviterCompany?.name ?? "A contractor"}</strong> has invited your organization (<strong>${dto.companyName}</strong>) to collaborate on their projects through Nexus.</p>
+              <p style="margin: 0 0 16px;">Set up your account to view projects, communicate with your contractor, and manage your team's access.</p>
+              <p style="margin: 0 0 24px; text-align: center;">
+                <a href="${onboardingUrl}" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%); color: #fff; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">
+                  Set Up Your Organization
+                </a>
+              </p>
+              <p style="margin: 0; font-size: 12px; color: #9ca3af;">This link expires in 14 days.</p>
+            </div>
+          </div>
+        `.trim(),
+        text: `${inviterCompany?.name ?? "A contractor"} has invited your organization (${dto.companyName}) to Nexus. Set up your account: ${onboardingUrl}`,
+      });
+    } catch (err: any) {
+      // Non-blocking — the invite was still created
+    }
+
+    return {
+      company: { id: result.company.id, name: result.company.name },
+      user: { id: result.user.id, email: result.user.email },
+      alreadyExists: false,
+      onboardingUrl, // Return so the caller can share the link directly if needed
+    };
   }
 }

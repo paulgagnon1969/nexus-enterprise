@@ -108,6 +108,24 @@ export class AuthController {
     return this.auth.completeClientRegistration(body.token, body.password);
   }
 
+  // --- Client Organization Onboarding ---
+
+  // Public: validate a client-org onboarding token and return metadata.
+  @Public()
+  @Get("client-org-onboarding")
+  getClientOrgOnboarding(@Query("token") token: string) {
+    return this.auth.getClientOrgOnboardingInfo(token);
+  }
+
+  // Public: complete client-org onboarding (set password, activate account).
+  @Public()
+  @Post("client-org-onboarding")
+  completeClientOrgOnboarding(
+    @Body() body: { token: string; password: string },
+  ) {
+    return this.auth.completeClientOrgOnboarding(body.token, body.password);
+  }
+
   @Public()
   @Post("refresh")
   refresh(@Body("refreshToken") refreshToken: string) {

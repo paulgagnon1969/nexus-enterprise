@@ -13,12 +13,8 @@ import * as Haptics from "expo-haptics";
 import { colors } from "../theme/colors";
 import type { ProjectListItem } from "../types/api";
 
-interface ProjectGroup {
-  /** Display label for the group (client/owner name). */
-  label: string;
-  /** Projects in this group. */
-  projects: ProjectListItem[];
-}
+type SortColumn = "popularity" | "name" | "client";
+type SortDirection = "asc" | "desc";
 
 interface Props {
   visible: boolean;
@@ -26,76 +22,129 @@ interface Props {
   projects: ProjectListItem[];
   selectedIds: Set<string>;
   onSelectionChange: (ids: Set<string>) => void;
+  /** Map of projectId → recent usage count (e.g. daily-log count). */
+  logCounts?: Map<string, number>;
+}
+
+// Statuses considered inactive (shown with visual badge, sorted below active)
+const INACTIVE_STATUSES = new Set(["closed", "Closed", "CLOSED", "archived", "Archived", "ARCHIVED", "completed", "Completed", "COMPLETED", "deleted", "Deleted", "DELETED"]);
+
+function isInactive(status?: string | null): boolean {
+  return !!status && INACTIVE_STATUSES.has(status);
 }
 
 /**
- * Full-screen modal that shows projects grouped by owner/client
- * (primaryContactName). Supports multi-select with checkboxes,
- * "Select All" toggle, and per-group "select group" toggles.
+ * Full-screen modal that shows a flat, sortable project list.
+ * Three columns: Most Popular (recent usage), Project Name, Client.
+ * Default sort is by popularity (descending). Tapping a column header
+ * cycles through ascending/descending sort on that column.
+ * Search matches across all projects regardless of status;
+ * closed/archived projects are visually denoted.
  */
+// ── Filter funnel icon ──────────────────────────────────────────────
+// Dashed-line funnel when no filter is applied; solid white-on-green
+// funnel when one or more projects are checked.
+function FilterFunnelIcon({ active }: { active: boolean }) {
+  const barColor = active ? "#ffffff" : colors.textMuted;
+  // Three descending-width bars = funnel silhouette
+  const bars = [
+    { w: 20, dash: !active },
+    { w: 13, dash: !active },
+    { w: 6,  dash: false },  // stem is always solid
+  ];
+  return (
+    <View style={{ alignItems: "center", justifyContent: "center", gap: 3 }}>
+      {bars.map((b, i) =>
+        b.dash ? (
+          <View
+            key={i}
+            style={{
+              width: b.w,
+              height: 0,
+              borderBottomWidth: 2,
+              borderBottomColor: barColor,
+              borderStyle: "dashed",
+            }}
+          />
+        ) : (
+          <View
+            key={i}
+            style={{
+              width: b.w,
+              height: 2.5,
+              borderRadius: 1.5,
+              backgroundColor: barColor,
+            }}
+          />
+        ),
+      )}
+    </View>
+  );
+}
+
 export function ProjectPickerModal({
   visible,
   onClose,
   projects,
   selectedIds,
   onSelectionChange,
+  logCounts,
 }: Props) {
   const [search, setSearch] = useState("");
+  const [sortCol, setSortCol] = useState<SortColumn>("popularity");
+  const [sortDir, setSortDir] = useState<SortDirection>("desc");
 
-  // Group projects by primaryContactName (owner/client).
-  // Projects without a contact go into "Unassigned".
-  const groups: ProjectGroup[] = useMemo(() => {
-    const map = new Map<string, ProjectListItem[]>();
+  // Compute popularity from logCounts
+  const getPopularity = (id: string) => logCounts?.get(id) ?? 0;
 
-    for (const p of projects) {
-      const key = (p.primaryContactName || "").trim() || "Unassigned";
-      const existing = map.get(key);
-      if (existing) {
-        existing.push(p);
-      } else {
-        map.set(key, [p]);
-      }
-    }
-
-    // Sort groups: "Unassigned" goes last, rest alphabetical
-    return Array.from(map.entries())
-      .sort(([a], [b]) => {
-        if (a === "Unassigned") return 1;
-        if (b === "Unassigned") return -1;
-        return a.localeCompare(b);
-      })
-      .map(([label, groupProjects]) => ({
-        label,
-        projects: groupProjects.sort((a, b) => a.name.localeCompare(b.name)),
-      }));
-  }, [projects]);
-
-  // Apply search filter
-  const filteredGroups = useMemo(() => {
-    if (!search.trim()) return groups;
+  // Apply search filter (matches name, client, city — ignores status)
+  const filteredProjects = useMemo(() => {
+    if (!search.trim()) return projects;
     const q = search.trim().toLowerCase();
-    return groups
-      .map((g) => ({
-        ...g,
-        projects: g.projects.filter(
-          (p) =>
-            p.name.toLowerCase().includes(q) ||
-            (p.primaryContactName || "").toLowerCase().includes(q) ||
-            (p.city || "").toLowerCase().includes(q),
-        ),
-      }))
-      .filter((g) => g.projects.length > 0);
-  }, [groups, search]);
+    return projects.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        (p.primaryContactName || "").toLowerCase().includes(q) ||
+        (p.city || "").toLowerCase().includes(q) ||
+        (p.state || "").toLowerCase().includes(q),
+    );
+  }, [projects, search]);
 
-  const allProjectIds = useMemo(
-    () => new Set(projects.map((p) => p.id)),
-    [projects],
-  );
+  // Sort projects
+  const sortedProjects = useMemo(() => {
+    const list = [...filteredProjects];
+    const dir = sortDir === "asc" ? 1 : -1;
 
-  const isAllSelected =
-    projects.length > 0 && selectedIds.size === 0;
+    list.sort((a, b) => {
+      // Inactive projects always sort below active ones
+      const aInactive = isInactive(a.status) ? 1 : 0;
+      const bInactive = isInactive(b.status) ? 1 : 0;
+      if (aInactive !== bInactive) return aInactive - bInactive;
 
-  // "Select All" = clear selection (shows everything)
+      switch (sortCol) {
+        case "popularity": {
+          const diff = getPopularity(a.id) - getPopularity(b.id);
+          if (diff !== 0) return diff * dir;
+          return a.name.localeCompare(b.name); // tiebreak by name asc
+        }
+        case "name":
+          return a.name.localeCompare(b.name) * dir;
+        case "client": {
+          const ac = (a.primaryContactName || "zzz").toLowerCase();
+          const bc = (b.primaryContactName || "zzz").toLowerCase();
+          const diff = ac.localeCompare(bc) * dir;
+          if (diff !== 0) return diff;
+          return a.name.localeCompare(b.name); // tiebreak by name asc
+        }
+        default:
+          return 0;
+      }
+    });
+    return list;
+  }, [filteredProjects, sortCol, sortDir, logCounts]);
+
+  const isAllSelected = projects.length > 0 && selectedIds.size === 0;
+
   const handleSelectAll = () => {
     void Haptics.selectionAsync();
     onSelectionChange(new Set());
@@ -112,46 +161,15 @@ export function ProjectPickerModal({
     onSelectionChange(next);
   };
 
-  // Toggle an entire group
-  const toggleGroup = (group: ProjectGroup) => {
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const groupIds = group.projects.map((p) => p.id);
-    const allInGroup = groupIds.every((id) => selectedIds.has(id));
-
-    const next = new Set(selectedIds);
-    if (allInGroup) {
-      // Deselect entire group
-      for (const id of groupIds) next.delete(id);
+  const handleColumnPress = (col: SortColumn) => {
+    void Haptics.selectionAsync();
+    if (sortCol === col) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
-      // Select entire group
-      for (const id of groupIds) next.add(id);
+      setSortCol(col);
+      setSortDir(col === "popularity" ? "desc" : "asc");
     }
-    onSelectionChange(next);
   };
-
-  const isGroupFullySelected = (group: ProjectGroup): boolean =>
-    group.projects.length > 0 &&
-    group.projects.every((p) => selectedIds.has(p.id));
-
-  const isGroupPartiallySelected = (group: ProjectGroup): boolean =>
-    group.projects.some((p) => selectedIds.has(p.id)) &&
-    !isGroupFullySelected(group);
-
-  // Build flat list data: interleave group headers with project rows
-  type ListItem =
-    | { type: "header"; group: ProjectGroup; key: string }
-    | { type: "project"; project: ProjectListItem; key: string };
-
-  const listData: ListItem[] = useMemo(() => {
-    const items: ListItem[] = [];
-    for (const group of filteredGroups) {
-      items.push({ type: "header", group, key: `hdr_${group.label}` });
-      for (const p of group.projects) {
-        items.push({ type: "project", project: p, key: p.id });
-      }
-    }
-    return items;
-  }, [filteredGroups]);
 
   const selectionLabel = useMemo(() => {
     if (selectedIds.size === 0) return "All Projects";
@@ -162,57 +180,60 @@ export function ProjectPickerModal({
     return `${selectedIds.size} projects selected`;
   }, [selectedIds, projects]);
 
-  const renderItem = ({ item }: { item: ListItem }) => {
-    if (item.type === "header") {
-      const fullySelected = isGroupFullySelected(item.group);
-      const partiallySelected = isGroupPartiallySelected(item.group);
-      return (
-        <Pressable
-          style={styles.groupHeader}
-          onPress={() => toggleGroup(item.group)}
-        >
-          <View style={styles.groupHeaderLeft}>
-            <Text style={styles.groupIcon}>👤</Text>
-            <View>
-              <Text style={styles.groupLabel}>{item.group.label}</Text>
-              <Text style={styles.groupCount}>
-                {item.group.projects.length} project
-                {item.group.projects.length !== 1 ? "s" : ""}
-              </Text>
-            </View>
-          </View>
-          <View
-            style={[
-              styles.checkbox,
-              fullySelected && styles.checkboxSelected,
-              partiallySelected && styles.checkboxPartial,
-            ]}
-          >
-            <Text style={styles.checkboxText}>
-              {fullySelected ? "✓" : partiallySelected ? "−" : ""}
-            </Text>
-          </View>
-        </Pressable>
-      );
-    }
+  const sortArrow = (col: SortColumn) => {
+    if (sortCol !== col) return " ";
+    return sortDir === "asc" ? " ▲" : " ▼";
+  };
 
-    const p = item.project;
+  const renderItem = ({ item: p }: { item: ProjectListItem }) => {
     const selected = selectedIds.has(p.id);
+    const inactive = isInactive(p.status);
+    const pop = getPopularity(p.id);
+    const client = (p.primaryContactName || "").trim() || "—";
+
     return (
-      <Pressable style={styles.projectRow} onPress={() => toggleProject(p.id)}>
-        <View style={styles.projectInfo}>
-          <Text style={styles.projectName} numberOfLines={1}>
-            {p.name}
-          </Text>
-          {(p.city || p.state) && (
-            <Text style={styles.projectLocation} numberOfLines={1}>
-              {[p.city, p.state].filter(Boolean).join(", ")}
-            </Text>
+      <Pressable
+        style={[styles.projectRow, inactive && styles.projectRowInactive]}
+        onPress={() => toggleProject(p.id)}
+      >
+        {/* Popularity */}
+        <View style={styles.colPopularity}>
+          {pop > 0 ? (
+            <View style={styles.popBadge}>
+              <Text style={styles.popBadgeText}>{pop}</Text>
+            </View>
+          ) : (
+            <Text style={styles.popEmpty}>·</Text>
           )}
         </View>
-        <View
-          style={[styles.checkbox, selected && styles.checkboxSelected]}
+
+        {/* Project name */}
+        <View style={styles.colName}>
+          <Text
+            style={[styles.projectName, inactive && styles.textInactive]}
+            numberOfLines={1}
+          >
+            {p.name}
+          </Text>
+          {inactive && (
+            <View style={styles.statusBadge}>
+              <Text style={styles.statusBadgeText}>
+                {(p.status || "closed").toUpperCase()}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Client */}
+        <Text
+          style={[styles.colClient, inactive && styles.textInactive]}
+          numberOfLines={1}
         >
+          {client}
+        </Text>
+
+        {/* Checkbox */}
+        <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
           <Text style={styles.checkboxText}>{selected ? "✓" : ""}</Text>
         </View>
       </Pressable>
@@ -224,8 +245,18 @@ export function ProjectPickerModal({
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
-          <Pressable onPress={onClose} style={styles.headerBtn}>
-            <Text style={styles.headerBtnText}>Done</Text>
+          {/* Filter / Done button */}
+          <Pressable
+            onPress={onClose}
+            style={[
+              styles.filterBtn,
+              selectedIds.size > 0 && styles.filterBtnActive,
+            ]}
+          >
+            <FilterFunnelIcon active={selectedIds.size > 0} />
+            {selectedIds.size > 0 && (
+              <Text style={styles.filterBtnCount}>{selectedIds.size}</Text>
+            )}
           </Pressable>
           <Text style={styles.headerTitle}>Filter Projects</Text>
           <Pressable onPress={handleSelectAll} style={styles.headerBtn}>
@@ -263,10 +294,49 @@ export function ProjectPickerModal({
           )}
         </View>
 
-        {/* Grouped list */}
+        {/* Column headers (sortable) */}
+        <View style={styles.columnHeaders}>
+          <Pressable
+            style={styles.colPopularity}
+            onPress={() => handleColumnPress("popularity")}
+          >
+            <Text style={[
+              styles.colHeaderText,
+              sortCol === "popularity" && styles.colHeaderActive,
+            ]}>
+              Use{sortArrow("popularity")}
+            </Text>
+          </Pressable>
+          <Pressable
+            style={styles.colName}
+            onPress={() => handleColumnPress("name")}
+          >
+            <Text style={[
+              styles.colHeaderText,
+              sortCol === "name" && styles.colHeaderActive,
+            ]}>
+              Project{sortArrow("name")}
+            </Text>
+          </Pressable>
+          <Pressable
+            style={styles.colClientHeader}
+            onPress={() => handleColumnPress("client")}
+          >
+            <Text style={[
+              styles.colHeaderText,
+              sortCol === "client" && styles.colHeaderActive,
+            ]}>
+              Client{sortArrow("client")}
+            </Text>
+          </Pressable>
+          {/* Spacer for checkbox column */}
+          <View style={{ width: 32 }} />
+        </View>
+
+        {/* Flat project list */}
         <FlatList
-          data={listData}
-          keyExtractor={(item) => item.key}
+          data={sortedProjects}
+          keyExtractor={(p) => p.id}
           renderItem={renderItem}
           contentContainerStyle={styles.listContent}
           keyboardShouldPersistTaps="handled"
@@ -313,6 +383,26 @@ const styles = StyleSheet.create({
   headerBtnTextMuted: {
     color: colors.textMuted,
   },
+  // Filter funnel button (replaces "Done")
+  filterBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    minWidth: 44,
+    height: 36,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    backgroundColor: "transparent",
+  },
+  filterBtnActive: {
+    backgroundColor: "#16a34a",
+  },
+  filterBtnCount: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#ffffff",
+  },
   searchWrap: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -346,66 +436,111 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: colors.error,
   },
+
+  // Column headers
+  columnHeaders: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: colors.background,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderMuted,
+  },
+  colHeaderText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  colHeaderActive: {
+    color: colors.primary,
+    fontWeight: "700",
+  },
+
+  // Column widths
+  colPopularity: {
+    width: 44,
+    alignItems: "center",
+  },
+  colName: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  colClient: {
+    width: 100,
+    fontSize: 12,
+    color: colors.textMuted,
+    paddingRight: 8,
+  },
+  colClientHeader: {
+    width: 100,
+    paddingRight: 8,
+  },
+
   listContent: {
     paddingBottom: 40,
   },
-  // Group header
-  groupHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: colors.backgroundTertiary,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderMuted,
-    marginTop: 8,
-  },
-  groupHeaderLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    flex: 1,
-  },
-  groupIcon: {
-    fontSize: 18,
-  },
-  groupLabel: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: colors.textPrimary,
-  },
-  groupCount: {
-    fontSize: 12,
-    color: colors.textMuted,
-    marginTop: 1,
-  },
+
   // Project row
   projectRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingLeft: 48,
     paddingVertical: 12,
     backgroundColor: colors.background,
     borderBottomWidth: 1,
     borderBottomColor: colors.borderMuted,
   },
-  projectInfo: {
-    flex: 1,
-    marginRight: 12,
+  projectRowInactive: {
+    backgroundColor: "#f9fafb",
   },
   projectName: {
     fontSize: 14,
     fontWeight: "600",
     color: colors.textPrimary,
   },
-  projectLocation: {
-    fontSize: 12,
+  textInactive: {
     color: colors.textMuted,
-    marginTop: 2,
   },
+
+  // Status badge for closed/archived
+  statusBadge: {
+    alignSelf: "flex-start",
+    marginTop: 3,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 3,
+    backgroundColor: "#e5e7eb",
+  },
+  statusBadgeText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#6b7280",
+    letterSpacing: 0.3,
+  },
+
+  // Popularity badge
+  popBadge: {
+    backgroundColor: "#dbeafe",
+    borderRadius: 10,
+    minWidth: 24,
+    height: 20,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 6,
+  },
+  popBadgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#1d4ed8",
+  },
+  popEmpty: {
+    fontSize: 14,
+    color: colors.borderMuted,
+  },
+
   // Checkbox
   checkbox: {
     width: 24,
@@ -416,13 +551,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: colors.background,
+    marginLeft: 8,
   },
   checkboxSelected: {
     backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  checkboxPartial: {
-    backgroundColor: colors.backgroundTertiary,
     borderColor: colors.primary,
   },
   checkboxText: {

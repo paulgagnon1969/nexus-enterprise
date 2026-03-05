@@ -1,4 +1,4 @@
-import { IsEnum, IsISO8601, IsOptional, IsString, IsUUID } from "class-validator";
+import { IsArray, IsEnum, IsISO8601, IsOptional, IsString, IsUUID } from "class-validator";
 
 // Local enums to avoid depending on generated Prisma enum exports in build environments
 export enum TaskStatusEnum {
@@ -33,9 +33,16 @@ export class CreateTaskDto {
   @IsString()
   description?: string;
 
+  /** Single assignee (backward-compat). Ignored when assigneeIds is provided. */
   @IsOptional()
   @IsUUID()
   assigneeId?: string;
+
+  /** Group assignment: assign the task to multiple users at once. */
+  @IsOptional()
+  @IsArray()
+  @IsUUID("4", { each: true })
+  assigneeIds?: string[];
 
   @IsOptional()
   @IsEnum(TaskPriorityEnum)

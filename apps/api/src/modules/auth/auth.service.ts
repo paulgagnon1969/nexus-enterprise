@@ -1101,6 +1101,135 @@ export class AuthService {
     };
   }
 
+  // --- Client Organization Onboarding ---
+
+  /**
+   * Validate a client-org onboarding token (CompanyInvite for a CLIENT-tier company).
+   * Returns org name, email, and contact info for the onboarding form.
+   */
+  async getClientOrgOnboardingInfo(token: string) {
+    if (!token) {
+      throw new BadRequestException("Onboarding token is required");
+    }
+
+    const invite = await this.prisma.companyInvite.findFirst({
+      where: {
+        token,
+        acceptedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      include: {
+        company: { select: { id: true, name: true, tier: true } },
+      },
+    });
+
+    if (!invite) {
+      throw new BadRequestException("Onboarding link is invalid or expired");
+    }
+
+    // Look up the user to return pre-filled contact info
+    const user = await this.prisma.user.findFirst({
+      where: { email: { equals: invite.email, mode: "insensitive" } },
+      select: { id: true, email: true, firstName: true, lastName: true },
+    });
+
+    return {
+      companyName: invite.company.name,
+      companyId: invite.company.id,
+      email: invite.email,
+      firstName: user?.firstName || null,
+      lastName: user?.lastName || null,
+    };
+  }
+
+  /**
+   * Complete client-org onboarding: set the owner's password and activate.
+   * Always updates the password (even if a placeholder exists from inviteClientOrg).
+   */
+  async completeClientOrgOnboarding(token: string, password: string) {
+    if (!token) {
+      throw new BadRequestException("Onboarding token is required");
+    }
+    if (!password || password.length < 8) {
+      throw new BadRequestException("Password must be at least 8 characters");
+    }
+
+    const invite = await this.prisma.companyInvite.findFirst({
+      where: {
+        token,
+        acceptedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      include: {
+        company: { select: { id: true, name: true } },
+      },
+    });
+
+    if (!invite) {
+      throw new BadRequestException("Onboarding link is invalid or expired");
+    }
+
+    const inviteEmail = this.normalizeEmail(invite.email);
+    const user = await this.prisma.user.findFirst({
+      where: { email: { equals: inviteEmail, mode: "insensitive" } },
+    });
+
+    if (!user) {
+      throw new BadRequestException("User account not found. Please contact support.");
+    }
+
+    // Always set the password (overrides placeholder hash from inviteClientOrg)
+    const passwordHash = await argon2.hash(password);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash },
+    });
+
+    // Ensure membership is active
+    await this.prisma.companyMembership.upsert({
+      where: {
+        userId_companyId: { userId: user.id, companyId: invite.companyId },
+      },
+      update: { isActive: true, role: invite.role },
+      create: {
+        userId: user.id,
+        companyId: invite.companyId,
+        role: invite.role,
+      },
+    });
+
+    // Mark invite as accepted
+    await this.prisma.companyInvite.update({
+      where: { id: invite.id },
+      data: { acceptedAt: new Date(), acceptedUserId: user.id },
+    });
+
+    // Issue auth tokens so the user is logged in immediately
+    const membership = await this.prisma.companyMembership.findUnique({
+      where: { userId_companyId: { userId: user.id, companyId: invite.companyId } },
+      select: { role: true, profile: { select: { code: true } } },
+    });
+
+    const profileCode =
+      (membership as any)?.profile?.code ?? this.getDefaultProfileCodeForRole(membership?.role ?? Role.OWNER);
+
+    const { accessToken, refreshToken } = await this.issueTokens(
+      user.id,
+      invite.companyId,
+      membership?.role ?? Role.OWNER,
+      user.email,
+      user.globalRole,
+      profileCode,
+    );
+
+    return {
+      user: { id: user.id, email: user.email },
+      company: { id: invite.company.id, name: invite.company.name },
+      accessToken,
+      refreshToken,
+    };
+  }
+
   async createOrgInvite(actor: AuthenticatedUser, emailRaw: string, expiresInDays?: number) {
     const email = this.normalizeEmail(emailRaw || "");
     if (!email) {

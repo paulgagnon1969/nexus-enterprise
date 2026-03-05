@@ -279,4 +279,24 @@ export class CompanyController {
     const actor = req.user as AuthenticatedUser;
     return this.companies.deleteUnitCode(actor, unitCodeId);
   }
+
+  // --- Client Org Invite ---
+
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Post("invite-client-org")
+  inviteClientOrg(
+    @Req() req: any,
+    @Body()
+    dto: {
+      companyName: string;
+      contactEmail: string;
+      contactFirstName?: string;
+      contactLastName?: string;
+      contactPhone?: string;
+    },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.companies.inviteClientOrg(actor, dto);
+  }
 }

@@ -83,6 +83,15 @@ export function DailyLogFeedScreen({ onSelectLog, onEditLog, onCreateLog }: Prop
     void loadData();
   }, [loadData]);
 
+  // Compute log counts per project (for popularity sorting in picker)
+  const logCountByProject = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const log of logs) {
+      counts.set(log.projectId, (counts.get(log.projectId) ?? 0) + 1);
+    }
+    return counts;
+  }, [logs]);
+
   // Filter logs by selected projects
   const filteredLogs = useMemo(() => {
     if (selectedProjectIds.size === 0) {
@@ -323,6 +332,7 @@ export function DailyLogFeedScreen({ onSelectLog, onEditLog, onCreateLog }: Prop
         projects={projects}
         selectedIds={selectedProjectIds}
         onSelectionChange={setSelectedProjectIds}
+        logCounts={logCountByProject}
       />
 
       {error ? (

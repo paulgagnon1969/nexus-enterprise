@@ -535,8 +535,10 @@ model User {
 
   // Tasks created by this user (Todos, NTT workflows, etc.)
   createdTasks      Task[]         @relation("TaskCreatedBy")
-  dispositionedTasks Task[]        @relation("TaskDispositionBy")
-  taskActivities     TaskActivity[] @relation("TaskActivityActor")
+  dispositionedTasks   Task[]            @relation("TaskDispositionBy")
+  completedTasks       Task[]            @relation("TaskCompletedBy")
+  taskGroupMemberships TaskGroupMember[] @relation("TaskGroupMemberships")
+  taskActivities       TaskActivity[]    @relation("TaskActivityActor")
 
   // PETL reconciliation audit trail
   petlReconciliationCasesCreated    PetlReconciliationCase[]  @relation("PetlReconCaseCreatedBy")
@@ -2629,15 +2631,39 @@ model Task {
   dispositionAt        DateTime?
   dispositionByUserId  String?
 
+  // Group assignment: when a task is assigned to multiple people,
+  // assigneeId is null and group members are in TaskGroupMember.
+  // completedByUserId records who actually closed the task.
+  completedByUserId String?
+
   assignee        User?            @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  completedBy     User?            @relation("TaskCompletedBy", fields: [completedByUserId], references: [id])
   company         Company          @relation(fields: [companyId], references: [id])
   project         Project          @relation(fields: [projectId], references: [id])
   projectParticle ProjectParticle? @relation(fields: [projectParticleId], references: [id])
   createdBy       User?            @relation("TaskCreatedBy", fields: [createdByUserId], references: [id])
   dispositionBy   User?            @relation("TaskDispositionBy", fields: [dispositionByUserId], references: [id])
   activities      TaskActivity[]
+  groupMembers    TaskGroupMember[]
 
   @@index([companyId, relatedEntityType, relatedEntityId], map: "Task_related_entity_idx")
+}
+
+/// Join table for group task assignment. When a task is assigned to a
+/// group of users (e.g. "all PMs on this project"), one TaskGroupMember
+/// row is created per user. Any member can complete the task and it is
+/// then done for everyone.
+model TaskGroupMember {
+  id        String   @id @default(cuid())
+  taskId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation("TaskGroupMemberships", fields: [userId], references: [id])
+
+  @@unique([taskId, userId], name: "TaskGroupMember_task_user_key")
+  @@index([userId], map: "TaskGroupMember_user_idx")
 }
 
 /// Immutable activity log for task lifecycle events (dispositions, notes,

@@ -33,6 +33,7 @@ import { DescriptionPicker } from "../../components/DescriptionPicker";
 import PersonnelPicker, { type PersonnelEntry } from "./personnel-picker";
 import { ProcurementPanel } from "./procurement-panel";
 import { PlanSheetsTab } from "./plan-sheets-tab";
+import CollaborationsPanel from "./collaborations-panel";
 
 const LogisticsTab = dynamic(() => import("./logistics-tab"), { ssr: false });
 
@@ -16167,6 +16168,21 @@ ${htmlBody}
               </div>
             )}
           </div>
+
+          {/* Collaborating Organizations — OWNER / ADMIN only */}
+          {(actorCompanyRole === "OWNER" ||
+            actorCompanyRole === "ADMIN" ||
+            actorGlobalRole === "SUPER_ADMIN") &&
+            id && (
+              <CollaborationsPanel
+                projectId={id}
+                canManage={
+                  actorCompanyRole === "OWNER" ||
+                  actorCompanyRole === "ADMIN" ||
+                  actorGlobalRole === "SUPER_ADMIN"
+                }
+              />
+            )}
         </div>
       )}
 
