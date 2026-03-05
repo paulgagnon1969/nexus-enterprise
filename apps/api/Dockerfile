@@ -70,6 +70,8 @@ COPY package.json ./
 # Copy built api dist and its node_modules tree
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/node_modules ./node_modules
+# Copy workspace-local node_modules (packages npm didn't hoist to root, e.g. pdf-parse)
+COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules
 # Copy workspace package source for @repo/database so the workspace symlink resolves at runtime
 COPY --from=builder /app/packages/database ./packages/database
 # Copy docs/sops-staging for SOP sync capability in production
