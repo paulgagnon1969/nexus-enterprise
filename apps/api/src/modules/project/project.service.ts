@@ -1343,6 +1343,49 @@ export class ProjectService {
       }
     }
 
+    // Daily logs: client-visible logs at LIMITED and FULL
+    if (visibility !== ProjectVisibilityLevel.READ_ONLY) {
+      try {
+        const logs = await this.prisma.dailyLog.findMany({
+          where: {
+            projectId,
+            effectiveShareClient: true,
+          },
+          orderBy: { logDate: 'desc' },
+          take: 50,
+          include: {
+            createdBy: { select: { id: true, firstName: true, lastName: true } },
+            attachments: {
+              take: 10,
+              select: { id: true, fileName: true, mimeType: true, sizeBytes: true, fileUrl: true },
+            },
+          },
+        });
+        response.dailyLogs = logs.map((l) => ({
+          id: l.id,
+          logDate: l.logDate,
+          title: l.title,
+          body: l.workPerformed,
+          type: l.type,
+          status: l.status,
+          weather: l.weatherSummary,
+          createdAt: l.createdAt,
+          createdBy: l.createdBy
+            ? [l.createdBy.firstName, l.createdBy.lastName].filter(Boolean).join(' ') || 'Staff'
+            : 'Staff',
+          attachments: l.attachments.map((a) => ({
+            id: a.id,
+            fileName: a.fileName,
+            mimeType: a.mimeType,
+            sizeBytes: a.sizeBytes,
+            url: this.toPublicFileUrl(a.fileUrl),
+          })),
+        }));
+      } catch {
+        response.dailyLogs = [];
+      }
+    }
+
     // Shared files: visible at all visibility levels
     try {
       const files = await this.prisma.projectFile.findMany({

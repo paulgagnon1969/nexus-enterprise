@@ -3836,6 +3836,7 @@ ${htmlBody}
     setAdjReviewAdjusted(new Set());
     setAdjReviewPrices({});
     setAdjReviewReasons({});
+    setAdjReviewMarkups({});
     setAdjReviewSaveToClient(new Set());
     setAdjReviewOpen(true);
 
@@ -4264,6 +4265,152 @@ ${htmlBody}
   const [newInvoiceLineUnitPrice, setNewInvoiceLineUnitPrice] = useState<string>("");
   const [newInvoiceLineAmount, setNewInvoiceLineAmount] = useState<string>("");
 
+  // --- Invoice Line Item Modal (shared for Add + Edit) ---
+  const [ilmOpen, setIlmOpen] = useState(false);
+  const [ilmEditId, setIlmEditId] = useState<string | null>(null); // null = create mode
+  const [ilmSaving, setIlmSaving] = useState(false);
+  const [ilmKind, setIlmKind] = useState<string>("MANUAL");
+  const [ilmBillingTag, setIlmBillingTag] = useState<string>("NONE");
+  const [ilmDesc, setIlmDesc] = useState("");
+  const [ilmQty, setIlmQty] = useState("");
+  const [ilmUnitCode, setIlmUnitCode] = useState("");
+  const [ilmUnitPrice, setIlmUnitPrice] = useState("");
+  const [ilmAmount, setIlmAmount] = useState("");
+  const [ilmMarkupPct, setIlmMarkupPct] = useState("");
+  const [ilmMessage, setIlmMessage] = useState<string | null>(null);
+
+  const openInvoiceLineModal = (editLine?: any) => {
+    if (editLine) {
+      setIlmEditId(String(editLine.id));
+      setIlmKind(String(editLine.kind ?? "MANUAL"));
+      setIlmBillingTag(String(editLine.billingTag ?? "NONE"));
+      setIlmDesc(String(editLine.description ?? ""));
+      setIlmQty(editLine.qty != null ? String(editLine.qty) : "");
+      setIlmUnitCode(String(editLine.unitCode ?? ""));
+      setIlmUnitPrice(editLine.unitPrice != null ? String(editLine.unitPrice) : "");
+      setIlmAmount(editLine.amount != null ? String(editLine.amount) : "");
+      setIlmMarkupPct(editLine.discountPercent != null ? String(editLine.discountPercent) : "");
+    } else {
+      setIlmEditId(null);
+      setIlmKind("MANUAL");
+      setIlmBillingTag("NONE");
+      setIlmDesc("");
+      setIlmQty("");
+      setIlmUnitCode("");
+      setIlmUnitPrice("");
+      setIlmAmount("");
+      setIlmMarkupPct("");
+    }
+    setIlmMessage(null);
+    setIlmSaving(false);
+    setIlmOpen(true);
+  };
+
+  const ilmAutoCalcAmount = (q: string, u: string) => {
+    const qty = Number(q);
+    const unit = Number(u);
+    if (Number.isFinite(qty) && Number.isFinite(unit) && q.trim() !== "" && u.trim() !== "") {
+      setIlmAmount((qty * unit).toFixed(2));
+    }
+  };
+
+  const saveInvoiceLine = async () => {
+    if (!project || !activeInvoice?.id) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) { setIlmMessage("Missing access token."); return; }
+
+    const desc = ilmDesc.trim();
+    if (!desc) { setIlmMessage("Description is required."); return; }
+
+    const qty = ilmQty.trim() === "" ? undefined : Number(ilmQty);
+    const unitPrice = ilmUnitPrice.trim() === "" ? undefined : Number(ilmUnitPrice);
+    let amount = ilmAmount.trim() === "" ? undefined : Number(ilmAmount);
+
+    if (
+      (qty !== undefined && !Number.isFinite(qty)) ||
+      (unitPrice !== undefined && !Number.isFinite(unitPrice)) ||
+      (amount !== undefined && !Number.isFinite(amount))
+    ) { setIlmMessage("Qty / Unit $ / Amount must be valid numbers."); return; }
+
+    if (amount === undefined && qty !== undefined && unitPrice !== undefined) {
+      amount = qty * unitPrice;
+    }
+    if (ilmKind === "CREDIT" && amount !== undefined && amount > 0) {
+      amount = -Math.abs(amount);
+    }
+
+    setIlmSaving(true);
+    setIlmMessage(null);
+
+    try {
+      const payload: any = {
+        kind: ilmKind,
+        billingTag: ilmBillingTag,
+        description: desc,
+        qty,
+        unitCode: ilmUnitCode || undefined,
+        unitPrice,
+        amount,
+      };
+
+      const isEdit = !!ilmEditId;
+      const url = isEdit
+        ? `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/lines/${ilmEditId}`
+        : `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/lines`;
+
+      const res = await fetch(url, {
+        method: isEdit ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        setIlmMessage(`${isEdit ? "Save" : "Add"} failed (${res.status}) ${text}`);
+        return;
+      }
+
+      const json: any = await res.json();
+      setActiveInvoice(json);
+      setProjectInvoices(null);
+      setIlmOpen(false);
+      setInvoiceMessage(isEdit ? "Line updated." : "Line added.");
+    } catch (err: any) {
+      setIlmMessage(err?.message ?? "Save failed.");
+    } finally {
+      setIlmSaving(false);
+    }
+  };
+
+  const deleteInvoiceLine = async (lineId: string) => {
+    if (!project || !activeInvoice?.id) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) { setIlmMessage("Missing access token."); return; }
+    if (!confirm("Delete this line item?")) return;
+
+    setIlmSaving(true);
+    try {
+      const res = await fetch(
+        `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/lines/${lineId}`,
+        { method: "DELETE", headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        setIlmMessage(`Delete failed (${res.status}) ${text}`);
+        return;
+      }
+      const json: any = await res.json();
+      setActiveInvoice(json);
+      setProjectInvoices(null);
+      setIlmOpen(false);
+      setInvoiceMessage("Line deleted.");
+    } catch (err: any) {
+      setIlmMessage(err?.message ?? "Delete failed.");
+    } finally {
+      setIlmSaving(false);
+    }
+  };
+
   // Company unit codes (editable dropdown list)
   const [companyUnitCodes, setCompanyUnitCodes] = useState<{ id: string; code: string; label: string | null }[] | null>(null);
   const [unitCodeManageOpen, setUnitCodeManageOpen] = useState(false);
@@ -4281,6 +4428,7 @@ ${htmlBody}
   const [adjReviewAdjusted, setAdjReviewAdjusted] = useState<Set<number>>(new Set());
   const [adjReviewPrices, setAdjReviewPrices] = useState<Record<number, string>>({});
   const [adjReviewReasons, setAdjReviewReasons] = useState<Record<number, string>>({});
+  const [adjReviewMarkups, setAdjReviewMarkups] = useState<Record<number, string>>({});
   const [adjReviewSaveToClient, setAdjReviewSaveToClient] = useState<Set<number>>(new Set());
   const [adjReviewReasonOptions, setAdjReviewReasonOptions] = useState<{ id: string; label: string }[]>([]);
   const [adjReviewBusy, setAdjReviewBusy] = useState(false);
@@ -16708,6 +16856,14 @@ ${htmlBody}
                     const discountPct = hasValidAdj ? ((costBookPrice - adjPrice) / costBookPrice * 100) : 0;
                     const discountDollars = hasValidAdj ? (costBookPrice - adjPrice) : 0;
 
+                    // Markup calculation
+                    const markupPctRaw = parseFloat(adjReviewMarkups[idx] ?? "25");
+                    const markupPct = Number.isFinite(markupPctRaw) && markupPctRaw >= 0 ? markupPctRaw : 0;
+                    const effectiveUnit = hasValidAdj ? adjPrice : costBookPrice;
+                    const markupDollar = effectiveUnit * (markupPct / 100);
+                    const clientUnit = effectiveUnit + markupDollar;
+                    const lineTotal = clientUnit * sel.qty;
+
                     return (
                       <div
                         key={idx}
@@ -16744,6 +16900,32 @@ ${htmlBody}
                           <div style={{ fontSize: 12, fontWeight: 600, color: "#111827", minWidth: 80, textAlign: "right" }}>
                             ${costBookPrice.toFixed(2)}/ea
                           </div>
+                        </div>
+
+                        {/* Markup row — always visible */}
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", paddingLeft: 24, marginTop: 6, marginBottom: isAdj ? 4 : 0 }}>
+                          <div style={{ minWidth: 80 }}>
+                            <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>Markup %</div>
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="0"
+                              value={adjReviewMarkups[idx] ?? "25"}
+                              onChange={(e) => setAdjReviewMarkups(prev => ({ ...prev, [idx]: e.target.value }))}
+                              style={{
+                                width: 70,
+                                padding: "4px 6px",
+                                borderRadius: 4,
+                                border: "1px solid #d1d5db",
+                                fontSize: 12,
+                              }}
+                            />
+                          </div>
+                          {markupPct > 0 && (
+                            <div style={{ fontSize: 11, color: "#166534", background: "#f0fdf4", borderRadius: 4, padding: "4px 8px" }}>
+                              Base: ${effectiveUnit.toFixed(2)} · +${markupDollar.toFixed(2)} ({markupPct}%) · <strong>Client: ${clientUnit.toFixed(2)}/ea</strong> · Line total: <strong>${lineTotal.toFixed(2)}</strong>
+                            </div>
+                          )}
                         </div>
 
                         {/* Expanded adjustment controls */}
@@ -16873,6 +17055,279 @@ ${htmlBody}
                       }}
                     >
                       {adjReviewBusy ? "Adding…" : `Add ${adjReviewSelection.length} to Invoice`}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Invoice Line Item Modal (Add / Edit) */}
+          {ilmOpen && (
+            <div
+              style={{
+                position: "fixed",
+                inset: 0,
+                zIndex: 86,
+                backgroundColor: "rgba(15, 23, 42, 0.4)",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "flex-start",
+                padding: "6vh 12px",
+              }}
+              onClick={() => { if (!ilmSaving) setIlmOpen(false); }}
+            >
+              <div
+                style={{
+                  width: 640,
+                  maxWidth: "98vw",
+                  backgroundColor: "#ffffff",
+                  borderRadius: 10,
+                  border: "1px solid #e5e7eb",
+                  boxShadow: "0 12px 40px rgba(15,23,42,0.22)",
+                  overflow: "hidden",
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Header */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "12px 16px",
+                    borderBottom: "1px solid #e5e7eb",
+                    backgroundColor: "#f8fafc",
+                  }}
+                >
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>
+                    {ilmEditId ? "Edit Line Item" : "Add Line Item"}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { if (!ilmSaving) setIlmOpen(false); }}
+                    style={{ border: "none", background: "transparent", cursor: ilmSaving ? "default" : "pointer", fontSize: 20, lineHeight: 1, padding: 6 }}
+                    disabled={ilmSaving}
+                  >
+                    ×
+                  </button>
+                </div>
+
+                {/* Body — grid */}
+                <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+                  {/* Row 1: Kind + Billing Tag */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <div>
+                      <label style={{ fontSize: 11, color: "#6b7280", marginBottom: 2, display: "block" }}>Kind</label>
+                      <select
+                        value={ilmKind}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setIlmKind(v);
+                          if (v === "CREDIT") setIlmBillingTag("CREDIT");
+                        }}
+                        style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                      >
+                        <option value="MANUAL">Manual</option>
+                        <option value="BILLABLE_HOURS">Billable hours</option>
+                        <option value="EQUIPMENT_RENTAL">Equipment rental</option>
+                        <option value="LABOR_ONLY">Labor Only</option>
+                        <option value="MATERIALS_ONLY">Materials only</option>
+                        <option value="LABOR_AND_MATERIALS">Labor & Materials</option>
+                        <option value="CREDIT">Credit</option>
+                        <option value="OTHER">Other</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: "#6b7280", marginBottom: 2, display: "block" }}>Billing Tag</label>
+                      <select
+                        value={ilmBillingTag}
+                        onChange={(e) => setIlmBillingTag(e.target.value)}
+                        style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                      >
+                        <option value="NONE">(no tag)</option>
+                        <option value="PETL_LINE_ITEM">PETL Line Item</option>
+                        <option value="CHANGE_ORDER">Change Order</option>
+                        <option value="SUPPLEMENT">Supplement</option>
+                        <option value="WARRANTY">Warranty</option>
+                        <option value="CREDIT">Credit</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Row 2: Description (full width) */}
+                  <div>
+                    <label style={{ fontSize: 11, color: "#6b7280", marginBottom: 2, display: "block" }}>Description</label>
+                    <input
+                      value={ilmDesc}
+                      onChange={(e) => setIlmDesc(e.target.value)}
+                      placeholder="Line item description"
+                      style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                    />
+                  </div>
+
+                  {/* Row 3: Qty, Unit Code, Unit $ */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                    <div>
+                      <label style={{ fontSize: 11, color: "#6b7280", marginBottom: 2, display: "block" }}>Qty</label>
+                      <input
+                        type="number"
+                        value={ilmQty}
+                        onChange={(e) => { setIlmQty(e.target.value); ilmAutoCalcAmount(e.target.value, ilmUnitPrice); }}
+                        placeholder="1"
+                        style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: "#6b7280", marginBottom: 2, display: "block" }}>Unit Code</label>
+                      <select
+                        value={ilmUnitCode}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === "__MANAGE__") { setUnitCodeManageOpen(true); return; }
+                          setIlmUnitCode(val);
+                        }}
+                        style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                      >
+                        <option value="">—</option>
+                        {(companyUnitCodes ?? []).map((uc: any) => (
+                          <option key={uc.id} value={uc.code}>{uc.code}{uc.label ? ` - ${uc.label}` : ""}</option>
+                        ))}
+                        {isAdminOrAbove && <option value="__MANAGE__" style={{ fontStyle: "italic" }}>✏️ Add/Edit List</option>}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: "#6b7280", marginBottom: 2, display: "block" }}>Unit $</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={ilmUnitPrice}
+                        onChange={(e) => { setIlmUnitPrice(e.target.value); ilmAutoCalcAmount(ilmQty, e.target.value); }}
+                        placeholder="0.00"
+                        style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 4: Markup %, Amount */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <div>
+                      <label style={{ fontSize: 11, color: "#6b7280", marginBottom: 2, display: "block" }}>Markup %</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={ilmMarkupPct}
+                        onChange={(e) => setIlmMarkupPct(e.target.value)}
+                        placeholder="e.g. 25"
+                        style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: "#6b7280", marginBottom: 2, display: "block" }}>Amount</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={ilmAmount}
+                        onChange={(e) => setIlmAmount(e.target.value)}
+                        placeholder="Auto from Qty × Unit $"
+                        style={{
+                          width: "100%",
+                          padding: "6px 8px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          fontSize: 12,
+                          background: ilmQty.trim() !== "" && ilmUnitPrice.trim() !== "" ? "#f0fdf4" : "#ffffff",
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Markup summary */}
+                  {(() => {
+                    const mu = Number(ilmMarkupPct);
+                    const amt = Number(ilmAmount);
+                    if (Number.isFinite(mu) && mu > 0 && Number.isFinite(amt) && amt > 0) {
+                      const markupDollar = amt * (mu / 100);
+                      const clientPrice = amt + markupDollar;
+                      return (
+                        <div style={{ fontSize: 11, color: "#4b5563", background: "#f0fdf4", borderRadius: 4, padding: "6px 8px" }}>
+                          Base: ${amt.toFixed(2)} · Markup: +${markupDollar.toFixed(2)} ({mu}%) · <strong>Client price: ${clientPrice.toFixed(2)}</strong>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+
+                  {ilmMessage && (
+                    <div style={{ fontSize: 12, color: "#b91c1c", marginTop: 2 }}>{ilmMessage}</div>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: ilmEditId ? "space-between" : "flex-end",
+                    alignItems: "center",
+                    padding: "10px 16px",
+                    borderTop: "1px solid #e5e7eb",
+                    backgroundColor: "#f8fafc",
+                  }}
+                >
+                  {ilmEditId && (
+                    <button
+                      type="button"
+                      onClick={() => deleteInvoiceLine(ilmEditId)}
+                      disabled={ilmSaving}
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: 6,
+                        border: "1px solid #b91c1c",
+                        background: "#fee2e2",
+                        color: "#991b1b",
+                        fontSize: 13,
+                        cursor: ilmSaving ? "default" : "pointer",
+                      }}
+                    >
+                      Delete
+                    </button>
+                  )}
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => setIlmOpen(false)}
+                      disabled={ilmSaving}
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: 6,
+                        border: "1px solid #d1d5db",
+                        background: "#ffffff",
+                        color: "#374151",
+                        fontSize: 13,
+                        cursor: ilmSaving ? "default" : "pointer",
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={saveInvoiceLine}
+                      disabled={ilmSaving}
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: 6,
+                        border: "1px solid #1d4ed8",
+                        background: "#2563eb",
+                        color: "#ffffff",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: ilmSaving ? "default" : "pointer",
+                        opacity: ilmSaving ? 0.6 : 1,
+                      }}
+                    >
+                      {ilmSaving ? "Saving…" : ilmEditId ? "Save Changes" : "Add Line"}
                     </button>
                   </div>
                 </div>
@@ -22383,158 +22838,20 @@ ${htmlBody}
                                           }}
                                         >
                                         {(activeInvoice.status === "DRAFT" || invoiceEditUnlocked) && (
-                                          <>
-                                        <button
-                                          type="button"
-                                          onClick={async () => {
-                                            if (!project) return;
-                                            const token = localStorage.getItem("accessToken");
-                                            if (!token) {
-                                              setInvoiceMessage("Missing access token.");
-                                              return;
-                                            }
-
-                                            const nextDesc =
-                                              prompt("Description", String(li.description ?? "")) ??
-                                              String(li.description ?? "");
-
-                                            const nextAmountStr =
-                                              prompt("Amount", String(li.amount ?? "")) ??
-                                              String(li.amount ?? "");
-                                            const nextAmount = Number(nextAmountStr);
-                                            if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
-                                              setInvoiceMessage("Amount must be a positive number.");
-                                              return;
-                                            }
-
-                                            const nextKindRaw =
-                                              prompt(
-                                                "Kind (MANUAL, BILLABLE_HOURS, EQUIPMENT_RENTAL, LABOR_ONLY, MATERIALS_ONLY, LABOR_AND_MATERIALS, COST_BOOK, OTHER)",
-                                                String(li.kind ?? "MANUAL"),
-                                              ) ?? String(li.kind ?? "MANUAL");
-                                            const nextKind = nextKindRaw.trim().toUpperCase();
-                                            const allowedKinds = new Set([
-                                              "MANUAL",
-                                              "BILLABLE_HOURS",
-                                              "EQUIPMENT_RENTAL",
-                                              "LABOR_ONLY",
-                                              "MATERIALS_ONLY",
-                                              "LABOR_AND_MATERIALS",
-                                              "COST_BOOK",
-                                              "OTHER",
-                                            ]);
-                                            if (!allowedKinds.has(nextKind)) {
-                                              setInvoiceMessage("Invalid kind.");
-                                              return;
-                                            }
-
-                                            const nextTagRaw =
-                                              prompt(
-                                                "Billing tag (NONE, PETL_LINE_ITEM, CHANGE_ORDER, SUPPLEMENT, WARRANTY)",
-                                                String(li.billingTag ?? "NONE"),
-                                              ) ?? String(li.billingTag ?? "NONE");
-                                            const nextTag = nextTagRaw.trim().toUpperCase();
-                                            const allowedTags = new Set([
-                                              "NONE",
-                                              "PETL_LINE_ITEM",
-                                              "CHANGE_ORDER",
-                                              "SUPPLEMENT",
-                                              "WARRANTY",
-                                            ]);
-                                            if (!allowedTags.has(nextTag)) {
-                                              setInvoiceMessage("Invalid billing tag.");
-                                              return;
-                                            }
-
-                                            try {
-                                              const res = await fetch(
-                                                `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/lines/${li.id}`,
-                                                {
-                                                  method: "PATCH",
-                                                  headers: {
-                                                    "Content-Type": "application/json",
-                                                    Authorization: `Bearer ${token}`,
-                                                  },
-                                                  body: JSON.stringify({
-                                                    description: nextDesc,
-                                                    amount: nextAmount,
-                                                    kind: nextKind,
-                                                    billingTag: nextTag,
-                                                  }),
-                                                },
-                                              );
-                                              if (!res.ok) {
-                                                const text = await res.text().catch(() => "");
-                                                setInvoiceMessage(
-                                                  `Edit failed (${res.status}) ${text}`,
-                                                );
-                                                return;
-                                              }
-                                              const json: any = await res.json();
-                                              setActiveInvoice(json);
-                                              setProjectInvoices(null);
-                                            } catch (err: any) {
-                                              setInvoiceMessage(err?.message ?? "Edit failed.");
-                                            }
-                                          }}
-                                          style={{
-                                            padding: "2px 6px",
-                                            borderRadius: 4,
-                                            border: "1px solid #d1d5db",
-                                            background: "#ffffff",
-                                            fontSize: 11,
-                                            cursor: "pointer",
-                                            marginRight: 6,
-                                          }}
-                                        >
-                                          Edit
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={async () => {
-                                            if (!project) return;
-                                            const token = localStorage.getItem("accessToken");
-                                            if (!token) {
-                                              setInvoiceMessage("Missing access token.");
-                                              return;
-                                            }
-                                            if (!confirm("Delete this line item?") ) return;
-
-                                            try {
-                                              const res = await fetch(
-                                                `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/lines/${li.id}`,
-                                                {
-                                                  method: "DELETE",
-                                                  headers: { Authorization: `Bearer ${token}` },
-                                                },
-                                              );
-                                              if (!res.ok) {
-                                                const text = await res.text().catch(() => "");
-                                                setInvoiceMessage(
-                                                  `Delete failed (${res.status}) ${text}`,
-                                                );
-                                                return;
-                                              }
-                                              const json: any = await res.json();
-                                              setActiveInvoice(json);
-                                              setProjectInvoices(null);
-                                            } catch (err: any) {
-                                              setInvoiceMessage(err?.message ?? "Delete failed.");
-                                            }
-                                          }}
-                                          style={{
-                                            padding: "2px 6px",
-                                            borderRadius: 4,
-                                            border: "1px solid #b91c1c",
-                                            background: "#fee2e2",
-                                            color: "#991b1b",
-                                            fontSize: 11,
-                                            cursor: "pointer",
-                                          }}
-                                        >
-                                          Delete
-                                        </button>
-                                          </>
+                                          <button
+                                            type="button"
+                                            onClick={() => openInvoiceLineModal(li)}
+                                            style={{
+                                              padding: "2px 6px",
+                                              borderRadius: 4,
+                                              border: "1px solid #d1d5db",
+                                              background: "#ffffff",
+                                              fontSize: 11,
+                                              cursor: "pointer",
+                                            }}
+                                          >
+                                            Edit
+                                          </button>
                                         )}
                                       </td>
                                     </tr>,
@@ -22606,232 +22923,9 @@ ${htmlBody}
 
                       {(activeInvoice.status === "DRAFT" || invoiceEditUnlocked) && (
                       <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
-                        <select
-                          value={newInvoiceLineKind}
-                          onChange={e => {
-                            const kind = e.target.value;
-                            setNewInvoiceLineKind(kind);
-                            // Auto-set billing tag to CREDIT when CREDIT kind is selected
-                            if (kind === "CREDIT") {
-                              setNewInvoiceLineBillingTag("CREDIT");
-                            }
-                          }}
-                          style={{
-                            padding: "6px 8px",
-                            borderRadius: 4,
-                            border: "1px solid #d1d5db",
-                            fontSize: 12,
-                            minWidth: 160,
-                          }}
-                        >
-                          <option value="MANUAL">Manual</option>
-                          <option value="BILLABLE_HOURS">Billable hours</option>
-                          <option value="EQUIPMENT_RENTAL">Equipment rental</option>
-                          <option value="LABOR_ONLY">Labor Only</option>
-                          <option value="MATERIALS_ONLY">Materials only</option>
-                          <option value="LABOR_AND_MATERIALS">Labor & Materials</option>
-                          <option value="CREDIT">Credit</option>
-                          <option value="OTHER">Other</option>
-                        </select>
-
-                        <select
-                          value={newInvoiceLineBillingTag}
-                          onChange={e => setNewInvoiceLineBillingTag(e.target.value)}
-                          style={{
-                            padding: "6px 8px",
-                            borderRadius: 4,
-                            border: "1px solid #d1d5db",
-                            fontSize: 12,
-                            minWidth: 160,
-                          }}
-                        >
-                          <option value="NONE">(no tag)</option>
-                          <option value="PETL_LINE_ITEM">PETL Line Item</option>
-                          <option value="CHANGE_ORDER">Change Order</option>
-                          <option value="SUPPLEMENT">Supplement</option>
-                          <option value="WARRANTY">Warranty</option>
-                          <option value="CREDIT">Credit</option>
-                        </select>
-                        <input
-                          placeholder="Description"
-                          value={newInvoiceLineDesc}
-                          onChange={e => setNewInvoiceLineDesc(e.target.value)}
-                          style={{
-                            flex: "1 1 260px",
-                            padding: "6px 8px",
-                            borderRadius: 4,
-                            border: "1px solid #d1d5db",
-                            fontSize: 12,
-                          }}
-                        />
-                        <input
-                          placeholder="Qty"
-                          value={newInvoiceLineQty}
-                          onChange={e => {
-                            const val = e.target.value;
-                            setNewInvoiceLineQty(val);
-                            // Auto-calculate amount if qty and unitPrice are valid
-                            const q = Number(val);
-                            const u = Number(newInvoiceLineUnitPrice);
-                            if (Number.isFinite(q) && Number.isFinite(u) && val.trim() !== "" && newInvoiceLineUnitPrice.trim() !== "") {
-                              setNewInvoiceLineAmount((q * u).toFixed(2));
-                            }
-                          }}
-                          style={{
-                            width: 60,
-                            padding: "6px 8px",
-                            borderRadius: 4,
-                            border: "1px solid #d1d5db",
-                            fontSize: 12,
-                          }}
-                        />
-                        <select
-                          value={newInvoiceLineUnitCode}
-                          onChange={e => {
-                            const val = e.target.value;
-                            if (val === "__MANAGE__") {
-                              setUnitCodeManageOpen(true);
-                              return;
-                            }
-                            setNewInvoiceLineUnitCode(val);
-                          }}
-                          style={{
-                            width: 70,
-                            padding: "6px 4px",
-                            borderRadius: 4,
-                            border: "1px solid #d1d5db",
-                            fontSize: 11,
-                          }}
-                          title="Unit code (e.g. EA, HR, SF)"
-                        >
-                          <option value="">Unit</option>
-                          {(companyUnitCodes ?? []).map(uc => (
-                            <option key={uc.id} value={uc.code}>
-                              {uc.code}{uc.label ? ` - ${uc.label}` : ""}
-                            </option>
-                          ))}
-                          {isAdminOrAbove && (
-                            <option value="__MANAGE__" style={{ fontStyle: "italic", color: "#6b7280" }}>
-                              ✏️ Add/Edit List
-                            </option>
-                          )}
-                        </select>
-                        <input
-                          placeholder="Unit $"
-                          value={newInvoiceLineUnitPrice}
-                          onChange={e => {
-                            const val = e.target.value;
-                            setNewInvoiceLineUnitPrice(val);
-                            // Auto-calculate amount if qty and unitPrice are valid
-                            const q = Number(newInvoiceLineQty);
-                            const u = Number(val);
-                            if (Number.isFinite(q) && Number.isFinite(u) && newInvoiceLineQty.trim() !== "" && val.trim() !== "") {
-                              setNewInvoiceLineAmount((q * u).toFixed(2));
-                            }
-                          }}
-                          style={{
-                            width: 100,
-                            padding: "6px 8px",
-                            borderRadius: 4,
-                            border: "1px solid #d1d5db",
-                            fontSize: 12,
-                          }}
-                        />
-                        <input
-                          placeholder="Amount"
-                          value={newInvoiceLineAmount}
-                          onChange={e => setNewInvoiceLineAmount(e.target.value)}
-                          title="Auto-calculated from Qty × Unit $, or enter manually"
-                          style={{
-                            width: 140,
-                            padding: "6px 8px",
-                            borderRadius: 4,
-                            border: "1px solid #d1d5db",
-                            fontSize: 12,
-                            background: newInvoiceLineQty.trim() !== "" && newInvoiceLineUnitPrice.trim() !== "" ? "#f0fdf4" : "#ffffff",
-                          }}
-                        />
                         <button
                           type="button"
-                          onClick={async () => {
-                            if (!project) return;
-                            const token = localStorage.getItem("accessToken");
-                            if (!token) {
-                              setInvoiceMessage("Missing access token.");
-                              return;
-                            }
-
-                            const desc = newInvoiceLineDesc.trim();
-                            if (!desc) {
-                              setInvoiceMessage("Line description is required.");
-                              return;
-                            }
-
-                            const qty = newInvoiceLineQty.trim() === "" ? undefined : Number(newInvoiceLineQty);
-                            let unitPrice =
-                              newInvoiceLineUnitPrice.trim() === "" ? undefined : Number(newInvoiceLineUnitPrice);
-                            let amount =
-                              newInvoiceLineAmount.trim() === "" ? undefined : Number(newInvoiceLineAmount);
-
-                            if (
-                              (qty !== undefined && !Number.isFinite(qty)) ||
-                              (unitPrice !== undefined && !Number.isFinite(unitPrice)) ||
-                              (amount !== undefined && !Number.isFinite(amount))
-                            ) {
-                              setInvoiceMessage("Qty / Unit / Amount must be valid numbers.");
-                              return;
-                            }
-
-                            // Calculate amount from qty × unitPrice if not explicitly provided
-                            if (amount === undefined && qty !== undefined && unitPrice !== undefined) {
-                              amount = qty * unitPrice;
-                            }
-
-                            // For CREDIT kind, ensure amount is negative
-                            if (newInvoiceLineKind === "CREDIT" && amount !== undefined && amount > 0) {
-                              amount = -Math.abs(amount);
-                            }
-
-                            try {
-                              const res = await fetch(
-                                `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/lines`,
-                                {
-                                  method: "POST",
-                                  headers: {
-                                    "Content-Type": "application/json",
-                                    Authorization: `Bearer ${token}`,
-                                  },
-                                  body: JSON.stringify({
-                                    kind: newInvoiceLineKind,
-                                    billingTag: newInvoiceLineBillingTag,
-                                    description: desc,
-                                    qty,
-                                    unitCode: newInvoiceLineUnitCode || undefined,
-                                    unitPrice,
-                                    amount,
-                                  }),
-                                },
-                              );
-                              if (!res.ok) {
-                                const text = await res.text().catch(() => "");
-                                setInvoiceMessage(
-                                  `Add line failed (${res.status}) ${text}`,
-                                );
-                                return;
-                              }
-                              const json: any = await res.json();
-                              setActiveInvoice(json);
-                              setProjectInvoices(null);
-                              setNewInvoiceLineDesc("");
-                              setNewInvoiceLineQty("");
-                              setNewInvoiceLineUnitCode("");
-                              setNewInvoiceLineUnitPrice("");
-                              setNewInvoiceLineAmount("");
-                              setInvoiceMessage("Line added.");
-                            } catch (err: any) {
-                              setInvoiceMessage(err?.message ?? "Add line failed.");
-                            }
-                          }}
+                          onClick={() => openInvoiceLineModal()}
                           style={{
                             padding: "6px 10px",
                             borderRadius: 4,
@@ -22842,7 +22936,7 @@ ${htmlBody}
                             cursor: "pointer",
                           }}
                         >
-                        Add line
+                          + Add Line
                         </button>
 
                         {/* Attach button - narrow vertical oval with paperclip */}
