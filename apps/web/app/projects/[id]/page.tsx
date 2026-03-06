@@ -1715,7 +1715,7 @@ export default function ProjectDetailPage({
   const [projectBillsLoading, setProjectBillsLoading] = useState(false);
   const [projectBillsError, setProjectBillsError] = useState<string | null>(null);
   const [billsMessage, setBillsMessage] = useState<string | null>(null);
-  const [billsCollapsed, setBillsCollapsed] = useState(false);
+  const [billsCollapsed, setBillsCollapsed] = useState(true);
 
   // Expanded receipt groups in the prescreened TENTATIVE bills section
   const [expandedReceiptGroups, setExpandedReceiptGroups] = useState<Set<string>>(new Set());
@@ -4178,6 +4178,108 @@ ${htmlBody}
   const [newInvoiceLineUnitCode, setNewInvoiceLineUnitCode] = useState<string>("");
   const [newInvoiceLineUnitPrice, setNewInvoiceLineUnitPrice] = useState<string>("");
   const [newInvoiceLineAmount, setNewInvoiceLineAmount] = useState<string>("");
+  const [newInvoiceLineMarkup, setNewInvoiceLineMarkup] = useState(false);
+
+  // Invoice line edit modal state
+  const [invoiceLineEdit, setInvoiceLineEdit] = useState<{
+    open: boolean;
+    line: any;
+    draft: {
+      description: string;
+      kind: string;
+      billingTag: string;
+      qty: string;
+      unitCode: string;
+      unitPrice: string;
+      amount: string;
+      markupEnabled: boolean;
+    };
+    saving: boolean;
+    error: string | null;
+  }>({
+    open: false,
+    line: null,
+    draft: { description: "", kind: "MANUAL", billingTag: "NONE", qty: "", unitCode: "", unitPrice: "", amount: "", markupEnabled: false },
+    saving: false,
+    error: null,
+  });
+
+  function openInvoiceLineEdit(li: any) {
+    setInvoiceLineEdit({
+      open: true,
+      line: li,
+      draft: {
+        description: String(li.description ?? ""),
+        kind: String(li.kind ?? "MANUAL"),
+        billingTag: String(li.billingTag ?? "NONE"),
+        qty: li.qty != null ? String(li.qty) : "",
+        unitCode: String((li as any).unitCode ?? ""),
+        unitPrice: li.unitPrice != null ? String(li.unitPrice) : "",
+        amount: li.amount != null ? String(li.amount) : "",
+        markupEnabled: false,
+      },
+      saving: false,
+      error: null,
+    });
+  }
+
+  function closeInvoiceLineEdit() {
+    setInvoiceLineEdit(prev => ({ ...prev, open: false }));
+  }
+
+  async function saveInvoiceLineEdit() {
+    if (!project || !activeInvoice?.id || !invoiceLineEdit.line?.id) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+    const d = invoiceLineEdit.draft;
+    if (!d.description.trim()) {
+      setInvoiceLineEdit(prev => ({ ...prev, error: "Description is required." }));
+      return;
+    }
+    const qty = d.qty.trim() === "" ? undefined : Number(d.qty);
+    const unitPrice = d.unitPrice.trim() === "" ? undefined : Number(d.unitPrice);
+    let amount = d.amount.trim() === "" ? undefined : Number(d.amount);
+    if (amount === undefined && qty !== undefined && unitPrice !== undefined) {
+      amount = qty * unitPrice;
+    }
+    if (d.markupEnabled && amount !== undefined) {
+      amount = amount * 1.25;
+    }
+    if (amount !== undefined && !Number.isFinite(amount)) {
+      setInvoiceLineEdit(prev => ({ ...prev, error: "Amount must be a valid number." }));
+      return;
+    }
+    setInvoiceLineEdit(prev => ({ ...prev, saving: true, error: null }));
+    try {
+      const res = await fetch(
+        `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/lines/${invoiceLineEdit.line.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            description: d.description.trim(),
+            kind: d.kind,
+            billingTag: d.billingTag,
+            qty,
+            unitCode: d.unitCode || undefined,
+            unitPrice,
+            amount,
+          }),
+        },
+      );
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        setInvoiceLineEdit(prev => ({ ...prev, saving: false, error: `Save failed (${res.status}) ${text}` }));
+        return;
+      }
+      const json: any = await res.json();
+      setActiveInvoice(json);
+      setProjectInvoices(null);
+      closeInvoiceLineEdit();
+    } catch (err: any) {
+      setInvoiceLineEdit(prev => ({ ...prev, saving: false, error: err?.message ?? "Save failed." }));
+    }
+  }
 
   // Company unit codes (editable dropdown list)
   const [companyUnitCodes, setCompanyUnitCodes] = useState<{ id: string; code: string; label: string | null }[] | null>(null);
@@ -4277,6 +4379,12 @@ ${htmlBody}
       0,
     );
   }, [projectPaymentsSorted]);
+
+  // Payroll & Workforce collapsed (default collapsed)
+  const [payrollCollapsed, setPayrollCollapsed] = useState(true);
+
+  // Billable Expenses collapsed (default collapsed)
+  const [billableExpensesCollapsed, setBillableExpensesCollapsed] = useState(true);
 
   // Payroll roster (who has been paid on this project, including subs/1099s)
   const [payrollEmployees, setPayrollEmployees] = useState<ProjectEmployee[] | null>(null);
@@ -17834,6 +17942,2911 @@ ${htmlBody}
             </>
           )}
 
+          {/* Payments */}
+          <div
+            style={{
+              marginTop: 16,
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+            }}
+          >
+            <div
+              style={{
+                padding: "6px 10px",
+                borderBottom: paymentsCollapsed ? "none" : "1px solid #e5e7eb",
+                fontSize: 13,
+                fontWeight: 600,
+                background: "#f3f4f6",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => startUiTransition(() => setPaymentsCollapsed((v) => !v))}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  padding: 0,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "#111827",
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: 8,
+                  textAlign: "left",
+                }}
+              >
+                <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                  {paymentsCollapsed ? "▸" : "▾"}
+                </span>
+                <span>Payments</span>
+                {projectPayments && (
+                  <span style={{ fontSize: 11, fontWeight: 500, color: "#6b7280" }}>
+                    · {projectPaymentsSorted.length} · Total {formatMoney(projectPaymentsTotal)} · Unapplied{" "}
+                    {formatMoney(projectPaymentsUnappliedTotal)}
+                  </span>
+                )}
+              </button>
+
+              {!paymentsCollapsed && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPaymentsMessage(null);
+                    setProjectPayments(null);
+                  }}
+                  disabled={projectPaymentsLoading}
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    background: "#ffffff",
+                    cursor: projectPaymentsLoading ? "default" : "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  {projectPaymentsLoading ? "Refreshing…" : "Refresh"}
+                </button>
+              )}
+            </div>
+
+            {!paymentsCollapsed && (
+              <div style={{ padding: 10, fontSize: 12 }}>
+              {paymentsMessage && (
+                <div
+                  style={{
+                    marginBottom: 8,
+                    fontSize: 12,
+                    color: paymentsMessage.toLowerCase().includes("fail") ? "#b91c1c" : "#4b5563",
+                  }}
+                >
+                  {paymentsMessage}
+                </div>
+              )}
+
+              {projectPaymentsLoading && (
+                <div style={{ color: "#6b7280" }}>Loading payments…</div>
+              )}
+              {projectPaymentsError && !projectPaymentsLoading && (
+                <div style={{ color: "#b91c1c" }}>{projectPaymentsError}</div>
+              )}
+
+              {!projectPaymentsLoading &&
+                !projectPaymentsError &&
+                projectPayments &&
+                projectPayments.length === 0 && (
+                  <div style={{ color: "#6b7280" }}>No payments recorded yet.</div>
+                )}
+
+              {!projectPaymentsLoading &&
+                !projectPaymentsError &&
+                projectPayments &&
+                projectPayments.length > 0 && (
+                  <>
+                    <div style={{ marginBottom: 8, fontSize: 11, color: "#6b7280" }}>
+                      Showing <strong>{projectPaymentsSorted.length}</strong> payments · Total{" "}
+                      <strong>{formatMoney(projectPaymentsTotal)}</strong>
+                    </div>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+                        gap: 8,
+                      }}
+                    >
+                      {projectPaymentsSorted.map((p: any) => {
+                      const paidAtLabel = p?.paidAt
+                        ? new Date(p.paidAt).toLocaleDateString()
+                        : "—";
+                      const method = String(p?.method ?? "").trim() || "—";
+                      const reference = String(p?.reference ?? "").trim();
+                      const note = String(p?.note ?? "").trim();
+
+                      const appliedAmount = Number(p?.appliedAmount ?? 0) || 0;
+                      const unappliedAmount = Number(p?.unappliedAmount ?? 0) || 0;
+                      const apps: any[] = Array.isArray(p?.applications) ? p.applications : [];
+
+                      const invoiceOptions = (projectInvoices ?? []).filter(
+                        (inv: any) => String(inv?.status) !== "VOID",
+                      );
+
+                      const paymentId = String(p?.id ?? "");
+                      const selectedInvoiceId = applyInvoiceByPaymentId[paymentId] ?? "";
+                      const selectedAmountStr = applyAmountByPaymentId[paymentId] ?? "";
+                      const applyMsg = applyMessageByPaymentId[paymentId] ?? "";
+
+                      const fullyUnapplied = unappliedAmount > 0 && appliedAmount === 0;
+                      const partiallyUnapplied = unappliedAmount > 0 && appliedAmount > 0;
+
+                      return (
+                        <div
+                          key={paymentId}
+                          style={{
+                            flex: "0 0 auto",
+                            minWidth: 240,
+                            borderRadius: 8,
+                            border: fullyUnapplied || partiallyUnapplied ? "1.5px solid #22c55e" : "1px solid #e5e7eb",
+                            background: fullyUnapplied ? "#f0fdf4" : "#f9fafb",
+                            padding: 8,
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                            <div style={{ fontWeight: 700 }}>{formatMoney(p?.amount)}</div>
+                            <div style={{ fontSize: 11, color: "#6b7280" }}>{paidAtLabel}</div>
+                          </div>
+                          <div style={{ marginTop: 2, fontSize: 11, color: "#4b5563" }}>
+                            {method}
+                            {reference ? ` · ${reference}` : ""}
+                          </div>
+
+                          <div style={{ marginTop: 6, fontSize: 11, color: "#4b5563" }}>
+                            Applied: <strong>{formatMoney(appliedAmount)}</strong> · Unapplied:{" "}
+                            <strong>{formatMoney(unappliedAmount)}</strong>
+                          </div>
+
+                          {apps.length > 0 && (
+                            <div style={{ marginTop: 6, fontSize: 11, color: "#4b5563" }}>
+                              <div style={{ fontWeight: 600, marginBottom: 2 }}>Applications</div>
+                              {apps.map((a: any) => {
+                                const invId = String(a?.invoiceId ?? "").trim();
+                                const canRemove = Boolean(invId);
+                                const label = a.invoiceNo ?? "(draft)";
+
+                                return (
+                                  <div
+                                    key={a.id}
+                                    style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}
+                                  >
+                                    <span>{label}</span>
+                                    <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                      <span style={{ fontWeight: 600 }}>{formatMoney(a.amount)}</span>
+                                      {canRemove && (
+                                        <button
+                                          type="button"
+                                          onClick={async () => {
+                                            if (!project) return;
+                                            const token = localStorage.getItem("accessToken");
+                                            if (!token) {
+                                              setPaymentsMessage("Missing access token.");
+                                              return;
+                                            }
+
+                                            const ok = window.confirm(
+                                              `Remove this payment from invoice ${label}?\n\nThis does not delete the payment record; it just unassigns it so you can apply it elsewhere.`,
+                                            );
+                                            if (!ok) return;
+
+                                            setPaymentsMessage(null);
+                                            setApplyMessageByPaymentId((prev) => ({
+                                              ...prev,
+                                              [paymentId]: `Removing from ${label}…`,
+                                            }));
+
+                                            try {
+                                              const res = await fetch(
+                                                `${API_BASE}/projects/${project.id}/payments/${paymentId}/apply/${invId}`,
+                                                {
+                                                  method: "DELETE",
+                                                  headers: { Authorization: `Bearer ${token}` },
+                                                },
+                                              );
+                                              if (!res.ok) {
+                                                const text = await res.text().catch(() => "");
+                                                const msg = `Remove failed (${res.status}) ${text}`;
+                                                setPaymentsMessage(msg);
+                                                setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: msg }));
+                                                return;
+                                              }
+
+                                              // refresh lists + active invoice if open
+                                              setProjectPayments(null);
+                                              setProjectInvoices(null);
+                                              setFinancialSummary(null);
+
+                                              if (activeInvoice?.id === invId) {
+                                                const invRes = await fetch(
+                                                  `${API_BASE}/projects/${project.id}/invoices/${invId}`,
+                                                  { headers: { Authorization: `Bearer ${token}` } },
+                                                );
+                                                if (invRes.ok) {
+                                                  const json = await invRes.json();
+                                                  setActiveInvoice(json);
+                                                }
+                                              }
+
+                                              setApplyMessageByPaymentId((prev) => ({
+                                                ...prev,
+                                                [paymentId]: `Removed from ${label}.`,
+                                              }));
+                                            } catch (err: any) {
+                                              const msg = err?.message ?? "Remove failed.";
+                                              setPaymentsMessage(msg);
+                                              setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: msg }));
+                                            }
+                                          }}
+                                          style={{
+                                            padding: "2px 6px",
+                                            borderRadius: 6,
+                                            border: "1px solid #b91c1c",
+                                            background: "#fee2e2",
+                                            color: "#991b1b",
+                                            fontSize: 11,
+                                            cursor: "pointer",
+                                            whiteSpace: "nowrap",
+                                          }}
+                                        >
+                                          Remove
+                                        </button>
+                                      )}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {note && (
+                            <div style={{ marginTop: 6, fontSize: 11, color: "#6b7280" }}>
+                              {note}
+                            </div>
+                          )}
+
+                          {applyMsg && (
+                            <div
+                              style={{
+                                marginTop: 6,
+                                fontSize: 11,
+                                color: applyMsg.toLowerCase().includes("fail") ? "#b91c1c" : "#4b5563",
+                              }}
+                            >
+                              {applyMsg}
+                            </div>
+                          )}
+
+                          {/* Delete / Move actions */}
+                          {isAdminOrAbove && (
+                            <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #e5e7eb", display: "flex", gap: 6 }}>
+                              <button
+                                type="button"
+                                disabled={deletingPaymentId === paymentId}
+                                onClick={async () => {
+                                  if (!project) return;
+                                  const token = localStorage.getItem("accessToken");
+                                  if (!token) {
+                                    setPaymentsMessage("Missing access token.");
+                                    return;
+                                  }
+
+                                  const ok = window.confirm(
+                                    `Delete this payment of ${formatMoney(p?.amount)}?\n\nThis will remove the payment entirely and unapply it from any invoices. This action cannot be undone.`,
+                                  );
+                                  if (!ok) return;
+
+                                  setDeletingPaymentId(paymentId);
+                                  setPaymentsMessage(null);
+                                  try {
+                                    const res = await fetch(
+                                      `${API_BASE}/projects/${project.id}/payments/${paymentId}`,
+                                      {
+                                        method: "DELETE",
+                                        headers: { Authorization: `Bearer ${token}` },
+                                      },
+                                    );
+                                    if (!res.ok) {
+                                      const text = await res.text().catch(() => "");
+                                      setPaymentsMessage(`Delete failed (${res.status}) ${text}`);
+                                      return;
+                                    }
+
+                                    // Refresh data
+                                    setProjectPayments(null);
+                                    setProjectInvoices(null);
+                                    setFinancialSummary(null);
+                                    setPaymentsMessage("Payment deleted.");
+                                  } catch (err: any) {
+                                    setPaymentsMessage(err?.message ?? "Delete failed.");
+                                  } finally {
+                                    setDeletingPaymentId(null);
+                                  }
+                                }}
+                                style={{
+                                  padding: "4px 8px",
+                                  borderRadius: 4,
+                                  border: "1px solid #b91c1c",
+                                  background: deletingPaymentId === paymentId ? "#fecaca" : "#fee2e2",
+                                  color: "#991b1b",
+                                  fontSize: 11,
+                                  cursor: deletingPaymentId === paymentId ? "default" : "pointer",
+                                }}
+                              >
+                                {deletingPaymentId === paymentId ? "Deleting…" : "Delete"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  setMovePaymentModalId(paymentId);
+                                  setMoveTargetProjectId("");
+                                  setMoveTargetInvoiceId("");
+                                  setTargetProjectInvoices(null);
+
+                                  // Load user's projects if not cached
+                                  if (!userProjects && !userProjectsLoading) {
+                                    const token = localStorage.getItem("accessToken");
+                                    if (!token) return;
+                                    setUserProjectsLoading(true);
+                                    try {
+                                      const res = await fetch(`${API_BASE}/projects?limit=500`, {
+                                        headers: { Authorization: `Bearer ${token}` },
+                                      });
+                                      if (res.ok) {
+                                        const json = await res.json();
+                                        const list = Array.isArray(json) ? json : json.items ?? [];
+                                        setUserProjects(list.map((p: any) => ({ id: p.id, name: p.name, code: p.code })));
+                                      }
+                                    } catch {}
+                                    setUserProjectsLoading(false);
+                                  }
+                                }}
+                                style={{
+                                  padding: "4px 8px",
+                                  borderRadius: 4,
+                                  border: "1px solid #6b7280",
+                                  background: "#f3f4f6",
+                                  color: "#374151",
+                                  fontSize: 11,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Move
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Move Payment Modal (inline) */}
+                          {movePaymentModalId === paymentId && (
+                            <div
+                              style={{
+                                marginTop: 8,
+                                padding: 8,
+                                borderRadius: 6,
+                                background: "#f0f9ff",
+                                border: "1px solid #0ea5e9",
+                              }}
+                            >
+                              <div style={{ fontWeight: 600, fontSize: 11, marginBottom: 6 }}>
+                                Move Payment to Another Project
+                              </div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                <select
+                                  value={moveTargetProjectId}
+                                  onChange={async (e) => {
+                                    const pid = e.target.value;
+                                    setMoveTargetProjectId(pid);
+                                    setMoveTargetInvoiceId("");
+                                    setTargetProjectInvoices(null);
+
+                                    if (pid) {
+                                      const token = localStorage.getItem("accessToken");
+                                      if (!token) return;
+                                      setTargetProjectInvoicesLoading(true);
+                                      try {
+                                        const res = await fetch(`${API_BASE}/projects/${pid}/invoices`, {
+                                          headers: { Authorization: `Bearer ${token}` },
+                                        });
+                                        if (res.ok) {
+                                          const json = await res.json();
+                                          setTargetProjectInvoices(Array.isArray(json) ? json : []);
+                                        }
+                                      } catch {}
+                                      setTargetProjectInvoicesLoading(false);
+                                    }
+                                  }}
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderRadius: 4,
+                                    border: "1px solid #d1d5db",
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  <option value="">Select project…</option>
+                                  {userProjectsLoading && <option disabled>Loading…</option>}
+                                  {(userProjects ?? []).filter((pr) => pr.id !== project?.id).map((pr) => (
+                                    <option key={pr.id} value={pr.id}>
+                                      {pr.code ? `${pr.code} - ` : ""}{pr.name}
+                                    </option>
+                                  ))}
+                                </select>
+
+                                {moveTargetProjectId && (
+                                  <select
+                                    value={moveTargetInvoiceId}
+                                    onChange={(e) => setMoveTargetInvoiceId(e.target.value)}
+                                    style={{
+                                      padding: "6px 8px",
+                                      borderRadius: 4,
+                                      border: "1px solid #d1d5db",
+                                      fontSize: 12,
+                                    }}
+                                  >
+                                    <option value="">(No invoice - leave unapplied)</option>
+                                    {targetProjectInvoicesLoading && <option disabled>Loading invoices…</option>}
+                                    {(targetProjectInvoices ?? []).filter((inv: any) => inv.status !== "VOID").map((inv: any) => (
+                                      <option key={inv.id} value={inv.id}>
+                                        {inv.invoiceNo ?? "(draft)"} · {inv.status} · Bal {formatMoney(inv.balanceDue ?? 0)}
+                                      </option>
+                                    ))}
+                                  </select>
+                                )}
+
+                                <div style={{ display: "flex", gap: 6 }}>
+                                  <button
+                                    type="button"
+                                    disabled={!moveTargetProjectId || movingPaymentId === paymentId}
+                                    onClick={async () => {
+                                      if (!project || !moveTargetProjectId) return;
+                                      const token = localStorage.getItem("accessToken");
+                                      if (!token) {
+                                        setPaymentsMessage("Missing access token.");
+                                        return;
+                                      }
+
+                                      setMovingPaymentId(paymentId);
+                                      setPaymentsMessage(null);
+                                      try {
+                                        const res = await fetch(
+                                          `${API_BASE}/projects/${project.id}/payments/${paymentId}/move`,
+                                          {
+                                            method: "POST",
+                                            headers: {
+                                              "Content-Type": "application/json",
+                                              Authorization: `Bearer ${token}`,
+                                            },
+                                            body: JSON.stringify({
+                                              targetProjectId: moveTargetProjectId,
+                                              targetInvoiceId: moveTargetInvoiceId || undefined,
+                                            }),
+                                          },
+                                        );
+                                        if (!res.ok) {
+                                          const text = await res.text().catch(() => "");
+                                          setPaymentsMessage(`Move failed (${res.status}) ${text}`);
+                                          return;
+                                        }
+
+                                        // Refresh data
+                                        setProjectPayments(null);
+                                        setProjectInvoices(null);
+                                        setFinancialSummary(null);
+                                        setMovePaymentModalId(null);
+                                        setPaymentsMessage("Payment moved to another project.");
+                                      } catch (err: any) {
+                                        setPaymentsMessage(err?.message ?? "Move failed.");
+                                      } finally {
+                                        setMovingPaymentId(null);
+                                      }
+                                    }}
+                                    style={{
+                                      padding: "6px 10px",
+                                      borderRadius: 4,
+                                      border: "1px solid #0f172a",
+                                      background: !moveTargetProjectId || movingPaymentId === paymentId ? "#e5e7eb" : "#0f172a",
+                                      color: !moveTargetProjectId || movingPaymentId === paymentId ? "#6b7280" : "#f9fafb",
+                                      fontSize: 11,
+                                      cursor: !moveTargetProjectId || movingPaymentId === paymentId ? "default" : "pointer",
+                                    }}
+                                  >
+                                    {movingPaymentId === paymentId ? "Moving…" : "Move Payment"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setMovePaymentModalId(null)}
+                                    style={{
+                                      padding: "6px 10px",
+                                      borderRadius: 4,
+                                      border: "1px solid #d1d5db",
+                                      background: "#ffffff",
+                                      color: "#374151",
+                                      fontSize: 11,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {unappliedAmount > 0 && (
+                            <div style={{ marginTop: 8 }}>
+                              <div style={{ fontWeight: 600, fontSize: 11, marginBottom: 4 }}>
+                                Apply payment
+                              </div>
+
+                              {projectInvoicesLoading && (
+                                <div style={{ fontSize: 11, color: "#6b7280" }}>Loading invoices…</div>
+                              )}
+
+                              {!projectInvoicesLoading && invoiceOptions.length === 0 && (
+                                <div style={{ fontSize: 11, color: "#6b7280" }}>
+                                  No invoices available to apply to.
+                                </div>
+                              )}
+
+                              {!projectInvoicesLoading && invoiceOptions.length > 0 && (
+                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", maxWidth: "100%" }}>
+                                  <select
+                                    value={selectedInvoiceId}
+                                    onChange={(e) => {
+                                      const next = e.target.value;
+                                      setApplyInvoiceByPaymentId((prev) => ({ ...prev, [paymentId]: next }));
+                                      setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: "" }));
+                                    }}
+                                    style={{
+                                      flex: "1 1 140px",
+                                      minWidth: 0,
+                                      maxWidth: "100%",
+                                      padding: "6px 8px",
+                                      borderRadius: 4,
+                                      border: "1px solid #d1d5db",
+                                      fontSize: 12,
+                                    }}
+                                  >
+                                    <option value="">Select invoice…</option>
+                                    {invoiceOptions.map((inv: any) => (
+                                      <option key={inv.id} value={inv.id}>
+                                        {(inv.invoiceNo ?? "(draft)") +
+                                          ` · ${inv.status}` +
+                                          ` · Bal ${formatMoney(inv.balanceDue ?? 0)}`}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <input
+                                    placeholder={`Amount (max ${formatMoney(unappliedAmount)})`}
+                                    value={selectedAmountStr}
+                                    onChange={(e) => {
+                                      const next = e.target.value;
+                                      setApplyAmountByPaymentId((prev) => ({ ...prev, [paymentId]: next }));
+                                      setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: "" }));
+                                    }}
+                                    style={{
+                                      width: 140,
+                                      padding: "6px 8px",
+                                      borderRadius: 4,
+                                      border: "1px solid #d1d5db",
+                                      fontSize: 12,
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={applySavingPaymentId === paymentId}
+                                    onClick={async () => {
+                                      if (!project) return;
+                                      const token = localStorage.getItem("accessToken");
+                                      if (!token) {
+                                        setPaymentsMessage("Missing access token.");
+                                        setApplyMessageByPaymentId((prev) => ({
+                                          ...prev,
+                                          [paymentId]: "Apply failed: missing access token.",
+                                        }));
+                                        return;
+                                      }
+
+                                      const invoiceId = (applyInvoiceByPaymentId[paymentId] ?? "").trim();
+                                      if (!invoiceId) {
+                                        setApplyMessageByPaymentId((prev) => ({
+                                          ...prev,
+                                          [paymentId]: "Select an invoice to apply to.",
+                                        }));
+                                        return;
+                                      }
+
+                                      const amountRaw = (applyAmountByPaymentId[paymentId] ?? "").trim();
+                                      const normalizedAmountRaw = amountRaw.replace(/[$,\s]/g, "");
+                                      const amount = Number(normalizedAmountRaw);
+                                      if (!Number.isFinite(amount) || amount <= 0) {
+                                        setApplyMessageByPaymentId((prev) => ({
+                                          ...prev,
+                                          [paymentId]: "Apply amount must be a positive number.",
+                                        }));
+                                        return;
+                                      }
+
+                                      setApplySavingPaymentId(paymentId);
+                                      setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: "Applying…" }));
+                                      setPaymentsMessage(null);
+                                      try {
+                                        const res = await fetch(
+                                          `${API_BASE}/projects/${project.id}/payments/${paymentId}/apply`,
+                                          {
+                                            method: "POST",
+                                            headers: {
+                                              "Content-Type": "application/json",
+                                              Authorization: `Bearer ${token}`,
+                                            },
+                                            body: JSON.stringify({ invoiceId, amount }),
+                                          },
+                                        );
+                                        if (!res.ok) {
+                                          const text = await res.text().catch(() => "");
+                                          const hint =
+                                            res.status >= 500 &&
+                                            (text.includes("ProjectPaymentApplication") ||
+                                              text.toLowerCase().includes("paymentapplication") ||
+                                              text.toLowerCase().includes("not migrated"))
+                                              ? " Apply requires the payment application migration; run database migrations and restart the API."
+                                              : "";
+                                          const msg = `Apply failed (${res.status}) ${text}${hint}`.trim();
+                                          setPaymentsMessage(msg);
+                                          setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: msg }));
+                                          return;
+                                        }
+
+                                        setProjectPayments(null);
+                                        setProjectInvoices(null);
+                                        setFinancialSummary(null);
+
+                                        if (activeInvoice?.id === invoiceId) {
+                                          const invRes = await fetch(
+                                            `${API_BASE}/projects/${project.id}/invoices/${invoiceId}`,
+                                            { headers: { Authorization: `Bearer ${token}` } },
+                                          );
+                                          if (invRes.ok) {
+                                            const json = await invRes.json();
+                                            setActiveInvoice(json);
+                                          }
+                                        }
+
+                                        setApplyInvoiceByPaymentId((prev) => ({ ...prev, [paymentId]: "" }));
+                                        setApplyAmountByPaymentId((prev) => ({ ...prev, [paymentId]: "" }));
+                                        setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: "Payment applied." }));
+                                        setPaymentsMessage("Payment applied.");
+                                      } catch (err: any) {
+                                        const msg = err?.message ?? "Apply failed.";
+                                        setPaymentsMessage(msg);
+                                        setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: msg }));
+                                      } finally {
+                                        setApplySavingPaymentId(null);
+                                      }
+                                    }}
+                                    style={{
+                                      padding: "6px 10px",
+                                      borderRadius: 4,
+                                      border: "1px solid #0f172a",
+                                      background: "#0f172a",
+                                      color: "#f9fafb",
+                                      fontSize: 12,
+                                      cursor: applySavingPaymentId === paymentId ? "default" : "pointer",
+                                    }}
+                                  >
+                                    {applySavingPaymentId === paymentId ? "Applying…" : "Apply"}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                      })}
+                    </div>
+                  </>
+                )}
+
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>Record payment</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                  <input
+                    placeholder="Amount"
+                    value={payAmount}
+                    onChange={e => setPayAmount(e.target.value)}
+                    style={{
+                      width: 120,
+                      padding: "6px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  />
+                  <select
+                    value={payMethod}
+                    onChange={e => setPayMethod(e.target.value)}
+                    style={{
+                      padding: "6px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  >
+                    <option value="WIRE">WIRE</option>
+                    <option value="ACH">ACH</option>
+                    <option value="CHECK">CHECK</option>
+                    <option value="OTHER">OTHER</option>
+                  </select>
+                  <input
+                    type="date"
+                    value={payPaidAt}
+                    onChange={e => setPayPaidAt(e.target.value)}
+                    style={{
+                      padding: "6px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  />
+                  <input
+                    placeholder="Reference"
+                    value={payReference}
+                    onChange={e => setPayReference(e.target.value)}
+                    style={{
+                      width: 160,
+                      padding: "6px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  />
+                  <input
+                    placeholder="Note"
+                    value={payNote}
+                    onChange={e => setPayNote(e.target.value)}
+                    style={{
+                      flex: "1 1 200px",
+                      padding: "6px 8px",
+                      borderRadius: 4,
+                      border: "1px solid #d1d5db",
+                      fontSize: 12,
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={recordPaymentSaving}
+                    onClick={async () => {
+                      if (!project) return;
+                      const token = localStorage.getItem("accessToken");
+                      if (!token) {
+                        setPaymentsMessage("Missing access token.");
+                        return;
+                      }
+
+                      const amountRaw = String(payAmount ?? "").trim();
+                      const normalizedAmountRaw = amountRaw.replace(/[$,\s]/g, "");
+                      const amount = Number(normalizedAmountRaw);
+                      if (!Number.isFinite(amount) || amount <= 0) {
+                        setPaymentsMessage("Payment amount must be a positive number.");
+                        return;
+                      }
+
+                      setRecordPaymentSaving(true);
+                      setPaymentsMessage(null);
+                      try {
+                        const res = await fetch(`${API_BASE}/projects/${project.id}/payments`, {
+                          method: "POST",
+                          headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`,
+                          },
+                          body: JSON.stringify({
+                            amount,
+                            method: payMethod,
+                            paidAt: payPaidAt || undefined,
+                            reference: payReference.trim() || undefined,
+                            note: payNote.trim() || undefined,
+                          }),
+                        });
+                        if (!res.ok) {
+                          const text = await res.text().catch(() => "");
+                          const hint =
+                            text.includes("billing is not initialized") ||
+                            text.includes("billing tables") ||
+                            text.includes("ProjectPayment")
+                              ? " Run DB migrations + prisma generate, then restart the API."
+                              : "";
+                          setPaymentsMessage(`Record payment failed (${res.status}) ${text}${hint}`);
+                          return;
+                        }
+
+                        setProjectPayments(null);
+                        setFinancialSummary(null);
+
+                        setPayAmount("");
+                        setPayPaidAt("");
+                        setPayReference("");
+                        setPayNote("");
+                        setPaymentsMessage("Payment recorded.");
+                      } catch (err: any) {
+                        setPaymentsMessage(err?.message ?? "Record payment failed.");
+                      } finally {
+                        setRecordPaymentSaving(false);
+                      }
+                    }}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 4,
+                      border: "1px solid #0f172a",
+                      background: recordPaymentSaving ? "#e5e7eb" : "#0f172a",
+                      color: recordPaymentSaving ? "#4b5563" : "#f9fafb",
+                      fontSize: 12,
+                      cursor: recordPaymentSaving ? "default" : "pointer",
+                    }}
+                  >
+                    {recordPaymentSaving ? "Recording…" : "Record"}
+                  </button>
+                </div>
+              </div>
+              </div>
+            )}
+          </div>
+
+            </>
+          )}
+
+          {/* Invoices */}
+          <div
+            style={{
+              marginTop: 16,
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+            }}
+          >
+            <div
+              style={{
+                padding: "6px 10px",
+                borderBottom: "1px solid #e5e7eb",
+                fontSize: 13,
+                fontWeight: 600,
+                background: "#f3f4f6",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+              }}
+            >
+              <span>Invoices</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setInvoiceMessage(null);
+                  setProjectInvoices(null);
+                  setActiveInvoice(null);
+                }}
+                disabled={projectInvoicesLoading}
+                style={{
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  border: "1px solid #d1d5db",
+                  background: "#ffffff",
+                  cursor: projectInvoicesLoading ? "default" : "pointer",
+                  fontSize: 12,
+                }}
+              >
+                {projectInvoicesLoading ? "Refreshing…" : "Refresh"}
+              </button>
+            </div>
+
+            <div style={{ padding: 10, fontSize: 12 }}>
+              {invoiceMessage && (
+                <div
+                  style={{
+                    marginBottom: 8,
+                    fontSize: 12,
+                    color: invoiceMessage.toLowerCase().includes("fail") ? "#b91c1c" : "#4b5563",
+                  }}
+                >
+                  {invoiceMessage}
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!project) return;
+                    const token = localStorage.getItem("accessToken");
+                    if (!token) {
+                      setInvoiceMessage("Missing access token.");
+                      return;
+                    }
+
+                    setInvoiceMessage(null);
+                    setActiveInvoiceLoading(true);
+                    setActiveInvoiceError(null);
+
+                    try {
+                      const res = await fetch(`${API_BASE}/projects/${project.id}/invoices/draft`, {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                          Authorization: `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({}),
+                      });
+
+                      if (!res.ok) {
+                        const text = await res.text().catch(() => "");
+                        throw new Error(`Failed to open draft invoice (${res.status}) ${text}`);
+                      }
+
+                      const json: any = await res.json();
+
+                      if (!invoiceFullscreen) {
+                        // Navigate in the same tab into full-screen invoice mode.
+                        router.push(
+                          `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${json.id}`,
+                        );
+                      }
+
+                      // Keep local state in sync so the invoice renders immediately.
+                      setActiveInvoice(json);
+                      setProjectInvoices(null);
+                    } catch (err: any) {
+                      setActiveInvoiceError(err?.message ?? "Failed to open draft invoice.");
+                    } finally {
+                      setActiveInvoiceLoading(false);
+                    }
+                  }}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 4,
+                    border: "1px solid #0f172a",
+                    backgroundColor: "#0f172a",
+                    color: "#f9fafb",
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  Open living invoice (draft)
+                </button>
+
+                {/* Status filter radio bar */}
+                <div
+                  style={{
+                    display: "inline-flex",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    overflow: "hidden",
+                  }}
+                >
+                  {(["DRAFT", "ISSUED", "PARTIALLY_PAID", "PAID", "VOID"] as const).map((status, idx) => {
+                    const isActive = invoiceStatusFilters.has(status);
+                    const label = status === "PARTIALLY_PAID" ? "Partial" : status.charAt(0) + status.slice(1).toLowerCase();
+                    return (
+                      <button
+                        key={status}
+                        type="button"
+                        onClick={() => {
+                          setInvoiceStatusFilters((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(status)) {
+                              next.delete(status);
+                            } else {
+                              next.add(status);
+                            }
+                            return next;
+                          });
+                        }}
+                        style={{
+                          padding: "4px 10px",
+                          border: "none",
+                          borderLeft: idx > 0 ? "1px solid #d1d5db" : "none",
+                          backgroundColor: isActive ? "#2563eb" : "#f9fafb",
+                          color: isActive ? "#ffffff" : "#374151",
+                          fontSize: 11,
+                          cursor: "pointer",
+                          fontWeight: isActive ? 500 : 400,
+                        }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {activeInvoiceLoading && (
+                  <span style={{ fontSize: 12, color: "#6b7280" }}>Loading invoice…</span>
+                )}
+                {activeInvoiceError && (
+                  <span style={{ fontSize: 12, color: "#b91c1c" }}>{activeInvoiceError}</span>
+                )}
+
+                {/* Flexible spacer */}
+                <div style={{ flex: 1 }} />
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!project) return;
+                    const token = localStorage.getItem("accessToken");
+                    if (!token) {
+                      setInvoiceMessage("Missing access token.");
+                      return;
+                    }
+
+                    const ok = window.confirm(
+                      "Create a new draft invoice?\n\nThis will create a separate draft even if another draft exists.",
+                    );
+                    if (!ok) return;
+
+                    setInvoiceMessage(null);
+                    setActiveInvoiceLoading(true);
+                    setActiveInvoiceError(null);
+
+                    try {
+                      const res = await fetch(`${API_BASE}/projects/${project.id}/invoices/draft`, {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                          Authorization: `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({ forceNew: true }),
+                      });
+
+                      if (!res.ok) {
+                        const text = await res.text().catch(() => "");
+                        throw new Error(`Failed to create draft invoice (${res.status}) ${text}`);
+                      }
+
+                      const json: any = await res.json();
+
+                      if (!invoiceFullscreen) {
+                        // Navigate in the same tab into full-screen invoice mode.
+                        router.push(
+                          `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${json.id}`,
+                        );
+                      }
+
+                      setActiveInvoice(json);
+                      setProjectInvoices(null);
+                      setInvoiceMessage("New draft invoice created.");
+                    } catch (err: any) {
+                      setActiveInvoiceError(err?.message ?? "Failed to create draft invoice.");
+                    } finally {
+                      setActiveInvoiceLoading(false);
+                    }
+                  }}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 4,
+                    border: "1px solid #2563eb",
+                    backgroundColor: "#eff6ff",
+                    color: "#1d4ed8",
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  New invoice
+                </button>
+              </div>
+
+              <div style={{ marginTop: 10 }}>
+                {projectInvoicesLoading && (
+                  <div style={{ color: "#6b7280" }}>Loading invoices…</div>
+                )}
+                {projectInvoicesError && !projectInvoicesLoading && (
+                  <div style={{ color: "#b91c1c" }}>{projectInvoicesError}</div>
+                )}
+
+                {!projectInvoicesLoading &&
+                  !projectInvoicesError &&
+                  projectInvoices &&
+                  projectInvoices.length === 0 && (
+                    <div style={{ color: "#6b7280" }}>No invoices yet.</div>
+                  )}
+
+                {!projectInvoicesLoading &&
+                  !projectInvoicesError &&
+                  projectInvoices &&
+                  projectInvoices.length > 0 &&
+                  projectInvoices.filter((inv: any) => invoiceStatusFilters.has(inv.status)).length === 0 && (
+                    <div style={{ color: "#6b7280" }}>No invoices match the selected filters.</div>
+                  )}
+
+                {!projectInvoicesLoading &&
+                  !projectInvoicesError &&
+                  projectInvoices &&
+                  projectInvoices.length > 0 &&
+                  projectInvoices.filter((inv: any) => invoiceStatusFilters.has(inv.status)).length > 0 && (
+                    <div style={{ maxHeight: invoiceFullscreen ? "45vh" : 240, overflow: "auto" }}>
+                      <table
+                        style={{
+                          width: "100%",
+                          borderCollapse: "collapse",
+                          fontSize: 12,
+                        }}
+                      >
+                        <thead>
+                          <tr style={{ backgroundColor: "#f9fafb" }}>
+                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Invoice</th>
+                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Type</th>
+                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Status</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Total</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Paid</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Balance</th>
+                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Issued</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px" }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {projectInvoices
+                            .filter((inv: any) => invoiceStatusFilters.has(inv.status))
+                            .sort((a: any, b: any) => {
+                              // Sort by createdAt descending (newest first)
+                              const dateA = new Date(a.createdAt ?? 0).getTime();
+                              const dateB = new Date(b.createdAt ?? 0).getTime();
+                              return dateB - dateA;
+                            })
+                            .map((inv: any) => (
+                            <tr
+                              key={inv.id}
+                              style={{ cursor: "pointer" }}
+                              onClick={async () => {
+                                const token = localStorage.getItem("accessToken");
+                                if (!token) {
+                                  setInvoiceMessage("Missing access token.");
+                                  return;
+                                }
+
+                                // Start loading the invoice immediately
+                                setInvoiceMessage(null);
+                                setActiveInvoiceLoading(true);
+                                setActiveInvoiceError(null);
+                                invoiceLoadedIdRef.current = inv.id;
+
+                                try {
+                                  const res = await fetch(
+                                    `${API_BASE}/projects/${project.id}/invoices/${inv.id}`,
+                                    { headers: { Authorization: `Bearer ${token}` } },
+                                  );
+                                  if (!res.ok) {
+                                    const text = await res.text().catch(() => "");
+                                    throw new Error(
+                                      `Failed to load invoice (${res.status}) ${text}`,
+                                    );
+                                  }
+                                  const json: any = await res.json();
+                                  setActiveInvoice(json);
+
+                                  // Navigate to fullscreen AFTER successfully loading
+                                  if (!invoiceFullscreen) {
+                                    router.push(
+                                      `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${inv.id}`,
+                                      { scroll: false },
+                                    );
+                                  }
+                                } catch (err: any) {
+                                  setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
+                                  invoiceLoadedIdRef.current = null;
+                                } finally {
+                                  setActiveInvoiceLoading(false);
+                                }
+                              }}
+                            >
+                              <td
+                                style={{
+                                  padding: "6px 8px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  fontWeight: inv.status === "DRAFT" ? 600 : 400,
+                                }}
+                              >
+                                {/* Inline editable invoice number for DRAFT invoices (Admin/Owner only) */}
+                                {inv.status === "DRAFT" &&
+                                  project &&
+                                  (project.userRole === "OWNER" || project.userRole === "ADMIN") ? (
+                                  editingInvoiceNoId === inv.id ? (
+                                    <input
+                                      type="text"
+                                      value={editingInvoiceNoValue}
+                                      onChange={(e) => setEditingInvoiceNoValue(e.target.value)}
+                                      onBlur={async () => {
+                                        // Save on blur
+                                        const token = localStorage.getItem("accessToken");
+                                        if (token && project) {
+                                          try {
+                                            const res = await fetch(
+                                              `${API_BASE}/projects/${project.id}/invoices/${inv.id}`,
+                                              {
+                                                method: "PATCH",
+                                                headers: {
+                                                  "Content-Type": "application/json",
+                                                  Authorization: `Bearer ${token}`,
+                                                },
+                                                body: JSON.stringify({ invoiceNo: editingInvoiceNoValue || null }),
+                                              },
+                                            );
+                                            if (res.ok) {
+                                              // Update local state
+                                              setProjectInvoices((prev) =>
+                                                prev?.map((i) =>
+                                                  i.id === inv.id ? { ...i, invoiceNo: editingInvoiceNoValue || null } : i
+                                                ) ?? null
+                                              );
+                                            }
+                                          } catch {
+                                            // ignore
+                                          }
+                                        }
+                                        setEditingInvoiceNoId(null);
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") {
+                                          (e.target as HTMLInputElement).blur();
+                                        } else if (e.key === "Escape") {
+                                          setEditingInvoiceNoId(null);
+                                        }
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                      autoFocus
+                                      style={{
+                                        width: 80,
+                                        padding: "2px 4px",
+                                        fontSize: 12,
+                                        border: "1px solid #2563eb",
+                                        borderRadius: 3,
+                                        outline: "none",
+                                      }}
+                                      placeholder="(draft)"
+                                    />
+                                  ) : (
+                                    <span
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingInvoiceNoId(inv.id);
+                                        setEditingInvoiceNoValue(inv.invoiceNo ?? "");
+                                      }}
+                                      style={{
+                                        cursor: "text",
+                                        borderBottom: "1px dashed #9ca3af",
+                                        paddingBottom: 1,
+                                      }}
+                                      title="Click to edit invoice number"
+                                    >
+                                      {inv.invoiceNo ?? "(draft)"}
+                                    </span>
+                                  )
+                                ) : (
+                                  <span
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      const token = localStorage.getItem("accessToken");
+                                      if (!token) {
+                                        setInvoiceMessage("Missing access token.");
+                                        return;
+                                      }
+                                      setInvoiceMessage(null);
+                                      setActiveInvoiceLoading(true);
+                                      setActiveInvoiceError(null);
+                                      invoiceLoadedIdRef.current = inv.id;
+                                      try {
+                                        const res = await fetch(
+                                          `${API_BASE}/projects/${project.id}/invoices/${inv.id}`,
+                                          { headers: { Authorization: `Bearer ${token}` } },
+                                        );
+                                        if (!res.ok) {
+                                          const text = await res.text().catch(() => "");
+                                          throw new Error(`Failed to load invoice (${res.status}) ${text}`);
+                                        }
+                                        const json: any = await res.json();
+                                        setActiveInvoice(json);
+                                        // Navigate to fullscreen AFTER successfully loading
+                                        if (!invoiceFullscreen) {
+                                          router.push(
+                                            `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${inv.id}`,
+                                            { scroll: false },
+                                          );
+                                        }
+                                      } catch (err: any) {
+                                        setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
+                                        invoiceLoadedIdRef.current = null;
+                                      } finally {
+                                        setActiveInvoiceLoading(false);
+                                      }
+                                    }}
+                                    style={{ cursor: "pointer", color: "#2563eb" }}
+                                    title="Click to view invoice"
+                                  >
+                                    {inv.invoiceNo ?? "(draft)"}
+                                  </span>
+                                )}
+                              </td>
+                              <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 11 }}>
+                                <span style={{
+                                  padding: "2px 6px",
+                                  borderRadius: 4,
+                                  background: inv.category === "EXPENSE" ? "#dcfce7" : inv.category === "PETL" ? "#dbeafe" : "#f3f4f6",
+                                  color: inv.category === "EXPENSE" ? "#166534" : inv.category === "PETL" ? "#1d4ed8" : "#374151",
+                                }}>
+                                  {inv.category === "EXPENSE" ? "Expenses" : inv.category === "PETL" ? "Progress" : inv.category ?? "—"}
+                                </span>
+                              </td>
+                              <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                {inv.status}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "6px 8px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  textAlign: "right",
+                                }}
+                              >
+                                {(inv.totalAmount ?? 0).toLocaleString(undefined, {
+                                  maximumFractionDigits: 2,
+                                })}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "6px 8px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  textAlign: "right",
+                                }}
+                              >
+                                {(inv.paidAmount ?? 0).toLocaleString(undefined, {
+                                  maximumFractionDigits: 2,
+                                })}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "6px 8px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  textAlign: "right",
+                                }}
+                              >
+                                {(inv.balanceDue ?? 0).toLocaleString(undefined, {
+                                  maximumFractionDigits: 2,
+                                })}
+                              </td>
+                              <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                {inv.issuedAt ? new Date(inv.issuedAt).toLocaleDateString() : "—"}
+                              </td>
+                              <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
+                                {inv.status === "DRAFT" && (inv.totalAmount ?? 0) === 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      if (!project) return;
+                                      const ok = window.confirm(
+                                        "Delete this empty draft invoice?\n\nThis action cannot be undone.",
+                                      );
+                                      if (!ok) return;
+
+                                      const token = localStorage.getItem("accessToken");
+                                      if (!token) {
+                                        setInvoiceMessage("Missing access token.");
+                                        return;
+                                      }
+                                      setInvoiceMessage(null);
+                                      try {
+                                        const res = await fetch(
+                                          `${API_BASE}/projects/${project.id}/invoices/${inv.id}`,
+                                          {
+                                            method: "DELETE",
+                                            headers: {
+                                              Authorization: `Bearer ${token}`,
+                                            },
+                                          },
+                                        );
+                                        if (!res.ok) {
+                                          const text = await res.text().catch(() => "");
+                                          setInvoiceMessage(
+                                            `Delete failed (${res.status}) ${text}`,
+                                          );
+                                          return;
+                                        }
+                                        setProjectInvoices(null);
+                                        setInvoiceMessage("Draft invoice deleted.");
+                                      } catch (err: any) {
+                                        setInvoiceMessage(err?.message ?? "Delete failed.");
+                                      }
+                                    }}
+                                    style={{
+                                      padding: "3px 8px",
+                                      borderRadius: 4,
+                                      border: "1px solid #dc2626",
+                                      background: "#fef2f2",
+                                      color: "#b91c1c",
+                                      fontSize: 11,
+                                      cursor: "pointer",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    Delete $0 Draft
+                                  </button>
+                                )}
+                                {/* Unlock button for issued invoices with $0 paid (Admin/Owner only) */}
+                                {inv.status !== "DRAFT" &&
+                                  inv.status !== "VOID" &&
+                                  (inv.paidAmount ?? 0) === 0 &&
+                                  project &&
+                                  (project.userRole === "OWNER" || project.userRole === "ADMIN") && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setInvoiceUnlockTarget(inv);
+                                      setInvoiceUnlockReason("");
+                                      setInvoiceUnlockModalOpen(true);
+                                    }}
+                                    style={{
+                                      padding: "3px 8px",
+                                      borderRadius: 4,
+                                      border: "1px solid #2563eb",
+                                      background: "#eff6ff",
+                                      color: "#1d4ed8",
+                                      fontSize: 11,
+                                      cursor: "pointer",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    Unlock
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+              </div>
+
+              {activeInvoice && (
+                <div
+                  data-print-scope="invoice"
+                  style={{
+                    marginTop: 16,
+                    padding: 16,
+                    borderRadius: 8,
+                    border: activeInvoice.status === "DRAFT" ? "2px solid #3b82f6" : "1px solid #e5e7eb",
+                    background: activeInvoice.status === "DRAFT" ? "#eff6ff" : "#ffffff",
+                    boxShadow: activeInvoice.status === "DRAFT" ? "0 4px 12px rgba(59, 130, 246, 0.15)" : "none",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <img
+                          src="/nexus-logo-mark.png"
+                          alt="Nexus"
+                          style={{ height: 24, width: "auto" }}
+                        />
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>
+                          {activeInvoice.invoiceNo ?? "Draft invoice"}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 12, color: "#6b7280" }}>
+                        Status: {activeInvoice.status}
+                        {activeInvoice.issuedAt
+                          ? ` · Issued ${new Date(activeInvoice.issuedAt).toLocaleDateString()}`
+                          : ""}
+                        {(activeInvoice.revisionNumber ?? 1) > 1 && (
+                          <span style={{ marginLeft: 8 }}>· Revision {activeInvoice.revisionNumber}</span>
+                        )}
+                      </div>
+                      {/* Show unlock history if present */}
+                      {Array.isArray(activeInvoice.unlockHistory) && activeInvoice.unlockHistory.length > 0 && (
+                        <div
+                          style={{
+                            marginTop: 4,
+                            padding: "6px 10px",
+                            background: "#fef3c7",
+                            borderRadius: 6,
+                            fontSize: 11,
+                            color: "#92400e",
+                          }}
+                        >
+                          <strong>Unlock history:</strong>
+                          {activeInvoice.unlockHistory.map((h: any, i: number) => (
+                            <div key={i} style={{ marginTop: 2 }}>
+                              Rev {(h.fromRevision ?? 0) + 1} → {(h.fromRevision ?? 0) + 2}:
+                              {h.unlockedAt ? ` ${new Date(h.unlockedAt).toLocaleString()}` : ""}
+                              {h.unlockedByEmail ? ` by ${h.unlockedByEmail}` : ""}
+                              {h.reason ? ` — "${h.reason}"` : ""}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {invoiceFullscreen && (
+                        <div className="no-print" style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          {/* Lock/Unlock toggle for issued invoices (Admin/Owner only) */}
+                          {activeInvoice.status !== "DRAFT" &&
+                            activeInvoice.status !== "VOID" &&
+                            project &&
+                            (project.userRole === "OWNER" || project.userRole === "ADMIN") && (
+                            <div
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 8,
+                                padding: "4px 10px",
+                                borderRadius: 6,
+                                border: "1px solid #e5e7eb",
+                                background: "#f9fafb",
+                              }}
+                            >
+                              <span style={{ fontSize: 11, color: "#6b7280" }}>Invoice:</span>
+                              <button
+                                type="button"
+                                onClick={() => setInvoiceEditUnlocked(false)}
+                                style={{
+                                  padding: "3px 10px",
+                                  borderRadius: 4,
+                                  border: !invoiceEditUnlocked ? "1px solid #dc2626" : "1px solid #d1d5db",
+                                  background: !invoiceEditUnlocked ? "#fef2f2" : "#ffffff",
+                                  color: !invoiceEditUnlocked ? "#b91c1c" : "#6b7280",
+                                  fontSize: 11,
+                                  fontWeight: !invoiceEditUnlocked ? 600 : 400,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                🔒 Locked
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if ((activeInvoice.paidAmount ?? 0) > 0) {
+                                    setInvoiceMessage("Cannot unlock: invoice has payments applied. Void the invoice to make changes.");
+                                    return;
+                                  }
+                                  setInvoiceEditUnlocked(true);
+                                }}
+                                disabled={(activeInvoice.paidAmount ?? 0) > 0}
+                                title={(activeInvoice.paidAmount ?? 0) > 0 ? "Cannot unlock: payments have been applied" : "Unlock for editing"}
+                                style={{
+                                  padding: "3px 10px",
+                                  borderRadius: 4,
+                                  border: invoiceEditUnlocked ? "1px solid #16a34a" : "1px solid #d1d5db",
+                                  background: invoiceEditUnlocked ? "#dcfce7" : (activeInvoice.paidAmount ?? 0) > 0 ? "#f3f4f6" : "#ffffff",
+                                  color: invoiceEditUnlocked ? "#166534" : (activeInvoice.paidAmount ?? 0) > 0 ? "#9ca3af" : "#6b7280",
+                                  fontSize: 11,
+                                  fontWeight: invoiceEditUnlocked ? 600 : 400,
+                                  cursor: (activeInvoice.paidAmount ?? 0) > 0 ? "not-allowed" : "pointer",
+                                }}
+                              >
+                                🔓 Unlocked
+                              </button>
+                              {(activeInvoice.paidAmount ?? 0) > 0 && (
+                                <span style={{ fontSize: 10, color: "#b91c1c" }}>
+                                  (has payments)
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setInvoicePrintLayout("KEEP");
+                              setInvoicePrintGroups("KEEP");
+                              startUiTransition(() => setInvoicePrintDialogOpen(true));
+                            }}
+                            style={{
+                              padding: "6px 10px",
+                              borderRadius: 6,
+                              border: "1px solid #0f172a",
+                              background: "#0f172a",
+                              color: "#f9fafb",
+                              fontSize: 12,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Print / Save PDF
+                          </button>
+
+                          {(activeInvoice.status === "DRAFT" || invoiceEditUnlocked) && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!project || !activeInvoice?.id) return;
+                                  const token = localStorage.getItem("accessToken");
+                                  if (!token) {
+                                    setInvoiceMessage("Missing access token.");
+                                    return;
+                                  }
+
+                                  setInvoiceMessage("Syncing from PETL...");
+                                  try {
+                                    const res = await fetch(
+                                      `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/sync-from-petl`,
+                                      {
+                                        method: "POST",
+                                        headers: {
+                                          Authorization: `Bearer ${token}`,
+                                          "Content-Type": "application/json",
+                                        },
+                                        body: JSON.stringify({}),
+                                      },
+                                    );
+                                    if (!res.ok) {
+                                      const text = await res.text().catch(() => "");
+                                      setInvoiceMessage(`Sync failed (${res.status}) ${text}`);
+                                      return;
+                                    }
+                                    // Reload the invoice to show updated line items
+                                    const invRes = await fetch(
+                                      `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}`,
+                                      { headers: { Authorization: `Bearer ${token}` } },
+                                    );
+                                    if (invRes.ok) {
+                                      const invJson = await invRes.json();
+                                      setActiveInvoice(invJson);
+                                      setInvoiceMessage("Invoice synced from PETL successfully.");
+                                    } else {
+                                      setInvoiceMessage("Synced, but failed to reload invoice.");
+                                    }
+                                  } catch (err: any) {
+                                    setInvoiceMessage(err?.message ?? "Sync failed.");
+                                  }
+                                }}
+                                style={{
+                                  padding: "6px 10px",
+                                  borderRadius: 6,
+                                  border: "1px solid #2563eb",
+                                  background: "#eff6ff",
+                                  color: "#1d4ed8",
+                                  fontSize: 12,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Sync from PETL
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!project || !activeInvoice?.id) return;
+                                  const token = localStorage.getItem("accessToken");
+                                  if (!token) {
+                                    setInvoiceMessage("Missing access token.");
+                                    return;
+                                  }
+
+                                  setInvoiceApplyModalOpen(true);
+                                  setInvoiceApplySources(null);
+                                  setInvoiceApplySourcesLoading(true);
+                                  setInvoiceApplySourcesError(null);
+                                  setInvoiceApplySelectedSourceId("");
+                                  setInvoiceApplyAmount("");
+
+                                try {
+                                  const res = await fetch(
+                                    `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/applications/sources`,
+                                    {
+                                      headers: {
+                                        Authorization: `Bearer ${token}`,
+                                      },
+                                    },
+                                  );
+                                  if (!res.ok) {
+                                    const text = await res.text().catch(() => "");
+                                    setInvoiceApplySourcesError(
+                                      `Failed to load deposit/credit invoices (${res.status}) ${text}`,
+                                    );
+                                    return;
+                                  }
+                                  const json: any = await res.json().catch(() => []);
+                                  setInvoiceApplySources(Array.isArray(json) ? json : []);
+                                } catch (err: any) {
+                                  setInvoiceApplySourcesError(err?.message ?? "Failed to load deposit/credit invoices.");
+                                } finally {
+                                  setInvoiceApplySourcesLoading(false);
+                                }
+                              }}
+                              style={{
+                                padding: "6px 10px",
+                                borderRadius: 6,
+                                border: "1px solid #d1d5db",
+                                background: "#ffffff",
+                                color: "#111827",
+                                fontSize: 12,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Apply deposit/credit
+                            </button>
+                            </>
+                          )}
+
+                          {/* Void button for issued/locked invoices (not draft, not already void) */}
+                          {activeInvoice.status !== "DRAFT" && activeInvoice.status !== "VOID" && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!project || !activeInvoice?.id) return;
+                                const reason = window.prompt(
+                                  `Void invoice ${activeInvoice.invoiceNo ?? "this invoice"}?\n\nEnter a reason (optional):`,
+                                  ""
+                                );
+                                if (reason === null) return; // User cancelled
+
+                                const ok = window.confirm(
+                                  `Are you sure you want to void invoice ${activeInvoice.invoiceNo ?? "this invoice"}?\n\n` +
+                                  "This action cannot be undone. The invoice will be marked as VOID and no further payments can be recorded against it."
+                                );
+                                if (!ok) return;
+
+                                const token = localStorage.getItem("accessToken");
+                                if (!token) {
+                                  setInvoiceMessage("Missing access token.");
+                                  return;
+                                }
+
+                                setInvoiceMessage("Voiding invoice...");
+                                try {
+                                  const res = await fetch(
+                                    `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/void`,
+                                    {
+                                      method: "POST",
+                                      headers: {
+                                        "Content-Type": "application/json",
+                                        Authorization: `Bearer ${token}`,
+                                      },
+                                      body: JSON.stringify({ reason: reason.trim() || undefined }),
+                                    }
+                                  );
+                                  if (!res.ok) {
+                                    const text = await res.text().catch(() => "");
+                                    setInvoiceMessage(`Void failed (${res.status}) ${text}`);
+                                    return;
+                                  }
+                                  const json: any = await res.json();
+                                  setActiveInvoice(json);
+                                  setProjectInvoices(null);
+                                  setFinancialSummary(null);
+                                  setInvoiceMessage("Invoice voided.");
+                                } catch (err: any) {
+                                  setInvoiceMessage(err?.message ?? "Void failed.");
+                                }
+                              }}
+                              style={{
+                                padding: "6px 10px",
+                                borderRadius: 6,
+                                border: "1px solid #dc2626",
+                                background: "#fef2f2",
+                                color: "#b91c1c",
+                                fontSize: 12,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Void Invoice
+                            </button>
+                          )}
+
+                          {/* Unlock button for issued invoices with $0 paid (Admin/Owner only) */}
+                          {activeInvoice.status !== "DRAFT" &&
+                            activeInvoice.status !== "VOID" &&
+                            (activeInvoice.paidAmount ?? 0) === 0 &&
+                            project &&
+                            (project.userRole === "OWNER" || project.userRole === "ADMIN") && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setInvoiceUnlockTarget(activeInvoice);
+                                setInvoiceUnlockReason("");
+                                setInvoiceUnlockModalOpen(true);
+                              }}
+                              style={{
+                                padding: "6px 10px",
+                                borderRadius: 6,
+                                border: "1px solid #2563eb",
+                                background: "#eff6ff",
+                                color: "#1d4ed8",
+                                fontSize: 12,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Unlock for Editing
+                            </button>
+                          )}
+
+                          {/* Show void status badge */}
+                          {activeInvoice.status === "VOID" && (
+                            <span
+                              style={{
+                                padding: "4px 10px",
+                                borderRadius: 6,
+                                background: "#fef2f2",
+                                border: "1px solid #fecaca",
+                                color: "#b91c1c",
+                                fontSize: 11,
+                                fontWeight: 600,
+                              }}
+                            >
+                              VOIDED
+                            </span>
+                          )}
+
+                          <div style={{ fontSize: 11, color: "#6b7280", alignSelf: "center" }}>
+                            Tip: choose "Save as PDF" in the print dialog.
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 12, color: "#6b7280" }}>Total</div>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>
+                        {formatMoney(activeInvoice.totalAmount ?? 0)}
+                      </div>
+                    </div>
+                  </div>
+
+      {/* Invoice line edit modal */}
+      {invoiceLineEdit.open && (
+        <div
+          className="no-print"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 85,
+            background: "rgba(15,23,42,0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 12,
+          }}
+          onClick={() => { if (!invoiceLineEdit.saving) closeInvoiceLineEdit(); }}
+        >
+          <div
+            style={{
+              width: 540,
+              maxWidth: "96vw",
+              maxHeight: "90vh",
+              overflow: "auto",
+              background: "#ffffff",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 20px 50px rgba(15,23,42,0.35)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ padding: "10px 14px", borderBottom: "1px solid #e5e7eb", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#f3f4f6" }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>Edit Invoice Line</div>
+              <button type="button" onClick={() => { if (!invoiceLineEdit.saving) closeInvoiceLineEdit(); }} style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 18, lineHeight: 1 }}>×</button>
+            </div>
+
+            <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+              {/* Kind + Billing Tag row */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 3, color: "#374151" }}>Kind</div>
+                  <select
+                    value={invoiceLineEdit.draft.kind}
+                    onChange={(e) => setInvoiceLineEdit(prev => ({ ...prev, draft: { ...prev.draft, kind: e.target.value } }))}
+                    style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
+                  >
+                    <option value="MANUAL">Manual</option>
+                    <option value="BILLABLE_HOURS">Billable hours</option>
+                    <option value="EQUIPMENT_RENTAL">Equipment rental</option>
+                    <option value="LABOR_ONLY">Labor Only</option>
+                    <option value="MATERIALS_ONLY">Materials only</option>
+                    <option value="LABOR_AND_MATERIALS">Labor & Materials</option>
+                    <option value="CREDIT">Credit</option>
+                    <option value="COST_BOOK">Cost Book</option>
+                    <option value="OTHER">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 3, color: "#374151" }}>Billing Tag</div>
+                  <select
+                    value={invoiceLineEdit.draft.billingTag}
+                    onChange={(e) => setInvoiceLineEdit(prev => ({ ...prev, draft: { ...prev.draft, billingTag: e.target.value } }))}
+                    style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
+                  >
+                    <option value="NONE">(no tag)</option>
+                    <option value="PETL_LINE_ITEM">PETL Line Item</option>
+                    <option value="CHANGE_ORDER">Change Order</option>
+                    <option value="SUPPLEMENT">Supplement</option>
+                    <option value="WARRANTY">Warranty</option>
+                    <option value="CREDIT">Credit</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Description */}
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 3, color: "#374151" }}>Description</div>
+                <input
+                  value={invoiceLineEdit.draft.description}
+                  onChange={(e) => setInvoiceLineEdit(prev => ({ ...prev, draft: { ...prev.draft, description: e.target.value } }))}
+                  style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
+                />
+              </div>
+
+              {/* Qty / Unit Code / Unit $ row */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 3, color: "#374151" }}>Qty</div>
+                  <input
+                    value={invoiceLineEdit.draft.qty}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const q = Number(val);
+                      const u = Number(invoiceLineEdit.draft.unitPrice);
+                      const autoAmt = Number.isFinite(q) && Number.isFinite(u) && val.trim() !== "" && invoiceLineEdit.draft.unitPrice.trim() !== ""
+                        ? (q * u).toFixed(2) : undefined;
+                      setInvoiceLineEdit(prev => ({ ...prev, draft: { ...prev.draft, qty: val, ...(autoAmt !== undefined ? { amount: autoAmt } : {}) } }));
+                    }}
+                    style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
+                    placeholder="Qty"
+                  />
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 3, color: "#374151" }}>Unit Code</div>
+                  <select
+                    value={invoiceLineEdit.draft.unitCode}
+                    onChange={(e) => setInvoiceLineEdit(prev => ({ ...prev, draft: { ...prev.draft, unitCode: e.target.value } }))}
+                    style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
+                  >
+                    <option value="">Unit</option>
+                    {(companyUnitCodes ?? []).map(uc => (
+                      <option key={uc.id} value={uc.code}>{uc.code}{uc.label ? ` - ${uc.label}` : ""}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 3, color: "#374151" }}>Unit $</div>
+                  <input
+                    value={invoiceLineEdit.draft.unitPrice}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const q = Number(invoiceLineEdit.draft.qty);
+                      const u = Number(val);
+                      const autoAmt = Number.isFinite(q) && Number.isFinite(u) && invoiceLineEdit.draft.qty.trim() !== "" && val.trim() !== ""
+                        ? (q * u).toFixed(2) : undefined;
+                      setInvoiceLineEdit(prev => ({ ...prev, draft: { ...prev.draft, unitPrice: val, ...(autoAmt !== undefined ? { amount: autoAmt } : {}) } }));
+                    }}
+                    style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
+                    placeholder="Unit $"
+                  />
+                </div>
+              </div>
+
+              {/* Amount */}
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 3, color: "#374151" }}>Amount</div>
+                <input
+                  value={invoiceLineEdit.draft.amount}
+                  onChange={(e) => setInvoiceLineEdit(prev => ({ ...prev, draft: { ...prev.draft, amount: e.target.value } }))}
+                  style={{
+                    width: "100%",
+                    padding: "6px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #d1d5db",
+                    fontSize: 12,
+                    background: invoiceLineEdit.draft.qty.trim() !== "" && invoiceLineEdit.draft.unitPrice.trim() !== "" ? "#f0fdf4" : "#ffffff",
+                  }}
+                  placeholder="Amount"
+                />
+              </div>
+
+              {/* 25% Markup toggle — hidden for CREDIT kind */}
+              {invoiceLineEdit.draft.kind !== "CREDIT" && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12 }}>
+                    <input
+                      type="checkbox"
+                      checked={invoiceLineEdit.draft.markupEnabled}
+                      onChange={(e) => setInvoiceLineEdit(prev => ({ ...prev, draft: { ...prev.draft, markupEnabled: e.target.checked } }))}
+                    />
+                    <span style={{ fontWeight: 600 }}>Apply 25% markup</span>
+                  </label>
+                  {invoiceLineEdit.draft.markupEnabled && (() => {
+                    const base = Number(invoiceLineEdit.draft.amount) || 0;
+                    const marked = base * 1.25;
+                    const delta = marked - base;
+                    return (
+                      <span style={{ fontSize: 11, color: "#16a34a", fontWeight: 500 }}>
+                        Base: ${base.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {" → "}
+                        Invoiced: ${marked.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {" "}(+${delta.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                      </span>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* Error */}
+              {invoiceLineEdit.error && (
+                <div style={{ fontSize: 12, color: "#b91c1c", padding: "4px 0" }}>{invoiceLineEdit.error}</div>
+              )}
+
+              {/* Actions */}
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, paddingTop: 4 }}>
+                <button
+                  type="button"
+                  onClick={() => { if (!invoiceLineEdit.saving) closeInvoiceLineEdit(); }}
+                  style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #d1d5db", background: "#ffffff", fontSize: 12, cursor: "pointer" }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveInvoiceLineEdit}
+                  disabled={invoiceLineEdit.saving}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 6,
+                    border: "1px solid #0f172a",
+                    background: "#0f172a",
+                    color: "#f9fafb",
+                    fontSize: 12,
+                    cursor: invoiceLineEdit.saving ? "default" : "pointer",
+                    opacity: invoiceLineEdit.saving ? 0.6 : 1,
+                  }}
+                >
+                  {invoiceLineEdit.saving ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {invoiceApplyModalOpen && activeInvoice && (
+        <div
+          className="no-print"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 80,
+            background: "rgba(15,23,42,0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 12,
+          }}
+          onClick={() => {
+            if (invoiceApplySaving) return;
+            setInvoiceApplyModalOpen(false);
+          }}
+        >
+          <div
+            style={{
+              width: 560,
+              maxWidth: "96vw",
+              maxHeight: "90vh",
+              overflow: "auto",
+              background: "#ffffff",
+              borderRadius: 10,
+              border: "1px solid #e5e7eb",
+              boxShadow: "0 20px 50px rgba(15,23,42,0.35)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                padding: "10px 12px",
+                borderBottom: "1px solid #e5e7eb",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                fontSize: 13,
+                fontWeight: 600,
+                background: "#f3f4f6",
+              }}
+            >
+              <div>
+                Apply deposit / credit
+                <div style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}>
+                  Create a credit line on this invoice from another issued invoice (e.g., a deposit or
+                  prior credit).
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (invoiceApplySaving) return;
+                  setInvoiceApplyModalOpen(false);
+                }}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: invoiceApplySaving ? "default" : "pointer",
+                  fontSize: 18,
+                  lineHeight: 1,
+                }}
+                aria-label="Close apply deposit/credit dialog"
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ fontSize: 12, color: "#374151" }}>
+                Target invoice: <strong>{activeInvoice.invoiceNo ?? "Draft invoice"}</strong>
+              </div>
+
+              {invoiceApplySourcesLoading && (
+                <div style={{ fontSize: 12, color: "#6b7280" }}>Loading deposit/credit invoices…</div>
+              )}
+
+              {invoiceApplySourcesError && !invoiceApplySourcesLoading && (
+                <div style={{ fontSize: 12, color: "#b91c1c" }}>{invoiceApplySourcesError}</div>
+              )}
+
+              {!invoiceApplySourcesLoading && !invoiceApplySourcesError && (
+                <>
+                  {(!invoiceApplySources || invoiceApplySources.length === 0) && (
+                    <div style={{ fontSize: 12, color: "#6b7280" }}>
+                      No eligible invoices found. Create or issue a deposit/credit invoice first.
+                    </div>
+                  )}
+
+                  {invoiceApplySources && invoiceApplySources.length > 0 && (
+                    <div style={{ maxHeight: 240, overflow: "auto", border: "1px solid #e5e7eb", borderRadius: 8 }}>
+                      <table
+                        style={{
+                          width: "100%",
+                          borderCollapse: "collapse",
+                          fontSize: 12,
+                        }}
+                      >
+                        <thead>
+                          <tr style={{ backgroundColor: "#f9fafb" }}>
+                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Source invoice</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Total</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Applied</th>
+                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Remaining</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {invoiceApplySources.map((src: any) => {
+                            const id = String(src?.id ?? "");
+                            const remaining = Number(src?.remainingAmount ?? 0) || 0;
+                            const applied = Number(src?.appliedAmount ?? 0) || 0;
+                            const total = Number(src?.totalAmount ?? 0) || 0;
+                            const selected = invoiceApplySelectedSourceId === id;
+                            const label = src?.invoiceNo ?? "(unissued)";
+                            return (
+                              <tr
+                                key={id}
+                                style={{ cursor: "pointer", background: selected ? "#eff6ff" : "transparent" }}
+                                onClick={() => setInvoiceApplySelectedSourceId(id)}
+                              >
+                                <td
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderTop: "1px solid #e5e7eb",
+                                  }}
+                                >
+                                  <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                                    <input
+                                      type="radio"
+                                      name="invoiceApplySource"
+                                      checked={selected}
+                                      onChange={() => setInvoiceApplySelectedSourceId(id)}
+                                    />
+                                    <span>
+                                      {label} · {src?.status ?? ""}
+                                    </span>
+                                  </label>
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderTop: "1px solid #e5e7eb",
+                                    textAlign: "right",
+                                  }}
+                                >
+                                  {total.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderTop: "1px solid #e5e7eb",
+                                    textAlign: "right",
+                                  }}
+                                >
+                                  {applied.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                </td>
+                                <td
+                                  style={{
+                                    padding: "6px 8px",
+                                    borderTop: "1px solid #e5e7eb",
+                                    textAlign: "right",
+                                  }}
+                                >
+                                  {remaining.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <input
+                      placeholder="Amount to apply"
+                      value={invoiceApplyAmount}
+                      onChange={(e) => setInvoiceApplyAmount(e.target.value)}
+                      style={{
+                        flex: "1 1 160px",
+                        padding: "6px 8px",
+                        borderRadius: 6,
+                        border: "1px solid #d1d5db",
+                        fontSize: 12,
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={invoiceApplySaving}
+                      onClick={async () => {
+                        if (!project || !activeInvoice?.id) return;
+                        const token = localStorage.getItem("accessToken");
+                        if (!token) {
+                          setInvoiceMessage("Missing access token.");
+                          return;
+                        }
+
+                        const sourceId = invoiceApplySelectedSourceId.trim();
+                        if (!sourceId) {
+                          setInvoiceMessage("Select a source invoice to apply from.");
+                          return;
+                        }
+
+                        const raw = invoiceApplyAmount.trim();
+                        const normalized = raw.replace(/[$,\s]/g, "");
+                        const amount = Number(normalized);
+                        if (!Number.isFinite(amount) || amount <= 0) {
+                          setInvoiceMessage("Apply amount must be a positive number.");
+                          return;
+                        }
+
+                        setInvoiceApplySaving(true);
+                        setInvoiceMessage(null);
+                        try {
+                          const res = await fetch(
+                            `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/applications`,
+                            {
+                              method: "POST",
+                              headers: {
+                                "Content-Type": "application/json",
+                                Authorization: `Bearer ${token}`,
+                              },
+                              body: JSON.stringify({ sourceInvoiceId: sourceId, amount }),
+                            },
+                          );
+                          if (!res.ok) {
+                            const text = await res.text().catch(() => "");
+                            setInvoiceMessage(`Apply failed (${res.status}) ${text}`);
+                            return;
+                          }
+                          const json: any = await res.json().catch(() => null);
+                          if (json) {
+                            setActiveInvoice(json);
+                            setProjectInvoices(null);
+                            setFinancialSummary(null);
+                          }
+                          setInvoiceApplyModalOpen(false);
+                          setInvoiceMessage("Credit applied to invoice.");
+                        } catch (err: any) {
+                          setInvoiceMessage(err?.message ?? "Apply failed.");
+                        } finally {
+                          setInvoiceApplySaving(false);
+                        }
+                      }}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 8,
+                        border: "1px solid #0f172a",
+                        background: invoiceApplySaving ? "#e5e7eb" : "#0f172a",
+                        color: invoiceApplySaving ? "#4b5563" : "#f9fafb",
+                        fontSize: 12,
+                        cursor: invoiceApplySaving ? "default" : "pointer",
+                      }}
+                    >
+                      {invoiceApplySaving ? "Applying…" : "Apply credit"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {!invoiceFullscreen && (
+            <>
+
+          {/* Payroll & Workforce roster */}
+          <div
+            style={{
+              marginTop: 10,
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+            }}
+          >
+            <div
+              style={{
+                padding: "6px 10px",
+                borderBottom: payrollCollapsed ? "none" : "1px solid #e5e7eb",
+                fontSize: 13,
+                fontWeight: 600,
+                background: "#f3f4f6",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => startUiTransition(() => setPayrollCollapsed((v) => !v))}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  padding: 0,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "#111827",
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: 8,
+                  textAlign: "left",
+                }}
+              >
+                <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                  {payrollCollapsed ? "▸" : "▾"}
+                </span>
+                <span>Payroll &amp; Workforce</span>
+                {payrollEmployees && payrollEmployees.length > 0 && (
+                  <span style={{ fontSize: 11, fontWeight: 500, color: "#6b7280" }}>
+                    · {payrollEmployees.length} employee{payrollEmployees.length !== 1 ? "s" : ""}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {!payrollCollapsed && (
+            <div style={{ padding: 10, fontSize: 12 }}>
+              <p style={{ marginTop: 0, marginBottom: 8, color: "#4b5563" }}>
+                This roster shows everyone who has recorded payroll on this project
+                (including subs and 1099s), based on Certified Payroll and LCP data.
+                It does not grant them login access.
+              </p>
+
+              {payrollLoading && (
+                <p style={{ fontSize: 12, color: "#6b7280" }}>
+                  Loading payroll roster…
+                </p>
+              )}
+
+              {payrollError && !payrollLoading && (
+                <p style={{ fontSize: 12, color: "#b91c1c" }}>{payrollError}</p>
+              )}
+
+              {!payrollLoading &&
+                !payrollError &&
+                (!payrollEmployees || payrollEmployees.length === 0) && (
+                  <p style={{ fontSize: 12, color: "#6b7280" }}>
+                    No payroll records found yet for this project.
+                  </p>
+                )}
+
+              {!payrollLoading && !payrollError && payrollEmployees && payrollEmployees.length > 0 && (
+                <div style={{ maxHeight: "60vh", overflow: "auto" }}>
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      fontSize: 12,
+                    }}
+                  >
+                    <thead>
+                      <tr style={{ backgroundColor: "#f9fafb" }}>
+                        <th style={{ textAlign: "left", padding: "6px 8px" }}>Name</th>
+                        <th style={{ textAlign: "left", padding: "6px 8px" }}>Role / Class</th>
+                        <th style={{ textAlign: "left", padding: "6px 8px" }}>SSN (last 4)</th>
+                        <th style={{ textAlign: "right", padding: "6px 8px" }}>Total Hours</th>
+                        <th style={{ textAlign: "left", padding: "6px 8px" }}>First Week</th>
+                        <th style={{ textAlign: "left", padding: "6px 8px" }}>Last Week</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {payrollEmployees.map((emp, idx) => {
+                        const name = [emp.firstName ?? "", emp.lastName ?? ""]
+                          .map(s => s.trim())
+                          .filter(Boolean)
+                          .join(" ") || "(Unnamed)";
+                        const firstWeek = emp.firstWeekEnd
+                          ? new Date(emp.firstWeekEnd).toLocaleDateString()
+                          : "—";
+                        const lastWeek = emp.lastWeekEnd
+                          ? new Date(emp.lastWeekEnd).toLocaleDateString()
+                          : "—";
+                        const hasDetails = !!emp.employeeId;
+                        const detailHref = hasDetails
+                          ? `/projects/${project.id}/payroll/${encodeURIComponent(
+                              emp.employeeId as string,
+                            )}`
+                          : undefined;
+                        return (
+                          <tr key={`${emp.employeeId ?? "emp"}-${idx}`}>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderTop: "1px solid #e5e7eb",
+                              }}
+                            >
+                              {hasDetails ? (
+                                <a
+                                  href={detailHref}
+                                  style={{ color: "#2563eb", textDecoration: "none" }}
+                                >
+                                  {name}
+                                </a>
+                              ) : (
+                                name
+                              )}
+                            </td>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderTop: "1px solid #e5e7eb",
+                                color: "#4b5563",
+                              }}
+                            >
+                              {emp.classCode || "—"}
+                            </td>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderTop: "1px solid #e5e7eb",
+                                color: "#4b5563",
+                              }}
+                            >
+                              {emp.ssnLast4 ? `***-**-${emp.ssnLast4}` : "—"}
+                            </td>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderTop: "1px solid #e5e7eb",
+                                textAlign: "right",
+                              }}
+                            >
+                              {emp.totalHours.toFixed(2)}
+                            </td>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderTop: "1px solid #e5e7eb",
+                              }}
+                            >
+                              {firstWeek}
+                            </td>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderTop: "1px solid #e5e7eb",
+                              }}
+                            >
+                              {lastWeek}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            )}
+          </div>
+
+          {/* Billable Expenses Invoice */}
+          {(() => {
+            const billableBills = (projectBills ?? []).filter((b: any) => b?.isBillable);
+            const billableTotal = billableBills.reduce((sum: number, b: any) => sum + (Number(b?.billableAmount) || 0), 0);
+            const costTotal = billableBills.reduce((sum: number, b: any) => sum + (Number(b?.totalAmount) || 0), 0);
+            const gmTotal = billableTotal - costTotal;
+
+            // Find the EXPENSE category invoice
+            const expenseInvoice = (projectInvoices ?? []).find((inv: any) => inv?.category === "EXPENSE");
+
+            if (billableBills.length === 0) return null;
+
+            return (
+              <div
+                style={{
+                  marginTop: 16,
+                  borderRadius: 8,
+                  border: "1px solid #16a34a",
+                  background: "#f0fdf4",
+                }}
+              >
+                <div
+                  style={{
+                    padding: "10px 12px",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    background: "#dcfce7",
+                    borderBottom: billableExpensesCollapsed ? "none" : "1px solid #16a34a",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 8,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => startUiTransition(() => setBillableExpensesCollapsed((v) => !v))}
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
+                      padding: 0,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: "#166534",
+                      display: "flex",
+                      alignItems: "baseline",
+                      gap: 8,
+                      textAlign: "left",
+                    }}
+                  >
+                    <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                      {billableExpensesCollapsed ? "▸" : "▾"}
+                    </span>
+                    <span>💰 Billable Expenses Invoice</span>
+                    <span style={{ fontSize: 11, fontWeight: 500, color: "#166534" }}>
+                      · {billableBills.length} item{billableBills.length !== 1 ? "s" : ""} · Total {formatMoney(billableTotal)}
+                      {expenseInvoice && ` · ${expenseInvoice.status}`}
+                      {expenseInvoice?.invoiceNo && ` · ${expenseInvoice.invoiceNo}`}
+                    </span>
+                  </button>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!project) return;
+                        const token = localStorage.getItem("accessToken");
+                        if (!token) return;
+                        try {
+                          // Create/sync the expense invoice
+                          const res = await fetch(
+                            `${API_BASE}/projects/${project.id}/invoices/sync-billable-expenses`,
+                            {
+                              method: "POST",
+                              headers: {
+                                Authorization: `Bearer ${token}`,
+                                "Content-Type": "application/json",
+                              },
+                              body: JSON.stringify({}),
+                            }
+                          );
+                          if (res.ok) {
+                            const fullInvoice = await res.json();
+                            setActiveInvoice(fullInvoice);
+                            // Navigate to fullscreen invoice view
+                            router.push(`/projects/${id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${fullInvoice.id}`);
+                            // Refresh invoices list
+                            setProjectInvoices(null);
+                          }
+                        } catch {
+                          // ignore
+                        }
+                      }}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: 4,
+                        border: "1px solid #166534",
+                        background: "#166534",
+                        color: "#ffffff",
+                        fontSize: 11,
+                        cursor: "pointer",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {expenseInvoice ? "Open Invoice" : "Create Invoice"}
+                    </button>
+                  </div>
+                </div>
+                {!billableExpensesCollapsed && (
+                <div style={{ padding: 12, fontSize: 12 }}>
+                  <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: "#166534", marginBottom: 2 }}>Cost</div>
+                      <div style={{ fontWeight: 600 }}>{formatMoney(costTotal)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: "#166534", marginBottom: 2 }}>Gross Margin</div>
+                      <div style={{ fontWeight: 600, color: "#16a34a" }}>{formatMoney(gmTotal)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: "#166534", marginBottom: 2 }}>Billable Total</div>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{formatMoney(billableTotal)}</div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#166534" }}>
+                    This invoice is auto-generated from bills marked as &quot;Billable&quot;. Review the items below and issue when ready.
+                  </div>
+                  {/* Move expense lines action bar */}
+                  {expenseInvoice && expenseInvoice.status === "DRAFT" && selectedExpenseLineIds.size > 0 && (() => {
+                    // Get all DRAFT invoices except the current expense invoice
+                    const allDraftInvoices = (projectInvoices ?? []).filter(
+                      (inv: any) => inv?.status === "DRAFT"
+                    );
+                    const otherDraftInvoices = allDraftInvoices.filter(
+                      (inv: any) => inv?.id !== expenseInvoice.id
+                    );
+                    return (
+                    <div style={{ marginTop: 8, padding: "8px 10px", background: "#dbeafe", borderRadius: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: "#1d4ed8" }}>
+                        {selectedExpenseLineIds.size} line{selectedExpenseLineIds.size !== 1 ? "s" : ""} selected
+                      </span>
+                      <span style={{ fontSize: 11, color: "#1d4ed8" }}>→ Move to:</span>
+                      <select
+                        value={moveExpenseTargetInvoiceId}
+                        onChange={(e) => setMoveExpenseTargetInvoiceId(e.target.value)}
+                        style={{
+                          padding: "4px 8px",
+                          borderRadius: 4,
+                          border: "1px solid #93c5fd",
+                          fontSize: 11,
+                          background: "#ffffff",
+                        }}
+                      >
+                        <option value="">New Invoice</option>
+                        {otherDraftInvoices.map((inv: any) => {
+                          // Find index among ALL drafts for consistent numbering
+                          const draftNum = allDraftInvoices.findIndex((d: any) => d?.id === inv?.id) + 1;
+                          const label = inv.invoiceNo ?? `Draft #${draftNum}`;
+                          const category = inv.category === "EXPENSE" ? "Expenses" : inv.category === "PETL" ? "Progress" : inv.category ?? "Invoice";
+                          const amount = typeof inv.totalAmount === "number" ? ` $${inv.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "";
+                          return (
+                            <option key={inv.id} value={inv.id}>
+                              {label} ({category}{amount})
+                            </option>
+                          );
+                        })}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={moveExpenseLinesBusy}
+                        onClick={async () => {
+                          if (!project || !expenseInvoice) return;
+                          const token = localStorage.getItem("accessToken");
+                          if (!token) {
+                            setMoveExpenseLinesMessage("Missing access token.");
+                            return;
+                          }
+
+                          // Get the bill IDs for selected items
+                          const billIds: string[] = Array.from(selectedExpenseLineIds);
+
+                          if (billIds.length === 0) {
+                            setMoveExpenseLinesMessage("No items selected.");
+                            return;
+                          }
+
+                          const targetLabel = moveExpenseTargetInvoiceId
+                            ? otherDraftInvoices.find((inv: any) => inv.id === moveExpenseTargetInvoiceId)?.invoiceNo ?? "selected invoice"
+                            : "a new invoice";
+                          const ok = window.confirm(
+                            `Move ${billIds.length} expense${billIds.length !== 1 ? "s" : ""} to ${targetLabel}?`
+                          );
+                          if (!ok) return;
+
+                          setMoveExpenseLinesBusy(true);
+                          setMoveExpenseLinesMessage(null);
+
+                          try {
+                            const payload: { billIds: string[]; targetInvoiceId?: string } = { billIds };
+                            if (moveExpenseTargetInvoiceId) {
+                              payload.targetInvoiceId = moveExpenseTargetInvoiceId;
+                            }
+                            const res = await fetch(
+                              `${API_BASE}/projects/${project.id}/invoices/${expenseInvoice.id}/move-expense-lines`,
+                              {
+                                method: "POST",
+                                headers: {
+                                  "Content-Type": "application/json",
+                                  Authorization: `Bearer ${token}`,
+                                },
+                                body: JSON.stringify(payload),
+                              }
+                            );
+
+                            if (!res.ok) {
+                              const text = await res.text().catch(() => "");
+                              throw new Error(`Failed to move lines (${res.status}) ${text}`);
+                            }
+
+                            const result = await res.json();
+                            const destLabel = result.targetInvoice?.invoiceNo ?? "target invoice";
+                            setMoveExpenseLinesMessage(
+                              `Moved ${result.movedLineCount ?? billIds.length} expense(s) to ${destLabel}.`
+                            );
+                            setSelectedExpenseLineIds(new Set());
+                            setMoveExpenseTargetInvoiceId("");
+                            // Refresh invoices and bills
+                            setProjectInvoices(null);
+                            setProjectBills(null);
+                          } catch (err: any) {
+                            setMoveExpenseLinesMessage(err?.message ?? "Failed to move lines.");
+                          } finally {
+                            setMoveExpenseLinesBusy(false);
+                          }
+                        }}
+                        style={{
+                          padding: "4px 10px",
+                          borderRadius: 4,
+                          border: "1px solid #1d4ed8",
+                          background: "#1d4ed8",
+                          color: "#ffffff",
+                          fontSize: 11,
+                          cursor: moveExpenseLinesBusy ? "wait" : "pointer",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {moveExpenseLinesBusy ? "Moving…" : "Move"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedExpenseLineIds(new Set());
+                          setMoveExpenseTargetInvoiceId("");
+                        }}
+                        style={{
+                          padding: "4px 10px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          background: "#ffffff",
+                          fontSize: 11,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Clear
+                      </button>
+                      </div>
+                      <div style={{ marginTop: 6, fontSize: 10, color: "#6b7280" }}>
+                        Dropdown shows other draft invoices to consolidate into (current Expenses invoice excluded).
+                        {otherDraftInvoices.length === 0 && " No other drafts available."}
+                      </div>
+                    </div>
+                    );
+                  })()}
+                  {moveExpenseLinesMessage && (
+                    <div style={{ marginTop: 6, fontSize: 11, color: moveExpenseLinesMessage.includes("fail") || moveExpenseLinesMessage.includes("Failed") ? "#b91c1c" : "#166534" }}>
+                      {moveExpenseLinesMessage}
+                    </div>
+                  )}
+                  <div style={{ marginTop: 12 }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                      <thead>
+                        <tr style={{ textAlign: "left", borderBottom: "1px solid #bbf7d0" }}>
+                          {expenseInvoice && expenseInvoice.status === "DRAFT" && (
+                            <th style={{ padding: "4px 6px", width: 24 }}>
+                              <input
+                                type="checkbox"
+                                checked={selectedExpenseLineIds.size === billableBills.length && billableBills.length > 0}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedExpenseLineIds(new Set(billableBills.map((b: any) => String(b?.id ?? ""))));
+                                  } else {
+                                    setSelectedExpenseLineIds(new Set());
+                                  }
+                                }}
+                                style={{ cursor: "pointer" }}
+                              />
+                            </th>
+                          )}
+                          <th style={{ padding: "4px 6px" }}>Vendor</th>
+                          <th style={{ padding: "4px 6px" }}>Invoice</th>
+                          <th style={{ padding: "4px 6px" }}>Description</th>
+                          <th style={{ padding: "4px 6px", textAlign: "right" }}>Cost</th>
+                          <th style={{ padding: "4px 6px", textAlign: "right" }}>GM%</th>
+                          <th style={{ padding: "4px 6px", textAlign: "right" }}>Billable</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...billableBills]
+                          .sort((a: any, b: any) => {
+                            // Sort by createdAt descending (newest first)
+                            const dateA = new Date(a?.createdAt ?? 0).getTime();
+                            const dateB = new Date(b?.createdAt ?? 0).getTime();
+                            return dateB - dateA;
+                          })
+                          .map((b: any) => {
+                          const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
+                          const cost = Number(b?.totalAmount) || 0;
+                          const billable = Number(b?.billableAmount) || 0;
+                          const gmPct = billable > 0 ? ((billable - cost) / billable) * 100 : 0;
+                          const billId = String(b?.id ?? "");
+                          const isSelected = selectedExpenseLineIds.has(billId);
+                          
+                          // Check if this expense's invoice is paid/locked
+                          // Use invoiceLines to find the actual invoice this bill is attached to
+                          const invoiceLine = Array.isArray(b?.invoiceLines) ? b.invoiceLines[0] : null;
+                          const targetInv = invoiceLine?.invoice ?? null;
+                          const isPaid = targetInv && (targetInv.status === "PAID" || targetInv.status === "PARTIALLY_PAID");
+                          const isLocked = targetInv && targetInv.status !== "DRAFT";
+                          
+                          // Row styling based on status
+                          const rowBg = isSelected ? "#dbeafe" : isPaid ? "#fef2f2" : undefined;
+                          const textColor = isPaid ? "#991b1b" : isLocked ? "#6b7280" : "#166534";
+                          
+                          return (
+                            <tr key={billId || Math.random()} style={{ borderTop: "1px solid #bbf7d0", background: rowBg }}>
+                              {expenseInvoice && expenseInvoice.status === "DRAFT" && (
+                                <td style={{ padding: "4px 6px" }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      setSelectedExpenseLineIds((prev) => {
+                                        const next = new Set(prev);
+                                        if (e.target.checked) {
+                                          next.add(billId);
+                                        } else {
+                                          next.delete(billId);
+                                        }
+                                        return next;
+                                      });
+                                    }}
+                                    style={{ cursor: "pointer" }}
+                                    disabled={isLocked}
+                                  />
+                                </td>
+                              )}
+                              <td style={{ padding: "4px 6px", color: textColor }}>{b?.vendorName ?? "—"}</td>
+                              <td style={{ padding: "4px 6px", fontSize: 10 }}>
+                                {targetInv ? (
+                                  <span style={{
+                                    padding: "2px 6px",
+                                    borderRadius: 4,
+                                    background: isPaid ? "#fecaca" : isLocked ? "#e5e7eb" : "#dcfce7",
+                                    color: isPaid ? "#991b1b" : isLocked ? "#4b5563" : "#166534",
+                                    fontSize: 10,
+                                  }}>
+                                    {targetInv.invoiceNo ?? "Draft"}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: "#9ca3af" }}>—</span>
+                                )}
+                              </td>
+                              <td style={{ padding: "4px 6px", color: textColor }}>{li?.description ?? "—"}</td>
+                              <td style={{ padding: "4px 6px", textAlign: "right", color: textColor }}>{formatMoney(cost)}</td>
+                              <td style={{ padding: "4px 6px", textAlign: "right", color: isPaid ? "#991b1b" : "#16a34a" }}>{gmPct.toFixed(1)}%</td>
+                              <td style={{ padding: "4px 6px", textAlign: "right", fontWeight: 600, color: textColor }}>{formatMoney(billable)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                )}
+              </div>
+            );
+          })()}
+
           {isAdminOrAbove && (
             <div
               style={{
@@ -19010,2643 +22023,9 @@ ${htmlBody}
             )}
           </div>
 
-          {/* Billable Expenses Invoice */}
-          {(() => {
-            const billableBills = (projectBills ?? []).filter((b: any) => b?.isBillable);
-            const billableTotal = billableBills.reduce((sum: number, b: any) => sum + (Number(b?.billableAmount) || 0), 0);
-            const costTotal = billableBills.reduce((sum: number, b: any) => sum + (Number(b?.totalAmount) || 0), 0);
-            const gmTotal = billableTotal - costTotal;
-
-            // Find the EXPENSE category invoice
-            const expenseInvoice = (projectInvoices ?? []).find((inv: any) => inv?.category === "EXPENSE");
-
-            if (billableBills.length === 0) return null;
-
-            return (
-              <div
-                style={{
-                  marginTop: 16,
-                  borderRadius: 8,
-                  border: "1px solid #16a34a",
-                  background: "#f0fdf4",
-                }}
-              >
-                <div
-                  style={{
-                    padding: "10px 12px",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    background: "#dcfce7",
-                    borderBottom: "1px solid #16a34a",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 8,
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                    <span>💰 Billable Expenses Invoice</span>
-                    <span style={{ fontSize: 11, fontWeight: 500, color: "#166534" }}>
-                      · {billableBills.length} item{billableBills.length !== 1 ? "s" : ""} · Total {formatMoney(billableTotal)}
-                      {expenseInvoice && ` · ${expenseInvoice.status}`}
-                      {expenseInvoice?.invoiceNo && ` · ${expenseInvoice.invoiceNo}`}
-                    </span>
-                  </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!project) return;
-                        const token = localStorage.getItem("accessToken");
-                        if (!token) return;
-                        try {
-                          // Create/sync the expense invoice
-                          const res = await fetch(
-                            `${API_BASE}/projects/${project.id}/invoices/sync-billable-expenses`,
-                            {
-                              method: "POST",
-                              headers: {
-                                Authorization: `Bearer ${token}`,
-                                "Content-Type": "application/json",
-                              },
-                              body: JSON.stringify({}),
-                            }
-                          );
-                          if (res.ok) {
-                            const fullInvoice = await res.json();
-                            setActiveInvoice(fullInvoice);
-                            // Navigate to fullscreen invoice view
-                            router.push(`/projects/${id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${fullInvoice.id}`);
-                            // Refresh invoices list
-                            setProjectInvoices(null);
-                          }
-                        } catch {
-                          // ignore
-                        }
-                      }}
-                      style={{
-                        padding: "4px 10px",
-                        borderRadius: 4,
-                        border: "1px solid #166534",
-                        background: "#166534",
-                        color: "#ffffff",
-                        fontSize: 11,
-                        cursor: "pointer",
-                        fontWeight: 600,
-                      }}
-                    >
-                      {expenseInvoice ? "Open Invoice" : "Create Invoice"}
-                    </button>
-                  </div>
-                </div>
-                <div style={{ padding: 12, fontSize: 12 }}>
-                  <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: 12 }}>
-                    <div>
-                      <div style={{ fontSize: 11, color: "#166534", marginBottom: 2 }}>Cost</div>
-                      <div style={{ fontWeight: 600 }}>{formatMoney(costTotal)}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 11, color: "#166534", marginBottom: 2 }}>Gross Margin</div>
-                      <div style={{ fontWeight: 600, color: "#16a34a" }}>{formatMoney(gmTotal)}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 11, color: "#166534", marginBottom: 2 }}>Billable Total</div>
-                      <div style={{ fontWeight: 700, fontSize: 14 }}>{formatMoney(billableTotal)}</div>
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 11, color: "#166534" }}>
-                    This invoice is auto-generated from bills marked as &quot;Billable&quot;. Review the items below and issue when ready.
-                  </div>
-                  {/* Move expense lines action bar */}
-                  {expenseInvoice && expenseInvoice.status === "DRAFT" && selectedExpenseLineIds.size > 0 && (() => {
-                    // Get all DRAFT invoices except the current expense invoice
-                    const allDraftInvoices = (projectInvoices ?? []).filter(
-                      (inv: any) => inv?.status === "DRAFT"
-                    );
-                    const otherDraftInvoices = allDraftInvoices.filter(
-                      (inv: any) => inv?.id !== expenseInvoice.id
-                    );
-                    return (
-                    <div style={{ marginTop: 8, padding: "8px 10px", background: "#dbeafe", borderRadius: 6 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: "#1d4ed8" }}>
-                        {selectedExpenseLineIds.size} line{selectedExpenseLineIds.size !== 1 ? "s" : ""} selected
-                      </span>
-                      <span style={{ fontSize: 11, color: "#1d4ed8" }}>→ Move to:</span>
-                      <select
-                        value={moveExpenseTargetInvoiceId}
-                        onChange={(e) => setMoveExpenseTargetInvoiceId(e.target.value)}
-                        style={{
-                          padding: "4px 8px",
-                          borderRadius: 4,
-                          border: "1px solid #93c5fd",
-                          fontSize: 11,
-                          background: "#ffffff",
-                        }}
-                      >
-                        <option value="">New Invoice</option>
-                        {otherDraftInvoices.map((inv: any) => {
-                          // Find index among ALL drafts for consistent numbering
-                          const draftNum = allDraftInvoices.findIndex((d: any) => d?.id === inv?.id) + 1;
-                          const label = inv.invoiceNo ?? `Draft #${draftNum}`;
-                          const category = inv.category === "EXPENSE" ? "Expenses" : inv.category === "PETL" ? "Progress" : inv.category ?? "Invoice";
-                          const amount = typeof inv.totalAmount === "number" ? ` $${inv.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "";
-                          return (
-                            <option key={inv.id} value={inv.id}>
-                              {label} ({category}{amount})
-                            </option>
-                          );
-                        })}
-                      </select>
-                      <button
-                        type="button"
-                        disabled={moveExpenseLinesBusy}
-                        onClick={async () => {
-                          if (!project || !expenseInvoice) return;
-                          const token = localStorage.getItem("accessToken");
-                          if (!token) {
-                            setMoveExpenseLinesMessage("Missing access token.");
-                            return;
-                          }
-
-                          // Get the bill IDs for selected items
-                          const billIds: string[] = Array.from(selectedExpenseLineIds);
-
-                          if (billIds.length === 0) {
-                            setMoveExpenseLinesMessage("No items selected.");
-                            return;
-                          }
-
-                          const targetLabel = moveExpenseTargetInvoiceId
-                            ? otherDraftInvoices.find((inv: any) => inv.id === moveExpenseTargetInvoiceId)?.invoiceNo ?? "selected invoice"
-                            : "a new invoice";
-                          const ok = window.confirm(
-                            `Move ${billIds.length} expense${billIds.length !== 1 ? "s" : ""} to ${targetLabel}?`
-                          );
-                          if (!ok) return;
-
-                          setMoveExpenseLinesBusy(true);
-                          setMoveExpenseLinesMessage(null);
-
-                          try {
-                            const payload: { billIds: string[]; targetInvoiceId?: string } = { billIds };
-                            if (moveExpenseTargetInvoiceId) {
-                              payload.targetInvoiceId = moveExpenseTargetInvoiceId;
-                            }
-                            const res = await fetch(
-                              `${API_BASE}/projects/${project.id}/invoices/${expenseInvoice.id}/move-expense-lines`,
-                              {
-                                method: "POST",
-                                headers: {
-                                  "Content-Type": "application/json",
-                                  Authorization: `Bearer ${token}`,
-                                },
-                                body: JSON.stringify(payload),
-                              }
-                            );
-
-                            if (!res.ok) {
-                              const text = await res.text().catch(() => "");
-                              throw new Error(`Failed to move lines (${res.status}) ${text}`);
-                            }
-
-                            const result = await res.json();
-                            const destLabel = result.targetInvoice?.invoiceNo ?? "target invoice";
-                            setMoveExpenseLinesMessage(
-                              `Moved ${result.movedLineCount ?? billIds.length} expense(s) to ${destLabel}.`
-                            );
-                            setSelectedExpenseLineIds(new Set());
-                            setMoveExpenseTargetInvoiceId("");
-                            // Refresh invoices and bills
-                            setProjectInvoices(null);
-                            setProjectBills(null);
-                          } catch (err: any) {
-                            setMoveExpenseLinesMessage(err?.message ?? "Failed to move lines.");
-                          } finally {
-                            setMoveExpenseLinesBusy(false);
-                          }
-                        }}
-                        style={{
-                          padding: "4px 10px",
-                          borderRadius: 4,
-                          border: "1px solid #1d4ed8",
-                          background: "#1d4ed8",
-                          color: "#ffffff",
-                          fontSize: 11,
-                          cursor: moveExpenseLinesBusy ? "wait" : "pointer",
-                          fontWeight: 600,
-                        }}
-                      >
-                        {moveExpenseLinesBusy ? "Moving…" : "Move"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedExpenseLineIds(new Set());
-                          setMoveExpenseTargetInvoiceId("");
-                        }}
-                        style={{
-                          padding: "4px 10px",
-                          borderRadius: 4,
-                          border: "1px solid #d1d5db",
-                          background: "#ffffff",
-                          fontSize: 11,
-                          cursor: "pointer",
-                        }}
-                      >
-                        Clear
-                      </button>
-                      </div>
-                      <div style={{ marginTop: 6, fontSize: 10, color: "#6b7280" }}>
-                        Dropdown shows other draft invoices to consolidate into (current Expenses invoice excluded).
-                        {otherDraftInvoices.length === 0 && " No other drafts available."}
-                      </div>
-                    </div>
-                    );
-                  })()}
-                  {moveExpenseLinesMessage && (
-                    <div style={{ marginTop: 6, fontSize: 11, color: moveExpenseLinesMessage.includes("fail") || moveExpenseLinesMessage.includes("Failed") ? "#b91c1c" : "#166534" }}>
-                      {moveExpenseLinesMessage}
-                    </div>
-                  )}
-                  <div style={{ marginTop: 12 }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-                      <thead>
-                        <tr style={{ textAlign: "left", borderBottom: "1px solid #bbf7d0" }}>
-                          {expenseInvoice && expenseInvoice.status === "DRAFT" && (
-                            <th style={{ padding: "4px 6px", width: 24 }}>
-                              <input
-                                type="checkbox"
-                                checked={selectedExpenseLineIds.size === billableBills.length && billableBills.length > 0}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSelectedExpenseLineIds(new Set(billableBills.map((b: any) => String(b?.id ?? ""))));
-                                  } else {
-                                    setSelectedExpenseLineIds(new Set());
-                                  }
-                                }}
-                                style={{ cursor: "pointer" }}
-                              />
-                            </th>
-                          )}
-                          <th style={{ padding: "4px 6px" }}>Vendor</th>
-                          <th style={{ padding: "4px 6px" }}>Invoice</th>
-                          <th style={{ padding: "4px 6px" }}>Description</th>
-                          <th style={{ padding: "4px 6px", textAlign: "right" }}>Cost</th>
-                          <th style={{ padding: "4px 6px", textAlign: "right" }}>GM%</th>
-                          <th style={{ padding: "4px 6px", textAlign: "right" }}>Billable</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[...billableBills]
-                          .sort((a: any, b: any) => {
-                            // Sort by createdAt descending (newest first)
-                            const dateA = new Date(a?.createdAt ?? 0).getTime();
-                            const dateB = new Date(b?.createdAt ?? 0).getTime();
-                            return dateB - dateA;
-                          })
-                          .map((b: any) => {
-                          const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
-                          const cost = Number(b?.totalAmount) || 0;
-                          const billable = Number(b?.billableAmount) || 0;
-                          const gmPct = billable > 0 ? ((billable - cost) / billable) * 100 : 0;
-                          const billId = String(b?.id ?? "");
-                          const isSelected = selectedExpenseLineIds.has(billId);
-                          
-                          // Check if this expense's invoice is paid/locked
-                          // Use invoiceLines to find the actual invoice this bill is attached to
-                          const invoiceLine = Array.isArray(b?.invoiceLines) ? b.invoiceLines[0] : null;
-                          const targetInv = invoiceLine?.invoice ?? null;
-                          const isPaid = targetInv && (targetInv.status === "PAID" || targetInv.status === "PARTIALLY_PAID");
-                          const isLocked = targetInv && targetInv.status !== "DRAFT";
-                          
-                          // Row styling based on status
-                          const rowBg = isSelected ? "#dbeafe" : isPaid ? "#fef2f2" : undefined;
-                          const textColor = isPaid ? "#991b1b" : isLocked ? "#6b7280" : "#166534";
-                          
-                          return (
-                            <tr key={billId || Math.random()} style={{ borderTop: "1px solid #bbf7d0", background: rowBg }}>
-                              {expenseInvoice && expenseInvoice.status === "DRAFT" && (
-                                <td style={{ padding: "4px 6px" }}>
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={(e) => {
-                                      setSelectedExpenseLineIds((prev) => {
-                                        const next = new Set(prev);
-                                        if (e.target.checked) {
-                                          next.add(billId);
-                                        } else {
-                                          next.delete(billId);
-                                        }
-                                        return next;
-                                      });
-                                    }}
-                                    style={{ cursor: "pointer" }}
-                                    disabled={isLocked}
-                                  />
-                                </td>
-                              )}
-                              <td style={{ padding: "4px 6px", color: textColor }}>{b?.vendorName ?? "—"}</td>
-                              <td style={{ padding: "4px 6px", fontSize: 10 }}>
-                                {targetInv ? (
-                                  <span style={{
-                                    padding: "2px 6px",
-                                    borderRadius: 4,
-                                    background: isPaid ? "#fecaca" : isLocked ? "#e5e7eb" : "#dcfce7",
-                                    color: isPaid ? "#991b1b" : isLocked ? "#4b5563" : "#166534",
-                                    fontSize: 10,
-                                  }}>
-                                    {targetInv.invoiceNo ?? "Draft"}
-                                  </span>
-                                ) : (
-                                  <span style={{ color: "#9ca3af" }}>—</span>
-                                )}
-                              </td>
-                              <td style={{ padding: "4px 6px", color: textColor }}>{li?.description ?? "—"}</td>
-                              <td style={{ padding: "4px 6px", textAlign: "right", color: textColor }}>{formatMoney(cost)}</td>
-                              <td style={{ padding: "4px 6px", textAlign: "right", color: isPaid ? "#991b1b" : "#16a34a" }}>{gmPct.toFixed(1)}%</td>
-                              <td style={{ padding: "4px 6px", textAlign: "right", fontWeight: 600, color: textColor }}>{formatMoney(billable)}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* Payments */}
-          <div
-            style={{
-              marginTop: 16,
-              borderRadius: 8,
-              border: "1px solid #e5e7eb",
-              background: "#ffffff",
-            }}
-          >
-            <div
-              style={{
-                padding: "6px 10px",
-                borderBottom: paymentsCollapsed ? "none" : "1px solid #e5e7eb",
-                fontSize: 13,
-                fontWeight: 600,
-                background: "#f3f4f6",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 8,
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => startUiTransition(() => setPaymentsCollapsed((v) => !v))}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  cursor: "pointer",
-                  padding: 0,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "#111827",
-                  display: "flex",
-                  alignItems: "baseline",
-                  gap: 8,
-                  textAlign: "left",
-                }}
-              >
-                <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
-                  {paymentsCollapsed ? "▸" : "▾"}
-                </span>
-                <span>Payments</span>
-                {projectPayments && (
-                  <span style={{ fontSize: 11, fontWeight: 500, color: "#6b7280" }}>
-                    · {projectPaymentsSorted.length} · Total {formatMoney(projectPaymentsTotal)} · Unapplied{" "}
-                    {formatMoney(projectPaymentsUnappliedTotal)}
-                  </span>
-                )}
-              </button>
-
-              {!paymentsCollapsed && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPaymentsMessage(null);
-                    setProjectPayments(null);
-                  }}
-                  disabled={projectPaymentsLoading}
-                  style={{
-                    padding: "4px 8px",
-                    borderRadius: 6,
-                    border: "1px solid #d1d5db",
-                    background: "#ffffff",
-                    cursor: projectPaymentsLoading ? "default" : "pointer",
-                    fontSize: 12,
-                  }}
-                >
-                  {projectPaymentsLoading ? "Refreshing…" : "Refresh"}
-                </button>
-              )}
-            </div>
-
-            {!paymentsCollapsed && (
-              <div style={{ padding: 10, fontSize: 12 }}>
-              {paymentsMessage && (
-                <div
-                  style={{
-                    marginBottom: 8,
-                    fontSize: 12,
-                    color: paymentsMessage.toLowerCase().includes("fail") ? "#b91c1c" : "#4b5563",
-                  }}
-                >
-                  {paymentsMessage}
-                </div>
-              )}
-
-              {projectPaymentsLoading && (
-                <div style={{ color: "#6b7280" }}>Loading payments…</div>
-              )}
-              {projectPaymentsError && !projectPaymentsLoading && (
-                <div style={{ color: "#b91c1c" }}>{projectPaymentsError}</div>
-              )}
-
-              {!projectPaymentsLoading &&
-                !projectPaymentsError &&
-                projectPayments &&
-                projectPayments.length === 0 && (
-                  <div style={{ color: "#6b7280" }}>No payments recorded yet.</div>
-                )}
-
-              {!projectPaymentsLoading &&
-                !projectPaymentsError &&
-                projectPayments &&
-                projectPayments.length > 0 && (
-                  <>
-                    <div style={{ marginBottom: 8, fontSize: 11, color: "#6b7280" }}>
-                      Showing <strong>{projectPaymentsSorted.length}</strong> payments · Total{" "}
-                      <strong>{formatMoney(projectPaymentsTotal)}</strong>
-                    </div>
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
-                        gap: 8,
-                      }}
-                    >
-                      {projectPaymentsSorted.map((p: any) => {
-                      const paidAtLabel = p?.paidAt
-                        ? new Date(p.paidAt).toLocaleDateString()
-                        : "—";
-                      const method = String(p?.method ?? "").trim() || "—";
-                      const reference = String(p?.reference ?? "").trim();
-                      const note = String(p?.note ?? "").trim();
-
-                      const appliedAmount = Number(p?.appliedAmount ?? 0) || 0;
-                      const unappliedAmount = Number(p?.unappliedAmount ?? 0) || 0;
-                      const apps: any[] = Array.isArray(p?.applications) ? p.applications : [];
-
-                      const invoiceOptions = (projectInvoices ?? []).filter(
-                        (inv: any) => String(inv?.status) !== "VOID",
-                      );
-
-                      const paymentId = String(p?.id ?? "");
-                      const selectedInvoiceId = applyInvoiceByPaymentId[paymentId] ?? "";
-                      const selectedAmountStr = applyAmountByPaymentId[paymentId] ?? "";
-                      const applyMsg = applyMessageByPaymentId[paymentId] ?? "";
-
-                      const fullyUnapplied = unappliedAmount > 0 && appliedAmount === 0;
-                      const partiallyUnapplied = unappliedAmount > 0 && appliedAmount > 0;
-
-                      return (
-                        <div
-                          key={paymentId}
-                          style={{
-                            flex: "0 0 auto",
-                            minWidth: 240,
-                            borderRadius: 8,
-                            border: fullyUnapplied || partiallyUnapplied ? "1.5px solid #22c55e" : "1px solid #e5e7eb",
-                            background: fullyUnapplied ? "#f0fdf4" : "#f9fafb",
-                            padding: 8,
-                          }}
-                        >
-                          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                            <div style={{ fontWeight: 700 }}>{formatMoney(p?.amount)}</div>
-                            <div style={{ fontSize: 11, color: "#6b7280" }}>{paidAtLabel}</div>
-                          </div>
-                          <div style={{ marginTop: 2, fontSize: 11, color: "#4b5563" }}>
-                            {method}
-                            {reference ? ` · ${reference}` : ""}
-                          </div>
-
-                          <div style={{ marginTop: 6, fontSize: 11, color: "#4b5563" }}>
-                            Applied: <strong>{formatMoney(appliedAmount)}</strong> · Unapplied:{" "}
-                            <strong>{formatMoney(unappliedAmount)}</strong>
-                          </div>
-
-                          {apps.length > 0 && (
-                            <div style={{ marginTop: 6, fontSize: 11, color: "#4b5563" }}>
-                              <div style={{ fontWeight: 600, marginBottom: 2 }}>Applications</div>
-                              {apps.map((a: any) => {
-                                const invId = String(a?.invoiceId ?? "").trim();
-                                const canRemove = Boolean(invId);
-                                const label = a.invoiceNo ?? "(draft)";
-
-                                return (
-                                  <div
-                                    key={a.id}
-                                    style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}
-                                  >
-                                    <span>{label}</span>
-                                    <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                                      <span style={{ fontWeight: 600 }}>{formatMoney(a.amount)}</span>
-                                      {canRemove && (
-                                        <button
-                                          type="button"
-                                          onClick={async () => {
-                                            if (!project) return;
-                                            const token = localStorage.getItem("accessToken");
-                                            if (!token) {
-                                              setPaymentsMessage("Missing access token.");
-                                              return;
-                                            }
-
-                                            const ok = window.confirm(
-                                              `Remove this payment from invoice ${label}?\n\nThis does not delete the payment record; it just unassigns it so you can apply it elsewhere.`,
-                                            );
-                                            if (!ok) return;
-
-                                            setPaymentsMessage(null);
-                                            setApplyMessageByPaymentId((prev) => ({
-                                              ...prev,
-                                              [paymentId]: `Removing from ${label}…`,
-                                            }));
-
-                                            try {
-                                              const res = await fetch(
-                                                `${API_BASE}/projects/${project.id}/payments/${paymentId}/apply/${invId}`,
-                                                {
-                                                  method: "DELETE",
-                                                  headers: { Authorization: `Bearer ${token}` },
-                                                },
-                                              );
-                                              if (!res.ok) {
-                                                const text = await res.text().catch(() => "");
-                                                const msg = `Remove failed (${res.status}) ${text}`;
-                                                setPaymentsMessage(msg);
-                                                setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: msg }));
-                                                return;
-                                              }
-
-                                              // refresh lists + active invoice if open
-                                              setProjectPayments(null);
-                                              setProjectInvoices(null);
-                                              setFinancialSummary(null);
-
-                                              if (activeInvoice?.id === invId) {
-                                                const invRes = await fetch(
-                                                  `${API_BASE}/projects/${project.id}/invoices/${invId}`,
-                                                  { headers: { Authorization: `Bearer ${token}` } },
-                                                );
-                                                if (invRes.ok) {
-                                                  const json = await invRes.json();
-                                                  setActiveInvoice(json);
-                                                }
-                                              }
-
-                                              setApplyMessageByPaymentId((prev) => ({
-                                                ...prev,
-                                                [paymentId]: `Removed from ${label}.`,
-                                              }));
-                                            } catch (err: any) {
-                                              const msg = err?.message ?? "Remove failed.";
-                                              setPaymentsMessage(msg);
-                                              setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: msg }));
-                                            }
-                                          }}
-                                          style={{
-                                            padding: "2px 6px",
-                                            borderRadius: 6,
-                                            border: "1px solid #b91c1c",
-                                            background: "#fee2e2",
-                                            color: "#991b1b",
-                                            fontSize: 11,
-                                            cursor: "pointer",
-                                            whiteSpace: "nowrap",
-                                          }}
-                                        >
-                                          Remove
-                                        </button>
-                                      )}
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-
-                          {note && (
-                            <div style={{ marginTop: 6, fontSize: 11, color: "#6b7280" }}>
-                              {note}
-                            </div>
-                          )}
-
-                          {applyMsg && (
-                            <div
-                              style={{
-                                marginTop: 6,
-                                fontSize: 11,
-                                color: applyMsg.toLowerCase().includes("fail") ? "#b91c1c" : "#4b5563",
-                              }}
-                            >
-                              {applyMsg}
-                            </div>
-                          )}
-
-                          {/* Delete / Move actions */}
-                          {isAdminOrAbove && (
-                            <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #e5e7eb", display: "flex", gap: 6 }}>
-                              <button
-                                type="button"
-                                disabled={deletingPaymentId === paymentId}
-                                onClick={async () => {
-                                  if (!project) return;
-                                  const token = localStorage.getItem("accessToken");
-                                  if (!token) {
-                                    setPaymentsMessage("Missing access token.");
-                                    return;
-                                  }
-
-                                  const ok = window.confirm(
-                                    `Delete this payment of ${formatMoney(p?.amount)}?\n\nThis will remove the payment entirely and unapply it from any invoices. This action cannot be undone.`,
-                                  );
-                                  if (!ok) return;
-
-                                  setDeletingPaymentId(paymentId);
-                                  setPaymentsMessage(null);
-                                  try {
-                                    const res = await fetch(
-                                      `${API_BASE}/projects/${project.id}/payments/${paymentId}`,
-                                      {
-                                        method: "DELETE",
-                                        headers: { Authorization: `Bearer ${token}` },
-                                      },
-                                    );
-                                    if (!res.ok) {
-                                      const text = await res.text().catch(() => "");
-                                      setPaymentsMessage(`Delete failed (${res.status}) ${text}`);
-                                      return;
-                                    }
-
-                                    // Refresh data
-                                    setProjectPayments(null);
-                                    setProjectInvoices(null);
-                                    setFinancialSummary(null);
-                                    setPaymentsMessage("Payment deleted.");
-                                  } catch (err: any) {
-                                    setPaymentsMessage(err?.message ?? "Delete failed.");
-                                  } finally {
-                                    setDeletingPaymentId(null);
-                                  }
-                                }}
-                                style={{
-                                  padding: "4px 8px",
-                                  borderRadius: 4,
-                                  border: "1px solid #b91c1c",
-                                  background: deletingPaymentId === paymentId ? "#fecaca" : "#fee2e2",
-                                  color: "#991b1b",
-                                  fontSize: 11,
-                                  cursor: deletingPaymentId === paymentId ? "default" : "pointer",
-                                }}
-                              >
-                                {deletingPaymentId === paymentId ? "Deleting…" : "Delete"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  setMovePaymentModalId(paymentId);
-                                  setMoveTargetProjectId("");
-                                  setMoveTargetInvoiceId("");
-                                  setTargetProjectInvoices(null);
-
-                                  // Load user's projects if not cached
-                                  if (!userProjects && !userProjectsLoading) {
-                                    const token = localStorage.getItem("accessToken");
-                                    if (!token) return;
-                                    setUserProjectsLoading(true);
-                                    try {
-                                      const res = await fetch(`${API_BASE}/projects?limit=500`, {
-                                        headers: { Authorization: `Bearer ${token}` },
-                                      });
-                                      if (res.ok) {
-                                        const json = await res.json();
-                                        const list = Array.isArray(json) ? json : json.items ?? [];
-                                        setUserProjects(list.map((p: any) => ({ id: p.id, name: p.name, code: p.code })));
-                                      }
-                                    } catch {}
-                                    setUserProjectsLoading(false);
-                                  }
-                                }}
-                                style={{
-                                  padding: "4px 8px",
-                                  borderRadius: 4,
-                                  border: "1px solid #6b7280",
-                                  background: "#f3f4f6",
-                                  color: "#374151",
-                                  fontSize: 11,
-                                  cursor: "pointer",
-                                }}
-                              >
-                                Move
-                              </button>
-                            </div>
-                          )}
-
-                          {/* Move Payment Modal (inline) */}
-                          {movePaymentModalId === paymentId && (
-                            <div
-                              style={{
-                                marginTop: 8,
-                                padding: 8,
-                                borderRadius: 6,
-                                background: "#f0f9ff",
-                                border: "1px solid #0ea5e9",
-                              }}
-                            >
-                              <div style={{ fontWeight: 600, fontSize: 11, marginBottom: 6 }}>
-                                Move Payment to Another Project
-                              </div>
-                              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                                <select
-                                  value={moveTargetProjectId}
-                                  onChange={async (e) => {
-                                    const pid = e.target.value;
-                                    setMoveTargetProjectId(pid);
-                                    setMoveTargetInvoiceId("");
-                                    setTargetProjectInvoices(null);
-
-                                    if (pid) {
-                                      const token = localStorage.getItem("accessToken");
-                                      if (!token) return;
-                                      setTargetProjectInvoicesLoading(true);
-                                      try {
-                                        const res = await fetch(`${API_BASE}/projects/${pid}/invoices`, {
-                                          headers: { Authorization: `Bearer ${token}` },
-                                        });
-                                        if (res.ok) {
-                                          const json = await res.json();
-                                          setTargetProjectInvoices(Array.isArray(json) ? json : []);
-                                        }
-                                      } catch {}
-                                      setTargetProjectInvoicesLoading(false);
-                                    }
-                                  }}
-                                  style={{
-                                    padding: "6px 8px",
-                                    borderRadius: 4,
-                                    border: "1px solid #d1d5db",
-                                    fontSize: 12,
-                                  }}
-                                >
-                                  <option value="">Select project…</option>
-                                  {userProjectsLoading && <option disabled>Loading…</option>}
-                                  {(userProjects ?? []).filter((pr) => pr.id !== project?.id).map((pr) => (
-                                    <option key={pr.id} value={pr.id}>
-                                      {pr.code ? `${pr.code} - ` : ""}{pr.name}
-                                    </option>
-                                  ))}
-                                </select>
-
-                                {moveTargetProjectId && (
-                                  <select
-                                    value={moveTargetInvoiceId}
-                                    onChange={(e) => setMoveTargetInvoiceId(e.target.value)}
-                                    style={{
-                                      padding: "6px 8px",
-                                      borderRadius: 4,
-                                      border: "1px solid #d1d5db",
-                                      fontSize: 12,
-                                    }}
-                                  >
-                                    <option value="">(No invoice - leave unapplied)</option>
-                                    {targetProjectInvoicesLoading && <option disabled>Loading invoices…</option>}
-                                    {(targetProjectInvoices ?? []).filter((inv: any) => inv.status !== "VOID").map((inv: any) => (
-                                      <option key={inv.id} value={inv.id}>
-                                        {inv.invoiceNo ?? "(draft)"} · {inv.status} · Bal {formatMoney(inv.balanceDue ?? 0)}
-                                      </option>
-                                    ))}
-                                  </select>
-                                )}
-
-                                <div style={{ display: "flex", gap: 6 }}>
-                                  <button
-                                    type="button"
-                                    disabled={!moveTargetProjectId || movingPaymentId === paymentId}
-                                    onClick={async () => {
-                                      if (!project || !moveTargetProjectId) return;
-                                      const token = localStorage.getItem("accessToken");
-                                      if (!token) {
-                                        setPaymentsMessage("Missing access token.");
-                                        return;
-                                      }
-
-                                      setMovingPaymentId(paymentId);
-                                      setPaymentsMessage(null);
-                                      try {
-                                        const res = await fetch(
-                                          `${API_BASE}/projects/${project.id}/payments/${paymentId}/move`,
-                                          {
-                                            method: "POST",
-                                            headers: {
-                                              "Content-Type": "application/json",
-                                              Authorization: `Bearer ${token}`,
-                                            },
-                                            body: JSON.stringify({
-                                              targetProjectId: moveTargetProjectId,
-                                              targetInvoiceId: moveTargetInvoiceId || undefined,
-                                            }),
-                                          },
-                                        );
-                                        if (!res.ok) {
-                                          const text = await res.text().catch(() => "");
-                                          setPaymentsMessage(`Move failed (${res.status}) ${text}`);
-                                          return;
-                                        }
-
-                                        // Refresh data
-                                        setProjectPayments(null);
-                                        setProjectInvoices(null);
-                                        setFinancialSummary(null);
-                                        setMovePaymentModalId(null);
-                                        setPaymentsMessage("Payment moved to another project.");
-                                      } catch (err: any) {
-                                        setPaymentsMessage(err?.message ?? "Move failed.");
-                                      } finally {
-                                        setMovingPaymentId(null);
-                                      }
-                                    }}
-                                    style={{
-                                      padding: "6px 10px",
-                                      borderRadius: 4,
-                                      border: "1px solid #0f172a",
-                                      background: !moveTargetProjectId || movingPaymentId === paymentId ? "#e5e7eb" : "#0f172a",
-                                      color: !moveTargetProjectId || movingPaymentId === paymentId ? "#6b7280" : "#f9fafb",
-                                      fontSize: 11,
-                                      cursor: !moveTargetProjectId || movingPaymentId === paymentId ? "default" : "pointer",
-                                    }}
-                                  >
-                                    {movingPaymentId === paymentId ? "Moving…" : "Move Payment"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setMovePaymentModalId(null)}
-                                    style={{
-                                      padding: "6px 10px",
-                                      borderRadius: 4,
-                                      border: "1px solid #d1d5db",
-                                      background: "#ffffff",
-                                      color: "#374151",
-                                      fontSize: 11,
-                                      cursor: "pointer",
-                                    }}
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-
-                          {unappliedAmount > 0 && (
-                            <div style={{ marginTop: 8 }}>
-                              <div style={{ fontWeight: 600, fontSize: 11, marginBottom: 4 }}>
-                                Apply payment
-                              </div>
-
-                              {projectInvoicesLoading && (
-                                <div style={{ fontSize: 11, color: "#6b7280" }}>Loading invoices…</div>
-                              )}
-
-                              {!projectInvoicesLoading && invoiceOptions.length === 0 && (
-                                <div style={{ fontSize: 11, color: "#6b7280" }}>
-                                  No invoices available to apply to.
-                                </div>
-                              )}
-
-                              {!projectInvoicesLoading && invoiceOptions.length > 0 && (
-                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", maxWidth: "100%" }}>
-                                  <select
-                                    value={selectedInvoiceId}
-                                    onChange={(e) => {
-                                      const next = e.target.value;
-                                      setApplyInvoiceByPaymentId((prev) => ({ ...prev, [paymentId]: next }));
-                                      setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: "" }));
-                                    }}
-                                    style={{
-                                      flex: "1 1 140px",
-                                      minWidth: 0,
-                                      maxWidth: "100%",
-                                      padding: "6px 8px",
-                                      borderRadius: 4,
-                                      border: "1px solid #d1d5db",
-                                      fontSize: 12,
-                                    }}
-                                  >
-                                    <option value="">Select invoice…</option>
-                                    {invoiceOptions.map((inv: any) => (
-                                      <option key={inv.id} value={inv.id}>
-                                        {(inv.invoiceNo ?? "(draft)") +
-                                          ` · ${inv.status}` +
-                                          ` · Bal ${formatMoney(inv.balanceDue ?? 0)}`}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  <input
-                                    placeholder={`Amount (max ${formatMoney(unappliedAmount)})`}
-                                    value={selectedAmountStr}
-                                    onChange={(e) => {
-                                      const next = e.target.value;
-                                      setApplyAmountByPaymentId((prev) => ({ ...prev, [paymentId]: next }));
-                                      setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: "" }));
-                                    }}
-                                    style={{
-                                      width: 140,
-                                      padding: "6px 8px",
-                                      borderRadius: 4,
-                                      border: "1px solid #d1d5db",
-                                      fontSize: 12,
-                                    }}
-                                  />
-                                  <button
-                                    type="button"
-                                    disabled={applySavingPaymentId === paymentId}
-                                    onClick={async () => {
-                                      if (!project) return;
-                                      const token = localStorage.getItem("accessToken");
-                                      if (!token) {
-                                        setPaymentsMessage("Missing access token.");
-                                        setApplyMessageByPaymentId((prev) => ({
-                                          ...prev,
-                                          [paymentId]: "Apply failed: missing access token.",
-                                        }));
-                                        return;
-                                      }
-
-                                      const invoiceId = (applyInvoiceByPaymentId[paymentId] ?? "").trim();
-                                      if (!invoiceId) {
-                                        setApplyMessageByPaymentId((prev) => ({
-                                          ...prev,
-                                          [paymentId]: "Select an invoice to apply to.",
-                                        }));
-                                        return;
-                                      }
-
-                                      const amountRaw = (applyAmountByPaymentId[paymentId] ?? "").trim();
-                                      const normalizedAmountRaw = amountRaw.replace(/[$,\s]/g, "");
-                                      const amount = Number(normalizedAmountRaw);
-                                      if (!Number.isFinite(amount) || amount <= 0) {
-                                        setApplyMessageByPaymentId((prev) => ({
-                                          ...prev,
-                                          [paymentId]: "Apply amount must be a positive number.",
-                                        }));
-                                        return;
-                                      }
-
-                                      setApplySavingPaymentId(paymentId);
-                                      setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: "Applying…" }));
-                                      setPaymentsMessage(null);
-                                      try {
-                                        const res = await fetch(
-                                          `${API_BASE}/projects/${project.id}/payments/${paymentId}/apply`,
-                                          {
-                                            method: "POST",
-                                            headers: {
-                                              "Content-Type": "application/json",
-                                              Authorization: `Bearer ${token}`,
-                                            },
-                                            body: JSON.stringify({ invoiceId, amount }),
-                                          },
-                                        );
-                                        if (!res.ok) {
-                                          const text = await res.text().catch(() => "");
-                                          const hint =
-                                            res.status >= 500 &&
-                                            (text.includes("ProjectPaymentApplication") ||
-                                              text.toLowerCase().includes("paymentapplication") ||
-                                              text.toLowerCase().includes("not migrated"))
-                                              ? " Apply requires the payment application migration; run database migrations and restart the API."
-                                              : "";
-                                          const msg = `Apply failed (${res.status}) ${text}${hint}`.trim();
-                                          setPaymentsMessage(msg);
-                                          setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: msg }));
-                                          return;
-                                        }
-
-                                        setProjectPayments(null);
-                                        setProjectInvoices(null);
-                                        setFinancialSummary(null);
-
-                                        if (activeInvoice?.id === invoiceId) {
-                                          const invRes = await fetch(
-                                            `${API_BASE}/projects/${project.id}/invoices/${invoiceId}`,
-                                            { headers: { Authorization: `Bearer ${token}` } },
-                                          );
-                                          if (invRes.ok) {
-                                            const json = await invRes.json();
-                                            setActiveInvoice(json);
-                                          }
-                                        }
-
-                                        setApplyInvoiceByPaymentId((prev) => ({ ...prev, [paymentId]: "" }));
-                                        setApplyAmountByPaymentId((prev) => ({ ...prev, [paymentId]: "" }));
-                                        setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: "Payment applied." }));
-                                        setPaymentsMessage("Payment applied.");
-                                      } catch (err: any) {
-                                        const msg = err?.message ?? "Apply failed.";
-                                        setPaymentsMessage(msg);
-                                        setApplyMessageByPaymentId((prev) => ({ ...prev, [paymentId]: msg }));
-                                      } finally {
-                                        setApplySavingPaymentId(null);
-                                      }
-                                    }}
-                                    style={{
-                                      padding: "6px 10px",
-                                      borderRadius: 4,
-                                      border: "1px solid #0f172a",
-                                      background: "#0f172a",
-                                      color: "#f9fafb",
-                                      fontSize: 12,
-                                      cursor: applySavingPaymentId === paymentId ? "default" : "pointer",
-                                    }}
-                                  >
-                                    {applySavingPaymentId === paymentId ? "Applying…" : "Apply"}
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                      })}
-                    </div>
-                  </>
-                )}
-
-              <div style={{ marginTop: 10 }}>
-                <div style={{ fontWeight: 600, marginBottom: 6 }}>Record payment</div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                  <input
-                    placeholder="Amount"
-                    value={payAmount}
-                    onChange={e => setPayAmount(e.target.value)}
-                    style={{
-                      width: 120,
-                      padding: "6px 8px",
-                      borderRadius: 4,
-                      border: "1px solid #d1d5db",
-                      fontSize: 12,
-                    }}
-                  />
-                  <select
-                    value={payMethod}
-                    onChange={e => setPayMethod(e.target.value)}
-                    style={{
-                      padding: "6px 8px",
-                      borderRadius: 4,
-                      border: "1px solid #d1d5db",
-                      fontSize: 12,
-                    }}
-                  >
-                    <option value="WIRE">WIRE</option>
-                    <option value="ACH">ACH</option>
-                    <option value="CHECK">CHECK</option>
-                    <option value="OTHER">OTHER</option>
-                  </select>
-                  <input
-                    type="date"
-                    value={payPaidAt}
-                    onChange={e => setPayPaidAt(e.target.value)}
-                    style={{
-                      padding: "6px 8px",
-                      borderRadius: 4,
-                      border: "1px solid #d1d5db",
-                      fontSize: 12,
-                    }}
-                  />
-                  <input
-                    placeholder="Reference"
-                    value={payReference}
-                    onChange={e => setPayReference(e.target.value)}
-                    style={{
-                      width: 160,
-                      padding: "6px 8px",
-                      borderRadius: 4,
-                      border: "1px solid #d1d5db",
-                      fontSize: 12,
-                    }}
-                  />
-                  <input
-                    placeholder="Note"
-                    value={payNote}
-                    onChange={e => setPayNote(e.target.value)}
-                    style={{
-                      flex: "1 1 200px",
-                      padding: "6px 8px",
-                      borderRadius: 4,
-                      border: "1px solid #d1d5db",
-                      fontSize: 12,
-                    }}
-                  />
-                  <button
-                    type="button"
-                    disabled={recordPaymentSaving}
-                    onClick={async () => {
-                      if (!project) return;
-                      const token = localStorage.getItem("accessToken");
-                      if (!token) {
-                        setPaymentsMessage("Missing access token.");
-                        return;
-                      }
-
-                      const amountRaw = String(payAmount ?? "").trim();
-                      const normalizedAmountRaw = amountRaw.replace(/[$,\s]/g, "");
-                      const amount = Number(normalizedAmountRaw);
-                      if (!Number.isFinite(amount) || amount <= 0) {
-                        setPaymentsMessage("Payment amount must be a positive number.");
-                        return;
-                      }
-
-                      setRecordPaymentSaving(true);
-                      setPaymentsMessage(null);
-                      try {
-                        const res = await fetch(`${API_BASE}/projects/${project.id}/payments`, {
-                          method: "POST",
-                          headers: {
-                            "Content-Type": "application/json",
-                            Authorization: `Bearer ${token}`,
-                          },
-                          body: JSON.stringify({
-                            amount,
-                            method: payMethod,
-                            paidAt: payPaidAt || undefined,
-                            reference: payReference.trim() || undefined,
-                            note: payNote.trim() || undefined,
-                          }),
-                        });
-                        if (!res.ok) {
-                          const text = await res.text().catch(() => "");
-                          const hint =
-                            text.includes("billing is not initialized") ||
-                            text.includes("billing tables") ||
-                            text.includes("ProjectPayment")
-                              ? " Run DB migrations + prisma generate, then restart the API."
-                              : "";
-                          setPaymentsMessage(`Record payment failed (${res.status}) ${text}${hint}`);
-                          return;
-                        }
-
-                        setProjectPayments(null);
-                        setFinancialSummary(null);
-
-                        setPayAmount("");
-                        setPayPaidAt("");
-                        setPayReference("");
-                        setPayNote("");
-                        setPaymentsMessage("Payment recorded.");
-                      } catch (err: any) {
-                        setPaymentsMessage(err?.message ?? "Record payment failed.");
-                      } finally {
-                        setRecordPaymentSaving(false);
-                      }
-                    }}
-                    style={{
-                      padding: "6px 10px",
-                      borderRadius: 4,
-                      border: "1px solid #0f172a",
-                      background: recordPaymentSaving ? "#e5e7eb" : "#0f172a",
-                      color: recordPaymentSaving ? "#4b5563" : "#f9fafb",
-                      fontSize: 12,
-                      cursor: recordPaymentSaving ? "default" : "pointer",
-                    }}
-                  >
-                    {recordPaymentSaving ? "Recording…" : "Record"}
-                  </button>
-                </div>
-              </div>
-              </div>
-            )}
-          </div>
-
-          {/* Payroll & Workforce roster */}
-          <div
-            style={{
-              marginTop: 10,
-              borderRadius: 8,
-              border: "1px solid #e5e7eb",
-              background: "#ffffff",
-            }}
-          >
-            <div
-              style={{
-                padding: "6px 10px",
-                borderBottom: "1px solid #e5e7eb",
-                fontSize: 13,
-                fontWeight: 600,
-                background: "#f3f4f6",
-              }}
-            >
-              Payroll &amp; Workforce
-            </div>
-            <div style={{ padding: 10, fontSize: 12 }}>
-              <p style={{ marginTop: 0, marginBottom: 8, color: "#4b5563" }}>
-                This roster shows everyone who has recorded payroll on this project
-                (including subs and 1099s), based on Certified Payroll and LCP data.
-                It does not grant them login access.
-              </p>
-
-              {payrollLoading && (
-                <p style={{ fontSize: 12, color: "#6b7280" }}>
-                  Loading payroll roster…
-                </p>
-              )}
-
-              {payrollError && !payrollLoading && (
-                <p style={{ fontSize: 12, color: "#b91c1c" }}>{payrollError}</p>
-              )}
-
-              {!payrollLoading &&
-                !payrollError &&
-                (!payrollEmployees || payrollEmployees.length === 0) && (
-                  <p style={{ fontSize: 12, color: "#6b7280" }}>
-                    No payroll records found yet for this project.
-                  </p>
-                )}
-
-              {!payrollLoading && !payrollError && payrollEmployees && payrollEmployees.length > 0 && (
-                <div style={{ maxHeight: "60vh", overflow: "auto" }}>
-                  <table
-                    style={{
-                      width: "100%",
-                      borderCollapse: "collapse",
-                      fontSize: 12,
-                    }}
-                  >
-                    <thead>
-                      <tr style={{ backgroundColor: "#f9fafb" }}>
-                        <th style={{ textAlign: "left", padding: "6px 8px" }}>Name</th>
-                        <th style={{ textAlign: "left", padding: "6px 8px" }}>Role / Class</th>
-                        <th style={{ textAlign: "left", padding: "6px 8px" }}>SSN (last 4)</th>
-                        <th style={{ textAlign: "right", padding: "6px 8px" }}>Total Hours</th>
-                        <th style={{ textAlign: "left", padding: "6px 8px" }}>First Week</th>
-                        <th style={{ textAlign: "left", padding: "6px 8px" }}>Last Week</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {payrollEmployees.map((emp, idx) => {
-                        const name = [emp.firstName ?? "", emp.lastName ?? ""]
-                          .map(s => s.trim())
-                          .filter(Boolean)
-                          .join(" ") || "(Unnamed)";
-                        const firstWeek = emp.firstWeekEnd
-                          ? new Date(emp.firstWeekEnd).toLocaleDateString()
-                          : "—";
-                        const lastWeek = emp.lastWeekEnd
-                          ? new Date(emp.lastWeekEnd).toLocaleDateString()
-                          : "—";
-                        const hasDetails = !!emp.employeeId;
-                        const detailHref = hasDetails
-                          ? `/projects/${project.id}/payroll/${encodeURIComponent(
-                              emp.employeeId as string,
-                            )}`
-                          : undefined;
-                        return (
-                          <tr key={`${emp.employeeId ?? "emp"}-${idx}`}>
-                            <td
-                              style={{
-                                padding: "6px 8px",
-                                borderTop: "1px solid #e5e7eb",
-                              }}
-                            >
-                              {hasDetails ? (
-                                <a
-                                  href={detailHref}
-                                  style={{ color: "#2563eb", textDecoration: "none" }}
-                                >
-                                  {name}
-                                </a>
-                              ) : (
-                                name
-                              )}
-                            </td>
-                            <td
-                              style={{
-                                padding: "6px 8px",
-                                borderTop: "1px solid #e5e7eb",
-                                color: "#4b5563",
-                              }}
-                            >
-                              {emp.classCode || "—"}
-                            </td>
-                            <td
-                              style={{
-                                padding: "6px 8px",
-                                borderTop: "1px solid #e5e7eb",
-                                color: "#4b5563",
-                              }}
-                            >
-                              {emp.ssnLast4 ? `***-**-${emp.ssnLast4}` : "—"}
-                            </td>
-                            <td
-                              style={{
-                                padding: "6px 8px",
-                                borderTop: "1px solid #e5e7eb",
-                                textAlign: "right",
-                              }}
-                            >
-                              {emp.totalHours.toFixed(2)}
-                            </td>
-                            <td
-                              style={{
-                                padding: "6px 8px",
-                                borderTop: "1px solid #e5e7eb",
-                              }}
-                            >
-                              {firstWeek}
-                            </td>
-                            <td
-                              style={{
-                                padding: "6px 8px",
-                                borderTop: "1px solid #e5e7eb",
-                              }}
-                            >
-                              {lastWeek}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-
             </>
           )}
 
-          {/* Invoices */}
-          <div
-            style={{
-              marginTop: 16,
-              borderRadius: 8,
-              border: "1px solid #e5e7eb",
-              background: "#ffffff",
-            }}
-          >
-            <div
-              style={{
-                padding: "6px 10px",
-                borderBottom: "1px solid #e5e7eb",
-                fontSize: 13,
-                fontWeight: 600,
-                background: "#f3f4f6",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 8,
-              }}
-            >
-              <span>Invoices</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setInvoiceMessage(null);
-                  setProjectInvoices(null);
-                  setActiveInvoice(null);
-                }}
-                disabled={projectInvoicesLoading}
-                style={{
-                  padding: "4px 8px",
-                  borderRadius: 6,
-                  border: "1px solid #d1d5db",
-                  background: "#ffffff",
-                  cursor: projectInvoicesLoading ? "default" : "pointer",
-                  fontSize: 12,
-                }}
-              >
-                {projectInvoicesLoading ? "Refreshing…" : "Refresh"}
-              </button>
-            </div>
-
-            <div style={{ padding: 10, fontSize: 12 }}>
-              {invoiceMessage && (
-                <div
-                  style={{
-                    marginBottom: 8,
-                    fontSize: 12,
-                    color: invoiceMessage.toLowerCase().includes("fail") ? "#b91c1c" : "#4b5563",
-                  }}
-                >
-                  {invoiceMessage}
-                </div>
-              )}
-
-              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!project) return;
-                    const token = localStorage.getItem("accessToken");
-                    if (!token) {
-                      setInvoiceMessage("Missing access token.");
-                      return;
-                    }
-
-                    setInvoiceMessage(null);
-                    setActiveInvoiceLoading(true);
-                    setActiveInvoiceError(null);
-
-                    try {
-                      const res = await fetch(`${API_BASE}/projects/${project.id}/invoices/draft`, {
-                        method: "POST",
-                        headers: {
-                          "Content-Type": "application/json",
-                          Authorization: `Bearer ${token}`,
-                        },
-                        body: JSON.stringify({}),
-                      });
-
-                      if (!res.ok) {
-                        const text = await res.text().catch(() => "");
-                        throw new Error(`Failed to open draft invoice (${res.status}) ${text}`);
-                      }
-
-                      const json: any = await res.json();
-
-                      if (!invoiceFullscreen) {
-                        // Navigate in the same tab into full-screen invoice mode.
-                        router.push(
-                          `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${json.id}`,
-                        );
-                      }
-
-                      // Keep local state in sync so the invoice renders immediately.
-                      setActiveInvoice(json);
-                      setProjectInvoices(null);
-                    } catch (err: any) {
-                      setActiveInvoiceError(err?.message ?? "Failed to open draft invoice.");
-                    } finally {
-                      setActiveInvoiceLoading(false);
-                    }
-                  }}
-                  style={{
-                    padding: "6px 10px",
-                    borderRadius: 4,
-                    border: "1px solid #0f172a",
-                    backgroundColor: "#0f172a",
-                    color: "#f9fafb",
-                    fontSize: 12,
-                    cursor: "pointer",
-                  }}
-                >
-                  Open living invoice (draft)
-                </button>
-
-                {/* Status filter radio bar */}
-                <div
-                  style={{
-                    display: "inline-flex",
-                    borderRadius: 6,
-                    border: "1px solid #d1d5db",
-                    overflow: "hidden",
-                  }}
-                >
-                  {(["DRAFT", "ISSUED", "PARTIALLY_PAID", "PAID", "VOID"] as const).map((status, idx) => {
-                    const isActive = invoiceStatusFilters.has(status);
-                    const label = status === "PARTIALLY_PAID" ? "Partial" : status.charAt(0) + status.slice(1).toLowerCase();
-                    return (
-                      <button
-                        key={status}
-                        type="button"
-                        onClick={() => {
-                          setInvoiceStatusFilters((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(status)) {
-                              next.delete(status);
-                            } else {
-                              next.add(status);
-                            }
-                            return next;
-                          });
-                        }}
-                        style={{
-                          padding: "4px 10px",
-                          border: "none",
-                          borderLeft: idx > 0 ? "1px solid #d1d5db" : "none",
-                          backgroundColor: isActive ? "#2563eb" : "#f9fafb",
-                          color: isActive ? "#ffffff" : "#374151",
-                          fontSize: 11,
-                          cursor: "pointer",
-                          fontWeight: isActive ? 500 : 400,
-                        }}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {activeInvoiceLoading && (
-                  <span style={{ fontSize: 12, color: "#6b7280" }}>Loading invoice…</span>
-                )}
-                {activeInvoiceError && (
-                  <span style={{ fontSize: 12, color: "#b91c1c" }}>{activeInvoiceError}</span>
-                )}
-
-                {/* Flexible spacer */}
-                <div style={{ flex: 1 }} />
-
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!project) return;
-                    const token = localStorage.getItem("accessToken");
-                    if (!token) {
-                      setInvoiceMessage("Missing access token.");
-                      return;
-                    }
-
-                    const ok = window.confirm(
-                      "Create a new draft invoice?\n\nThis will create a separate draft even if another draft exists.",
-                    );
-                    if (!ok) return;
-
-                    setInvoiceMessage(null);
-                    setActiveInvoiceLoading(true);
-                    setActiveInvoiceError(null);
-
-                    try {
-                      const res = await fetch(`${API_BASE}/projects/${project.id}/invoices/draft`, {
-                        method: "POST",
-                        headers: {
-                          "Content-Type": "application/json",
-                          Authorization: `Bearer ${token}`,
-                        },
-                        body: JSON.stringify({ forceNew: true }),
-                      });
-
-                      if (!res.ok) {
-                        const text = await res.text().catch(() => "");
-                        throw new Error(`Failed to create draft invoice (${res.status}) ${text}`);
-                      }
-
-                      const json: any = await res.json();
-
-                      if (!invoiceFullscreen) {
-                        // Navigate in the same tab into full-screen invoice mode.
-                        router.push(
-                          `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${json.id}`,
-                        );
-                      }
-
-                      setActiveInvoice(json);
-                      setProjectInvoices(null);
-                      setInvoiceMessage("New draft invoice created.");
-                    } catch (err: any) {
-                      setActiveInvoiceError(err?.message ?? "Failed to create draft invoice.");
-                    } finally {
-                      setActiveInvoiceLoading(false);
-                    }
-                  }}
-                  style={{
-                    padding: "6px 10px",
-                    borderRadius: 4,
-                    border: "1px solid #2563eb",
-                    backgroundColor: "#eff6ff",
-                    color: "#1d4ed8",
-                    fontSize: 12,
-                    cursor: "pointer",
-                  }}
-                >
-                  New invoice
-                </button>
-              </div>
-
-              <div style={{ marginTop: 10 }}>
-                {projectInvoicesLoading && (
-                  <div style={{ color: "#6b7280" }}>Loading invoices…</div>
-                )}
-                {projectInvoicesError && !projectInvoicesLoading && (
-                  <div style={{ color: "#b91c1c" }}>{projectInvoicesError}</div>
-                )}
-
-                {!projectInvoicesLoading &&
-                  !projectInvoicesError &&
-                  projectInvoices &&
-                  projectInvoices.length === 0 && (
-                    <div style={{ color: "#6b7280" }}>No invoices yet.</div>
-                  )}
-
-                {!projectInvoicesLoading &&
-                  !projectInvoicesError &&
-                  projectInvoices &&
-                  projectInvoices.length > 0 &&
-                  projectInvoices.filter((inv: any) => invoiceStatusFilters.has(inv.status)).length === 0 && (
-                    <div style={{ color: "#6b7280" }}>No invoices match the selected filters.</div>
-                  )}
-
-                {!projectInvoicesLoading &&
-                  !projectInvoicesError &&
-                  projectInvoices &&
-                  projectInvoices.length > 0 &&
-                  projectInvoices.filter((inv: any) => invoiceStatusFilters.has(inv.status)).length > 0 && (
-                    <div style={{ maxHeight: invoiceFullscreen ? "45vh" : 240, overflow: "auto" }}>
-                      <table
-                        style={{
-                          width: "100%",
-                          borderCollapse: "collapse",
-                          fontSize: 12,
-                        }}
-                      >
-                        <thead>
-                          <tr style={{ backgroundColor: "#f9fafb" }}>
-                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Invoice</th>
-                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Type</th>
-                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Status</th>
-                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Total</th>
-                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Paid</th>
-                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Balance</th>
-                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Issued</th>
-                            <th style={{ textAlign: "right", padding: "6px 8px" }}></th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {projectInvoices
-                            .filter((inv: any) => invoiceStatusFilters.has(inv.status))
-                            .sort((a: any, b: any) => {
-                              // Sort by createdAt descending (newest first)
-                              const dateA = new Date(a.createdAt ?? 0).getTime();
-                              const dateB = new Date(b.createdAt ?? 0).getTime();
-                              return dateB - dateA;
-                            })
-                            .map((inv: any) => (
-                            <tr
-                              key={inv.id}
-                              style={{ cursor: "pointer" }}
-                              onClick={async () => {
-                                const token = localStorage.getItem("accessToken");
-                                if (!token) {
-                                  setInvoiceMessage("Missing access token.");
-                                  return;
-                                }
-
-                                // Start loading the invoice immediately
-                                setInvoiceMessage(null);
-                                setActiveInvoiceLoading(true);
-                                setActiveInvoiceError(null);
-                                invoiceLoadedIdRef.current = inv.id;
-
-                                try {
-                                  const res = await fetch(
-                                    `${API_BASE}/projects/${project.id}/invoices/${inv.id}`,
-                                    { headers: { Authorization: `Bearer ${token}` } },
-                                  );
-                                  if (!res.ok) {
-                                    const text = await res.text().catch(() => "");
-                                    throw new Error(
-                                      `Failed to load invoice (${res.status}) ${text}`,
-                                    );
-                                  }
-                                  const json: any = await res.json();
-                                  setActiveInvoice(json);
-
-                                  // Navigate to fullscreen AFTER successfully loading
-                                  if (!invoiceFullscreen) {
-                                    router.push(
-                                      `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${inv.id}`,
-                                      { scroll: false },
-                                    );
-                                  }
-                                } catch (err: any) {
-                                  setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
-                                  invoiceLoadedIdRef.current = null;
-                                } finally {
-                                  setActiveInvoiceLoading(false);
-                                }
-                              }}
-                            >
-                              <td
-                                style={{
-                                  padding: "6px 8px",
-                                  borderTop: "1px solid #e5e7eb",
-                                  fontWeight: inv.status === "DRAFT" ? 600 : 400,
-                                }}
-                              >
-                                {/* Inline editable invoice number for DRAFT invoices (Admin/Owner only) */}
-                                {inv.status === "DRAFT" &&
-                                  project &&
-                                  (project.userRole === "OWNER" || project.userRole === "ADMIN") ? (
-                                  editingInvoiceNoId === inv.id ? (
-                                    <input
-                                      type="text"
-                                      value={editingInvoiceNoValue}
-                                      onChange={(e) => setEditingInvoiceNoValue(e.target.value)}
-                                      onBlur={async () => {
-                                        // Save on blur
-                                        const token = localStorage.getItem("accessToken");
-                                        if (token && project) {
-                                          try {
-                                            const res = await fetch(
-                                              `${API_BASE}/projects/${project.id}/invoices/${inv.id}`,
-                                              {
-                                                method: "PATCH",
-                                                headers: {
-                                                  "Content-Type": "application/json",
-                                                  Authorization: `Bearer ${token}`,
-                                                },
-                                                body: JSON.stringify({ invoiceNo: editingInvoiceNoValue || null }),
-                                              },
-                                            );
-                                            if (res.ok) {
-                                              // Update local state
-                                              setProjectInvoices((prev) =>
-                                                prev?.map((i) =>
-                                                  i.id === inv.id ? { ...i, invoiceNo: editingInvoiceNoValue || null } : i
-                                                ) ?? null
-                                              );
-                                            }
-                                          } catch {
-                                            // ignore
-                                          }
-                                        }
-                                        setEditingInvoiceNoId(null);
-                                      }}
-                                      onKeyDown={(e) => {
-                                        if (e.key === "Enter") {
-                                          (e.target as HTMLInputElement).blur();
-                                        } else if (e.key === "Escape") {
-                                          setEditingInvoiceNoId(null);
-                                        }
-                                      }}
-                                      onClick={(e) => e.stopPropagation()}
-                                      autoFocus
-                                      style={{
-                                        width: 80,
-                                        padding: "2px 4px",
-                                        fontSize: 12,
-                                        border: "1px solid #2563eb",
-                                        borderRadius: 3,
-                                        outline: "none",
-                                      }}
-                                      placeholder="(draft)"
-                                    />
-                                  ) : (
-                                    <span
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setEditingInvoiceNoId(inv.id);
-                                        setEditingInvoiceNoValue(inv.invoiceNo ?? "");
-                                      }}
-                                      style={{
-                                        cursor: "text",
-                                        borderBottom: "1px dashed #9ca3af",
-                                        paddingBottom: 1,
-                                      }}
-                                      title="Click to edit invoice number"
-                                    >
-                                      {inv.invoiceNo ?? "(draft)"}
-                                    </span>
-                                  )
-                                ) : (
-                                  <span
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      const token = localStorage.getItem("accessToken");
-                                      if (!token) {
-                                        setInvoiceMessage("Missing access token.");
-                                        return;
-                                      }
-                                      setInvoiceMessage(null);
-                                      setActiveInvoiceLoading(true);
-                                      setActiveInvoiceError(null);
-                                      invoiceLoadedIdRef.current = inv.id;
-                                      try {
-                                        const res = await fetch(
-                                          `${API_BASE}/projects/${project.id}/invoices/${inv.id}`,
-                                          { headers: { Authorization: `Bearer ${token}` } },
-                                        );
-                                        if (!res.ok) {
-                                          const text = await res.text().catch(() => "");
-                                          throw new Error(`Failed to load invoice (${res.status}) ${text}`);
-                                        }
-                                        const json: any = await res.json();
-                                        setActiveInvoice(json);
-                                        // Navigate to fullscreen AFTER successfully loading
-                                        if (!invoiceFullscreen) {
-                                          router.push(
-                                            `/projects/${project.id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${inv.id}`,
-                                            { scroll: false },
-                                          );
-                                        }
-                                      } catch (err: any) {
-                                        setActiveInvoiceError(err?.message ?? "Failed to load invoice.");
-                                        invoiceLoadedIdRef.current = null;
-                                      } finally {
-                                        setActiveInvoiceLoading(false);
-                                      }
-                                    }}
-                                    style={{ cursor: "pointer", color: "#2563eb" }}
-                                    title="Click to view invoice"
-                                  >
-                                    {inv.invoiceNo ?? "(draft)"}
-                                  </span>
-                                )}
-                              </td>
-                              <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 11 }}>
-                                <span style={{
-                                  padding: "2px 6px",
-                                  borderRadius: 4,
-                                  background: inv.category === "EXPENSE" ? "#dcfce7" : inv.category === "PETL" ? "#dbeafe" : "#f3f4f6",
-                                  color: inv.category === "EXPENSE" ? "#166534" : inv.category === "PETL" ? "#1d4ed8" : "#374151",
-                                }}>
-                                  {inv.category === "EXPENSE" ? "Expenses" : inv.category === "PETL" ? "Progress" : inv.category ?? "—"}
-                                </span>
-                              </td>
-                              <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
-                                {inv.status}
-                              </td>
-                              <td
-                                style={{
-                                  padding: "6px 8px",
-                                  borderTop: "1px solid #e5e7eb",
-                                  textAlign: "right",
-                                }}
-                              >
-                                {(inv.totalAmount ?? 0).toLocaleString(undefined, {
-                                  maximumFractionDigits: 2,
-                                })}
-                              </td>
-                              <td
-                                style={{
-                                  padding: "6px 8px",
-                                  borderTop: "1px solid #e5e7eb",
-                                  textAlign: "right",
-                                }}
-                              >
-                                {(inv.paidAmount ?? 0).toLocaleString(undefined, {
-                                  maximumFractionDigits: 2,
-                                })}
-                              </td>
-                              <td
-                                style={{
-                                  padding: "6px 8px",
-                                  borderTop: "1px solid #e5e7eb",
-                                  textAlign: "right",
-                                }}
-                              >
-                                {(inv.balanceDue ?? 0).toLocaleString(undefined, {
-                                  maximumFractionDigits: 2,
-                                })}
-                              </td>
-                              <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
-                                {inv.issuedAt ? new Date(inv.issuedAt).toLocaleDateString() : "—"}
-                              </td>
-                              <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
-                                {inv.status === "DRAFT" && (inv.totalAmount ?? 0) === 0 && (
-                                  <button
-                                    type="button"
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      if (!project) return;
-                                      const ok = window.confirm(
-                                        "Delete this empty draft invoice?\n\nThis action cannot be undone.",
-                                      );
-                                      if (!ok) return;
-
-                                      const token = localStorage.getItem("accessToken");
-                                      if (!token) {
-                                        setInvoiceMessage("Missing access token.");
-                                        return;
-                                      }
-                                      setInvoiceMessage(null);
-                                      try {
-                                        const res = await fetch(
-                                          `${API_BASE}/projects/${project.id}/invoices/${inv.id}`,
-                                          {
-                                            method: "DELETE",
-                                            headers: {
-                                              Authorization: `Bearer ${token}`,
-                                            },
-                                          },
-                                        );
-                                        if (!res.ok) {
-                                          const text = await res.text().catch(() => "");
-                                          setInvoiceMessage(
-                                            `Delete failed (${res.status}) ${text}`,
-                                          );
-                                          return;
-                                        }
-                                        setProjectInvoices(null);
-                                        setInvoiceMessage("Draft invoice deleted.");
-                                      } catch (err: any) {
-                                        setInvoiceMessage(err?.message ?? "Delete failed.");
-                                      }
-                                    }}
-                                    style={{
-                                      padding: "3px 8px",
-                                      borderRadius: 4,
-                                      border: "1px solid #dc2626",
-                                      background: "#fef2f2",
-                                      color: "#b91c1c",
-                                      fontSize: 11,
-                                      cursor: "pointer",
-                                      whiteSpace: "nowrap",
-                                    }}
-                                  >
-                                    Delete $0 Draft
-                                  </button>
-                                )}
-                                {/* Unlock button for issued invoices with $0 paid (Admin/Owner only) */}
-                                {inv.status !== "DRAFT" &&
-                                  inv.status !== "VOID" &&
-                                  (inv.paidAmount ?? 0) === 0 &&
-                                  project &&
-                                  (project.userRole === "OWNER" || project.userRole === "ADMIN") && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setInvoiceUnlockTarget(inv);
-                                      setInvoiceUnlockReason("");
-                                      setInvoiceUnlockModalOpen(true);
-                                    }}
-                                    style={{
-                                      padding: "3px 8px",
-                                      borderRadius: 4,
-                                      border: "1px solid #2563eb",
-                                      background: "#eff6ff",
-                                      color: "#1d4ed8",
-                                      fontSize: 11,
-                                      cursor: "pointer",
-                                      whiteSpace: "nowrap",
-                                    }}
-                                  >
-                                    Unlock
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-              </div>
-
-              {activeInvoice && (
-                <div
-                  data-print-scope="invoice"
-                  style={{
-                    marginTop: 16,
-                    padding: 16,
-                    borderRadius: 8,
-                    border: activeInvoice.status === "DRAFT" ? "2px solid #3b82f6" : "1px solid #e5e7eb",
-                    background: activeInvoice.status === "DRAFT" ? "#eff6ff" : "#ffffff",
-                    boxShadow: activeInvoice.status === "DRAFT" ? "0 4px 12px rgba(59, 130, 246, 0.15)" : "none",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                    <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <img
-                          src="/nexus-logo-mark.png"
-                          alt="Nexus"
-                          style={{ height: 24, width: "auto" }}
-                        />
-                        <div style={{ fontWeight: 600, fontSize: 13 }}>
-                          {activeInvoice.invoiceNo ?? "Draft invoice"}
-                        </div>
-                      </div>
-                      <div style={{ fontSize: 12, color: "#6b7280" }}>
-                        Status: {activeInvoice.status}
-                        {activeInvoice.issuedAt
-                          ? ` · Issued ${new Date(activeInvoice.issuedAt).toLocaleDateString()}`
-                          : ""}
-                        {(activeInvoice.revisionNumber ?? 1) > 1 && (
-                          <span style={{ marginLeft: 8 }}>· Revision {activeInvoice.revisionNumber}</span>
-                        )}
-                      </div>
-                      {/* Show unlock history if present */}
-                      {Array.isArray(activeInvoice.unlockHistory) && activeInvoice.unlockHistory.length > 0 && (
-                        <div
-                          style={{
-                            marginTop: 4,
-                            padding: "6px 10px",
-                            background: "#fef3c7",
-                            borderRadius: 6,
-                            fontSize: 11,
-                            color: "#92400e",
-                          }}
-                        >
-                          <strong>Unlock history:</strong>
-                          {activeInvoice.unlockHistory.map((h: any, i: number) => (
-                            <div key={i} style={{ marginTop: 2 }}>
-                              Rev {(h.fromRevision ?? 0) + 1} → {(h.fromRevision ?? 0) + 2}:
-                              {h.unlockedAt ? ` ${new Date(h.unlockedAt).toLocaleString()}` : ""}
-                              {h.unlockedByEmail ? ` by ${h.unlockedByEmail}` : ""}
-                              {h.reason ? ` — "${h.reason}"` : ""}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {invoiceFullscreen && (
-                        <div className="no-print" style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                          {/* Lock/Unlock toggle for issued invoices (Admin/Owner only) */}
-                          {activeInvoice.status !== "DRAFT" &&
-                            activeInvoice.status !== "VOID" &&
-                            project &&
-                            (project.userRole === "OWNER" || project.userRole === "ADMIN") && (
-                            <div
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: 8,
-                                padding: "4px 10px",
-                                borderRadius: 6,
-                                border: "1px solid #e5e7eb",
-                                background: "#f9fafb",
-                              }}
-                            >
-                              <span style={{ fontSize: 11, color: "#6b7280" }}>Invoice:</span>
-                              <button
-                                type="button"
-                                onClick={() => setInvoiceEditUnlocked(false)}
-                                style={{
-                                  padding: "3px 10px",
-                                  borderRadius: 4,
-                                  border: !invoiceEditUnlocked ? "1px solid #dc2626" : "1px solid #d1d5db",
-                                  background: !invoiceEditUnlocked ? "#fef2f2" : "#ffffff",
-                                  color: !invoiceEditUnlocked ? "#b91c1c" : "#6b7280",
-                                  fontSize: 11,
-                                  fontWeight: !invoiceEditUnlocked ? 600 : 400,
-                                  cursor: "pointer",
-                                }}
-                              >
-                                🔒 Locked
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if ((activeInvoice.paidAmount ?? 0) > 0) {
-                                    setInvoiceMessage("Cannot unlock: invoice has payments applied. Void the invoice to make changes.");
-                                    return;
-                                  }
-                                  setInvoiceEditUnlocked(true);
-                                }}
-                                disabled={(activeInvoice.paidAmount ?? 0) > 0}
-                                title={(activeInvoice.paidAmount ?? 0) > 0 ? "Cannot unlock: payments have been applied" : "Unlock for editing"}
-                                style={{
-                                  padding: "3px 10px",
-                                  borderRadius: 4,
-                                  border: invoiceEditUnlocked ? "1px solid #16a34a" : "1px solid #d1d5db",
-                                  background: invoiceEditUnlocked ? "#dcfce7" : (activeInvoice.paidAmount ?? 0) > 0 ? "#f3f4f6" : "#ffffff",
-                                  color: invoiceEditUnlocked ? "#166534" : (activeInvoice.paidAmount ?? 0) > 0 ? "#9ca3af" : "#6b7280",
-                                  fontSize: 11,
-                                  fontWeight: invoiceEditUnlocked ? 600 : 400,
-                                  cursor: (activeInvoice.paidAmount ?? 0) > 0 ? "not-allowed" : "pointer",
-                                }}
-                              >
-                                🔓 Unlocked
-                              </button>
-                              {(activeInvoice.paidAmount ?? 0) > 0 && (
-                                <span style={{ fontSize: 10, color: "#b91c1c" }}>
-                                  (has payments)
-                                </span>
-                              )}
-                            </div>
-                          )}
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setInvoicePrintLayout("KEEP");
-                              setInvoicePrintGroups("KEEP");
-                              startUiTransition(() => setInvoicePrintDialogOpen(true));
-                            }}
-                            style={{
-                              padding: "6px 10px",
-                              borderRadius: 6,
-                              border: "1px solid #0f172a",
-                              background: "#0f172a",
-                              color: "#f9fafb",
-                              fontSize: 12,
-                              cursor: "pointer",
-                            }}
-                          >
-                            Print / Save PDF
-                          </button>
-
-                          {(activeInvoice.status === "DRAFT" || invoiceEditUnlocked) && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  if (!project || !activeInvoice?.id) return;
-                                  const token = localStorage.getItem("accessToken");
-                                  if (!token) {
-                                    setInvoiceMessage("Missing access token.");
-                                    return;
-                                  }
-
-                                  setInvoiceMessage("Syncing from PETL...");
-                                  try {
-                                    const res = await fetch(
-                                      `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/sync-from-petl`,
-                                      {
-                                        method: "POST",
-                                        headers: {
-                                          Authorization: `Bearer ${token}`,
-                                          "Content-Type": "application/json",
-                                        },
-                                        body: JSON.stringify({}),
-                                      },
-                                    );
-                                    if (!res.ok) {
-                                      const text = await res.text().catch(() => "");
-                                      setInvoiceMessage(`Sync failed (${res.status}) ${text}`);
-                                      return;
-                                    }
-                                    // Reload the invoice to show updated line items
-                                    const invRes = await fetch(
-                                      `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}`,
-                                      { headers: { Authorization: `Bearer ${token}` } },
-                                    );
-                                    if (invRes.ok) {
-                                      const invJson = await invRes.json();
-                                      setActiveInvoice(invJson);
-                                      setInvoiceMessage("Invoice synced from PETL successfully.");
-                                    } else {
-                                      setInvoiceMessage("Synced, but failed to reload invoice.");
-                                    }
-                                  } catch (err: any) {
-                                    setInvoiceMessage(err?.message ?? "Sync failed.");
-                                  }
-                                }}
-                                style={{
-                                  padding: "6px 10px",
-                                  borderRadius: 6,
-                                  border: "1px solid #2563eb",
-                                  background: "#eff6ff",
-                                  color: "#1d4ed8",
-                                  fontSize: 12,
-                                  cursor: "pointer",
-                                }}
-                              >
-                                Sync from PETL
-                              </button>
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  if (!project || !activeInvoice?.id) return;
-                                  const token = localStorage.getItem("accessToken");
-                                  if (!token) {
-                                    setInvoiceMessage("Missing access token.");
-                                    return;
-                                  }
-
-                                  setInvoiceApplyModalOpen(true);
-                                  setInvoiceApplySources(null);
-                                  setInvoiceApplySourcesLoading(true);
-                                  setInvoiceApplySourcesError(null);
-                                  setInvoiceApplySelectedSourceId("");
-                                  setInvoiceApplyAmount("");
-
-                                try {
-                                  const res = await fetch(
-                                    `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/applications/sources`,
-                                    {
-                                      headers: {
-                                        Authorization: `Bearer ${token}`,
-                                      },
-                                    },
-                                  );
-                                  if (!res.ok) {
-                                    const text = await res.text().catch(() => "");
-                                    setInvoiceApplySourcesError(
-                                      `Failed to load deposit/credit invoices (${res.status}) ${text}`,
-                                    );
-                                    return;
-                                  }
-                                  const json: any = await res.json().catch(() => []);
-                                  setInvoiceApplySources(Array.isArray(json) ? json : []);
-                                } catch (err: any) {
-                                  setInvoiceApplySourcesError(err?.message ?? "Failed to load deposit/credit invoices.");
-                                } finally {
-                                  setInvoiceApplySourcesLoading(false);
-                                }
-                              }}
-                              style={{
-                                padding: "6px 10px",
-                                borderRadius: 6,
-                                border: "1px solid #d1d5db",
-                                background: "#ffffff",
-                                color: "#111827",
-                                fontSize: 12,
-                                cursor: "pointer",
-                              }}
-                            >
-                              Apply deposit/credit
-                            </button>
-                            </>
-                          )}
-
-                          {/* Void button for issued/locked invoices (not draft, not already void) */}
-                          {activeInvoice.status !== "DRAFT" && activeInvoice.status !== "VOID" && (
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                if (!project || !activeInvoice?.id) return;
-                                const reason = window.prompt(
-                                  `Void invoice ${activeInvoice.invoiceNo ?? "this invoice"}?\n\nEnter a reason (optional):`,
-                                  ""
-                                );
-                                if (reason === null) return; // User cancelled
-
-                                const ok = window.confirm(
-                                  `Are you sure you want to void invoice ${activeInvoice.invoiceNo ?? "this invoice"}?\n\n` +
-                                  "This action cannot be undone. The invoice will be marked as VOID and no further payments can be recorded against it."
-                                );
-                                if (!ok) return;
-
-                                const token = localStorage.getItem("accessToken");
-                                if (!token) {
-                                  setInvoiceMessage("Missing access token.");
-                                  return;
-                                }
-
-                                setInvoiceMessage("Voiding invoice...");
-                                try {
-                                  const res = await fetch(
-                                    `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/void`,
-                                    {
-                                      method: "POST",
-                                      headers: {
-                                        "Content-Type": "application/json",
-                                        Authorization: `Bearer ${token}`,
-                                      },
-                                      body: JSON.stringify({ reason: reason.trim() || undefined }),
-                                    }
-                                  );
-                                  if (!res.ok) {
-                                    const text = await res.text().catch(() => "");
-                                    setInvoiceMessage(`Void failed (${res.status}) ${text}`);
-                                    return;
-                                  }
-                                  const json: any = await res.json();
-                                  setActiveInvoice(json);
-                                  setProjectInvoices(null);
-                                  setFinancialSummary(null);
-                                  setInvoiceMessage("Invoice voided.");
-                                } catch (err: any) {
-                                  setInvoiceMessage(err?.message ?? "Void failed.");
-                                }
-                              }}
-                              style={{
-                                padding: "6px 10px",
-                                borderRadius: 6,
-                                border: "1px solid #dc2626",
-                                background: "#fef2f2",
-                                color: "#b91c1c",
-                                fontSize: 12,
-                                cursor: "pointer",
-                              }}
-                            >
-                              Void Invoice
-                            </button>
-                          )}
-
-                          {/* Unlock button for issued invoices with $0 paid (Admin/Owner only) */}
-                          {activeInvoice.status !== "DRAFT" &&
-                            activeInvoice.status !== "VOID" &&
-                            (activeInvoice.paidAmount ?? 0) === 0 &&
-                            project &&
-                            (project.userRole === "OWNER" || project.userRole === "ADMIN") && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setInvoiceUnlockTarget(activeInvoice);
-                                setInvoiceUnlockReason("");
-                                setInvoiceUnlockModalOpen(true);
-                              }}
-                              style={{
-                                padding: "6px 10px",
-                                borderRadius: 6,
-                                border: "1px solid #2563eb",
-                                background: "#eff6ff",
-                                color: "#1d4ed8",
-                                fontSize: 12,
-                                cursor: "pointer",
-                              }}
-                            >
-                              Unlock for Editing
-                            </button>
-                          )}
-
-                          {/* Show void status badge */}
-                          {activeInvoice.status === "VOID" && (
-                            <span
-                              style={{
-                                padding: "4px 10px",
-                                borderRadius: 6,
-                                background: "#fef2f2",
-                                border: "1px solid #fecaca",
-                                color: "#b91c1c",
-                                fontSize: 11,
-                                fontWeight: 600,
-                              }}
-                            >
-                              VOIDED
-                            </span>
-                          )}
-
-                          <div style={{ fontSize: 11, color: "#6b7280", alignSelf: "center" }}>
-                            Tip: choose "Save as PDF" in the print dialog.
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    <div style={{ textAlign: "right" }}>
-                      <div style={{ fontSize: 12, color: "#6b7280" }}>Total</div>
-                      <div style={{ fontWeight: 600, fontSize: 14 }}>
-                        {formatMoney(activeInvoice.totalAmount ?? 0)}
-                      </div>
-                    </div>
-                  </div>
-
-      {invoiceApplyModalOpen && activeInvoice && (
-        <div
-          className="no-print"
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 80,
-            background: "rgba(15,23,42,0.45)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 12,
-          }}
-          onClick={() => {
-            if (invoiceApplySaving) return;
-            setInvoiceApplyModalOpen(false);
-          }}
-        >
-          <div
-            style={{
-              width: 560,
-              maxWidth: "96vw",
-              maxHeight: "90vh",
-              overflow: "auto",
-              background: "#ffffff",
-              borderRadius: 10,
-              border: "1px solid #e5e7eb",
-              boxShadow: "0 20px 50px rgba(15,23,42,0.35)",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div
-              style={{
-                padding: "10px 12px",
-                borderBottom: "1px solid #e5e7eb",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                fontSize: 13,
-                fontWeight: 600,
-                background: "#f3f4f6",
-              }}
-            >
-              <div>
-                Apply deposit / credit
-                <div style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}>
-                  Create a credit line on this invoice from another issued invoice (e.g., a deposit or
-                  prior credit).
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  if (invoiceApplySaving) return;
-                  setInvoiceApplyModalOpen(false);
-                }}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  cursor: invoiceApplySaving ? "default" : "pointer",
-                  fontSize: 18,
-                  lineHeight: 1,
-                }}
-                aria-label="Close apply deposit/credit dialog"
-              >
-                ×
-              </button>
-            </div>
-
-            <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ fontSize: 12, color: "#374151" }}>
-                Target invoice: <strong>{activeInvoice.invoiceNo ?? "Draft invoice"}</strong>
-              </div>
-
-              {invoiceApplySourcesLoading && (
-                <div style={{ fontSize: 12, color: "#6b7280" }}>Loading deposit/credit invoices…</div>
-              )}
-
-              {invoiceApplySourcesError && !invoiceApplySourcesLoading && (
-                <div style={{ fontSize: 12, color: "#b91c1c" }}>{invoiceApplySourcesError}</div>
-              )}
-
-              {!invoiceApplySourcesLoading && !invoiceApplySourcesError && (
-                <>
-                  {(!invoiceApplySources || invoiceApplySources.length === 0) && (
-                    <div style={{ fontSize: 12, color: "#6b7280" }}>
-                      No eligible invoices found. Create or issue a deposit/credit invoice first.
-                    </div>
-                  )}
-
-                  {invoiceApplySources && invoiceApplySources.length > 0 && (
-                    <div style={{ maxHeight: 240, overflow: "auto", border: "1px solid #e5e7eb", borderRadius: 8 }}>
-                      <table
-                        style={{
-                          width: "100%",
-                          borderCollapse: "collapse",
-                          fontSize: 12,
-                        }}
-                      >
-                        <thead>
-                          <tr style={{ backgroundColor: "#f9fafb" }}>
-                            <th style={{ textAlign: "left", padding: "6px 8px" }}>Source invoice</th>
-                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Total</th>
-                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Applied</th>
-                            <th style={{ textAlign: "right", padding: "6px 8px" }}>Remaining</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {invoiceApplySources.map((src: any) => {
-                            const id = String(src?.id ?? "");
-                            const remaining = Number(src?.remainingAmount ?? 0) || 0;
-                            const applied = Number(src?.appliedAmount ?? 0) || 0;
-                            const total = Number(src?.totalAmount ?? 0) || 0;
-                            const selected = invoiceApplySelectedSourceId === id;
-                            const label = src?.invoiceNo ?? "(unissued)";
-                            return (
-                              <tr
-                                key={id}
-                                style={{ cursor: "pointer", background: selected ? "#eff6ff" : "transparent" }}
-                                onClick={() => setInvoiceApplySelectedSourceId(id)}
-                              >
-                                <td
-                                  style={{
-                                    padding: "6px 8px",
-                                    borderTop: "1px solid #e5e7eb",
-                                  }}
-                                >
-                                  <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-                                    <input
-                                      type="radio"
-                                      name="invoiceApplySource"
-                                      checked={selected}
-                                      onChange={() => setInvoiceApplySelectedSourceId(id)}
-                                    />
-                                    <span>
-                                      {label} · {src?.status ?? ""}
-                                    </span>
-                                  </label>
-                                </td>
-                                <td
-                                  style={{
-                                    padding: "6px 8px",
-                                    borderTop: "1px solid #e5e7eb",
-                                    textAlign: "right",
-                                  }}
-                                >
-                                  {total.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                                </td>
-                                <td
-                                  style={{
-                                    padding: "6px 8px",
-                                    borderTop: "1px solid #e5e7eb",
-                                    textAlign: "right",
-                                  }}
-                                >
-                                  {applied.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                                </td>
-                                <td
-                                  style={{
-                                    padding: "6px 8px",
-                                    borderTop: "1px solid #e5e7eb",
-                                    textAlign: "right",
-                                  }}
-                                >
-                                  {remaining.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-
-                  <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <input
-                      placeholder="Amount to apply"
-                      value={invoiceApplyAmount}
-                      onChange={(e) => setInvoiceApplyAmount(e.target.value)}
-                      style={{
-                        flex: "1 1 160px",
-                        padding: "6px 8px",
-                        borderRadius: 6,
-                        border: "1px solid #d1d5db",
-                        fontSize: 12,
-                      }}
-                    />
-                    <button
-                      type="button"
-                      disabled={invoiceApplySaving}
-                      onClick={async () => {
-                        if (!project || !activeInvoice?.id) return;
-                        const token = localStorage.getItem("accessToken");
-                        if (!token) {
-                          setInvoiceMessage("Missing access token.");
-                          return;
-                        }
-
-                        const sourceId = invoiceApplySelectedSourceId.trim();
-                        if (!sourceId) {
-                          setInvoiceMessage("Select a source invoice to apply from.");
-                          return;
-                        }
-
-                        const raw = invoiceApplyAmount.trim();
-                        const normalized = raw.replace(/[$,\s]/g, "");
-                        const amount = Number(normalized);
-                        if (!Number.isFinite(amount) || amount <= 0) {
-                          setInvoiceMessage("Apply amount must be a positive number.");
-                          return;
-                        }
-
-                        setInvoiceApplySaving(true);
-                        setInvoiceMessage(null);
-                        try {
-                          const res = await fetch(
-                            `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/applications`,
-                            {
-                              method: "POST",
-                              headers: {
-                                "Content-Type": "application/json",
-                                Authorization: `Bearer ${token}`,
-                              },
-                              body: JSON.stringify({ sourceInvoiceId: sourceId, amount }),
-                            },
-                          );
-                          if (!res.ok) {
-                            const text = await res.text().catch(() => "");
-                            setInvoiceMessage(`Apply failed (${res.status}) ${text}`);
-                            return;
-                          }
-                          const json: any = await res.json().catch(() => null);
-                          if (json) {
-                            setActiveInvoice(json);
-                            setProjectInvoices(null);
-                            setFinancialSummary(null);
-                          }
-                          setInvoiceApplyModalOpen(false);
-                          setInvoiceMessage("Credit applied to invoice.");
-                        } catch (err: any) {
-                          setInvoiceMessage(err?.message ?? "Apply failed.");
-                        } finally {
-                          setInvoiceApplySaving(false);
-                        }
-                      }}
-                      style={{
-                        padding: "6px 10px",
-                        borderRadius: 8,
-                        border: "1px solid #0f172a",
-                        background: invoiceApplySaving ? "#e5e7eb" : "#0f172a",
-                        color: invoiceApplySaving ? "#4b5563" : "#f9fafb",
-                        fontSize: 12,
-                        cursor: invoiceApplySaving ? "default" : "pointer",
-                      }}
-                    >
-                      {invoiceApplySaving ? "Applying…" : "Apply credit"}
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
         </div>
       )}
 
@@ -23484,97 +23863,7 @@ ${htmlBody}
                                           <>
                                         <button
                                           type="button"
-                                          onClick={async () => {
-                                            if (!project) return;
-                                            const token = localStorage.getItem("accessToken");
-                                            if (!token) {
-                                              setInvoiceMessage("Missing access token.");
-                                              return;
-                                            }
-
-                                            const nextDesc =
-                                              prompt("Description", String(li.description ?? "")) ??
-                                              String(li.description ?? "");
-
-                                            const nextAmountStr =
-                                              prompt("Amount", String(li.amount ?? "")) ??
-                                              String(li.amount ?? "");
-                                            const nextAmount = Number(nextAmountStr);
-                                            if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
-                                              setInvoiceMessage("Amount must be a positive number.");
-                                              return;
-                                            }
-
-                                            const nextKindRaw =
-                                              prompt(
-                                                "Kind (MANUAL, BILLABLE_HOURS, EQUIPMENT_RENTAL, LABOR_ONLY, MATERIALS_ONLY, LABOR_AND_MATERIALS, COST_BOOK, OTHER)",
-                                                String(li.kind ?? "MANUAL"),
-                                              ) ?? String(li.kind ?? "MANUAL");
-                                            const nextKind = nextKindRaw.trim().toUpperCase();
-                                            const allowedKinds = new Set([
-                                              "MANUAL",
-                                              "BILLABLE_HOURS",
-                                              "EQUIPMENT_RENTAL",
-                                              "LABOR_ONLY",
-                                              "MATERIALS_ONLY",
-                                              "LABOR_AND_MATERIALS",
-                                              "COST_BOOK",
-                                              "OTHER",
-                                            ]);
-                                            if (!allowedKinds.has(nextKind)) {
-                                              setInvoiceMessage("Invalid kind.");
-                                              return;
-                                            }
-
-                                            const nextTagRaw =
-                                              prompt(
-                                                "Billing tag (NONE, PETL_LINE_ITEM, CHANGE_ORDER, SUPPLEMENT, WARRANTY)",
-                                                String(li.billingTag ?? "NONE"),
-                                              ) ?? String(li.billingTag ?? "NONE");
-                                            const nextTag = nextTagRaw.trim().toUpperCase();
-                                            const allowedTags = new Set([
-                                              "NONE",
-                                              "PETL_LINE_ITEM",
-                                              "CHANGE_ORDER",
-                                              "SUPPLEMENT",
-                                              "WARRANTY",
-                                            ]);
-                                            if (!allowedTags.has(nextTag)) {
-                                              setInvoiceMessage("Invalid billing tag.");
-                                              return;
-                                            }
-
-                                            try {
-                                              const res = await fetch(
-                                                `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/lines/${li.id}`,
-                                                {
-                                                  method: "PATCH",
-                                                  headers: {
-                                                    "Content-Type": "application/json",
-                                                    Authorization: `Bearer ${token}`,
-                                                  },
-                                                  body: JSON.stringify({
-                                                    description: nextDesc,
-                                                    amount: nextAmount,
-                                                    kind: nextKind,
-                                                    billingTag: nextTag,
-                                                  }),
-                                                },
-                                              );
-                                              if (!res.ok) {
-                                                const text = await res.text().catch(() => "");
-                                                setInvoiceMessage(
-                                                  `Edit failed (${res.status}) ${text}`,
-                                                );
-                                                return;
-                                              }
-                                              const json: any = await res.json();
-                                              setActiveInvoice(json);
-                                              setProjectInvoices(null);
-                                            } catch (err: any) {
-                                              setInvoiceMessage(err?.message ?? "Edit failed.");
-                                            }
-                                          }}
+                                          onClick={() => openInvoiceLineEdit(li)}
                                           style={{
                                             padding: "2px 6px",
                                             borderRadius: 4,
@@ -23793,6 +24082,13 @@ ${htmlBody}
                             background: newInvoiceLineQty.trim() !== "" && newInvoiceLineUnitPrice.trim() !== "" ? "#f0fdf4" : "#ffffff",
                           }}
                         />
+                        {/* 25% markup toggle — hidden for CREDIT kind */}
+                        {newInvoiceLineKind !== "CREDIT" && (
+                          <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 11, whiteSpace: "nowrap" }}>
+                            <input type="checkbox" checked={newInvoiceLineMarkup} onChange={(e) => setNewInvoiceLineMarkup(e.target.checked)} />
+                            <span style={{ fontWeight: 600 }}>+25%</span>
+                          </label>
+                        )}
                         <button
                           type="button"
                           onClick={async () => {
@@ -23827,6 +24123,11 @@ ${htmlBody}
                             // Calculate amount from qty × unitPrice if not explicitly provided
                             if (amount === undefined && qty !== undefined && unitPrice !== undefined) {
                               amount = qty * unitPrice;
+                            }
+
+                            // Apply 25% markup if enabled
+                            if (newInvoiceLineMarkup && amount !== undefined && newInvoiceLineKind !== "CREDIT") {
+                              amount = amount * 1.25;
                             }
 
                             // For CREDIT kind, ensure amount is negative
@@ -23869,7 +24170,7 @@ ${htmlBody}
                               setNewInvoiceLineUnitCode("");
                               setNewInvoiceLineUnitPrice("");
                               setNewInvoiceLineAmount("");
-                              setInvoiceMessage("Line added.");
+                              setInvoiceMessage(newInvoiceLineMarkup ? "Line added (25% markup applied)." : "Line added.");
                             } catch (err: any) {
                               setInvoiceMessage(err?.message ?? "Add line failed.");
                             }
@@ -24233,6 +24534,21 @@ ${htmlBody}
                         </div>
                       </div>
                       )}
+
+                      {/* Markup preview when +25% is toggled */}
+                      {newInvoiceLineMarkup && newInvoiceLineKind !== "CREDIT" && newInvoiceLineAmount.trim() !== "" && (() => {
+                        const base = Number(newInvoiceLineAmount) || 0;
+                        const marked = base * 1.25;
+                        const delta = marked - base;
+                        return (
+                          <div style={{ fontSize: 11, color: "#16a34a", fontWeight: 500, marginTop: 2 }}>
+                            25% markup: ${base.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {" → "}
+                            ${marked.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {" "}(+${delta.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                          </div>
+                        );
+                      })()}
 
                       {/* Attachments list */}
                       {Array.isArray(activeInvoice?.attachments) && activeInvoice.attachments.length > 0 && (
