@@ -57,7 +57,7 @@ ENV NEXT_PUBLIC_SECURITY_INSPECTOR_ENABLED=$NEXT_PUBLIC_SECURITY_INSPECTOR_ENABL
 RUN cd /app/apps/web && node -e "require('next/dist/server/config').default('phase-production-build','/app/apps/web').then(c=>console.log('CONFIG OK')).catch(e=>{console.error('CONFIG ERR:',e.stack||e);process.exit(0)})" || true
 
 # Build the web app via Turbo (resolves workspace deps first)
-ENV NODE_OPTIONS="--max-old-space-size=8192"
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN npm run build -- --filter=web
 ENV NODE_OPTIONS=""
 

@@ -27426,7 +27426,6 @@ onClick={() => setManageTemplatesOpen(true)}
                           <input
                             type="number"
                             step="0.01"
-                            min="0"
                             value={newDailyLog.expenseAmount}
                             onChange={e =>
                               setNewDailyLog(prev => ({ ...prev, expenseAmount: e.target.value }))
@@ -27510,7 +27509,7 @@ onClick={() => setManageTemplatesOpen(true)}
                                               .filter(li => li.included)
                                               .reduce((sum, li) => sum + (li.amount ?? 0), 0);
                                             const credit = parseFloat(prev.creditAmount || "0") || 0;
-                                            const netTotal = Math.max(0, selectedTotal - credit);
+                                            const netTotal = selectedTotal - credit;
                                             return {
                                               ...prev,
                                               ocrLineItems: items,
@@ -27557,7 +27556,7 @@ onClick={() => setManageTemplatesOpen(true)}
                                     .filter(li => li.included)
                                     .reduce((sum, li) => sum + (li.amount ?? 0), 0);
                                   const credit = parseFloat(creditVal) || 0;
-                                  const netTotal = Math.max(0, selectedTotal - credit);
+                                  const netTotal = selectedTotal - credit;
                                   return {
                                     ...prev,
                                     creditAmount: creditVal,
@@ -27596,7 +27595,7 @@ onClick={() => setManageTemplatesOpen(true)}
                                 </span>
                               )}
                             </span>
-                            <span style={{ fontWeight: 600 }}>
+                            <span style={{ fontWeight: 600, color: parseFloat(newDailyLog.expenseAmount || "0") < 0 ? "#dc2626" : undefined }}>
                               Net: ${parseFloat(newDailyLog.expenseAmount || "0").toFixed(2)}
                             </span>
                           </div>
@@ -28157,8 +28156,10 @@ onClick={() => setManageTemplatesOpen(true)}
 
                               if (ocrSuccessCount > 0) {
                                 const vendorName = mergedVendor || "Unknown Vendor";
-                                const amountStr = mergedAmount > 0 ? `$${mergedAmount.toFixed(2)}` : "";
-                                const autoTitle = `Expense - ${vendorName}${amountStr ? " " + amountStr : ""}`;
+                                const amountStr = mergedAmount !== 0 ? `$${mergedAmount.toFixed(2)}` : "";
+                                const autoTitle = mergedAmount < 0
+                                  ? `Return/Credit - ${vendorName} ${amountStr}`
+                                  : `Expense - ${vendorName}${amountStr ? " " + amountStr : ""}`;
 
                                 setNewDailyLog(prev => {
                                   // Append new line items to any existing ones (multi-upload support)
@@ -28168,7 +28169,7 @@ onClick={() => setManageTemplatesOpen(true)}
                                     .filter(li => li.included)
                                     .reduce((sum, li) => sum + (li.amount ?? 0), 0);
                                   const credit = parseFloat(prev.creditAmount || "0") || 0;
-                                  const netTotal = Math.max(0, selectedTotal - credit);
+                                  const netTotal = selectedTotal - credit;
 
                                   return {
                                     ...prev,
@@ -36295,7 +36296,7 @@ onClick={() => setManageTemplatesOpen(true)}
                                       items[idx] = { ...items[idx], included: !items[idx].included };
                                       const selectedTotal = items.filter(li => li.included).reduce((s, li) => s + (li.amount ?? 0), 0);
                                       const credit = parseFloat(modalCreditAmount) || 0;
-                                      const net = Math.max(0, selectedTotal - credit);
+                                      const net = selectedTotal - credit;
                                       setEditDailyLog(p => ({ ...p, draft: p.draft ? { ...p.draft, expenseAmount: net.toFixed(2) } : null }));
                                       return items;
                                     });
@@ -36322,7 +36323,7 @@ onClick={() => setManageTemplatesOpen(true)}
                           setModalCreditAmount(val);
                           const selectedTotal = (modalOcrLineItems || []).filter(li => li.included).reduce((s, li) => s + (li.amount ?? 0), 0);
                           const credit = parseFloat(val) || 0;
-                          const net = Math.max(0, selectedTotal - credit);
+                          const net = selectedTotal - credit;
                           setEditDailyLog(p => ({ ...p, draft: p.draft ? { ...p.draft, expenseAmount: net.toFixed(2) } : null }));
                         }}
                         placeholder="0.00"
@@ -36629,8 +36630,8 @@ onClick={() => setManageTemplatesOpen(true)}
                                         items[idx] = { ...items[idx], included: !items[idx].included };
                                         const selectedTotal = items.filter(li => li.included).reduce((s, li) => s + (li.amount ?? 0), 0);
                                         const credit = parseFloat(modalCreditAmount) || 0;
-                                        const net = Math.max(0, selectedTotal - credit);
-                                        setViewDailyLog(p => ({ ...p, draft: p.draft ? { ...p.draft, expenseAmount: net.toFixed(2) } : null }));
+                          const net = selectedTotal - credit;
+                            setViewDailyLog(p => ({ ...p, draft: p.draft ? { ...p.draft, expenseAmount: net.toFixed(2) } : null }));
                                         return items;
                                       });
                                     }}
@@ -36676,7 +36677,7 @@ onClick={() => setManageTemplatesOpen(true)}
                         Net: ${(() => {
                           const sel = modalOcrLineItems.filter(li => li.included).reduce((s, li) => s + (li.amount ?? 0), 0);
                           const cr = parseFloat(modalCreditAmount) || 0;
-                          return Math.max(0, sel - cr).toFixed(2);
+                          return (sel - cr).toFixed(2);
                         })()}
                       </span>
                     </div>
