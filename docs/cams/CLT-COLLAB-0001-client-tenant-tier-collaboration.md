@@ -3,18 +3,18 @@ cam_id: CLT-COLLAB-0001
 title: "Client Tenant Tier — Collaborator-to-Subscriber Acquisition Flywheel"
 mode: CLT
 category: COLLAB
-revision: "1.0"
+revision: "1.1"
 tags: [cam, client-relations, collaboration, tenant-tier, project-sharing, viral-growth, network-effect]
 status: draft
 created: 2026-03-05
-updated: 2026-03-05
+updated: 2026-03-06
 author: Warp
 scores:
   uniqueness: 7
-  value: 7
-  demonstrable: 8
+  value: 8
+  demonstrable: 9
   defensible: 6
-  total: 28
+  total: 30
 website: false
 visibility:
   public: false
@@ -28,7 +28,7 @@ visibility:
 
 ## Elevator Pitch
 
-When a contractor shares a project with a client, the client doesn't get a throwaway guest link — they get their own organization in Nexus. A CLIENT-tier company with its own users, its own portal, and a one-click upgrade path to a full CONTRACTOR subscription. Every project collaboration is a product demo running on real data. The more contractors use Nexus, the more client organizations exist on the platform, and the more of those clients convert to paying subscribers when they realize they need the full toolset for their own construction division.
+When a contractor creates a project and enters a client email, the client is on the platform — one checkbox, zero extra steps. The client gets their own login, a portal showing every project they're on (across any contractor using Nexus), and a clear upgrade path to a full CONTRACTOR subscription. Every project invite is a product demo running on real data. The more contractors use Nexus, the more clients exist on the platform, and the more of those clients convert to paying subscribers when they realize they need the full toolset for their own construction division.
 
 ## The Problem
 
@@ -45,92 +45,84 @@ The core issue: **every client interaction is a missed acquisition opportunity**
 
 A client organization that already has users, login credentials, and project data on your platform is **90% of the way to being a subscriber.** They just need a reason to activate full features.
 
-The tenant-tier model solves this by treating client organizations as real companies — not guests. They have:
-- Their own Company record (just like a contractor)
-- Their own users with real auth credentials
-- Their own portal showing all projects shared with them across multiple contractors
+The simplified client model solves this by giving every client a real identity on the platform — not a guest link, not a throwaway portal. They have:
+- Their own user account with real auth credentials
+- A portal showing all projects shared with them across multiple contractors
 - A visible upgrade path to unlock contractor features (estimating, scheduling, invoicing)
+- Zero friction on entry — the invite happens during project creation, not as a separate workflow
 
-This means every time a contractor shares a project with a client, Nexus gains a pre-qualified lead that has already experienced the platform firsthand.
+This means every time a contractor creates a project with a client email, Nexus gains a pre-qualified lead that has already experienced the platform firsthand.
 
 ## How It Works
 
-### The Tier Architecture
+### Client Access Model
 
-Companies in Nexus have a `tier` field:
+Clients are individual users (`userType: CLIENT`) linked to projects via TenantClient records. No separate company/org is created for a client — they're a person with scoped access to their project(s).
 
-- **CONTRACTOR** (default) — Full-featured subscription. Estimating, scheduling, PETL, invoicing, daily logs, everything.
-- **CLIENT** — Limited tenant. Can view shared projects, accept/decline collaborations, see project data scoped to their visibility level. Cannot create projects, run estimates, or generate invoices. Costs the contractor nothing.
+- **CONTRACTOR** — Full-featured subscription. Estimating, scheduling, PETL, invoicing, daily logs, everything.
+- **CLIENT** — Individual user. Can view their projects (updates, financials, daily logs). Cannot create projects, run estimates, or generate invoices. Costs the contractor nothing.
 
-CLIENT-tier companies are real companies in the system. They have users, memberships, roles — the full identity model. They just can't access contractor-only features.
+Multiple TenantClient records can point to the same User (one per contractor), enabling cross-contractor project aggregation without any company overhead.
 
-### Collaboration Flow
+### Invite Flow
 
 ```
-Contractor                        Client Org                      Nexus Platform
-──────────                        ──────────                      ──────────────
-Opens project SUMMARY tab    
-  → Collaborating Organizations
-  → + Add                    
-  → "Invite new organization"
-  → Enters client details ─────→  Email received ──────────────→  Company (CLIENT tier)
-                                  Sets password                   User (OWNER)
-                                  Lands on /client-portal         CompanyMembership
-                                  Sees shared projects            ProjectCollaboration
-                                  Accepts invitation              
-                                    ↓                             
-                                  Uses portal over weeks/months   
-                                    ↓                             
-                                  "We need estimating for our     
-                                   own restoration division"      
-                                    ↓                             
-                                  Upgrades to CONTRACTOR ────────→ Full subscription revenue
+Contractor                        Client                          Nexus Platform
+──────────                        ──────                          ──────────────
+Creates new project
+  → Enters client name + email
+  → "Invite client" ✓ (default) 
+  → Create Project ──────────────→  Email received ──────────────→  User (CLIENT)
+                                    Sets password                   TenantClient link
+                                    Lands on /client-portal         Project access
+                                    Sees their project(s)          
+                                      ↓                             
+                                    Uses portal over weeks/months   
+                                      ↓                             
+                                    "We need estimating for our     
+                                     own restoration division"      
+                                      ↓                             
+                                    Registers as CONTRACTOR ───────→ Full subscription revenue
 ```
 
-### Cross-Tenant Access Model
+### Access Resolution
 
-The `ProjectCollaboration` model enables:
-- One project can have multiple collaborating companies
-- Each collaboration has a **role** (CLIENT, SUB, PRIME_GC, CONSULTANT, INSPECTOR)
-- Each collaboration has a **visibility** level (LIMITED or FULL)
-- Collaborations are accepted/declined by the client org — no forced access
-- The primary project owner always retains control — collaborations can be revoked at any time
-
-This is not a shared database. Each company operates in its own tenant context. ProjectCollaboration is a cross-tenant bridge that grants scoped read access.
+Access is resolved per-project, not per-user:
+- Client projects: scoped visibility (updates, financials, daily logs)
+- If the same user later becomes a contractor, their client project access persists alongside their own projects
+- The project sidebar shows a "Client" badge on client-only projects
+- Tenant-to-tenant collaboration (subs, GCs, consultants, inspectors) uses the separate ProjectCollaboration model
 
 ### Client Portal Experience
 
-Client org users see:
-- All projects shared with their organization, grouped by contractor
-- Project status, role, and visibility level for each
-- Pending invitations with accept/decline
-- Project detail views scoped to their visibility level
+Client users see:
+- All projects where they've been invited, grouped by contractor
+- Project status for each
+- Project detail views scoped to client visibility (updates, financials, daily logs)
 
 This is a real product experience — not a guest link. The client gets a dashboard, authentication, multiple projects across multiple contractors, and persistent access.
 
 ## The Flywheel
 
 ```
-Contractor shares project with client org
+Contractor creates project → enters client email → invite sent automatically
        ↓
-Client org created on Nexus (CLIENT tier)
+Client sets password → sees their project in the portal
        ↓
-Client uses portal to track their project(s)
-       ↓
-Client has multiple contractors sharing projects → platform becomes central hub
+Client has multiple contractors sharing projects → portal becomes central hub
        ↓
 Client's own construction team wants estimating / scheduling / invoicing
        ↓
-One-click upgrade: CLIENT → CONTRACTOR (subscription activated)
+Client registers as CONTRACTOR (subscription activated)
        ↓
-New contractor invites THEIR clients to projects
+New contractor invites THEIR clients during project creation
        ↓
-More CLIENT-tier orgs enter the platform
+More clients enter the platform — zero extra effort per invite
        ↓
 Cycle repeats — exponential platform growth
 ```
 
-**Key property: the flywheel is self-reinforcing.** Each new contractor creates client orgs. Some client orgs upgrade to contractors. Those contractors create more client orgs. Growth compounds without additional marketing spend.
+**Key property: the flywheel is self-reinforcing AND zero-friction.** Every project creation is a potential client acquisition. PMs don't have to remember a separate workflow — the invite is a checkbox that defaults to ON. Growth compounds without additional marketing spend or behavioral change.
 
 ## Competitive Landscape
 
@@ -140,28 +132,30 @@ Cycle repeats — exponential platform growth
 - **JobNimbus** — Sends clients a public link to view job status. No authentication, no org, no identity.
 - **Fieldwire** — Project-level guest access. No client org concept.
 
-**No competitor models the client as a real tenant.** The universal approach is guest access — which creates zero switching costs, zero network effect, and zero conversion opportunity.
+**No competitor embeds client onboarding into project creation.** The universal approach is guest access or a separate portal setup — which creates friction, reduces adoption, and generates zero conversion opportunity.
 
 ## Why This Is Defensible
 
-1. **Data gravity.** Once a client org has login credentials, multiple projects, and accepted collaborations across contractors, switching costs are real. Leaving Nexus means losing their centralized project view.
+1. **Data gravity.** Once a client has login credentials, multiple projects across multiple contractors, switching costs are real. Leaving Nexus means losing their centralized project view.
 2. **Network effects.** The value of the platform increases with the number of contractor-client relationships. A client working with 3 contractors all on Nexus gets a unified view impossible to replicate by switching one contractor.
-3. **Conversion data advantage.** Nexus accumulates detailed usage data on CLIENT-tier orgs: which features they try to access, which visibility levels they need, when they ask about pricing. This enables precision upselling that competitors with no client identity model can't match.
-4. **Viral coefficient > 1.** If each contractor creates 5+ client orgs and 10% convert to contractors, each of whom creates 5+ client orgs... the math works.
+3. **Conversion data advantage.** Nexus accumulates detailed usage data on client accounts: which features they try to access, how often they log in, when they ask about pricing. This enables precision upselling that competitors with no client identity model can't match.
+4. **Viral coefficient > 1.** If each contractor creates 20+ projects/year with client emails and 5-10% of clients convert to contractors, each of whom creates 20+ projects... the math works.
+5. **Zero-friction activation.** Because the invite is embedded in project creation (not a separate workflow), the adoption rate approaches 100% of projects with client emails. Competitors who bolt on a separate "invite client" step will always have lower activation.
 
 ## Expected Business Impact
 
 ### Direct Revenue
 
 Assuming:
-- Average contractor creates 20 client org collaborations per year
-- 5-10% of client orgs upgrade to CONTRACTOR within 12 months
+- Average contractor creates 20+ projects/year with client emails
+- ~90% invite rate (checkbox defaults to ON, minimal opt-out)
+- 5-10% of clients upgrade to CONTRACTOR within 12 months
 - Average CONTRACTOR subscription: $200/mo
 
 Per 100 contractors:
-- 2,000 client orgs created per year
-- 100-200 convert to contractors
-- $20,000-$40,000/mo incremental MRR from organic conversion
+- ~1,800 client accounts created per year (20 × 100 × 0.9)
+- 90-180 convert to contractors
+- $18,000-$36,000/mo incremental MRR from organic conversion
 
 ### Indirect Value
 
@@ -171,36 +165,38 @@ Per 100 contractors:
 
 ## Demo Script
 
-1. Open a project → SUMMARY tab → Collaborating Organizations
-2. Click "+ Add" → type a company name that doesn't exist
-3. Click "Invite a new organization" → fill in client details → Send Invite
-4. Show the onboarding email → click the link → set password
-5. Land on the Client Portal → show projects grouped by contractor
-6. Navigate to Pending Invitations → accept a collaboration
-7. Return to the contractor view → show the collaboration as "Accepted"
-8. Pitch: "Every one of these client orgs is a future subscriber. They're already on the platform, using real data, across real projects. When they need estimating or invoicing for their own work, the upgrade is one click."
+1. Click **New Project** → enter project details
+2. Enter client name + email → point out the "Invite client" checkbox (already checked)
+3. Click **Create Project** → show the confirmation: "Invite sent to client@example.com"
+4. Switch to the client's email → show the invite → click the link → set password
+5. Land on the Client Portal → show the project with contractor name, status, key details
+6. Pitch: "That's it. One checkbox during project creation. The client is on the platform, seeing their project, across every contractor using Nexus. When they need estimating or invoicing for their own work, the upgrade is one click."
 
 ## Technical Implementation
 
-### Schema
-- `CompanyTier` enum: `CLIENT | CONTRACTOR`
-- `CollaborationRole` enum: `CLIENT | SUB | PRIME_GC | CONSULTANT | INSPECTOR`
-- `ProjectCollaboration` model: `projectId + companyId` (unique), role, visibility, invited/accepted timestamps
-- `Company.tier` field (default: CONTRACTOR)
+### Data Model
+- **User** (`userType: CLIENT`) — The client's account
+- **TenantClient** — Links client to a contractor's company via `userId`. Multiple records can point to the same User (one per contractor)
+- **Project.tenantClientId** — Links project to the TenantClient record
+- No CLIENT-tier Company created. No CompanyMembership required for client users.
 
 ### Key Services
-- `ProjectCollaborationService` — CRUD, accept/decline, access resolution, smart notification routing
-- `CompanyService.inviteClientOrg()` — Creates CLIENT-tier company, user, membership, invite token, sends email
-- `ProjectService.listProjectsForClientPortal()` — Cross-tenant query merging memberships and collaborations
-- `AuthService.clientOrgOnboarding()` — Token validation and password setup
+- `CompanyService.inviteProjectClient()` — Creates/finds User + TenantClient, sends invite email
+- `ProjectService.createProject()` — Accepts `inviteClient` flag, triggers invite when client email present
+- `AuthService.login()` — Supports client-only users (no CompanyMembership) via sentinel companyId
+- Portal query: TenantClient records by userId → linked Projects → grouped by contractor
 
 ### UI Components
-- `CollaborationsPanel` — Inline on project SUMMARY tab (OWNER/ADMIN only)
+- Project creation form — "Invite client" checkbox (default: checked when email present)
 - `/client-portal` — Project listing grouped by contractor
-- `/client-portal/collaborations` — Pending invitations with accept/decline
-- `/register/client-org` — Onboarding page for new client org users
+- `/register/client` — Simplified onboarding page (project name + contractor name, set password)
+- Project sidebar — "Client" badge on client-only projects for dual-role users
+
+### Tenant-to-Tenant Collaboration (Separate System)
+For company-to-company collaboration (subs, GCs, consultants, inspectors), the existing `ProjectCollaboration` model and `CollaborationsPanel` remain unchanged.
 
 ## Revision History
 | Rev | Date | Changes |
 |-----|------|--------|
 | 1.0 | 2026-03-05 | Initial release — full system (Phases 1-4) |
+| 1.1 | 2026-03-06 | Simplified architecture: TenantClient+User model replaces CLIENT-tier Company for individual clients. Scores updated (Value 7→8, Demonstrable 8→9, Total 28→30). Demo script streamlined. Flywheel updated to reflect zero-friction activation. |

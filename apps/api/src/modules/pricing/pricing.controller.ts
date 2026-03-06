@@ -812,6 +812,48 @@ export class PricingController {
       // },
     });
 
+    // Fire-and-forget: record search terms in history for frequency tracking.
+    // Only record non-empty user-typed values (skip auto-load searches).
+    const historyEntries: { field: "DESCRIPTION" | "SEL" | "ACTIVITY" | "CAT"; term: string }[] = [];
+    if (q) historyEntries.push({ field: "DESCRIPTION", term: q });
+    if (sel) historyEntries.push({ field: "SEL", term: sel });
+    if (activity) historyEntries.push({ field: "ACTIVITY", term: activity });
+    for (const c of catsToUse) {
+      if (c) historyEntries.push({ field: "CAT", term: c });
+    }
+
+    if (historyEntries.length > 0 && user.userId) {
+      // Don't await — fire and forget so search latency is unaffected.
+      Promise.all(
+        historyEntries.map((entry) =>
+          this.prisma.costBookSearchHistory.upsert({
+            where: {
+              CostBookSearchHistory_company_user_field_term_key: {
+                companyId: user.companyId,
+                userId: user.userId,
+                field: entry.field,
+                term: entry.term,
+              },
+            },
+            update: {
+              hitCount: { increment: 1 },
+              lastUsedAt: new Date(),
+            },
+            create: {
+              companyId: user.companyId,
+              userId: user.userId,
+              field: entry.field,
+              term: entry.term,
+              hitCount: 1,
+            },
+          }),
+        ),
+      ).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[pricing] search history upsert failed", err?.message ?? err);
+      });
+    }
+
     return {
       companyPriceListId: costBook.id,
       query: q || null,
@@ -823,6 +865,45 @@ export class PricingController {
       },
       items,
     };
+  }
+
+  // Get cost book search history for the current user, sorted by frequency.
+  @UseGuards(JwtAuthGuard)
+  @Get("company-price-list/search-history")
+  async getSearchHistory(@Req() req: FastifyRequest) {
+    const anyReq: any = req as any;
+    const user = anyReq.user as AuthenticatedUser | undefined;
+
+    if (!user?.companyId || !user.userId) {
+      throw new BadRequestException("Missing company/user context for search history");
+    }
+
+    const rawField = (anyReq.query as any)?.field;
+    const fieldFilter = typeof rawField === "string" && ["DESCRIPTION", "SEL", "ACTIVITY", "CAT"].includes(rawField.toUpperCase())
+      ? rawField.toUpperCase()
+      : null;
+
+    const where: any = {
+      companyId: user.companyId,
+      userId: user.userId,
+    };
+    if (fieldFilter) {
+      where.field = fieldFilter;
+    }
+
+    const rows = await this.prisma.costBookSearchHistory.findMany({
+      where,
+      orderBy: { hitCount: "desc" },
+      take: 50,
+      select: {
+        field: true,
+        term: true,
+        hitCount: true,
+        lastUsedAt: true,
+      },
+    });
+
+    return { items: rows };
   }
 
   // Import Golden price list component breakdowns from a CSV file. This will

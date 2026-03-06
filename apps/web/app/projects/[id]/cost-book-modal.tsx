@@ -7,6 +7,8 @@ import { CostBookResultsTable } from "./cost-book-results-table";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
+type HistoryItem = { field: string; term: string; hitCount: number };
+
 function normalizeCatCode(raw: any) {
   const s = String(raw ?? "").trim();
   if (!s) return "";
@@ -44,12 +46,17 @@ export function CostBookModal(props: {
   const [catFilterQuery, setCatFilterQuery] = useState<string>("");
   const catPanelResizing = useRef(false);
 
-  // Uncontrolled search inputs (for smooth typing)
-  const selInputRef = useRef<HTMLInputElement | null>(null);
-  const descInputRef = useRef<HTMLInputElement | null>(null);
+  // Controlled search inputs (for debounced auto-search)
+  const [selInput, setSelInput] = useState<string>("");
+  const [descInput, setDescInput] = useState<string>("");
 
   // Qty is used live to compute line totals, so keep it controlled locally.
   const [qtyStr, setQtyStr] = useState<string>("1");
+
+  // Search history suggestions
+  const [searchHistory, setSearchHistory] = useState<HistoryItem[]>([]);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialLoadDone = useRef(false);
 
   const [allCats, setAllCats] = useState<string[]>([]);
   const [allCatsError, setAllCatsError] = useState<string | null>(null);
@@ -146,6 +153,14 @@ export function CostBookModal(props: {
     }
   }, []);
 
+  // Refs for stable runSearch callback
+  const selInputRef = useRef(selInput);
+  const descInputRef = useRef(descInput);
+  const catFiltersRef2 = useRef(catFilters);
+  useEffect(() => { selInputRef.current = selInput; }, [selInput]);
+  useEffect(() => { descInputRef.current = descInput; }, [descInput]);
+  useEffect(() => { catFiltersRef2.current = catFilters; }, [catFilters]);
+
   const runSearch = useCallback(
     async (mode: "auto" | "user", catsOverride?: string[]) => {
       const token = localStorage.getItem("accessToken");
@@ -155,11 +170,11 @@ export function CostBookModal(props: {
       }
 
       const query =
-        mode === "auto" ? "" : (descInputRef.current?.value ?? "").trim();
+        mode === "auto" ? "" : descInputRef.current.trim();
       const sel =
-        mode === "auto" ? "" : (selInputRef.current?.value ?? "").trim();
+        mode === "auto" ? "" : selInputRef.current.trim();
 
-      const catsToUse = Array.isArray(catsOverride) ? catsOverride : catFiltersRef.current;
+      const catsToUse = Array.isArray(catsOverride) ? catsOverride : catFiltersRef2.current;
       const hasCats = catsToUse.length > 0;
       const limit =
         mode === "auto"
@@ -216,6 +231,7 @@ export function CostBookModal(props: {
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
+      if (debounceRef.current) clearTimeout(debounceRef.current);
       void runSearch("user");
     }
   };
@@ -223,6 +239,8 @@ export function CostBookModal(props: {
   // Initialize state when modal opens.
   useEffect(() => {
     if (!open) return;
+
+    initialLoadDone.current = false;
 
     const initialCats = baselineCat ? [baselineCat] : [];
 
@@ -238,17 +256,55 @@ export function CostBookModal(props: {
         : "1";
     setQtyStr(nextQty);
 
-    if (selInputRef.current) selInputRef.current.value = "";
-    if (descInputRef.current) descInputRef.current.value = "";
+    setSelInput("");
+    setDescInput("");
 
     // Load CAT list (best effort) and auto-load results.
     if (allCats.length === 0 && !allCatsError) {
       void loadCats();
     }
 
+    // Load search history
+    const token = localStorage.getItem("accessToken");
+    if (token) {
+      fetch(`${API_BASE}/pricing/company-price-list/search-history`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((json: any) => {
+          if (Array.isArray(json?.items)) setSearchHistory(json.items);
+        })
+        .catch(() => {});
+    }
+
     // Auto-load a large slice so the user can scroll and the baseline row can be highlighted.
     void runSearch("auto", initialCats);
+
+    // Mark initial load as done after a tick so debounce effects don't fire.
+    setTimeout(() => { initialLoadDone.current = true; }, 100);
   }, [open, baseline.qty, baselineCat, allCats.length, allCatsError, loadCats, runSearch]);
+
+  // Debounced auto-search on text input changes (400ms).
+  useEffect(() => {
+    if (!initialLoadDone.current || !open) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => { void runSearch("user"); }, 400);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [selInput, descInput, open, runSearch]);
+
+  // CAT filter changes → immediate search.
+  const prevCatFiltersRef = useRef(catFilters);
+  useEffect(() => {
+    if (!initialLoadDone.current || !open) return;
+    if (prevCatFiltersRef.current === catFilters) return;
+    prevCatFiltersRef.current = catFilters;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    void runSearch("user");
+  }, [catFilters, open, runSearch]);
+
+  // History suggestions per field
+  const historySel = useMemo(() => searchHistory.filter((h) => h.field === "SEL"), [searchHistory]);
+  const historyDesc = useMemo(() => searchHistory.filter((h) => h.field === "DESCRIPTION"), [searchHistory]);
 
   const qty = useMemo(() => Number(qtyStr), [qtyStr]);
 
@@ -512,7 +568,8 @@ export function CostBookModal(props: {
               <div>
                 <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>SEL</div>
                 <input
-                  ref={selInputRef}
+                  value={selInput}
+                  onChange={(e) => setSelInput(e.target.value)}
                   onKeyDown={handleSearchKeyDown}
                   placeholder="(any)"
                   list="costbook-sel-options"
@@ -529,9 +586,11 @@ export function CostBookModal(props: {
               <div>
                 <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>Description</div>
                 <input
-                  ref={descInputRef}
+                  value={descInput}
+                  onChange={(e) => setDescInput(e.target.value)}
                   onKeyDown={handleSearchKeyDown}
                   placeholder="Search description"
+                  list="costbook-desc-history"
                   style={{
                     width: "100%",
                     padding: "6px 8px",
@@ -540,6 +599,9 @@ export function CostBookModal(props: {
                     fontSize: 12,
                   }}
                 />
+                <datalist id="costbook-desc-history">
+                  {historyDesc.map((h) => (<option key={h.term} value={h.term} label={`${h.term} (${h.hitCount})`} />))}
+                </datalist>
               </div>
 
               <div>
@@ -560,7 +622,7 @@ export function CostBookModal(props: {
               <div style={{ display: "flex", gap: 6 }}>
                 <button
                   type="button"
-                  onClick={() => void runSearch("user")}
+                  onClick={() => { if (debounceRef.current) clearTimeout(debounceRef.current); void runSearch("user"); }}
                   disabled={searching}
                   style={{
                     flex: 1,
@@ -583,8 +645,9 @@ export function CostBookModal(props: {
                   onClick={() => {
                     setCatFilters(baselineCat ? [baselineCat] : []);
                     setCatFilterQuery("");
-                    if (selInputRef.current) selInputRef.current.value = "";
-                    if (descInputRef.current) descInputRef.current.value = "";
+                    setSelInput("");
+                    setDescInput("");
+                    if (debounceRef.current) clearTimeout(debounceRef.current);
                     void runSearch("auto", baselineCat ? [baselineCat] : []);
                   }}
                   style={{
@@ -602,6 +665,7 @@ export function CostBookModal(props: {
             </div>
 
           <datalist id="costbook-sel-options">
+            {historySel.map((h) => (<option key={`hist-${h.term}`} value={h.term} label={`${h.term} (${h.hitCount})`} />))}
             {Array.from(
               new Set(
                 [baseline.sel, ...results.map((r: any) => r?.sel)]

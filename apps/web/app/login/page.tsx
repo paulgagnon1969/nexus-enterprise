@@ -147,6 +147,8 @@ export default function LoginPage() {
           router.push("/system");
         } else if (me?.userType === "APPLICANT") {
           router.push("/settings/profile");
+        } else if (me?.userType === "CLIENT") {
+          router.push("/client-portal");
         } else {
           router.push("/projects");
         }

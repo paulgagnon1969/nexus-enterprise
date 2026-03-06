@@ -353,6 +353,9 @@ model Company {
 
   // Remote Support — tickets
   supportTickets SupportTicket[]
+
+  // Cost Book Search History
+  costBookSearchHistory CostBookSearchHistory[]
 }
 
 model OrganizationTemplate {
@@ -801,6 +804,9 @@ model User {
 
   // Client Rate Adjustments
   clientRateAdjustmentsCreated ClientRateAdjustment[] @relation("ClientRateAdjustmentCreatedBy")
+
+  // Cost Book Search History
+  costBookSearchHistory CostBookSearchHistory[] @relation("CostBookSearchHistoryUser")
 }
 
 /// Notification delivered to a single user
@@ -10036,4 +10042,34 @@ model SupportSessionEvent {
   actorUser User?          @relation("SupportSessionEventActor", fields: [actorUserId], references: [id])
 
   @@index([sessionId, createdAt], map: "SupportSessionEvent_session_created_idx")
+}
+
+// =============================================================================
+// Cost Book Search History — tracks search frequency per user per field
+// =============================================================================
+
+enum CostBookSearchField {
+  DESCRIPTION
+  SEL
+  ACTIVITY
+  CAT
+}
+
+/// Tracks how often each user searches specific terms in the tenant cost book.
+/// Upserted on every search so frequently-used terms bubble to the top.
+model CostBookSearchHistory {
+  id         String              @id @default(cuid())
+  companyId  String
+  userId     String
+  field      CostBookSearchField
+  term       String
+  hitCount   Int                 @default(1)
+  lastUsedAt DateTime            @default(now())
+  createdAt  DateTime            @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User    @relation("CostBookSearchHistoryUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, userId, field, term], name: "CostBookSearchHistory_company_user_field_term_key")
+  @@index([companyId, userId, field, hitCount], map: "CostBookSearchHistory_lookup_idx")
 }

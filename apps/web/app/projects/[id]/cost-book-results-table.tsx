@@ -1,20 +1,32 @@
 "use client";
 
 import * as React from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 function normalizeCatCode(raw: any) {
   const s = String(raw ?? "").trim();
   if (!s) return "";
-  // Prefer the first token (some UI strings include "03 - Demo" / "03-Demo" etc.).
   return s.split(/[\s-]+/)[0]?.split(":")[0]?.trim() ?? "";
 }
 
 function normalizeSelCode(raw: any) {
   const s = String(raw ?? "").trim();
   if (!s) return "";
-  // Selection codes are usually token-like; keep the first whitespace token.
   return s.split(/\s+/)[0]?.split(":")[0]?.trim() ?? "";
+}
+
+// Column sorting helpers
+type SortKey = "cat" | "sel" | "description" | "unit" | "unitPrice";
+type SortDir = "asc" | "desc";
+
+function comparePrimitive(a: any, b: any, dir: SortDir): number {
+  const aVal = a == null ? "" : a;
+  const bVal = b == null ? "" : b;
+  if (typeof aVal === "number" && typeof bVal === "number") {
+    return dir === "asc" ? aVal - bVal : bVal - aVal;
+  }
+  const cmp = String(aVal).localeCompare(String(bVal), undefined, { sensitivity: "base" });
+  return dir === "asc" ? cmp : -cmp;
 }
 
 export const CostBookResultsTable = React.memo(function CostBookResultsTable(props: {
@@ -42,6 +54,29 @@ export const CostBookResultsTable = React.memo(function CostBookResultsTable(pro
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(600);
+
+  // Column sorting state
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const toggleSort = useCallback((key: SortKey) => {
+    setSortKey((prev) => {
+      if (prev !== key) { setSortDir("asc"); return key; }
+      if (sortDir === "asc") { setSortDir("desc"); return key; }
+      setSortDir("asc");
+      return null;
+    });
+  }, [sortDir]);
+
+  const sortedItems = useMemo(() => {
+    if (!sortKey) return items;
+    return [...items].sort((a: any, b: any) => comparePrimitive(a[sortKey], b[sortKey], sortDir));
+  }, [items, sortKey, sortDir]);
+
+  const sortArrow = (key: SortKey) => {
+    if (sortKey !== key) return <span style={{ opacity: 0.3, marginLeft: 4 }}>⇅</span>;
+    return <span style={{ marginLeft: 4 }}>{sortDir === "asc" ? "▲" : "▼"}</span>;
+  };
 
   // Keep scroll state local to this component so the giant project page does not
   // re-render on every scroll event.
@@ -85,9 +120,9 @@ export const CostBookResultsTable = React.memo(function CostBookResultsTable(pro
     const el = containerRef.current;
     if (!el) return;
     if (!baselineCat || !baselineSel) return;
-    if (!Array.isArray(items) || items.length === 0) return;
+    if (!Array.isArray(sortedItems) || sortedItems.length === 0) return;
 
-    const matchIndex = items.findIndex((r: any) => {
+    const matchIndex = sortedItems.findIndex((r: any) => {
       const cat = normalizeCatCode(r?.cat ?? "").trim().toUpperCase();
       const sel = normalizeSelCode(r?.sel ?? "").trim().toUpperCase();
       return cat === baselineCat && sel === baselineSel;
@@ -100,10 +135,10 @@ export const CostBookResultsTable = React.memo(function CostBookResultsTable(pro
     el.scrollTop = Math.max(0, targetTop);
 
     lastAutoScrollIdRef.current = autoScrollRequestId;
-  }, [autoScrollRequestId, baselineCat, baselineSel, items, rowHeightPx]);
+  }, [autoScrollRequestId, baselineCat, baselineSel, sortedItems, rowHeightPx]);
 
   const windowed = useMemo(() => {
-    const total = items.length;
+    const total = sortedItems.length;
     const visibleCount = Math.max(1, Math.ceil(viewportHeight / rowHeightPx) + overscan * 2);
 
     const rawStartIndex = Math.max(0, Math.floor(scrollTop / rowHeightPx) - overscan);
@@ -113,10 +148,10 @@ export const CostBookResultsTable = React.memo(function CostBookResultsTable(pro
 
     const topPad = startIndex * rowHeightPx;
     const bottomPad = (total - endIndex) * rowHeightPx;
-    const windowItems = items.slice(startIndex, endIndex);
+    const windowItems = sortedItems.slice(startIndex, endIndex);
 
     return { total, topPad, bottomPad, windowItems };
-  }, [items, overscan, rowHeightPx, scrollTop, viewportHeight]);
+  }, [sortedItems, overscan, rowHeightPx, scrollTop, viewportHeight]);
 
   return (
     <div
@@ -137,88 +172,13 @@ export const CostBookResultsTable = React.memo(function CostBookResultsTable(pro
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
         <thead>
           <tr style={{ background: "#f9fafb" }}>
-            <th
-              style={{
-                textAlign: "left",
-                padding: "8px 10px",
-                position: "sticky",
-                top: 0,
-                zIndex: 1,
-                background: "#f9fafb",
-              }}
-            >
-              Cat
-            </th>
-            <th
-              style={{
-                textAlign: "left",
-                padding: "8px 10px",
-                position: "sticky",
-                top: 0,
-                zIndex: 1,
-                background: "#f9fafb",
-              }}
-            >
-              Sel
-            </th>
-            <th
-              style={{
-                textAlign: "left",
-                padding: "8px 10px",
-                position: "sticky",
-                top: 0,
-                zIndex: 1,
-                background: "#f9fafb",
-              }}
-            >
-              Description
-            </th>
-            <th
-              style={{
-                textAlign: "right",
-                padding: "8px 10px",
-                position: "sticky",
-                top: 0,
-                zIndex: 1,
-                background: "#f9fafb",
-              }}
-            >
-              Unit
-            </th>
-            <th
-              style={{
-                textAlign: "right",
-                padding: "8px 10px",
-                position: "sticky",
-                top: 0,
-                zIndex: 1,
-                background: "#f9fafb",
-              }}
-            >
-              Unit Price
-            </th>
-            <th
-              style={{
-                textAlign: "right",
-                padding: "8px 10px",
-                position: "sticky",
-                top: 0,
-                zIndex: 1,
-                background: "#f9fafb",
-              }}
-            >
-              Line Total
-            </th>
-            <th
-              style={{
-                textAlign: "right",
-                padding: "8px 10px",
-                position: "sticky",
-                top: 0,
-                zIndex: 1,
-                background: "#f9fafb",
-              }}
-            />
+            <th onClick={() => toggleSort("cat")} style={{ textAlign: "left", padding: "8px 10px", position: "sticky", top: 0, zIndex: 1, background: "#f9fafb", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>Cat{sortArrow("cat")}</th>
+            <th onClick={() => toggleSort("sel")} style={{ textAlign: "left", padding: "8px 10px", position: "sticky", top: 0, zIndex: 1, background: "#f9fafb", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>Sel{sortArrow("sel")}</th>
+            <th onClick={() => toggleSort("description")} style={{ textAlign: "left", padding: "8px 10px", position: "sticky", top: 0, zIndex: 1, background: "#f9fafb", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>Description{sortArrow("description")}</th>
+            <th onClick={() => toggleSort("unit")} style={{ textAlign: "right", padding: "8px 10px", position: "sticky", top: 0, zIndex: 1, background: "#f9fafb", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>Unit{sortArrow("unit")}</th>
+            <th onClick={() => toggleSort("unitPrice")} style={{ textAlign: "right", padding: "8px 10px", position: "sticky", top: 0, zIndex: 1, background: "#f9fafb", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>Unit Price{sortArrow("unitPrice")}</th>
+            <th style={{ textAlign: "right", padding: "8px 10px", position: "sticky", top: 0, zIndex: 1, background: "#f9fafb" }}>Line Total</th>
+            <th style={{ textAlign: "right", padding: "8px 10px", position: "sticky", top: 0, zIndex: 1, background: "#f9fafb" }} />
           </tr>
         </thead>
         <tbody>

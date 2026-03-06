@@ -1,13 +1,18 @@
 ---
 title: "Project Client Contact Management SOP"
 module: project-management
-revision: "1.0"
+revision: "1.1"
 tags: [sop, project-management, invoicing, client-contact, pm]
-status: draft
+status: deprecated
 created: 2026-02-16
-updated: 2026-02-16
+updated: 2026-03-06
 author: Warp
 ---
+
+> ⚠️ **DEPRECATED — 2026-03-06**
+> This SOP has been superseded by **[Client Invite from Project Creation SOP](./client-invite-from-project-creation-sop.md)**.
+> That document covers both the contact-only entry case (uncheck the invite box) and the full client invite flow.
+> This file is retained for historical reference only. Do not update it further.
 
 # Project Client Contact Management
 
@@ -83,4 +88,5 @@ flowchart TD
 ## Revision History
 | Rev | Date | Changes |
 |-----|------|---------|
+| 1.1 | 2026-03-06 | Marked deprecated — superseded by client-invite-from-project-creation-sop.md |
 | 1.0 | 2026-02-16 | Initial release - client contact fields added to project create/edit |

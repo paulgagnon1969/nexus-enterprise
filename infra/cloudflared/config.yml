@@ -15,6 +15,9 @@ tunnel: f2959e74-843b-4190-b444-36cda0dceeb7
 credentials-file: /etc/cloudflared/credentials.json
 
 ingress:
+  - hostname: ncc.nfsgrp.com
+    service: http://web:3000
+
   - hostname: staging-ncc.nfsgrp.com
     service: http://web:3000
 

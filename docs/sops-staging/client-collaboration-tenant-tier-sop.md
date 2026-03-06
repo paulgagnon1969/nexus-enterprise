@@ -141,13 +141,21 @@ flowchart TD
 ### Modified Models
 - **Company** — Added `tier` field (defaults to `CONTRACTOR`)
 
+## Architectural Note (2026-03-06)
+
+> **Individual client invites now use a simplified model.** As of 2026-03-06, inviting a client to a single project no longer requires creating a CLIENT-tier Company. Instead, the client is a User (`userType: CLIENT`) linked to the project via a TenantClient record. See `client-invite-from-project-creation-sop.md` for the new flow.
+>
+> **This SOP still applies to tenant-to-tenant collaboration** — subcontractors, prime GCs, consultants, and inspectors. These use the ProjectCollaboration model and require a full Company entity on both sides. The CLIENT-tier Company model is retained for backward compatibility with existing collaborations but is no longer the default for individual client invites.
+
 ## Related Modules
 - Project Management (project detail page)
 - Company & User Management (invite flow)
 - Notifications (collaboration alerts)
 - Authentication (client org onboarding)
+- **Client Invite from Project Creation** (simplified individual client flow)
 
 ## Revision History
 | Rev | Date | Changes |
 |-----|------|--------|
 | 1.0 | 2026-03-05 | Initial release — Phases 1-4 complete |
+| 1.1 | 2026-03-06 | Added architectural note: individual client invites now use TenantClient+User model |

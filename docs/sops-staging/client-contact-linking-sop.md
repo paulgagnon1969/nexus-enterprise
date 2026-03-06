@@ -1,11 +1,11 @@
 ---
 title: "Client Contact Linking SOP"
 module: client-contact-linking
-revision: "1.0"
+revision: "1.1"
 tags: [sop, client-contact, project-management, admin, pm]
 status: draft
 created: 2025-02-15
-updated: 2025-02-15
+updated: 2026-03-06
 author: Warp
 ---
 
@@ -104,10 +104,22 @@ The search pulls contacts from two sources:
 
 Results are automatically deduplicated by email or phone number.
 
+## Relationship to Client Invite Flow
+
+The contact fields managed here (Name, Email, Phone) are the same fields used by the **Client Invite from Project Creation** flow. When a PM enters a client email during project creation and checks the invite box, the resulting User is discoverable here via the auto-search on subsequent projects.
+
+**Key distinction:**
+- This SOP covers **inline editing on the project detail page** (after the project exists)
+- The invite flow covers **project creation** (the New Project form)
+- Both write to the same underlying contact fields on the project record
+
+If a client was previously invited and their account exists, selecting them from the auto-search will link the project to their existing User record rather than creating a duplicate.
+
 ## Related Modules
 - Project Management
 - Invoicing (uses client contact for correspondence)
-- Client Portal (future)
+- [Client Invite from Project Creation](./client-invite-from-project-creation-sop.md) (invite during project creation — same contact fields)
+- [Client Portal](./client-portal-sop.md) (where invited clients land after registration)
 
 ## Troubleshooting
 
@@ -121,4 +133,5 @@ Results are automatically deduplicated by email or phone number.
 
 | Rev | Date | Changes |
 |-----|------|---------|
+| 1.1 | 2026-03-06 | Added relationship to Client Invite flow; updated Related Modules to reference new SOPs |
 | 1.0 | 2025-02-15 | Initial release |

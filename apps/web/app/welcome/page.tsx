@@ -165,6 +165,34 @@ export default function WelcomePage() {
             Sign In →
           </Link>
         </div>
+
+        {/* Client access entry point */}
+        <div style={{
+          marginTop: 20,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 10,
+        }}>
+          <span style={{ fontSize: 13, color: "#475569" }}>
+            Invited to view a project?
+          </span>
+          <Link
+            href="/login"
+            style={{
+              fontSize: 13,
+              color: "#60a5fa",
+              textDecoration: "none",
+              fontWeight: 500,
+              padding: "5px 14px",
+              borderRadius: 20,
+              border: "1px solid rgba(96,165,250,0.3)",
+              background: "rgba(96,165,250,0.08)",
+            }}
+          >
+            Client Sign In →
+          </Link>
+        </div>
       </section>
 
       {/* Features Section */}
