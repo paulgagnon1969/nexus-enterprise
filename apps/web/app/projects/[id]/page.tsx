@@ -1800,6 +1800,12 @@ export default function ProjectDetailPage({
   // Toggle for unlocking issued invoices for editing (Admin/Owner only, no payments)
   const [invoiceEditUnlocked, setInvoiceEditUnlocked] = useState(false);
 
+  // Collapsible sections in fullscreen invoice view (collapsed by default)
+  const [invoicePetlSectionCollapsed, setInvoicePetlSectionCollapsed] = useState(true);
+  const [invoiceLineItemsSectionCollapsed, setInvoiceLineItemsSectionCollapsed] = useState(true);
+  // Track which vendor groups are expanded in the line items table
+  const [invoiceVendorGroupsOpen, setInvoiceVendorGroupsOpen] = useState<Set<string>>(new Set());
+
   const [invoiceMessage, setInvoiceMessage] = useState<string | null>(null);
   const [paymentsMessage, setPaymentsMessage] = useState<string | null>(null);
   const [invoiceAttachMenuOpen, setInvoiceAttachMenuOpen] = useState(false);
@@ -3720,38 +3726,34 @@ ${htmlBody}
   const activeInvoiceLineItemGroups = useMemo(() => {
     const items = Array.isArray(activeInvoice?.lineItems) ? activeInvoice.lineItems : [];
 
-    const order = ["MANUAL", "BILLABLE_HOURS", "EQUIPMENT_RENTAL", "COST_BOOK", "OTHER"];
-    const labelByKind: Record<string, string> = {
-      MANUAL: "Manual",
-      BILLABLE_HOURS: "Billable hours",
-      EQUIPMENT_RENTAL: "Equipment rental",
-      COST_BOOK: "From Cost Book",
-      OTHER: "Other",
-    };
-
+    // Group by vendor name (from sourceBill or description fallback)
     const groups = new Map<string, any[]>();
     for (const it of items) {
-      const kind = String(it?.kind ?? "MANUAL").trim().toUpperCase() || "MANUAL";
-      const bucket = groups.get(kind) ?? [];
+      const vendorName = String(
+        it?.sourceBill?.vendorName ?? "(No Vendor)"
+      ).trim() || "(No Vendor)";
+      const bucket = groups.get(vendorName) ?? [];
       bucket.push(it);
-      groups.set(kind, bucket);
+      groups.set(vendorName, bucket);
     }
 
-    const seen = new Set(order);
-    const remainingKinds = [...groups.keys()]
-      .filter((k) => !seen.has(k))
-      .sort((a, b) => a.localeCompare(b));
+    // Sort vendor groups alphabetically, but put "(No Vendor)" last
+    const sortedKeys = [...groups.keys()].sort((a, b) => {
+      if (a === "(No Vendor)") return 1;
+      if (b === "(No Vendor)") return -1;
+      return a.localeCompare(b);
+    });
 
-    return [...order, ...remainingKinds]
-      .map((kind) => {
-        const groupItems = groups.get(kind) ?? [];
+    return sortedKeys
+      .map((vendorName) => {
+        const groupItems = groups.get(vendorName) ?? [];
         const subtotal = groupItems.reduce(
           (sum, li) => sum + (Number(li?.amount ?? 0) || 0),
           0,
         );
         return {
-          kind,
-          label: labelByKind[kind] ?? kind,
+          kind: vendorName,
+          label: vendorName,
           items: groupItems,
           subtotal,
         };
@@ -22026,11 +22028,36 @@ ${htmlBody}
                         justifyContent: "space-between",
                         alignItems: "center",
                         gap: 12,
-                        marginBottom: 6,
+                        marginBottom: invoicePetlSectionCollapsed ? 0 : 6,
                       }}
                     >
-                      <div style={{ fontWeight: 600 }}>Estimate line items (PETL)</div>
-                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                      <button
+                        type="button"
+                        onClick={() => startUiTransition(() => setInvoicePetlSectionCollapsed((v) => !v))}
+                        style={{
+                          border: "none",
+                          background: "transparent",
+                          cursor: "pointer",
+                          padding: 0,
+                          fontWeight: 600,
+                          fontSize: 13,
+                          color: "#111827",
+                          display: "flex",
+                          alignItems: "baseline",
+                          gap: 6,
+                        }}
+                      >
+                        <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                          {invoicePetlSectionCollapsed ? "▸" : "▾"}
+                        </span>
+                        <span>Estimate line items (PETL)</span>
+                        {activeInvoicePetlLines.length > 0 && (
+                          <span style={{ fontSize: 11, fontWeight: 500, color: "#6b7280" }}>
+                            · {activeInvoicePetlLines.length} lines · {formatMoney(visiblePetlTotal)}
+                          </span>
+                        )}
+                      </button>
+                      {!invoicePetlSectionCollapsed && <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                         <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
                           <input
                             type="checkbox"
@@ -22087,10 +22114,10 @@ ${htmlBody}
                             );
                           })}
                         </div>
-                      </div>
+                      </div>}
                     </div>
 
-                    {activeInvoicePetlLines.length === 0 ? (
+                    {!invoicePetlSectionCollapsed && (activeInvoicePetlLines.length === 0 ? (
                       <div style={{ fontSize: 12, color: "#6b7280" }}>
                         No PETL-derived invoice detail lines yet. (If you just enabled this feature,
                         run database migrations and restart the API.)
@@ -22169,7 +22196,7 @@ ${htmlBody}
                           )}
                         </div>
                       </>
-                    )}
+                    ))}
                   </div>
 
                   {/* Line items - shown for all invoices, editing for DRAFT/unlocked only */}
@@ -22180,11 +22207,36 @@ ${htmlBody}
                         justifyContent: "space-between",
                         alignItems: "center",
                         gap: 8,
-                        marginBottom: 6,
+                        marginBottom: invoiceLineItemsSectionCollapsed ? 0 : 6,
                       }}
                     >
-                      <div style={{ fontWeight: 600 }}>Line items</div>
-                      {(activeInvoice.status === "DRAFT" || invoiceEditUnlocked) && (
+                      <button
+                        type="button"
+                        onClick={() => startUiTransition(() => setInvoiceLineItemsSectionCollapsed((v) => !v))}
+                        style={{
+                          border: "none",
+                          background: "transparent",
+                          cursor: "pointer",
+                          padding: 0,
+                          fontWeight: 600,
+                          fontSize: 13,
+                          color: "#111827",
+                          display: "flex",
+                          alignItems: "baseline",
+                          gap: 6,
+                        }}
+                      >
+                        <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                          {invoiceLineItemsSectionCollapsed ? "▸" : "▾"}
+                        </span>
+                        <span>Line items</span>
+                        {activeInvoiceLineItemGroups.length > 0 && (
+                          <span style={{ fontSize: 11, fontWeight: 500, color: "#6b7280" }}>
+                            · {activeInvoiceLineItemGroups.reduce((n, g) => n + g.items.length, 0)} items · {formatMoney(activeInvoiceLineItemGroups.reduce((s, g) => s + g.subtotal, 0))}
+                          </span>
+                        )}
+                      </button>
+                      {!invoiceLineItemsSectionCollapsed && (activeInvoice.status === "DRAFT" || invoiceEditUnlocked) && (
                         <button
                           type="button"
                           onClick={() => startUiTransition(() => setInvoiceCostBookPickerOpen(true))}
@@ -22204,6 +22256,8 @@ ${htmlBody}
                       )}
                     </div>
 
+                    {!invoiceLineItemsSectionCollapsed && (
+                      <>
                       <div style={{ maxHeight: invoiceFullscreen ? "45vh" : 240, overflow: "auto" }}>
                         <table
                           style={{
@@ -22214,18 +22268,16 @@ ${htmlBody}
                         >
                           <thead>
                             <tr style={{ backgroundColor: "#f9fafb" }}>
-                              <th style={{ textAlign: "left", padding: "6px 8px" }}>Description</th>
-                              <th style={{ textAlign: "right", padding: "6px 8px" }}>Qty</th>
-                              <th style={{ textAlign: "right", padding: "6px 8px" }}>Unit $</th>
+                              <th style={{ textAlign: "left", padding: "6px 8px" }}>Vendor</th>
                               <th style={{ textAlign: "right", padding: "6px 8px" }}>Amount</th>
-                              <th style={{ textAlign: "right", padding: "6px 8px" }}>Actions</th>
+                              <th style={{ textAlign: "right", padding: "6px 8px", width: 80 }}>Actions</th>
                             </tr>
                           </thead>
                           <tbody>
                             {activeInvoiceLineItemGroups.length === 0 ? (
                               <tr>
                                 <td
-                                  colSpan={5}
+                                  colSpan={3}
                                   style={{
                                     padding: "8px 10px",
                                     borderTop: "1px solid #e5e7eb",
@@ -22239,85 +22291,97 @@ ${htmlBody}
                             ) : (
                               activeInvoiceLineItemGroups.flatMap((group) => {
                                 const rows: React.ReactNode[] = [];
+                                const vendorKey = group.kind;
+                                const isOpen = invoiceVendorGroupsOpen.has(vendorKey);
 
                                 rows.push(
-                                  <tr key={`group-${group.kind}`} style={{ background: "#f3f4f6" }}>
+                                  <tr
+                                    key={`group-${vendorKey}`}
+                                    style={{ background: "#f3f4f6", cursor: "pointer" }}
+                                    onClick={() => {
+                                      setInvoiceVendorGroupsOpen((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(vendorKey)) {
+                                          next.delete(vendorKey);
+                                        } else {
+                                          next.add(vendorKey);
+                                        }
+                                        return next;
+                                      });
+                                    }}
+                                  >
                                     <td
-                                      colSpan={5}
                                       style={{
                                         padding: "6px 8px",
                                         borderTop: "1px solid #e5e7eb",
-                                        fontWeight: 700,
+                                        fontWeight: 600,
                                         color: "#111827",
                                       }}
                                     >
-                                      {group.label} · {formatMoney(group.subtotal)}
+                                      <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace", marginRight: 6 }}>
+                                        {isOpen ? "▾" : "▸"}
+                                      </span>
+                                      {group.label}
+                                      <span style={{ fontSize: 11, fontWeight: 400, color: "#6b7280", marginLeft: 6 }}>
+                                        ({group.items.length} item{group.items.length !== 1 ? "s" : ""})
+                                      </span>
                                     </td>
+                                    <td
+                                      style={{
+                                        padding: "6px 8px",
+                                        borderTop: "1px solid #e5e7eb",
+                                        textAlign: "right",
+                                        fontWeight: 600,
+                                        color: "#111827",
+                                      }}
+                                    >
+                                      {formatMoney(group.subtotal)}
+                                    </td>
+                                    <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }} />
                                   </tr>,
                                 );
 
-                                for (const li of group.items) {
-                                  const isCredit = String(li.kind ?? "").toUpperCase() === "CREDIT" || (Number(li.amount ?? 0) < 0);
-                                  rows.push(
-                                    <tr key={li.id}>
-                                      <td
-                                        style={{
-                                          padding: "6px 8px",
-                                          borderTop: "1px solid #e5e7eb",
-                                          color: isCredit ? "#b91c1c" : undefined,
-                                        }}
-                                      >
-                                        {li.description}
-                                      </td>
-                                      <td
-                                        style={{
-                                          padding: "6px 8px",
-                                          borderTop: "1px solid #e5e7eb",
-                                          textAlign: "right",
-                                          color: isCredit ? "#b91c1c" : "#4b5563",
-                                        }}
-                                      >
-                                        {li.qty != null ? li.qty : ""}
-                                      </td>
-                                      <td
-                                        style={{
-                                          padding: "6px 8px",
-                                          borderTop: "1px solid #e5e7eb",
-                                          textAlign: "right",
-                                          color: isCredit ? "#b91c1c" : undefined,
-                                        }}
-                                      >
-                                        {li.unitPrice != null ? (
-                                          isCredit && li.unitPrice > 0 
-                                            ? `-${formatMoney(Math.abs(li.unitPrice))}`
-                                            : formatMoney(li.unitPrice)
-                                        ) : ""}
-                                      </td>
-                                      <td
-                                        style={{
-                                          padding: "6px 8px",
-                                          borderTop: "1px solid #e5e7eb",
-                                          textAlign: "right",
-                                          color: isCredit ? "#b91c1c" : "#4b5563",
-                                          fontWeight: isCredit ? 600 : undefined,
-                                        }}
-                                      >
-                                        {(() => {
-                                          const amt = Number(li.amount ?? 0);
-                                          if (isCredit || amt < 0) {
-                                            return `-$${Math.abs(amt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                                          }
-                                          return `$${amt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-                                        })()}
-                                      </td>
-                                      <td
-                                        style={{
-                                          padding: "6px 8px",
-                                          borderTop: "1px solid #e5e7eb",
-                                          textAlign: "right",
-                                          whiteSpace: "nowrap",
-                                        }}
-                                      >
+                                if (isOpen) {
+                                  for (const li of group.items) {
+                                    const isCredit = String(li.kind ?? "").toUpperCase() === "CREDIT" || (Number(li.amount ?? 0) < 0);
+                                    rows.push(
+                                      <tr key={li.id} style={{ background: "#fafafa" }}>
+                                        <td
+                                          style={{
+                                            padding: "4px 8px 4px 24px",
+                                            borderTop: "1px solid #f3f4f6",
+                                            color: isCredit ? "#b91c1c" : "#4b5563",
+                                            fontSize: 11,
+                                          }}
+                                        >
+                                          {li.description}
+                                        </td>
+                                        <td
+                                          style={{
+                                            padding: "4px 8px",
+                                            borderTop: "1px solid #f3f4f6",
+                                            textAlign: "right",
+                                            color: isCredit ? "#b91c1c" : "#4b5563",
+                                            fontWeight: isCredit ? 600 : undefined,
+                                            fontSize: 11,
+                                          }}
+                                        >
+                                          {(() => {
+                                            const amt = Number(li.amount ?? 0);
+                                            if (isCredit || amt < 0) {
+                                              return `-$${Math.abs(amt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                                            }
+                                            return `$${amt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                                          })()}
+                                        </td>
+                                        <td
+                                          style={{
+                                            padding: "4px 8px",
+                                            borderTop: "1px solid #f3f4f6",
+                                            textAlign: "right",
+                                            whiteSpace: "nowrap",
+                                          }}
+                                        >
                                         {(activeInvoice.status === "DRAFT" || invoiceEditUnlocked) && (
                                           <>
                                         <button
@@ -22475,6 +22539,7 @@ ${htmlBody}
                                       </td>
                                     </tr>,
                                   );
+                                  }
                                 }
 
                                 return rows;
@@ -23223,6 +23288,7 @@ ${htmlBody}
                         </div>
                       </div>
                       )}
+                      </>)}
                     </div>
 
                   {/* Issued: payments shown above Payroll & Workforce */}
