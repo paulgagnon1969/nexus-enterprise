@@ -1717,6 +1717,19 @@ export default function ProjectDetailPage({
   const [billsMessage, setBillsMessage] = useState<string | null>(null);
   const [billsCollapsed, setBillsCollapsed] = useState(false);
 
+  // Bills table sort
+  type BillsSortField = "vendor" | "date" | "amount" | "billable";
+  const [billsSortField, setBillsSortField] = useState<BillsSortField>("date");
+  const [billsSortDir, setBillsSortDir] = useState<"asc" | "desc">("desc");
+  function toggleBillsSort(field: BillsSortField) {
+    if (billsSortField === field) {
+      setBillsSortDir(prev => prev === "asc" ? "desc" : "asc");
+    } else {
+      setBillsSortField(field);
+      setBillsSortDir(field === "vendor" ? "asc" : "desc");
+    }
+  }
+
   const [billModalOpen, setBillModalOpen] = useState(false);
   const [billModalSaving, setBillModalSaving] = useState(false);
   const [billEditingId, setBillEditingId] = useState<string | null>(null);
@@ -17035,10 +17048,11 @@ ${htmlBody}
                           }
                           if (uploadedFiles.length > 0) {
                             setBillUploadedFiles(prev => [...prev, ...uploadedFiles]);
-                            // Run OCR on first image file for auto-fill
+                            // Run OCR on first image/PDF file for auto-fill
                             const firstImage = uploadedFiles.find(f =>
                               f.mimeType?.startsWith("image/") ||
-                              f.fileName?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/)
+                              f.mimeType === "application/pdf" ||
+                              f.fileName?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|pdf)$/)
                             );
                             if (firstImage) {
                               setBillOcrMessage("Running OCR...");
@@ -17157,7 +17171,8 @@ ${htmlBody}
                               setBillUploadedFiles(prev => [...prev, ...uploadedFiles]);
                               const firstImage = uploadedFiles.find(f =>
                                 f.mimeType?.startsWith("image/") ||
-                                f.fileName?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/)
+                                f.mimeType === "application/pdf" ||
+                                f.fileName?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|pdf)$/)
                               );
                               if (firstImage) {
                                 setBillOcrMessage("Running OCR...");
@@ -18152,7 +18167,12 @@ ${htmlBody}
                         </div>
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        {tentativeBills.map((b: any) => {
+                        {[...tentativeBills].sort((a: any, b: any) => {
+                          const va = (a?.vendorName ?? "").toLowerCase();
+                          const vb = (b?.vendorName ?? "").toLowerCase();
+                          if (va !== vb) return va.localeCompare(vb);
+                          return (Number(a?.totalAmount) || 0) - (Number(b?.totalAmount) || 0);
+                        }).map((b: any) => {
                           const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
                           const conf = typeof b?.prescreenConfidence === "number" ? b.prescreenConfidence : 0;
                           const pct = Math.round(conf * 100);
@@ -18290,7 +18310,11 @@ ${htmlBody}
                         </span>
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        {uncommittedReceipts.map((b: any) => {
+                        {[...uncommittedReceipts].sort((a: any, b: any) => {
+                          const da = String(a?.billDate ?? "");
+                          const db = String(b?.billDate ?? "");
+                          return db.localeCompare(da); // newest first
+                        }).map((b: any) => {
                           const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
                           const attachments: any[] = Array.isArray(b?.attachments) ? b.attachments : [];
                           // Determine if receipt is "orphaned" - source daily log is missing or changed type
@@ -18479,14 +18503,34 @@ ${htmlBody}
                     <table style={{ width: "100%", borderCollapse: "collapse" }}>
                       <thead>
                         <tr style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>
-                          <th style={{ padding: "6px 8px" }}>Vendor</th>
-                          <th style={{ padding: "6px 8px" }}>Bill date</th>
+                          <th
+                            style={{ padding: "6px 8px", cursor: "pointer", userSelect: "none", background: billsSortField === "vendor" ? "#eef2ff" : undefined }}
+                            onClick={() => toggleBillsSort("vendor")}
+                          >
+                            Vendor {billsSortField === "vendor" && <span style={{ fontSize: 10 }}>{billsSortDir === "asc" ? "▲" : "▼"}</span>}
+                          </th>
+                          <th
+                            style={{ padding: "6px 8px", cursor: "pointer", userSelect: "none", background: billsSortField === "date" ? "#eef2ff" : undefined }}
+                            onClick={() => toggleBillsSort("date")}
+                          >
+                            Bill date {billsSortField === "date" && <span style={{ fontSize: 10 }}>{billsSortDir === "asc" ? "▲" : "▼"}</span>}
+                          </th>
                           <th style={{ padding: "6px 8px" }}>Status</th>
                           <th style={{ padding: "6px 8px" }}>Role</th>
                           <th style={{ padding: "6px 8px" }}>Kind</th>
                           <th style={{ padding: "6px 8px" }}>Description</th>
-                          <th style={{ padding: "6px 8px", textAlign: "right" }}>Amount</th>
-                          <th style={{ padding: "6px 8px", textAlign: "center" }}>Billable</th>
+                          <th
+                            style={{ padding: "6px 8px", textAlign: "right", cursor: "pointer", userSelect: "none", background: billsSortField === "amount" ? "#eef2ff" : undefined }}
+                            onClick={() => toggleBillsSort("amount")}
+                          >
+                            Amount {billsSortField === "amount" && <span style={{ fontSize: 10 }}>{billsSortDir === "asc" ? "▲" : "▼"}</span>}
+                          </th>
+                          <th
+                            style={{ padding: "6px 8px", textAlign: "center", cursor: "pointer", userSelect: "none", background: billsSortField === "billable" ? "#eef2ff" : undefined }}
+                            onClick={() => toggleBillsSort("billable")}
+                          >
+                            Billable {billsSortField === "billable" && <span style={{ fontSize: 10 }}>{billsSortDir === "asc" ? "▲" : "▼"}</span>}
+                          </th>
                           <th style={{ padding: "6px 8px", textAlign: "right" }}>GM%</th>
                           <th style={{ padding: "6px 8px", textAlign: "right" }}>GM$</th>
                           <th style={{ padding: "6px 8px" }}>Attachments</th>
@@ -18495,11 +18539,24 @@ ${htmlBody}
                       </thead>
                       <tbody>
                         {[...projectBills]
-                          .sort((a, b) => {
+                          .sort((a: any, b: any) => {
+                            const dir = billsSortDir === "asc" ? 1 : -1;
+                            if (billsSortField === "vendor") {
+                              return dir * (a?.vendorName ?? "").localeCompare(b?.vendorName ?? "");
+                            }
+                            if (billsSortField === "amount") {
+                              return dir * ((Number(a?.totalAmount) || 0) - (Number(b?.totalAmount) || 0));
+                            }
+                            if (billsSortField === "billable") {
+                              const ba = a?.isBillable ? (Number(a?.totalAmount) || 0) * (1 + (Number(a?.markupPercent) || 0) / 100) : 0;
+                              const bb = b?.isBillable ? (Number(b?.totalAmount) || 0) * (1 + (Number(b?.markupPercent) || 0) / 100) : 0;
+                              return dir * (ba - bb);
+                            }
+                            // Default: date
                             const da = String(a?.billDate ?? "");
                             const db = String(b?.billDate ?? "");
-                            if (da !== db) return db.localeCompare(da);
-                            return String(b?.createdAt ?? "").localeCompare(String(a?.createdAt ?? ""));
+                            if (da !== db) return dir * da.localeCompare(db);
+                            return dir * String(a?.createdAt ?? "").localeCompare(String(b?.createdAt ?? ""));
                           })
                           .map((b: any) => {
                             const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
@@ -27992,39 +28049,12 @@ onClick={() => setManageTemplatesOpen(true)}
                         for (const file of files) {
                           try {
                             setDailyLogMessage(`Uploading ${file.name}...`);
-                            
-                            // Step 1: Get signed upload URL from project files endpoint
-                            const urlRes = await fetch(`${API_BASE}/projects/${id}/files/upload-url`, {
-                              method: "POST",
-                              headers: {
-                                "Content-Type": "application/json",
-                                Authorization: `Bearer ${token}`,
-                              },
-                              body: JSON.stringify({
-                                contentType: file.type || "application/octet-stream",
-                                fileName: file.name,
-                              }),
-                            });
-                            if (!urlRes.ok) {
-                              errors.push(`${file.name}: Failed to get upload URL (${urlRes.status})`);
-                              continue;
-                            }
-                            const { uploadUrl, fileUri } = await urlRes.json();
 
-                            // Step 2: Upload file to GCS via signed URL
-                            const putRes = await fetch(uploadUrl, {
-                              method: "PUT",
-                              headers: {
-                                "Content-Type": file.type || "application/octet-stream",
-                              },
-                              body: file,
-                            });
-                            if (!putRes.ok) {
-                              errors.push(`${file.name}: Upload failed (${putRes.status})`);
-                              continue;
-                            }
+                            // Step 1: Upload file directly through API (avoids
+                            // unreachable presigned MinIO URLs in production)
+                            const link = await uploadImageFileToNexusUploads(file, "OTHER");
 
-                            // Step 3: Register the file in the project
+                            // Step 2: Register the file in the project
                             const registerRes = await fetch(`${API_BASE}/projects/${id}/files`, {
                               method: "POST",
                               headers: {
@@ -28032,8 +28062,8 @@ onClick={() => setManageTemplatesOpen(true)}
                                 Authorization: `Bearer ${token}`,
                               },
                               body: JSON.stringify({
-                                fileUri,
-                                fileName: file.name,
+                                fileUri: link.url,
+                                fileName: link.label || file.name,
                                 mimeType: file.type || null,
                                 sizeBytes: file.size || null,
                               }),
@@ -28047,7 +28077,7 @@ onClick={() => setManageTemplatesOpen(true)}
                               id: uploaded.id,
                               fileName: uploaded.fileName || file.name,
                               mimeType: uploaded.mimeType || file.type || null,
-                              storageUrl: uploaded.storageUrl || fileUri,
+                              storageUrl: uploaded.storageUrl || link.url,
                             });
                           } catch (err: any) {
                             errors.push(`${file.name}: ${err?.message || "Unknown error"}`);
@@ -28067,11 +28097,12 @@ onClick={() => setManageTemplatesOpen(true)}
                             ],
                           }));
 
-                          // For RECEIPT_EXPENSE: run OCR on ALL image files and merge line items
+                          // For RECEIPT_EXPENSE: run OCR on ALL image/PDF files and merge line items
                           if (newDailyLog.type === "RECEIPT_EXPENSE") {
                             const imageFiles = uploadedFiles.filter(f => 
                               f.mimeType?.startsWith("image/") ||
-                              f.fileName?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/)
+                              f.mimeType === "application/pdf" ||
+                              f.fileName?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|pdf)$/)
                             );
                             if (imageFiles.length > 0) {
                               setDailyLogMessage(`Running OCR on ${imageFiles.length} receipt(s)...`);

@@ -219,18 +219,23 @@ export class DailyLogService {
       return { success: false, error: "No storage URL available for this file" };
     }
 
-    // Check if it's an image file
+    // Check if it's an image or PDF file
     const isImage =
       projectFile.mimeType?.startsWith("image/") ||
       projectFile.fileName?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/) != null;
+    const isPdf =
+      projectFile.mimeType === "application/pdf" ||
+      projectFile.fileName?.toLowerCase().endsWith(".pdf") === true;
 
-    if (!isImage) {
-      return { success: false, error: "OCR only supported for image files" };
+    if (!isImage && !isPdf) {
+      return { success: false, error: "OCR supported for image and PDF files only" };
     }
 
     try {
-      this.logger.log(`Running immediate OCR for file ${projectFileId}: ${projectFile.storageUrl}`);
-      const result = await this.openAiOcr.extractReceipt(projectFile.storageUrl);
+      this.logger.log(`Running immediate OCR for file ${projectFileId} (${isPdf ? 'PDF' : 'image'}): ${projectFile.storageUrl}`);
+      const result = isPdf
+        ? await this.openAiOcr.extractReceiptFromPdf(projectFile.storageUrl)
+        : await this.openAiOcr.extractReceipt(projectFile.storageUrl);
 
       return {
         success: true,
@@ -1721,7 +1726,9 @@ export class DailyLogService {
       const totalAmount = Math.max(0, rawAmount - credit);
       const billDate = dto.expenseDate ? new Date(dto.expenseDate) : new Date(dto.logDate);
 
-      // Create draft bill
+      // Create bill — receipts default to PAID status since they represent
+      // completed purchases.  Line items default to MATERIALS (most common for
+      // field crew receipt submissions).
       const bill = await this.prisma.projectBill.create({
         data: {
           companyId,
@@ -1729,7 +1736,7 @@ export class DailyLogService {
           vendorName,
           billDate,
           totalAmount,
-          status: ProjectBillStatus.DRAFT,
+          status: ProjectBillStatus.PAID,
           memo: `Auto-created from Daily Log receipt submission`,
           sourceDailyLogId: dailyLogId,
           createdByUserId: actor.userId,
@@ -1742,11 +1749,11 @@ export class DailyLogService {
         data: { sourceBillId: bill.id },
       });
 
-      // Create a line item for the bill
+      // Create a line item for the bill — default MATERIALS
       await this.prisma.projectBillLineItem.create({
         data: {
           billId: bill.id,
-          kind: 'OTHER',
+          kind: 'MATERIALS',
           description: dto.title || `Receipt - ${vendorName}`,
           amount: totalAmount,
         },

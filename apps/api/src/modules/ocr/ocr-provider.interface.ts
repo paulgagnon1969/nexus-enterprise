@@ -31,6 +31,16 @@ export interface ReceiptOcrData {
   confidence?: number; // 0-1 overall confidence score
   extractionNotes?: string; // Notes about image quality or extraction issues
   rawResponse?: string; // Raw provider response for audit
+  // PDF metadata (when source is PDF)
+  pdfMetadata?: {
+    pages?: number;
+    author?: string;
+    creator?: string;
+    producer?: string;
+    creationDate?: string;
+    modDate?: string;
+    title?: string;
+  };
 }
 
 export interface OcrProvider {

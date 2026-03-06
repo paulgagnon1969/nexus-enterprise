@@ -42,6 +42,7 @@ import { ImportJobsService } from "../import-jobs/import-jobs.service";
 import { ImportJobType } from "@prisma/client";
 import { ObjectStorageService } from "../../infra/storage/object-storage.service";
 import { TaxJurisdictionService } from "./tax-jurisdiction.service";
+import { UploadProxyService } from "../uploads/upload-proxy.service";
 import fs from "node:fs/promises";
 import {
   buildCertifiedPayrollRows,
@@ -66,6 +67,7 @@ export class ProjectController {
     private readonly importJobs: ImportJobsService,
     private readonly gcs: ObjectStorageService,
     private readonly taxJurisdictions: TaxJurisdictionService,
+    private readonly uploadProxy: UploadProxyService,
   ) {}
 
   /**
@@ -337,6 +339,13 @@ export class ProjectController {
     // Validate project access
     await this.projects.getProjectByIdForUser(projectId, user);
 
+    // Resolve the storage bucket (same logic MinIO service uses)
+    const bucket =
+      process.env.XACT_UPLOADS_BUCKET ||
+      process.env.GCS_UPLOADS_BUCKET ||
+      process.env.MINIO_BUCKET ||
+      "nexus-uploads";
+
     const key = [
       "project-files",
       user.companyId,
@@ -345,10 +354,19 @@ export class ProjectController {
       Math.random().toString(36).slice(2),
     ].join("/");
 
-    const { uploadUrl, fileUri } = await this.gcs.createSignedUploadUrl({
+    // Return a proxy upload URL pointing at the API itself instead of an
+    // unreachable MinIO presigned URL. The browser PUTs to the API, which
+    // stores the file in MinIO server-side.
+    const { token, fileUri } = this.uploadProxy.createToken({
       key,
+      bucket,
       contentType,
     });
+
+    // Derive API base URL from the incoming request so the browser can reach it
+    const proto = req.headers["x-forwarded-proto"] || req.protocol || "http";
+    const host = req.headers["x-forwarded-host"] || req.headers.host || req.hostname;
+    const uploadUrl = `${proto}://${host}/uploads/put/${token}`;
 
     return { uploadUrl, fileUri };
   }
@@ -495,6 +513,12 @@ export class ProjectController {
     // Validate project access
     await this.projects.getProjectByIdForUser(projectId, user);
 
+    const bucket =
+      process.env.XACT_UPLOADS_BUCKET ||
+      process.env.GCS_UPLOADS_BUCKET ||
+      process.env.MINIO_BUCKET ||
+      "nexus-uploads";
+
     const key = [
       "xact-raw",
       user.companyId,
@@ -503,10 +527,10 @@ export class ProjectController {
       Math.random().toString(36).slice(2),
     ].join("/");
 
-    const { uploadUrl, fileUri } = await this.gcs.createSignedUploadUrl({
-      key,
-      contentType,
-    });
+    const { token, fileUri } = this.uploadProxy.createToken({ key, bucket, contentType });
+    const proto = req.headers["x-forwarded-proto"] || req.protocol || "http";
+    const host = req.headers["x-forwarded-host"] || req.headers.host || req.hostname;
+    const uploadUrl = `${proto}://${host}/uploads/put/${token}`;
 
     console.log("[projects] xact-raw/upload-url", {
       companyId: user.companyId,
@@ -518,7 +542,7 @@ export class ProjectController {
     return { uploadUrl, fileUri };
   }
 
-  // Signed upload URL for Xact components CSV (GCS-backed)
+  // Upload URL for Xact components CSV
   @UseGuards(JwtAuthGuard)
   @Roles(Role.OWNER, Role.ADMIN)
   @Post(":id/xact-components/upload-url")
@@ -533,6 +557,12 @@ export class ProjectController {
     // Validate project access
     await this.projects.getProjectByIdForUser(projectId, user);
 
+    const bucket =
+      process.env.XACT_UPLOADS_BUCKET ||
+      process.env.GCS_UPLOADS_BUCKET ||
+      process.env.MINIO_BUCKET ||
+      "nexus-uploads";
+
     const key = [
       "xact-components",
       user.companyId,
@@ -541,10 +571,10 @@ export class ProjectController {
       Math.random().toString(36).slice(2),
     ].join("/");
 
-    const { uploadUrl, fileUri } = await this.gcs.createSignedUploadUrl({
-      key,
-      contentType,
-    });
+    const { token, fileUri } = this.uploadProxy.createToken({ key, bucket, contentType });
+    const proto = req.headers["x-forwarded-proto"] || req.protocol || "http";
+    const host = req.headers["x-forwarded-host"] || req.headers.host || req.hostname;
+    const uploadUrl = `${proto}://${host}/uploads/put/${token}`;
 
     console.log("[projects] xact-components/upload-url", {
       companyId: user.companyId,

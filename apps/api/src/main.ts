@@ -98,6 +98,22 @@ async function bootstrap() {
     },
   });
 
+  // Register raw-body content type parsers for the upload proxy endpoint.
+  // The browser PUTs raw file bytes with Content-Type: image/jpeg (etc.).
+  // Without these parsers Fastify rejects the request.
+  const rawBodyParser = (_req: any, payload: any, done: any) => {
+    const chunks: Buffer[] = [];
+    payload.on('data', (chunk: Buffer) => chunks.push(chunk));
+    payload.on('end', () => done(null, Buffer.concat(chunks)));
+    payload.on('error', done);
+  };
+  server.addContentTypeParser(/^image\//, rawBodyParser);
+  server.addContentTypeParser(/^video\//, rawBodyParser);
+  server.addContentTypeParser(/^audio\//, rawBodyParser);
+  server.addContentTypeParser('application/pdf', rawBodyParser);
+  server.addContentTypeParser('application/octet-stream', rawBodyParser);
+  server.addContentTypeParser('text/csv', rawBodyParser);
+
   // Serve local uploaded files (dev-friendly). In production we should move to object storage.
   await server.register(fastifyStatic, {
     root: path.resolve(process.cwd(), "uploads"),
