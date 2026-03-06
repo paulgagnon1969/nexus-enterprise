@@ -5583,6 +5583,91 @@ ${htmlBody}
   const [selectedTenantClient, setSelectedTenantClient] = useState<TenantClientResult | null>(null);
   const clientNameSearchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Portal viewer management state
+  interface PortalViewer {
+    userId: string;
+    email: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    name: string;
+    visibility: string;
+    isPrimary: boolean;
+    status: "ACTIVE" | "INVITE_PENDING";
+    createdAt: string;
+  }
+  const [portalViewers, setPortalViewers] = useState<PortalViewer[]>([]);
+  const [portalViewersLoading, setPortalViewersLoading] = useState(false);
+  const [portalInviteEmail, setPortalInviteEmail] = useState("");
+  const [portalInviteName, setPortalInviteName] = useState("");
+  const [portalInviteSending, setPortalInviteSending] = useState(false);
+  const [portalInviteMessage, setPortalInviteMessage] = useState<string | null>(null);
+  const [portalViewerRevoking, setPortalViewerRevoking] = useState<string | null>(null);
+
+  const loadPortalViewers = useCallback(async () => {
+    if (!id) return;
+    const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    setPortalViewersLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/projects/${id}/portal-viewers`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setPortalViewers(await res.json());
+    } catch { /* ignore */ } finally {
+      setPortalViewersLoading(false);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    if (activeTab === "SUMMARY" && id) loadPortalViewers();
+  }, [activeTab, id, loadPortalViewers]);
+
+  const handlePortalInvite = async () => {
+    if (!id || !portalInviteEmail.trim()) return;
+    const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    setPortalInviteSending(true);
+    setPortalInviteMessage(null);
+    try {
+      const res = await fetch(`${API_BASE}/projects/${id}/invite-client`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ email: portalInviteEmail.trim(), name: portalInviteName.trim() || undefined }),
+      });
+      if (res.ok) {
+        setPortalInviteMessage(`Invite sent to ${portalInviteEmail.trim().toLowerCase()}`);
+        setPortalInviteEmail("");
+        setPortalInviteName("");
+        await loadPortalViewers();
+      } else {
+        const text = await res.text().catch(() => "");
+        let msg = "Failed to send invite";
+        try { msg = JSON.parse(text).message || msg; } catch { /* ignore */ }
+        setPortalInviteMessage(msg);
+      }
+    } catch (err: any) {
+      setPortalInviteMessage(err?.message || "Network error");
+    } finally {
+      setPortalInviteSending(false);
+    }
+  };
+
+  const handleRevokePortalViewer = async (userId: string) => {
+    if (!id) return;
+    const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    setPortalViewerRevoking(userId);
+    try {
+      const res = await fetch(`${API_BASE}/projects/${id}/portal-viewers/${userId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) await loadPortalViewers();
+    } catch { /* ignore */ } finally {
+      setPortalViewerRevoking(null);
+    }
+  };
+
   // Search for tenant clients by name, email, or phone
   const searchTenantClients = async (query: string) => {
     if (!query || query.length < 2) {
@@ -16301,6 +16386,196 @@ ${htmlBody}
                 }
               />
             )}
+
+          {/* Client Portal Access */}
+          {(actorCompanyRole === "OWNER" ||
+            actorCompanyRole === "ADMIN" ||
+            actorCompanyRole === "MEMBER" ||
+            actorGlobalRole === "SUPER_ADMIN") &&
+            id && (
+            <div
+              style={{
+                marginTop: 12,
+                border: "1px solid #e5e7eb",
+                borderRadius: 6,
+                background: "#ffffff",
+              }}
+            >
+              <div
+                style={{
+                  padding: "10px 14px",
+                  borderBottom: "1px solid #e5e7eb",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 600 }}>Client Portal Access</div>
+                <div style={{ fontSize: 11, color: "#6b7280" }}>
+                  {portalViewers.length} viewer{portalViewers.length !== 1 ? "s" : ""}
+                </div>
+              </div>
+
+              <div style={{ padding: "12px 14px" }}>
+                {/* Current viewers */}
+                {portalViewersLoading ? (
+                  <div style={{ fontSize: 12, color: "#9ca3af" }}>Loading…</div>
+                ) : portalViewers.length === 0 ? (
+                  <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 10 }}>
+                    No clients have portal access to this project.
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+                    {portalViewers.map((v) => (
+                      <div
+                        key={v.userId}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          padding: "8px 10px",
+                          borderRadius: 6,
+                          background: "#f9fafb",
+                          border: "1px solid #f3f4f6",
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 500, color: "#111827" }}>
+                            {v.name}
+                            {v.isPrimary && (
+                              <span
+                                style={{
+                                  marginLeft: 6,
+                                  fontSize: 10,
+                                  fontWeight: 600,
+                                  color: "#047857",
+                                  background: "#ecfdf5",
+                                  padding: "1px 6px",
+                                  borderRadius: 10,
+                                }}
+                              >
+                                Primary
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 1 }}>
+                            {v.email}
+                            <span
+                              style={{
+                                marginLeft: 8,
+                                fontSize: 10,
+                                fontWeight: 500,
+                                color: v.status === "ACTIVE" ? "#059669" : "#d97706",
+                              }}
+                            >
+                              {v.status === "ACTIVE" ? "Active" : "Invite Pending"}
+                            </span>
+                          </div>
+                        </div>
+                        {(actorCompanyRole === "OWNER" ||
+                          actorCompanyRole === "ADMIN" ||
+                          actorGlobalRole === "SUPER_ADMIN") && (
+                          <button
+                            type="button"
+                            onClick={() => handleRevokePortalViewer(v.userId)}
+                            disabled={portalViewerRevoking === v.userId}
+                            style={{
+                              padding: "3px 8px",
+                              borderRadius: 4,
+                              border: "1px solid #e5e7eb",
+                              background: "#fff",
+                              color: portalViewerRevoking === v.userId ? "#9ca3af" : "#b91c1c",
+                              fontSize: 11,
+                              cursor: portalViewerRevoking === v.userId ? "default" : "pointer",
+                            }}
+                          >
+                            {portalViewerRevoking === v.userId ? "Revoking…" : "Revoke"}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Invite form */}
+                <div
+                  style={{
+                    borderTop: portalViewers.length > 0 ? "1px solid #e5e7eb" : "none",
+                    paddingTop: portalViewers.length > 0 ? 10 : 0,
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "#374151" }}>
+                    Invite a client to view this project
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "flex-end" }}>
+                    <div style={{ flex: "1 1 180px", minWidth: 160 }}>
+                      <label style={{ display: "block", fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Email *</label>
+                      <input
+                        type="email"
+                        value={portalInviteEmail}
+                        onChange={(e) => setPortalInviteEmail(e.target.value)}
+                        placeholder="client@example.com"
+                        style={{
+                          width: "100%",
+                          padding: "6px 8px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          fontSize: 13,
+                        }}
+                      />
+                    </div>
+                    <div style={{ flex: "1 1 140px", minWidth: 120 }}>
+                      <label style={{ display: "block", fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Name</label>
+                      <input
+                        type="text"
+                        value={portalInviteName}
+                        onChange={(e) => setPortalInviteName(e.target.value)}
+                        placeholder="Jane Doe"
+                        style={{
+                          width: "100%",
+                          padding: "6px 8px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          fontSize: 13,
+                        }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handlePortalInvite}
+                      disabled={portalInviteSending || !portalInviteEmail.trim()}
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: 4,
+                        border: "1px solid #2563eb",
+                        background: portalInviteSending || !portalInviteEmail.trim() ? "#e5e7eb" : "#2563eb",
+                        color: portalInviteSending || !portalInviteEmail.trim() ? "#6b7280" : "#fff",
+                        fontSize: 12,
+                        fontWeight: 500,
+                        cursor: portalInviteSending || !portalInviteEmail.trim() ? "default" : "pointer",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {portalInviteSending ? "Sending…" : "Send Invite"}
+                    </button>
+                  </div>
+                  {portalInviteMessage && (
+                    <div
+                      style={{
+                        marginTop: 6,
+                        fontSize: 11,
+                        color: portalInviteMessage.toLowerCase().includes("fail") || portalInviteMessage.toLowerCase().includes("error")
+                          ? "#b91c1c"
+                          : "#047857",
+                      }}
+                    >
+                      {portalInviteMessage}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

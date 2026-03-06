@@ -418,6 +418,105 @@ export class ProjectService {
   }
 
   /**
+   * Public wrapper: invite a client by email to view an existing project.
+   * Used from the controller POST /projects/:id/invite-client.
+   */
+  async inviteClientToProject(
+    projectId: string,
+    companyId: string,
+    body: { email: string; name?: string },
+  ) {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { id: true, name: true, companyId: true, tenantClientId: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+    if (project.companyId !== companyId) throw new ForbiddenException('Access denied');
+
+    await this.inviteProjectClient({
+      email: body.email,
+      projectId: project.id,
+      projectName: project.name,
+      companyId: project.companyId,
+      primaryContactName: body.name,
+      tenantClientId: project.tenantClientId ?? undefined,
+    });
+
+    return { ok: true, email: body.email.trim().toLowerCase() };
+  }
+
+  /**
+   * List all users with portal (EXTERNAL_CONTACT) access to a project.
+   */
+  async listPortalViewers(projectId: string, companyId: string) {
+    const memberships = await this.prisma.projectMembership.findMany({
+      where: {
+        projectId,
+        companyId,
+        scope: ProjectParticipantScope.EXTERNAL_CONTACT,
+      },
+      include: {
+        user: {
+          select: { id: true, email: true, firstName: true, lastName: true, passwordHash: true },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    // Check which user is the "primary" contact via project.tenantClientId
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { tenantClientId: true },
+    });
+    let primaryUserId: string | null = null;
+    if (project?.tenantClientId) {
+      const tc = await this.prisma.tenantClient.findUnique({
+        where: { id: project.tenantClientId },
+        select: { userId: true },
+      });
+      primaryUserId = tc?.userId ?? null;
+    }
+
+    return memberships.map((m) => {
+      const hasPassword = !!(m.user.passwordHash &&
+        (m.user.passwordHash.startsWith('$argon2') || m.user.passwordHash.startsWith('$2')));
+      return {
+        userId: m.user.id,
+        email: m.user.email,
+        firstName: m.user.firstName,
+        lastName: m.user.lastName,
+        name: [m.user.firstName, m.user.lastName].filter(Boolean).join(' ') || m.user.email,
+        visibility: m.visibility,
+        isPrimary: m.user.id === primaryUserId,
+        status: hasPassword ? 'ACTIVE' : 'INVITE_PENDING',
+        createdAt: m.createdAt,
+      };
+    });
+  }
+
+  /**
+   * Revoke a client's portal access to a project.
+   * Removes the ProjectMembership (EXTERNAL_CONTACT) row.
+   */
+  async revokePortalViewer(projectId: string, companyId: string, userId: string) {
+    const membership = await this.prisma.projectMembership.findUnique({
+      where: { userId_projectId: { userId, projectId } },
+    });
+    if (!membership || membership.companyId !== companyId) {
+      throw new NotFoundException('Membership not found');
+    }
+    if (membership.scope !== ProjectParticipantScope.EXTERNAL_CONTACT) {
+      throw new BadRequestException('Only external client viewers can be revoked from this endpoint');
+    }
+
+    await this.prisma.projectMembership.delete({
+      where: { userId_projectId: { userId, projectId } },
+    });
+
+    return { ok: true, userId };
+  }
+
+  /**
    * Geocode a project's address and persist the lat/lng + geocodedAt timestamp.
    * Intended to be called fire-and-forget (non-blocking).
    */

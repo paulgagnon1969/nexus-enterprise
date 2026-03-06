@@ -132,6 +132,42 @@ export class ProjectController {
     return this.projects.getPortalInvoiceDetail(projectId, invoiceId, user.userId);
   }
 
+  // ── Portal Viewer Management ────────────────────────────────────────
+
+  /** POST /projects/:id/invite-client — invite a client to view this project */
+  @UseGuards(CombinedAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
+  @Post(":id/invite-client")
+  inviteClient(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Body() body: { email: string; name?: string },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.inviteClientToProject(projectId, user.companyId, body);
+  }
+
+  /** GET /projects/:id/portal-viewers — list client portal viewers */
+  @UseGuards(CombinedAuthGuard)
+  @Get(":id/portal-viewers")
+  listPortalViewers(@Req() req: any, @Param("id") projectId: string) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.listPortalViewers(projectId, user.companyId);
+  }
+
+  /** DELETE /projects/:id/portal-viewers/:userId — revoke portal access */
+  @UseGuards(CombinedAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Delete(":id/portal-viewers/:userId")
+  revokePortalViewer(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("userId") userId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.revokePortalViewer(projectId, user.companyId, userId);
+  }
+
   // ── Project Favorites ──────────────────────────────────────────────
 
   /** GET /projects/favorites — list favorited project IDs for current tenant */

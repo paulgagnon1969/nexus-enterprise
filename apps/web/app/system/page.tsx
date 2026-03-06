@@ -88,11 +88,164 @@ interface PeopleResult {
   score: number;
 }
 
+/* ── Profile card detail row ── */
+function ProfileRow({ label, value }: { label: string; value: React.ReactNode }) {
+  if (!value) return null;
+  return (
+    <div style={{ display: "flex", gap: 8, padding: "4px 0", fontSize: 12 }}>
+      <span style={{ width: 120, flexShrink: 0, color: "#6b7280", fontWeight: 500 }}>{label}</span>
+      <span style={{ color: "#0f172a", wordBreak: "break-word" }}>{value}</span>
+    </div>
+  );
+}
+
+function ProfileBadge({ text, bg, fg }: { text: string; bg: string; fg: string }) {
+  return (
+    <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 4, background: bg, color: fg, marginRight: 4 }}>
+      {text}
+    </span>
+  );
+}
+
+function PersonProfileCard({ source, id, onClose }: { source: string; id: string; onClose: () => void }) {
+  const [profile, setProfile] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
+    if (!token) { setError("No token"); setLoading(false); return; }
+    fetch(`${API_BASE}/admin/global-search/people/${source}/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`))
+      .then(d => setProfile(d))
+      .catch(e => setError(String(e)))
+      .finally(() => setLoading(false));
+  }, [source, id]);
+
+  const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : null;
+
+  if (loading) return <div style={{ padding: 16, fontSize: 12, color: "#6b7280" }}>Loading profile…</div>;
+  if (error || !profile) return <div style={{ padding: 16, fontSize: 12, color: "#b91c1c" }}>Failed to load profile.</div>;
+
+  const name = [profile.firstName, profile.lastName].filter(Boolean).join(" ") || profile.email || "(unnamed)";
+  const srcBadge = SOURCE_BADGE[profile.source] ?? SOURCE_BADGE.USER;
+
+  return (
+    <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 8, margin: "0 12px 12px", overflow: "hidden" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: "1px solid #e5e7eb", background: "#fff" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: "#0f172a" }}>{name}</span>
+          <ProfileBadge text={srcBadge.label} bg={srcBadge.bg} fg={srcBadge.fg} />
+          {profile.globalRole && profile.globalRole !== "NONE" && (
+            <ProfileBadge text={profile.globalRole} bg="#fce7f3" fg="#9d174d" />
+          )}
+        </div>
+        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "#9ca3af", padding: "2px 6px" }}>✕</button>
+      </div>
+
+      <div style={{ padding: "8px 14px" }}>
+        {/* Common fields */}
+        <ProfileRow label="Email" value={profile.email} />
+        <ProfileRow label="Phone" value={profile.phone} />
+        <ProfileRow label="ID" value={<span style={{ fontFamily: "monospace", fontSize: 11 }}>{profile.id}</span>} />
+        <ProfileRow label="Created" value={fmtDate(profile.createdAt)} />
+        <ProfileRow label="Updated" value={fmtDate(profile.updatedAt)} />
+
+        {/* USER-specific */}
+        {profile.source === "USER" && (
+          <>
+            <ProfileRow label="User Type" value={profile.userType} />
+            <ProfileRow label="Profile %" value={profile.profileCompletion != null ? `${profile.profileCompletion}%` : null} />
+            <ProfileRow label="People Token" value={<span style={{ fontFamily: "monospace", fontSize: 11 }}>{profile.peopleToken}</span>} />
+
+            {profile.memberships?.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", marginBottom: 4 }}>Tenant Memberships</div>
+                {profile.memberships.map((m: any, i: number) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 0", fontSize: 11 }}>
+                    <span style={{ fontWeight: 600, color: "#0f172a" }}>{m.companyName}</span>
+                    <ProfileBadge text={m.role} bg="#e0e7ff" fg="#3730a3" />
+                    {m.profileLabel && <ProfileBadge text={m.profileLabel} bg="#f3f4f6" fg="#374151" />}
+                    {!m.isActive && <ProfileBadge text="Inactive" bg="#fef2f2" fg="#b91c1c" />}
+                    {!m.companyActive && <ProfileBadge text="Org Deactivated" bg="#fef2f2" fg="#b91c1c" />}
+                    {m.blackFlagged && <ProfileBadge text="⚑ Black Flag" bg="#0f172a" fg="#ef4444" />}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {profile.candidateProfile && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", marginBottom: 4 }}>Candidate Profile</div>
+                <ProfileRow label="Status" value={profile.candidateProfile.status} />
+                <ProfileRow label="Source" value={profile.candidateProfile.source} />
+                <ProfileRow label="Visibility" value={profile.candidateProfile.visibilityScope} />
+              </div>
+            )}
+
+            {profile.recentProjects?.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", marginBottom: 4 }}>Projects ({profile.recentProjects.length})</div>
+                {profile.recentProjects.map((p: any, i: number) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "2px 0", fontSize: 11 }}>
+                    <span style={{ color: "#0f172a" }}>{p.projectName}</span>
+                    <ProfileBadge text={p.projectStatus} bg="#f3f4f6" fg="#374151" />
+                    <span style={{ color: "#9ca3af" }}>{p.role}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* CANDIDATE-specific */}
+        {profile.source === "CANDIDATE" && (
+          <>
+            <ProfileRow label="Status" value={profile.status} />
+            <ProfileRow label="Source" value={profile.candidateSource} />
+            <ProfileRow label="Visibility" value={profile.visibilityScope} />
+            <ProfileRow label="Company" value={profile.companyName} />
+            <ProfileRow label="Linked User" value={profile.linkedUserEmail} />
+          </>
+        )}
+
+        {/* CLIENT-specific */}
+        {profile.source === "CLIENT" && (
+          <>
+            <ProfileRow label="Display Name" value={profile.displayName} />
+            <ProfileRow label="Company" value={profile.companyName} />
+            <ProfileRow label="Tenant" value={profile.tenantName} />
+            <ProfileRow label="Active" value={profile.active ? "Yes" : "No"} />
+            <ProfileRow label="Linked User" value={profile.linkedUserEmail} />
+            {profile.notes && <ProfileRow label="Notes" value={profile.notes} />}
+
+            {profile.projects?.length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", marginBottom: 4 }}>Projects ({profile.projects.length})</div>
+                {profile.projects.map((p: any, i: number) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "2px 0", fontSize: 11 }}>
+                    <span style={{ color: "#0f172a" }}>{p.projectName}</span>
+                    <ProfileBadge text={p.projectStatus} bg="#f3f4f6" fg="#374151" />
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function GlobalPeopleSearch() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PeopleResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [selectedPerson, setSelectedPerson] = useState<{ source: string; id: string } | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const doSearch = useCallback((q: string) => {
@@ -104,6 +257,7 @@ function GlobalPeopleSearch() {
       return;
     }
     setSearching(true);
+    setSelectedPerson(null);
     fetch(`${API_BASE}/admin/global-search/people?q=${encodeURIComponent(q.trim())}&limit=25`, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -115,7 +269,7 @@ function GlobalPeopleSearch() {
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (query.trim().length < 2) { setResults([]); setSearched(false); return; }
+    if (query.trim().length < 2) { setResults([]); setSearched(false); setSelectedPerson(null); return; }
     debounceRef.current = setTimeout(() => doSearch(query), 300);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [query, doSearch]);
@@ -163,49 +317,67 @@ function GlobalPeopleSearch() {
       )}
 
       {!searching && results.length > 0 && (
-        <div style={{ maxHeight: 360, overflowY: "auto" }}>
+        <div style={{ maxHeight: selectedPerson ? 600 : 360, overflowY: "auto" }}>
           {results.map((r, i) => {
             const name = [r.firstName, r.lastName].filter(Boolean).join(" ") || r.email || "(unnamed)";
             const src = SOURCE_BADGE[r.source] ?? SOURCE_BADGE.USER;
             const tier = TIER_BADGE[r.matchTier] ?? TIER_BADGE.fuzzy;
+            const isSelected = selectedPerson?.source === r.source && selectedPerson?.id === r.id;
             return (
-              <div
-                key={`${r.source}-${r.id}-${i}`}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: "8px 16px",
-                  borderBottom: i < results.length - 1 ? "1px solid #f9fafb" : "none",
-                  fontSize: 12,
-                }}
-              >
-                {/* Name + email + phone */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {name}
-                  </div>
-                  <div style={{ fontSize: 11, color: "#6b7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {[r.email, r.phone].filter(Boolean).join(" · ")}
-                  </div>
-                  {r.tenantNames && (
-                    <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 1 }}>
-                      {r.tenantNames}
+              <div key={`${r.source}-${r.id}-${i}`}>
+                <div
+                  onClick={() => setSelectedPerson(isSelected ? null : { source: r.source, id: r.id })}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "8px 16px",
+                    borderBottom: i < results.length - 1 && !isSelected ? "1px solid #f9fafb" : "none",
+                    fontSize: 12,
+                    cursor: "pointer",
+                    background: isSelected ? "#f0f9ff" : "transparent",
+                    transition: "background 0.1s",
+                  }}
+                  onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = "#f9fafb"; }}
+                  onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+                >
+                  {/* Name + email + phone */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {name}
                     </div>
+                    <div style={{ fontSize: 11, color: "#6b7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {[r.email, r.phone].filter(Boolean).join(" · ")}
+                    </div>
+                    {r.tenantNames && (
+                      <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 1 }}>
+                        {r.tenantNames}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Badges */}
+                  <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 4, background: src.bg, color: src.fg }}>
+                    {src.label}
+                  </span>
+                  <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, padding: "2px 6px", borderRadius: 4, background: tier.bg, color: tier.fg }}>
+                    {tier.label}
+                  </span>
+                  {r.globalRole && r.globalRole !== "NONE" && (
+                    <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 4, background: "#fce7f3", color: "#9d174d" }}>
+                      {r.globalRole}
+                    </span>
                   )}
+                  <span style={{ flexShrink: 0, fontSize: 14, color: "#9ca3af" }}>{isSelected ? "▾" : "›"}</span>
                 </div>
 
-                {/* Badges */}
-                <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 4, background: src.bg, color: src.fg }}>
-                  {src.label}
-                </span>
-                <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, padding: "2px 6px", borderRadius: 4, background: tier.bg, color: tier.fg }}>
-                  {tier.label}
-                </span>
-                {r.globalRole && r.globalRole !== "NONE" && (
-                  <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 4, background: "#fce7f3", color: "#9d174d" }}>
-                    {r.globalRole}
-                  </span>
+                {/* Expanded profile card */}
+                {isSelected && (
+                  <PersonProfileCard
+                    source={r.source}
+                    id={r.id}
+                    onClose={() => setSelectedPerson(null)}
+                  />
                 )}
               </div>
             );
