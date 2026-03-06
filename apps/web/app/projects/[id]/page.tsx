@@ -23948,7 +23948,6 @@ ${htmlBody}
                   const tentativeBills = projectBills.filter(
                     (b: any) => b?.status === "TENTATIVE"
                   );
-                  if (tentativeBills.length === 0) return null;
                   const highConfCount = tentativeBills.filter((b: any) => (b?.prescreenConfidence ?? 0) >= 0.7).length;
 
                   // Group tentative bills by receipt: date + vendor + source
@@ -23983,9 +23982,9 @@ ${htmlBody}
                         border: "1px solid #93c5fd",
                       }}
                     >
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: tentativeBills.length > 0 ? 8 : 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: "#1d4ed8" }}>
-                          🔍 Pending Prescreened Transactions ({tentativeBills.length} items in {sortedGroups.length} receipt{sortedGroups.length !== 1 ? "s" : ""})
+                          🔍 Pending Prescreened Transactions{tentativeBills.length > 0 ? ` (${tentativeBills.length} items in ${sortedGroups.length} receipt${sortedGroups.length !== 1 ? "s" : ""})` : ""}
                         </div>
                         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                           {highConfCount > 0 && (
@@ -24013,11 +24012,16 @@ ${htmlBody}
                             </button>
                           )}
                           <span style={{ fontSize: 11, color: "#3b82f6" }}>
-                            Smart prescreened — review and confirm
+                            {tentativeBills.length > 0 ? "Smart prescreened — review and confirm" : "No pending transactions"}
                           </span>
                         </div>
                       </div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {tentativeBills.length === 0 && (
+                        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>
+                          Prescreened transactions from connected bank accounts and receipt imports will appear here for review before being posted as bills.
+                        </div>
+                      )}
+                      {tentativeBills.length > 0 && <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                         {sortedGroups.map(([groupKey, bills]) => {
                           const isExpanded = expandedReceiptGroups.has(groupKey);
                           const first = bills[0];
@@ -24236,7 +24240,7 @@ ${htmlBody}
                             </div>
                           );
                         })}
-                      </div>
+                      </div>}
                     </div>
                   );
                 })()}
