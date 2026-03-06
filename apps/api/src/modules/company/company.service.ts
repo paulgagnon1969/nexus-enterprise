@@ -162,10 +162,8 @@ export class CompanyService {
       where: { id: companyId },
       select: { name: true },
     });
-    const webBase = (process.env.WEB_APP_BASE_URL || "").replace(/\/$/, "");
-    const acceptUrl = webBase
-      ? `${webBase}/accept-invite?token=${encodeURIComponent(invite.token)}`
-      : `/accept-invite?token=${encodeURIComponent(invite.token)}`;
+    const webBase = (process.env.WEB_BASE_URL || 'https://staging-ncc.nfsgrp.com').replace(/\/$/, "");
+    const acceptUrl = `${webBase}/accept-invite?token=${encodeURIComponent(invite.token)}`;
     const companyName = company?.name ?? "your company";
 
     // Send invite email unless channel is share_link (mobile will handle delivery).
@@ -1358,7 +1356,7 @@ export class CompanyService {
     });
 
     // Send onboarding email
-    const webBase = (process.env.WEB_APP_BASE_URL || "").replace(/\/$/, "");
+    const webBase = (process.env.WEB_BASE_URL || 'https://staging-ncc.nfsgrp.com').replace(/\/$/, "");
     const onboardingUrl = `${webBase}/register/client-org?token=${encodeURIComponent(onboardingToken)}`;
     const inviterCompany = await this.prisma.company.findUnique({
       where: { id: actor.companyId },

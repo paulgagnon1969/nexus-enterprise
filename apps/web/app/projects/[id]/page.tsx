@@ -13932,6 +13932,120 @@ ${htmlBody}
                     </div>
                   </div>
                 )}
+
+                {/* Portal Access — inline with client contact */}
+                {(editProject.primaryContactEmail || selectedTenantClient?.email || portalViewers.length > 0) && (
+                  <div
+                    style={{
+                      marginTop: 10,
+                      padding: "10px 12px",
+                      borderRadius: 6,
+                      background: "#f0f9ff",
+                      border: "1px solid #bae6fd",
+                    }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#0c4a6e", marginBottom: 6 }}>
+                      Client Portal Access
+                      {portalViewers.length > 0 && (
+                        <span style={{ fontWeight: 400, color: "#0369a1", marginLeft: 6 }}>
+                          ({portalViewers.length} viewer{portalViewers.length !== 1 ? "s" : ""})
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Current viewers */}
+                    {portalViewers.length > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
+                        {portalViewers.map((v) => (
+                          <div
+                            key={v.userId}
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              padding: "5px 8px",
+                              borderRadius: 4,
+                              background: "#fff",
+                              border: "1px solid #e0f2fe",
+                              fontSize: 12,
+                            }}
+                          >
+                            <div>
+                              <span style={{ fontWeight: 500, color: "#111827" }}>{v.name}</span>
+                              <span style={{ color: "#6b7280", marginLeft: 6 }}>{v.email}</span>
+                              {v.isPrimary && (
+                                <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, color: "#047857", background: "#ecfdf5", padding: "0 5px", borderRadius: 8 }}>Primary</span>
+                              )}
+                              <span style={{ marginLeft: 6, fontSize: 10, color: v.status === "ACTIVE" ? "#059669" : "#d97706" }}>
+                                {v.status === "ACTIVE" ? "Active" : "Pending"}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleRevokePortalViewer(v.userId)}
+                              disabled={portalViewerRevoking === v.userId}
+                              style={{
+                                padding: "2px 8px", borderRadius: 4, border: "1px solid #e5e7eb",
+                                background: "#fff", color: portalViewerRevoking === v.userId ? "#9ca3af" : "#b91c1c",
+                                fontSize: 10, cursor: portalViewerRevoking === v.userId ? "default" : "pointer",
+                              }}
+                            >
+                              {portalViewerRevoking === v.userId ? "Removing…" : "Remove"}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Invite / Re-invite */}
+                    <div style={{ display: "flex", gap: 6, alignItems: "flex-end", flexWrap: "wrap" }}>
+                      <div style={{ flex: "1 1 180px", minWidth: 150 }}>
+                        <label style={{ display: "block", fontSize: 11, color: "#0c4a6e", marginBottom: 2 }}>Invite email</label>
+                        <input
+                          type="email"
+                          value={portalInviteEmail}
+                          onChange={(e) => setPortalInviteEmail(e.target.value)}
+                          placeholder={editProject.primaryContactEmail || "client@example.com"}
+                          style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                        />
+                      </div>
+                      <div style={{ flex: "0 0 120px" }}>
+                        <label style={{ display: "block", fontSize: 11, color: "#0c4a6e", marginBottom: 2 }}>Name</label>
+                        <input
+                          type="text"
+                          value={portalInviteName}
+                          onChange={(e) => setPortalInviteName(e.target.value)}
+                          placeholder={editProject.primaryContactName || ""}
+                          style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!portalInviteEmail.trim() && editProject.primaryContactEmail) {
+                            setPortalInviteEmail(editProject.primaryContactEmail);
+                            setPortalInviteName(editProject.primaryContactName || "");
+                          }
+                          handlePortalInvite();
+                        }}
+                        disabled={portalInviteSending || (!portalInviteEmail.trim() && !editProject.primaryContactEmail)}
+                        style={{
+                          padding: "4px 12px", borderRadius: 4, border: "1px solid #0369a1",
+                          background: (portalInviteSending || (!portalInviteEmail.trim() && !editProject.primaryContactEmail)) ? "#e5e7eb" : "#0369a1",
+                          color: (portalInviteSending || (!portalInviteEmail.trim() && !editProject.primaryContactEmail)) ? "#6b7280" : "#fff",
+                          fontSize: 11, fontWeight: 500, cursor: portalInviteSending ? "default" : "pointer", whiteSpace: "nowrap",
+                        }}
+                      >
+                        {portalInviteSending ? "Sending…" : "Invite / Re-invite"}
+                      </button>
+                    </div>
+                    {portalInviteMessage && (
+                      <div style={{ marginTop: 4, fontSize: 11, color: portalInviteMessage.toLowerCase().includes("fail") || portalInviteMessage.toLowerCase().includes("error") ? "#b91c1c" : "#047857" }}>
+                        {portalInviteMessage}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Project state toggle (Open / Archived / Deleted / Warranty) */}
@@ -16387,195 +16501,6 @@ ${htmlBody}
               />
             )}
 
-          {/* Client Portal Access */}
-          {(actorCompanyRole === "OWNER" ||
-            actorCompanyRole === "ADMIN" ||
-            actorCompanyRole === "MEMBER" ||
-            actorGlobalRole === "SUPER_ADMIN") &&
-            id && (
-            <div
-              style={{
-                marginTop: 12,
-                border: "1px solid #e5e7eb",
-                borderRadius: 6,
-                background: "#ffffff",
-              }}
-            >
-              <div
-                style={{
-                  padding: "10px 14px",
-                  borderBottom: "1px solid #e5e7eb",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
-                <div style={{ fontSize: 13, fontWeight: 600 }}>Client Portal Access</div>
-                <div style={{ fontSize: 11, color: "#6b7280" }}>
-                  {portalViewers.length} viewer{portalViewers.length !== 1 ? "s" : ""}
-                </div>
-              </div>
-
-              <div style={{ padding: "12px 14px" }}>
-                {/* Current viewers */}
-                {portalViewersLoading ? (
-                  <div style={{ fontSize: 12, color: "#9ca3af" }}>Loading…</div>
-                ) : portalViewers.length === 0 ? (
-                  <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 10 }}>
-                    No clients have portal access to this project.
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
-                    {portalViewers.map((v) => (
-                      <div
-                        key={v.userId}
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          padding: "8px 10px",
-                          borderRadius: 6,
-                          background: "#f9fafb",
-                          border: "1px solid #f3f4f6",
-                        }}
-                      >
-                        <div>
-                          <div style={{ fontSize: 13, fontWeight: 500, color: "#111827" }}>
-                            {v.name}
-                            {v.isPrimary && (
-                              <span
-                                style={{
-                                  marginLeft: 6,
-                                  fontSize: 10,
-                                  fontWeight: 600,
-                                  color: "#047857",
-                                  background: "#ecfdf5",
-                                  padding: "1px 6px",
-                                  borderRadius: 10,
-                                }}
-                              >
-                                Primary
-                              </span>
-                            )}
-                          </div>
-                          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 1 }}>
-                            {v.email}
-                            <span
-                              style={{
-                                marginLeft: 8,
-                                fontSize: 10,
-                                fontWeight: 500,
-                                color: v.status === "ACTIVE" ? "#059669" : "#d97706",
-                              }}
-                            >
-                              {v.status === "ACTIVE" ? "Active" : "Invite Pending"}
-                            </span>
-                          </div>
-                        </div>
-                        {(actorCompanyRole === "OWNER" ||
-                          actorCompanyRole === "ADMIN" ||
-                          actorGlobalRole === "SUPER_ADMIN") && (
-                          <button
-                            type="button"
-                            onClick={() => handleRevokePortalViewer(v.userId)}
-                            disabled={portalViewerRevoking === v.userId}
-                            style={{
-                              padding: "3px 8px",
-                              borderRadius: 4,
-                              border: "1px solid #e5e7eb",
-                              background: "#fff",
-                              color: portalViewerRevoking === v.userId ? "#9ca3af" : "#b91c1c",
-                              fontSize: 11,
-                              cursor: portalViewerRevoking === v.userId ? "default" : "pointer",
-                            }}
-                          >
-                            {portalViewerRevoking === v.userId ? "Revoking…" : "Revoke"}
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Invite form */}
-                <div
-                  style={{
-                    borderTop: portalViewers.length > 0 ? "1px solid #e5e7eb" : "none",
-                    paddingTop: portalViewers.length > 0 ? 10 : 0,
-                  }}
-                >
-                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "#374151" }}>
-                    Invite a client to view this project
-                  </div>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "flex-end" }}>
-                    <div style={{ flex: "1 1 180px", minWidth: 160 }}>
-                      <label style={{ display: "block", fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Email *</label>
-                      <input
-                        type="email"
-                        value={portalInviteEmail}
-                        onChange={(e) => setPortalInviteEmail(e.target.value)}
-                        placeholder="client@example.com"
-                        style={{
-                          width: "100%",
-                          padding: "6px 8px",
-                          borderRadius: 4,
-                          border: "1px solid #d1d5db",
-                          fontSize: 13,
-                        }}
-                      />
-                    </div>
-                    <div style={{ flex: "1 1 140px", minWidth: 120 }}>
-                      <label style={{ display: "block", fontSize: 11, color: "#6b7280", marginBottom: 2 }}>Name</label>
-                      <input
-                        type="text"
-                        value={portalInviteName}
-                        onChange={(e) => setPortalInviteName(e.target.value)}
-                        placeholder="Jane Doe"
-                        style={{
-                          width: "100%",
-                          padding: "6px 8px",
-                          borderRadius: 4,
-                          border: "1px solid #d1d5db",
-                          fontSize: 13,
-                        }}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handlePortalInvite}
-                      disabled={portalInviteSending || !portalInviteEmail.trim()}
-                      style={{
-                        padding: "6px 14px",
-                        borderRadius: 4,
-                        border: "1px solid #2563eb",
-                        background: portalInviteSending || !portalInviteEmail.trim() ? "#e5e7eb" : "#2563eb",
-                        color: portalInviteSending || !portalInviteEmail.trim() ? "#6b7280" : "#fff",
-                        fontSize: 12,
-                        fontWeight: 500,
-                        cursor: portalInviteSending || !portalInviteEmail.trim() ? "default" : "pointer",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {portalInviteSending ? "Sending…" : "Send Invite"}
-                    </button>
-                  </div>
-                  {portalInviteMessage && (
-                    <div
-                      style={{
-                        marginTop: 6,
-                        fontSize: 11,
-                        color: portalInviteMessage.toLowerCase().includes("fail") || portalInviteMessage.toLowerCase().includes("error")
-                          ? "#b91c1c"
-                          : "#047857",
-                      }}
-                    >
-                      {portalInviteMessage}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
