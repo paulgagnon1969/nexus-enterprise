@@ -1391,6 +1391,165 @@ export class AdminService {
     };
   }
 
+  async getPersonProfile(actor: AuthenticatedUser, source: string, id: string) {
+    await this.audit(actor, "ADMIN_VIEW_PERSON_PROFILE", { userId: source === "USER" ? id : undefined });
+
+    if (source === "USER") {
+      const user = await this.prisma.user.findUnique({
+        where: { id },
+        select: {
+          id: true, email: true, firstName: true, lastName: true,
+          globalRole: true, userType: true, createdAt: true, updatedAt: true,
+          profileCompletionPercent: true, peopleToken: true,
+          memberships: {
+            select: {
+              companyId: true, role: true, isActive: true,
+              profileId: true, blackFlagged: true,
+              company: { select: { id: true, name: true, kind: true, deletedAt: true } },
+              profile: { select: { code: true, label: true } },
+            },
+          },
+          nexNetCandidate: {
+            select: { id: true, status: true, source: true, visibilityScope: true, phone: true },
+          },
+          projectMemberships: {
+            select: {
+              role: true,
+              project: { select: { id: true, name: true, status: true } },
+            },
+            take: 20,
+          },
+        },
+      });
+      if (!user) return null;
+
+      return {
+        source: "USER",
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phone: user.nexNetCandidate?.phone ?? null,
+        globalRole: user.globalRole,
+        userType: user.userType,
+        profileCompletion: user.profileCompletionPercent,
+        peopleToken: user.peopleToken,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+        memberships: user.memberships.map(m => ({
+          companyId: m.companyId,
+          companyName: m.company.name,
+          companyKind: m.company.kind,
+          companyActive: !m.company.deletedAt,
+          role: m.role,
+          isActive: m.isActive,
+          profileCode: m.profile?.code ?? null,
+          profileLabel: m.profile?.label ?? null,
+          blackFlagged: m.blackFlagged,
+        })),
+        candidateProfile: user.nexNetCandidate ? {
+          id: user.nexNetCandidate.id,
+          status: user.nexNetCandidate.status,
+          source: user.nexNetCandidate.source,
+          visibilityScope: user.nexNetCandidate.visibilityScope,
+        } : null,
+        recentProjects: user.projectMemberships.map(pm => ({
+          projectId: pm.project.id,
+          projectName: pm.project.name,
+          projectStatus: pm.project.status,
+          role: pm.role,
+        })),
+      };
+    }
+
+    if (source === "CANDIDATE") {
+      const candidate = await this.prisma.nexNetCandidate.findUnique({
+        where: { id },
+        select: {
+          id: true, firstName: true, lastName: true, email: true, phone: true,
+          source: true, status: true, visibilityScope: true, companyId: true,
+          createdAt: true, updatedAt: true,
+          user: {
+            select: { id: true, email: true, firstName: true, lastName: true, globalRole: true },
+          },
+        },
+      });
+      if (!candidate) return null;
+
+      let companyName: string | null = null;
+      if (candidate.companyId) {
+        const co = await this.prisma.company.findUnique({ where: { id: candidate.companyId }, select: { name: true } });
+        companyName = co?.name ?? null;
+      }
+
+      return {
+        source: "CANDIDATE",
+        id: candidate.id,
+        firstName: candidate.firstName,
+        lastName: candidate.lastName,
+        email: candidate.email,
+        phone: candidate.phone,
+        candidateSource: candidate.source,
+        status: candidate.status,
+        visibilityScope: candidate.visibilityScope,
+        companyId: candidate.companyId,
+        companyName,
+        linkedUserId: candidate.user?.id ?? null,
+        linkedUserEmail: candidate.user?.email ?? null,
+        createdAt: candidate.createdAt,
+        updatedAt: candidate.updatedAt,
+      };
+    }
+
+    if (source === "CLIENT") {
+      const client = await this.prisma.tenantClient.findUnique({
+        where: { id },
+        select: {
+          id: true, firstName: true, lastName: true, displayName: true,
+          email: true, phone: true, company: true, notes: true,
+          active: true, createdAt: true, updatedAt: true,
+          additionalEmails: true, additionalPhones: true,
+          userId: true, companyId: true,
+          tenant: { select: { id: true, name: true } },
+          user: { select: { id: true, email: true, firstName: true, lastName: true } },
+          projects: {
+            select: { id: true, name: true, status: true },
+            take: 20,
+          },
+        },
+      });
+      if (!client) return null;
+
+      return {
+        source: "CLIENT",
+        id: client.id,
+        firstName: client.firstName,
+        lastName: client.lastName,
+        displayName: client.displayName,
+        email: client.email,
+        phone: client.phone,
+        companyName: client.company,
+        tenantId: client.tenant.id,
+        tenantName: client.tenant.name,
+        notes: client.notes,
+        active: client.active,
+        additionalEmails: client.additionalEmails,
+        additionalPhones: client.additionalPhones,
+        linkedUserId: client.user?.id ?? null,
+        linkedUserEmail: client.user?.email ?? null,
+        projects: client.projects.map(p => ({
+          projectId: p.id,
+          projectName: p.name,
+          projectStatus: p.status,
+        })),
+        createdAt: client.createdAt,
+        updatedAt: client.updatedAt,
+      };
+    }
+
+    return null;
+  }
+
   async createUserWithPassword(
     actor: AuthenticatedUser,
     params: { email: string; password: string; companyId: string; role: string; userType?: string }

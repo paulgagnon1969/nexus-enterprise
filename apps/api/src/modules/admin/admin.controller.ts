@@ -143,6 +143,16 @@ export class AdminController {
     return this.admin.globalSearchPeople(actor, q ?? "", limit);
   }
 
+  @Get("global-search/people/:source/:id")
+  getPersonProfile(
+    @Req() req: any,
+    @Param("source") source: string,
+    @Param("id") id: string,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.admin.getPersonProfile(actor, source, id);
+  }
+
   @Get("audit-logs")
   listAuditLogs() {
     return this.admin.listAuditLogs(100);
