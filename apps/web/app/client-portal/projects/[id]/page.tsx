@@ -63,7 +63,6 @@ interface PortalFile {
   fileName: string;
   mimeType?: string;
   sizeBytes?: number;
-  storageUrl?: string;
   createdAt: string;
 }
 
@@ -72,7 +71,7 @@ interface DailyLogAttachment {
   fileName: string;
   mimeType?: string;
   sizeBytes?: number;
-  url: string;
+  fileId: string;
 }
 
 interface DailyLog {
@@ -125,7 +124,7 @@ interface InvoiceLineItem {
 interface InvoiceAttachment {
   id: string;
   fileName: string;
-  fileUrl?: string;
+  fileId?: string;
   mimeType?: string;
   sizeBytes?: number;
 }
@@ -188,6 +187,28 @@ const fileIcon = (mimeType?: string): string => {
   if (mimeType.includes("spreadsheet") || mimeType.includes("excel") || mimeType.includes("csv")) return "📊";
   if (mimeType.includes("zip") || mimeType.includes("compressed")) return "📦";
   return "📄";
+};
+
+const downloadPortalFile = async (projectId: string, fileId: string, fileName: string) => {
+  const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") || "" : "";
+  if (!token) return;
+  try {
+    const res = await fetch(`${API_BASE}/projects/portal/${projectId}/files/${fileId}/download`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch {
+    // silent
+  }
 };
 
 // ── Styles ─────────────────────────────────────────────────────────
@@ -549,22 +570,20 @@ export default function ClientPortalProjectPage() {
               <div style={{ marginTop: 20 }}>
                 <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.5px" }}>Supporting Documents</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {activeInvoice.attachments.map((a) => (
-                    <a
+                    {activeInvoice.attachments.map((a) => (
+                    <button
                       key={a.id}
-                      href={a.fileUrl || "#"}
-                      target="_blank"
-                      rel="noreferrer"
+                      onClick={() => a.fileId && downloadPortalFile(projectId, a.fileId, a.fileName)}
                       style={{
                         display: "inline-flex", alignItems: "center", gap: 6,
                         padding: "6px 12px", borderRadius: 6, background: "rgba(59,130,246,0.1)",
                         border: "1px solid rgba(59,130,246,0.2)", color: "#2563eb",
-                        fontSize: 12, textDecoration: "none",
+                        fontSize: 12, cursor: "pointer",
                       }}
                     >
                       {fileIcon(a.mimeType)} {a.fileName}
                       {a.sizeBytes ? ` (${formatBytes(a.sizeBytes)})` : ""}
-                    </a>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -704,21 +723,19 @@ export default function ClientPortalProjectPage() {
                         {log.attachments.length > 0 && (
                           <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
                             {log.attachments.map((a) => (
-                              <a
+                              <button
                                 key={a.id}
-                                href={a.url}
-                                target="_blank"
-                                rel="noreferrer"
+                                onClick={() => downloadPortalFile(projectId, a.fileId, a.fileName)}
                                 style={{
                                   display: "inline-flex", alignItems: "center", gap: 4,
                                   padding: "4px 10px", borderRadius: 6, background: "rgba(59,130,246,0.08)",
                                   border: "1px solid rgba(59,130,246,0.15)", color: "#2563eb",
-                                  fontSize: 11, textDecoration: "none",
+                                  fontSize: 11, cursor: "pointer",
                                 }}
                               >
                                 {fileIcon(a.mimeType)} {a.fileName}
                                 {a.sizeBytes ? ` (${formatBytes(a.sizeBytes)})` : ""}
-                              </a>
+                              </button>
                             ))}
                           </div>
                         )}
@@ -848,16 +865,14 @@ export default function ClientPortalProjectPage() {
                 <div style={CARD_BODY}>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     {files.map((f) => (
-                      <a
+                      <button
                         key={f.id}
-                        href={f.storageUrl || "#"}
-                        target="_blank"
-                        rel="noreferrer"
+                        onClick={() => downloadPortalFile(projectId, f.id, f.fileName)}
                         style={{
                           display: "flex", justifyContent: "space-between", alignItems: "center",
                           padding: "10px 14px", borderRadius: 6, background: "#f1f5f9",
-                          textDecoration: "none", color: "inherit",
-                          border: "1px solid transparent",
+                          color: "inherit", width: "100%", textAlign: "left",
+                          border: "1px solid transparent", cursor: "pointer",
                           transition: "border-color 0.15s",
                         }}
                         onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "#d1d5db"; }}
@@ -874,7 +889,7 @@ export default function ClientPortalProjectPage() {
                           </div>
                         </div>
                         <span style={{ color: "#3b82f6", fontSize: 12 }}>Download</span>
-                      </a>
+                      </button>
                     ))}
                   </div>
                 </div>

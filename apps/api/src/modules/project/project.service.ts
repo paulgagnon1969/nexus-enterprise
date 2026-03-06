@@ -1357,7 +1357,7 @@ export class ProjectService {
             createdBy: { select: { id: true, firstName: true, lastName: true } },
             attachments: {
               take: 10,
-              select: { id: true, fileName: true, mimeType: true, sizeBytes: true, fileUrl: true },
+              select: { id: true, projectFileId: true, fileName: true, mimeType: true, sizeBytes: true },
             },
           },
         });
@@ -1375,10 +1375,10 @@ export class ProjectService {
             : 'Staff',
           attachments: l.attachments.map((a) => ({
             id: a.id,
+            fileId: a.projectFileId,
             fileName: a.fileName,
             mimeType: a.mimeType,
             sizeBytes: a.sizeBytes,
-            url: this.toPublicFileUrl(a.fileUrl),
           })),
         }));
       } catch {
@@ -1386,10 +1386,20 @@ export class ProjectService {
       }
     }
 
-    // Shared files: visible at all visibility levels
+    // Shared files: exclude internal-only files (PETL archives, OCR results,
+    // receipts/bill attachments, recon attachments, daily log attachments —
+    // daily log files already appear in the Daily Logs section).
     try {
       const files = await this.prisma.projectFile.findMany({
-        where: { projectId, companyId: project.companyId },
+        where: {
+          projectId,
+          companyId: project.companyId,
+          petlArchives: { none: {} },
+          receiptOcrResults: { none: {} },
+          petlReconciliationAttachments: { none: {} },
+          billAttachments: { none: {} },
+          dailyLogAttachments: { none: {} },
+        },
         orderBy: { createdAt: "desc" },
         take: 100,
         select: {
@@ -1397,19 +1407,71 @@ export class ProjectService {
           fileName: true,
           mimeType: true,
           sizeBytes: true,
-          storageUrl: true,
           createdAt: true,
         },
       });
-      response.files = files.map((f) => ({
-        ...f,
-        storageUrl: this.toPublicFileUrl(f.storageUrl),
-      }));
+      response.files = files;
     } catch {
       response.files = [];
     }
 
     return response;
+  }
+
+  /**
+   * Download a project file for a portal user.
+   * Validates portal access, fetches the file from object storage,
+   * and returns the buffer for the controller to send.
+   */
+  async downloadPortalFile(
+    projectId: string,
+    fileId: string,
+    userId: string,
+  ): Promise<{ buffer: Buffer; fileName: string; mimeType: string }> {
+    // Validate portal access
+    const membership = await this.prisma.projectMembership.findUnique({
+      where: { userId_projectId: { userId, projectId } },
+    });
+
+    if (!membership) {
+      const userCompanyIds = await this.prisma.companyMembership.findMany({
+        where: { userId, isActive: true },
+        select: { companyId: true },
+      });
+      const collab = userCompanyIds.length
+        ? await this.prisma.projectCollaboration.findFirst({
+            where: {
+              projectId,
+              companyId: { in: userCompanyIds.map((m) => m.companyId) },
+              active: true,
+              acceptedAt: { not: null },
+            },
+          })
+        : null;
+      if (!collab) {
+        throw new ForbiddenException('You do not have access to this project');
+      }
+    }
+
+    const file = await this.prisma.projectFile.findFirst({
+      where: { id: fileId, projectId },
+      select: { storageUrl: true, fileName: true, mimeType: true },
+    });
+
+    if (!file?.storageUrl) {
+      throw new NotFoundException('File not found');
+    }
+
+    const fsPromises = await import('fs/promises');
+    const localPath = await this.storage.downloadToTmp(file.storageUrl);
+    const buffer = await fsPromises.readFile(localPath);
+    await fsPromises.unlink(localPath).catch(() => {});
+
+    return {
+      buffer,
+      fileName: file.fileName || 'download',
+      mimeType: file.mimeType || 'application/octet-stream',
+    };
   }
 
   /**
@@ -1524,8 +1586,8 @@ export class ProjectService {
       });
       attachments = rawAttachments.map((a: any) => ({
         id: a.id,
+        fileId: a.projectFileId,
         fileName: a.fileName,
-        fileUrl: this.toPublicFileUrl(a.fileUrl),
         mimeType: a.mimeType,
         sizeBytes: a.sizeBytes,
       }));

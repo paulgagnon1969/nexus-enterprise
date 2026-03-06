@@ -132,6 +132,29 @@ export class ProjectController {
     return this.projects.getPortalInvoiceDetail(projectId, invoiceId, user.userId);
   }
 
+  /**
+   * GET /projects/portal/:id/files/:fileId/download
+   *
+   * Client portal: Proxy file downloads through the API.
+   * MinIO storage is not publicly accessible, so this streams the file
+   * from object storage to the client.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get("portal/:id/files/:fileId/download")
+  async portalFileDownload(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("fileId") fileId: string,
+    @Res() res: any,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    const file = await this.projects.downloadPortalFile(projectId, fileId, user.userId);
+    res
+      .header("Content-Type", file.mimeType)
+      .header("Content-Disposition", `attachment; filename="${file.fileName.replace(/"/g, "'")}"`)
+      .send(file.buffer);
+  }
+
   // ── Portal Viewer Management ────────────────────────────────────────
 
   /** POST /projects/:id/invite-client — invite a client to view this project */
