@@ -498,6 +498,11 @@ export default function FinancialPage() {
   const [dispositionNote, setDispositionNote] = useState("");
   const [dispositionSaving, setDispositionSaving] = useState(false);
   const [bankDispositionFilter, setBankDispositionFilter] = useState("");
+  const [bankAmountFilter, setBankAmountFilter] = useState("");
+
+  // Duplicate expense scan
+  const [dupScanLoading, setDupScanLoading] = useState(false);
+  const [dupScanResults, setDupScanResults] = useState<{ scannedBills: number; lookbackDays: number; duplicateGroups: Array<{ id: string; type: string; confidence: number; reason: string; bills: Array<{ billId: string; projectId: string; projectName: string; vendorName: string; amount: number; date: string; status: string }> }>; total: number } | null>(null);
 
   // Category override modal
   const [categoryModalTxn, setCategoryModalTxn] = useState<UnifiedTransactionDto | null>(null);
@@ -864,6 +869,10 @@ export default function FinancialPage() {
       if (bankProjectFilter) params.set("projectId", bankProjectFilter);
       if (bankUnassignedFilter) params.set("unassigned", "true");
       if (bankDispositionFilter) params.set("disposition", bankDispositionFilter);
+      if (bankAmountFilter) {
+        const cleaned = bankAmountFilter.replace(/[$,\-\s]/g, "");
+        if (cleaned) params.set("amountSearch", cleaned);
+      }
       if (bankAccountFilter) {
         if (bankAccountFilter.startsWith("conn:")) params.set("connectionId", bankAccountFilter.slice(5));
         else if (bankAccountFilter.startsWith("source:")) params.set("source", bankAccountFilter.slice(7));
@@ -907,6 +916,23 @@ export default function FinancialPage() {
         setBankProjects(items);
       }
     } catch {}
+  }
+
+  async function scanDuplicateExpenses() {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    setDupScanLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/banking/duplicate-expenses`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`Failed (${res.status})`);
+      setDupScanResults(await res.json());
+    } catch (err: any) {
+      setBankError(err?.message ?? "Failed to scan for duplicates");
+    } finally {
+      setDupScanLoading(false);
+    }
   }
 
   function toggleBankSort(field: BankSortField) {
@@ -1288,7 +1314,7 @@ export default function FinancialPage() {
     if (activeSection !== "BANKING") return;
     fetchBankTransactions(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bankSortBy, bankSortDir, bankStatusFilter, bankCategoryFilter, bankProjectFilter, bankUnassignedFilter, bankDispositionFilter, bankTxPageSize]);
+  }, [bankSortBy, bankSortDir, bankStatusFilter, bankCategoryFilter, bankProjectFilter, bankUnassignedFilter, bankDispositionFilter, bankAmountFilter, bankTxPageSize]);
 
   // Lazy-load Asset Logistics tree when that tab is first opened.
   useEffect(() => {
@@ -4198,6 +4224,14 @@ export default function FinancialPage() {
               onKeyDown={e => { if (e.key === "Enter") { fetchBankTransactions(1); fetchBankSummary(); } }}
               style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12, width: 160 }}
             />
+            <input
+              type="text"
+              placeholder="Amount…"
+              value={bankAmountFilter}
+              onChange={e => setBankAmountFilter(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") { fetchBankTransactions(1); fetchBankSummary(); } }}
+              style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12, width: 100 }}
+            />
             <select
               value={bankSourceFilter}
               onChange={e => { setBankSourceFilter(e.target.value); setBankAccountFilter(""); }}
@@ -4357,11 +4391,69 @@ export default function FinancialPage() {
             >
               {prescreenRunning ? "Prescreening…" : "🔄 Re-run Prescreening"}
             </button>
+            <button
+              type="button"
+              onClick={scanDuplicateExpenses}
+              disabled={dupScanLoading}
+              style={{
+                padding: "6px 12px", borderRadius: 6, border: "1px solid #dc2626", background: dupScanLoading ? "#e5e7eb" : "#fef2f2",
+                color: dupScanLoading ? "#6b7280" : "#dc2626", fontSize: 11, fontWeight: 600,
+                cursor: dupScanLoading ? "not-allowed" : "pointer",
+              }}
+            >
+              {dupScanLoading ? "Scanning…" : "🔍 Duplicate Expenses"}
+            </button>
           </div>
           {prescreenResult && (
             <div style={{ fontSize: 12, marginBottom: 8, padding: "6px 10px", borderRadius: 6, background: "#f5f3ff", border: "1px solid #c4b5fd", color: "#5b21b6" }}>
               {prescreenResult}
               <button type="button" onClick={() => setPrescreenResult(null)} style={{ marginLeft: 8, border: "none", background: "none", cursor: "pointer", color: "#7c3aed", fontSize: 11 }}>✕</button>
+            </div>
+          )}
+
+          {/* Duplicate Expenses Results */}
+          {dupScanResults && (
+            <div style={{ marginBottom: 12, borderRadius: 8, border: "1px solid #fecaca", background: "#fef2f2", overflow: "hidden" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", background: "#fee2e2" }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#991b1b" }}>
+                  🔍 {dupScanResults.total} Potential Duplicate{dupScanResults.total !== 1 ? "s" : ""} Found
+                  <span style={{ fontWeight: 400, color: "#b91c1c", marginLeft: 6 }}>({dupScanResults.scannedBills} bills scanned, {dupScanResults.lookbackDays}-day window)</span>
+                </span>
+                <button type="button" onClick={() => setDupScanResults(null)} style={{ border: "none", background: "none", cursor: "pointer", color: "#dc2626", fontSize: 13, fontWeight: 700 }}>✕</button>
+              </div>
+              {dupScanResults.duplicateGroups.length === 0 && (
+                <div style={{ padding: "12px 16px", fontSize: 12, color: "#166534", background: "#dcfce7" }}>
+                  ✓ No cross-project duplicate expenses detected.
+                </div>
+              )}
+              {dupScanResults.duplicateGroups.map(group => (
+                <div key={group.id} style={{ padding: "10px 12px", borderTop: "1px solid #fecaca" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{
+                      padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 700,
+                      background: group.type === "EXACT" ? "#fee2e2" : "#fef3c7",
+                      color: group.type === "EXACT" ? "#991b1b" : "#92400e",
+                    }}>
+                      {group.type}
+                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: "#374151" }}>
+                      {(group.confidence * 100).toFixed(0)}% confidence
+                    </span>
+                    <span style={{ fontSize: 11, color: "#6b7280" }}>{group.reason}</span>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {group.bills.map(bill => (
+                      <div key={bill.billId} style={{
+                        flex: "1 1 200px", padding: "8px 10px", borderRadius: 6, border: "1px solid #e5e7eb", background: "#fff", fontSize: 11,
+                      }}>
+                        <div style={{ fontWeight: 700, color: "#1e40af", marginBottom: 2 }}>{bill.projectName}</div>
+                        <div>{bill.vendorName} &mdash; ${Math.abs(bill.amount).toFixed(2)}</div>
+                        <div style={{ color: "#6b7280" }}>{bill.date} · {bill.status}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
@@ -4429,6 +4521,7 @@ export default function FinancialPage() {
                   {([
                     { field: "date" as BankSortField, label: "Date", align: "left", nowrap: true },
                     { field: null, label: "Source", align: "left", nowrap: true },
+                    { field: null, label: "Acct / Store #", align: "left", nowrap: true },
                     { field: "description" as BankSortField, label: "Description", align: "left", nowrap: false },
                     { field: "merchant" as BankSortField, label: "Merchant / Job", align: "left", nowrap: false },
                     { field: "category" as BankSortField, label: "Category", align: "left", nowrap: false },
@@ -4452,9 +4545,11 @@ export default function FinancialPage() {
                       }}
                     >
                       {col.label}
-                      {col.field && bankSortBy === col.field && (
-                        <span style={{ marginLeft: 4, fontSize: 10 }}>
-                          {bankSortDir === "asc" ? "▲" : "▼"}
+                      {col.field && (
+                        <span style={{ marginLeft: 4, fontSize: 10, color: bankSortBy === col.field ? "#4338ca" : "#c7d2fe" }}>
+                          {bankSortBy === col.field
+                            ? (bankSortDir === "asc" ? "▲" : "▼")
+                            : "↕"}
                         </span>
                       )}
                     </th>
@@ -4463,10 +4558,10 @@ export default function FinancialPage() {
               </thead>
               <tbody>
                 {bankLoading && (
-                  <tr><td colSpan={12} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>Loading…</td></tr>
+                  <tr><td colSpan={13} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>Loading…</td></tr>
                 )}
                 {!bankLoading && bankTransactions.length === 0 && (
-                  <tr><td colSpan={12} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>
+                  <tr><td colSpan={13} style={{ padding: 20, textAlign: "center", color: "#6b7280" }}>
                     {bankConnections.length === 0 && csvBatches.length === 0
                       ? "Connect a bank account or import a CSV to see transactions."
                       : "No transactions found."}
@@ -4474,12 +4569,16 @@ export default function FinancialPage() {
                 )}
                 {!bankLoading && bankTransactions.map(txn => {
                   const srcBadge: Record<string, { label: string; bg: string; color: string }> = {
-                    PLAID: { label: "Bank", bg: "#dbeafe", color: "#1d4ed8" },
+                    PLAID: { label: txn.extra?.institutionName ?? "Bank", bg: "#dbeafe", color: "#1d4ed8" },
                     HD_PRO_XTRA: { label: "HD", bg: "#ffedd5", color: "#c2410c" },
                     CHASE_BANK: { label: "Chase", bg: "#dbeafe", color: "#2563eb" },
                     APPLE_CARD: { label: "Apple", bg: "#f3f4f6", color: "#374151" },
                   };
                   const badge = srcBadge[txn.source] ?? { label: txn.source, bg: "#f3f4f6", color: "#6b7280" };
+                  // Acct / Store # value
+                  const acctStore = txn.source === "PLAID"
+                    ? (txn.extra?.accountMask ? `••••${txn.extra.accountMask}` : null)
+                    : (txn.extra?.storeNumber ? `#${txn.extra.storeNumber}` : null);
                   const merchantOrJob = txn.extra?.jobName || txn.merchant || "—";
                   const isSelected = bankSelectedIds.has(txn.id);
                   return (
@@ -4504,6 +4603,9 @@ export default function FinancialPage() {
                         <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700, background: badge.bg, color: badge.color }}>
                           {badge.label}
                         </span>
+                      </td>
+                      <td style={{ padding: "8px 10px", whiteSpace: "nowrap", fontSize: 11, color: acctStore ? "#374151" : "#d1d5db" }}>
+                        {acctStore ?? "—"}
                       </td>
                       <td style={{ padding: "8px 10px", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                         title={txn.extra?.sku ? `SKU: ${txn.extra.sku}` : undefined}

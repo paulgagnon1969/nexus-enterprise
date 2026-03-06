@@ -333,6 +333,174 @@ export class DuplicateBillDetectorService {
   }
 
   // ═══════════════════════════════════════════════════════════════════
+  // Cross-project duplicate expense scanner
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Scan for receipts/bills that appear on more than one project.
+   *
+   * Two detection strategies:
+   *  1. **Exact**: Same `sourceTransactionId` on bills in different projects.
+   *  2. **Fuzzy**: Same vendor (alias-aware), similar amount (±1%), close date (±3 days),
+   *     but on different projects.
+   *
+   * Returns deduplicated groups sorted by confidence descending.
+   */
+  async scanCrossProjectDuplicates(
+    companyId: string,
+    opts?: { lookbackDays?: number },
+  ) {
+    const lookbackDays = opts?.lookbackDays ?? 90;
+    const since = new Date();
+    since.setDate(since.getDate() - lookbackDays);
+
+    const bills = await this.prisma.projectBill.findMany({
+      where: {
+        companyId,
+        status: { in: ["TENTATIVE", "DRAFT", "POSTED"] },
+        billDate: { gte: since },
+        billRole: { not: "VERIFICATION" },
+      },
+      select: {
+        id: true,
+        projectId: true,
+        vendorName: true,
+        totalAmount: true,
+        billDate: true,
+        status: true,
+        sourceTransactionId: true,
+        sourceTransactionSource: true,
+        project: { select: { id: true, name: true } },
+      },
+      orderBy: { billDate: "desc" },
+    });
+
+    type BillRow = (typeof bills)[number];
+    type DuplicateGroup = {
+      id: string;
+      type: "EXACT" | "FUZZY";
+      confidence: number;
+      reason: string;
+      bills: Array<{
+        billId: string;
+        projectId: string;
+        projectName: string;
+        vendorName: string;
+        amount: number;
+        date: string;
+        status: string;
+        sourceTransactionId: string | null;
+      }>;
+    };
+
+    const groups: DuplicateGroup[] = [];
+    const seenPairs = new Set<string>();
+
+    // Strategy 1: Exact — same sourceTransactionId across projects
+    const byTxnId = new Map<string, BillRow[]>();
+    for (const b of bills) {
+      if (!b.sourceTransactionId) continue;
+      const key = b.sourceTransactionId;
+      if (!byTxnId.has(key)) byTxnId.set(key, []);
+      byTxnId.get(key)!.push(b);
+    }
+    for (const [txnId, group] of byTxnId) {
+      const projectIds = new Set(group.map((b) => b.projectId));
+      if (projectIds.size < 2) continue;
+      const pairKey = group.map((b) => b.id).sort().join("|");
+      seenPairs.add(pairKey);
+      groups.push({
+        id: `exact-${txnId}`,
+        type: "EXACT",
+        confidence: 1.0,
+        reason: `Same transaction (${txnId.slice(-8)}) posted to ${projectIds.size} projects`,
+        bills: group.map((b) => ({
+          billId: b.id,
+          projectId: b.projectId,
+          projectName: (b as any).project?.name ?? "Unknown",
+          vendorName: b.vendorName,
+          amount: b.totalAmount,
+          date: b.billDate.toISOString().slice(0, 10),
+          status: b.status,
+          sourceTransactionId: b.sourceTransactionId,
+        })),
+      });
+    }
+
+    // Strategy 2: Fuzzy — vendor + amount + date across projects
+    for (let i = 0; i < bills.length; i++) {
+      for (let j = i + 1; j < bills.length; j++) {
+        const a = bills[i];
+        const b = bills[j];
+        if (a.projectId === b.projectId) continue;
+
+        const pairKey = [a.id, b.id].sort().join("|");
+        if (seenPairs.has(pairKey)) continue;
+
+        const vendorA = normalizeVendor(a.vendorName);
+        const vendorB = normalizeVendor(b.vendorName);
+        if (!vendorsMatch(vendorA, vendorB)) continue;
+
+        const amountDiff = Math.abs(a.totalAmount - b.totalAmount);
+        const refAmount = Math.max(a.totalAmount, b.totalAmount, 1);
+        const tolerance = Math.max(refAmount * AMOUNT_TOLERANCE_PCT, AMOUNT_TOLERANCE_FLOOR);
+        if (amountDiff > tolerance) continue;
+
+        const daysDiff = Math.abs(
+          Math.round((a.billDate.getTime() - b.billDate.getTime()) / (1000 * 60 * 60 * 24)),
+        );
+        if (daysDiff > DATE_TOLERANCE_DAYS) continue;
+
+        const pctDiff = amountDiff / refAmount;
+        let confidence = 0.5;
+        if (pctDiff < 0.001) confidence += 0.30;
+        else if (pctDiff < 0.005) confidence += 0.20;
+        else if (pctDiff < 0.01) confidence += 0.10;
+        if (daysDiff === 0) confidence += 0.15;
+        else if (daysDiff === 1) confidence += 0.10;
+        else if (daysDiff <= 3) confidence += 0.05;
+        confidence = Math.min(confidence, 0.98);
+
+        seenPairs.add(pairKey);
+        groups.push({
+          id: `fuzzy-${a.id}-${b.id}`,
+          type: "FUZZY",
+          confidence,
+          reason: [
+            `Vendor: "${a.vendorName}" ↔ "${b.vendorName}"`,
+            `Amount: $${a.totalAmount.toFixed(2)} vs $${b.totalAmount.toFixed(2)} (Δ${(pctDiff * 100).toFixed(2)}%)`,
+            `Date: ${daysDiff} day(s) apart`,
+            `Projects: ${(a as any).project?.name} ↔ ${(b as any).project?.name}`,
+          ].join(", "),
+          bills: [a, b].map((bill) => ({
+            billId: bill.id,
+            projectId: bill.projectId,
+            projectName: (bill as any).project?.name ?? "Unknown",
+            vendorName: bill.vendorName,
+            amount: bill.totalAmount,
+            date: bill.billDate.toISOString().slice(0, 10),
+            status: bill.status,
+            sourceTransactionId: bill.sourceTransactionId,
+          })),
+        });
+      }
+    }
+
+    groups.sort((a, b) => b.confidence - a.confidence);
+
+    this.logger.log(
+      `Cross-project duplicate scan: ${bills.length} bills checked, ${groups.length} potential duplicates found`,
+    );
+
+    return {
+      scannedBills: bills.length,
+      lookbackDays,
+      duplicateGroups: groups,
+      total: groups.length,
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
   // Retroactive swap — OCR receipt arrives after CC tentative bill
   // ═══════════════════════════════════════════════════════════════════
 

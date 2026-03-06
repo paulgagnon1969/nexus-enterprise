@@ -15,6 +15,7 @@ import type { FastifyRequest } from "fastify";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CsvImportService } from "./csv-import.service";
+import { DuplicateBillDetectorService } from "./duplicate-bill-detector.service";
 import { CsvImportSource, TransactionDisposition } from "@prisma/client";
 
 const VALID_SOURCES: Record<string, CsvImportSource> = {
@@ -36,7 +37,10 @@ const VALID_DISPOSITIONS: Record<string, TransactionDisposition> = {
 @Controller("banking")
 @UseGuards(JwtAuthGuard)
 export class CsvImportController {
-  constructor(private readonly csvImport: CsvImportService) {}
+  constructor(
+    private readonly csvImport: CsvImportService,
+    private readonly duplicateDetector: DuplicateBillDetectorService,
+  ) {}
 
   // ─── Upload & parse a CSV ────────────────────────────────────────
 
@@ -133,6 +137,7 @@ export class CsvImportController {
     @Query("disposition") disposition?: string,
     @Query("merchant") merchant?: string,
     @Query("accountMask") accountMask?: string,
+    @Query("amountSearch") amountSearch?: string,
     @Query("page") page?: string,
     @Query("pageSize") pageSize?: string,
   ) {
@@ -153,6 +158,7 @@ export class CsvImportController {
       disposition: disposition || undefined,
       merchant,
       accountMask: accountMask || undefined,
+      amountSearch: amountSearch || undefined,
       page: page ? parseInt(page, 10) : undefined,
       pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
     });
@@ -184,7 +190,7 @@ export class CsvImportController {
     @Body() body: { ids: Array<{ id: string; source: string }>; projectId: string | null },
   ) {
     const actor = req.user as AuthenticatedUser;
-    return this.csvImport.bulkAssignProject(actor.companyId, body.ids, body.projectId);
+    return this.csvImport.bulkAssignProject(actor.companyId, body.ids, body.projectId, actor.userId);
   }
 
   // ─── Distinct categories ──────────────────────────────────────────
@@ -452,5 +458,19 @@ export class CsvImportController {
   @Get("transactions/:id/tags")
   async getTransactionTags(@Param("id") id: string) {
     return this.csvImport.getTransactionTags(id);
+  }
+
+  // ─── Cross-project duplicate expense scanner ───────────────────────
+
+  @Get("duplicate-expenses")
+  async scanDuplicateExpenses(
+    @Req() req: any,
+    @Query("lookbackDays") lookbackDays?: string,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.duplicateDetector.scanCrossProjectDuplicates(
+      actor.companyId,
+      { lookbackDays: lookbackDays ? parseInt(lookbackDays, 10) : undefined },
+    );
   }
 }

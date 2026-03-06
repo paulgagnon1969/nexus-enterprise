@@ -72,7 +72,12 @@ export class ReceiptOcrService {
     try {
       this.logger.log(`Processing receipt OCR: ${ocrResultId}`);
 
-      const extractedData = await this.openAiProvider.extractReceipt(imageUrl);
+      // Route PDFs to text extraction, images to vision OCR
+      const isPdf = imageUrl.toLowerCase().endsWith('.pdf') ||
+        ocrResult.projectFile.storageUrl?.toLowerCase().endsWith('.pdf');
+      const extractedData = isPdf
+        ? await this.openAiProvider.extractReceiptFromPdf(imageUrl)
+        : await this.openAiProvider.extractReceipt(imageUrl);
 
       // Update OCR result with extracted data
       await this.prisma.receiptOcrResult.update({

@@ -1,8 +1,8 @@
 ---
 title: "NexOP Portfolio — Nexus Operating Percentage by Company Size"
-revision: "2.1"
+revision: "2.2"
 created: 2026-03-04
-updated: 2026-03-05
+updated: 2026-03-06
 author: Warp
 visibility:
   public: false
@@ -17,7 +17,7 @@ tags: [cam, portfolio, nexop, operating-percentage, revenue-tiers, roi]
 
 All CAM financial impact figures are expressed using **NexOP (Nexus Operating Percentage)** — the percentage of annual revenue that Nexus recovers through operational impact. A $1M startup and a $50M GC experience the same proportional exposure — and the same proportional recovery when Nexus is active.
 
-This document aggregates the NexOP from all 17 Nexus CAMs and extrapolates real-dollar values across five revenue tiers. See `TECH-VIS-0001` for the full NexOP methodology and dashboard design.
+This document aggregates the NexOP from all 19 Nexus CAMs and extrapolates real-dollar values across five revenue tiers. See `TECH-VIS-0001` for the full NexOP methodology and dashboard design.
 
 **Key takeaway**: Nexus delivers a **NexOP of ~6–12%** at every tier. The percentage, not the dollar figure, is the metric.
 
@@ -71,18 +71,20 @@ This document aggregates the NexOP from all 17 Nexus CAMs and extrapolates real-
 
 Each CAM’s NexOP is computed against the $10M baseline. Dollar values at other tiers use validated scaling factors (see Methodology below).
 
-### Financial Module (NexOP ~9.37%)
+### Financial Module (NexOP ~11.77%)
 
 || CAM | NexOP | $1M | $5M | $10M | $50M |
 ||-----|-------|-----|-----|------|------|
 || **FIN-ACC-0001** NexVERIFY | ~7.50% | $75K | $375K | $750K | $3.75M |
+|| **FIN-ACC-0002** Zero-Loss Receipt Capture | ~1.65% | $16.5K | $82.5K | $165K | $825K |
+|| **FIN-AUTO-0002** Transaction-to-Bill Auto-Posting | ~0.75% | $7.5K | $37.5K | $75K | $375K |
 || **FIN-VIS-0001** Purchase Recon | ~0.66% | $6.6K | $26.2K | $65.6K | $262K |
 || **FIN-INTL-0002** Smart Prescreen | ~0.60% | $4.5K | $22.5K | $59.9K | $225K |
 || **FIN-AUTO-0001** Receipt OCR | ~0.37% | $3.7K | $14.8K | $37K | $148K |
 || **FIN-INTL-0003** NexPRICE | ~0.24% | $4K | $11.9K | $23.7K | $79K |
-|| **Financial Subtotal** | **~9.37%** | | | | |
+|| **Financial Subtotal** | **~11.77%** | | | | |
 
-*NexVERIFY (~7.5%) dominates because phantom duplicate distortion and PM decision corruption scale proportionally with CC spend. FIN-INTL-0003 additionally reduces bid accuracy exposure by ~2.25% — not included in the direct savings total.*
+*NexVERIFY (~7.5%) dominates because phantom duplicate distortion and PM decision corruption scale proportionally with CC spend. FIN-ACC-0002 (~1.65%) captures receipt-loss exposure by inverting the receipt-first model — the bill exists before the receipt. FIN-AUTO-0002 (~0.75%) is the mechanism: auto-posting bills on transaction assignment with dual-role PM detection. Note: ~0.75% of FIN-ACC-0002's impact overlaps with FIN-AUTO-0002 since auto-posting is the delivery mechanism. The net additive NexOP from both new CAMs is ~1.65%. FIN-INTL-0003 additionally reduces bid accuracy exposure by ~2.25% — not included in the direct savings total.*
 
 ### Estimating Module (NexOP ~3.12%)
 
@@ -155,7 +157,7 @@ Each CAM’s NexOP is computed against the $10M baseline. Dollar values at other
 4. **FIN-VIS-0001** Purchase Recon — **NexOP ~0.66%** (CC reconciliation + personal expense identification)
 5. **OPS-VIS-0001** Field Qty Discrepancy — **NexOP ~0.61%** (under-billed scope recovery)
 
-These five CAMs alone account for **NexOP ~12.95%**. The remaining 12 CAMs add **~4.46%**.
+These five CAMs alone account for **NexOP ~12.95%**. The remaining 14 CAMs add **~6.11%** (including FIN-ACC-0002 Zero-Loss Receipt Capture at ~1.65%).
 
 ## Scaling Methodology
 
@@ -198,6 +200,10 @@ Each CAM uses 1–3 primary scaling drivers depending on where its value comes f
 - These four CAMs alone account for NexOP ~12.3%
 
 ## Revision History
+
+| Rev | Date | Changes |
+|-----|------|---------|
+| 2.2 | 2026-03-06 | Added FIN-AUTO-0002 (Transaction-to-Bill Auto-Posting, ~0.75%) and FIN-ACC-0002 (Zero-Loss Receipt Capture, ~1.65%). Financial module NexOP updated from ~9.37% to ~11.77%. CAM count updated from 17 to 19. |
 
 | Rev | Date | Changes |
 |-----|------|---------|

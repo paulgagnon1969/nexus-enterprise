@@ -625,6 +625,7 @@ export class CsvImportService {
       disposition?: string;
       merchant?: string;
       accountMask?: string;
+      amountSearch?: string;
       page?: number;
       pageSize?: number;
     },
@@ -697,6 +698,15 @@ export class CsvImportService {
           { name: { contains: filters.search, mode: "insensitive" } },
           { merchantName: { contains: filters.search, mode: "insensitive" } },
         ];
+      }
+      if (filters.amountSearch) {
+        const parsed = parseFloat(filters.amountSearch);
+        if (!isNaN(parsed)) {
+          const amountCond = { amount: { in: parsed === 0 ? [0] : [parsed, -parsed] } };
+          if (where.AND) { where.AND.push(amountCond); }
+          else if (where.OR) { where.AND = [{ OR: where.OR }, amountCond]; delete where.OR; }
+          else { where.AND = [amountCond]; }
+        }
       }
 
       const [plaidRows, plaidCount] = await Promise.all([
@@ -786,6 +796,15 @@ export class CsvImportService {
           delete where.OR;
         } else {
           where.OR = searchOr;
+        }
+      }
+      if (filters.amountSearch) {
+        const parsed = parseFloat(filters.amountSearch);
+        if (!isNaN(parsed)) {
+          const amountCond = { amount: { in: parsed === 0 ? [0] : [parsed, -parsed] } };
+          if (where.AND) { (where.AND as any[]).push(amountCond); }
+          else if (where.OR) { where.AND = [{ OR: where.OR }, amountCond]; delete where.OR; }
+          else { where.AND = [amountCond]; }
         }
       }
 
@@ -878,6 +897,89 @@ export class CsvImportService {
     };
   }
 
+  // ─── PM role check helper ──────────────────────────────────────────
+
+  /**
+   * Check if a user is assigned as PM for a project via teamTreeJson.
+   * teamTreeJson shape: { "PM": ["userId1", ...], "SUPERINTENDENT": [...], ... }
+   */
+  private async isUserPmForProject(userId: string, projectId: string): Promise<boolean> {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { teamTreeJson: true },
+    });
+    if (!project?.teamTreeJson) return false;
+    const teamTree = project.teamTreeJson as Record<string, string[]>;
+    const pmList = teamTree["PM"] ?? teamTree["pm"] ?? [];
+    return Array.isArray(pmList) && pmList.includes(userId);
+  }
+
+  // ─── Create bill from transaction assignment ──────────────────────
+
+  /**
+   * Creates a ProjectBill when a transaction is manually assigned to a project.
+   * - If the assigning user is the PM for the target project (dual-role),
+   *   the bill goes straight to DRAFT (auto-approved).
+   * - Otherwise, the bill is TENTATIVE and the PM must review it.
+   */
+  private async createBillFromTransaction(params: {
+    companyId: string;
+    projectId: string;
+    transactionId: string;
+    transactionSource: string;
+    vendorName: string;
+    billDate: Date;
+    totalAmount: number;
+    description: string;
+    userId?: string;
+  }) {
+    const { companyId, projectId, transactionId, transactionSource, vendorName, billDate, totalAmount, description, userId } = params;
+
+    // Idempotency: skip if a bill already exists for this transaction on this project
+    const existing = await this.prisma.projectBill.findFirst({
+      where: { sourceTransactionId: transactionId, projectId },
+    });
+    if (existing) return existing;
+
+    // Dual-role check: is the assigning user also the PM for this project?
+    const isPm = userId ? await this.isUserPmForProject(userId, projectId) : false;
+    const billStatus = isPm ? "DRAFT" : "TENTATIVE";
+
+    const bill = await this.prisma.projectBill.create({
+      data: {
+        companyId,
+        projectId,
+        vendorName,
+        billDate,
+        totalAmount,
+        status: billStatus,
+        sourceTransactionId: transactionId,
+        sourceTransactionSource: transactionSource,
+        memo: isPm
+          ? `Assigned by PM — auto-approved for review`
+          : `Assigned from Banking Transactions — pending PM review`,
+        createdByUserId: userId ?? null,
+        lineItems: {
+          create: [
+            {
+              kind: "MATERIALS",
+              description: description || "Imported transaction",
+              amount: totalAmount,
+              amountSource: "MANUAL",
+            },
+          ],
+        },
+      },
+    });
+
+    this.logger.log(
+      `Created ${billStatus} bill ${bill.id} for txn ${transactionId} on project ${projectId}` +
+        (isPm ? " (dual-role: auto-approved)" : ""),
+    );
+
+    return bill;
+  }
+
   // ─── Assign transaction to project ────────────────────────────────
 
   async assignTransactionToProject(
@@ -887,10 +989,6 @@ export class CsvImportService {
     projectId: string | null,
     userId?: string,
   ) {
-    const newDisposition = projectId
-      ? TransactionDisposition.PENDING_APPROVAL
-      : TransactionDisposition.UNREVIEWED;
-
     // Resolve user name for audit log
     let userName = "System";
     if (userId) {
@@ -900,6 +998,75 @@ export class CsvImportService {
       });
       if (user) userName = `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email;
     }
+
+    // ── Unassign path: clear project + delete TENTATIVE/DRAFT bills ──
+    if (!projectId) {
+      // Delete any tentative/draft bill linked to this transaction
+      await this.prisma.projectBill.deleteMany({
+        where: {
+          sourceTransactionId: transactionId,
+          status: { in: ["TENTATIVE", "DRAFT"] },
+        },
+      });
+
+      if (source === "PLAID") {
+        const txn = await this.prisma.bankTransaction.findFirst({
+          where: { id: transactionId, companyId },
+        });
+        if (!txn) throw new BadRequestException("Transaction not found.");
+        const updated = await this.prisma.bankTransaction.update({
+          where: { id: transactionId },
+          data: { projectId: null, disposition: TransactionDisposition.UNREVIEWED },
+          include: { project: { select: { id: true, name: true } } },
+        });
+        if (userId && txn.disposition !== TransactionDisposition.UNREVIEWED) {
+          await this.prisma.transactionDispositionLog.create({
+            data: {
+              companyId,
+              transactionId,
+              transactionSource: "PLAID",
+              previousDisposition: txn.disposition,
+              newDisposition: TransactionDisposition.UNREVIEWED,
+              note: `Unassigned from project`,
+              userId,
+              userName: userName ?? "System",
+            },
+          });
+        }
+        return updated;
+      } else {
+        const txn = await this.prisma.importedTransaction.findFirst({
+          where: { id: transactionId, companyId },
+        });
+        if (!txn) throw new BadRequestException("Transaction not found.");
+        const updated = await this.prisma.importedTransaction.update({
+          where: { id: transactionId },
+          data: { projectId: null, disposition: TransactionDisposition.UNREVIEWED },
+          include: { project: { select: { id: true, name: true } } },
+        });
+        if (userId && txn.disposition !== TransactionDisposition.UNREVIEWED) {
+          await this.prisma.transactionDispositionLog.create({
+            data: {
+              companyId,
+              transactionId,
+              transactionSource: txn.source,
+              previousDisposition: txn.disposition,
+              newDisposition: TransactionDisposition.UNREVIEWED,
+              note: `Unassigned from project`,
+              userId,
+              userName: userName ?? "System",
+            },
+          });
+        }
+        return updated;
+      }
+    }
+
+    // ── Assign path: set project + create bill ──────────────────────
+    const isPm = userId ? await this.isUserPmForProject(userId, projectId) : false;
+    const newDisposition = isPm
+      ? TransactionDisposition.ASSIGNED
+      : TransactionDisposition.PENDING_APPROVAL;
 
     if (source === "PLAID") {
       const txn = await this.prisma.bankTransaction.findFirst({
@@ -911,6 +1078,20 @@ export class CsvImportService {
         data: { projectId, disposition: newDisposition },
         include: { project: { select: { id: true, name: true } } },
       });
+
+      // Create bill in the target project
+      await this.createBillFromTransaction({
+        companyId,
+        projectId,
+        transactionId,
+        transactionSource: "PLAID",
+        vendorName: txn.merchantName ?? txn.name?.slice(0, 100) ?? "Unknown",
+        billDate: txn.date,
+        totalAmount: txn.amount,
+        description: txn.name ?? "Plaid transaction",
+        userId,
+      });
+
       // Log the disposition change
       if (userId && txn.disposition !== newDisposition) {
         await this.prisma.transactionDispositionLog.create({
@@ -920,9 +1101,9 @@ export class CsvImportService {
             transactionSource: "PLAID",
             previousDisposition: txn.disposition,
             newDisposition,
-            note: projectId
-              ? `Assigned to project, pending PM approval`
-              : `Unassigned from project`,
+            note: isPm
+              ? `Assigned to project by PM — auto-approved`
+              : `Assigned to project, pending PM approval`,
             userId,
             userName: userName ?? "System",
           },
@@ -939,6 +1120,20 @@ export class CsvImportService {
         data: { projectId, disposition: newDisposition },
         include: { project: { select: { id: true, name: true } } },
       });
+
+      // Create bill in the target project
+      await this.createBillFromTransaction({
+        companyId,
+        projectId,
+        transactionId,
+        transactionSource: txn.source,
+        vendorName: txn.merchant ?? txn.description?.slice(0, 100) ?? "Unknown",
+        billDate: txn.date,
+        totalAmount: txn.amount,
+        description: txn.description ?? "Imported transaction",
+        userId,
+      });
+
       if (userId && txn.disposition !== newDisposition) {
         await this.prisma.transactionDispositionLog.create({
           data: {
@@ -947,9 +1142,9 @@ export class CsvImportService {
             transactionSource: txn.source,
             previousDisposition: txn.disposition,
             newDisposition,
-            note: projectId
-              ? `Assigned to project, pending PM approval`
-              : `Unassigned from project`,
+            note: isPm
+              ? `Assigned to project by PM — auto-approved`
+              : `Assigned to project, pending PM approval`,
             userId,
             userName: userName ?? "System",
           },
@@ -965,29 +1160,22 @@ export class CsvImportService {
     companyId: string,
     ids: Array<{ id: string; source: string }>,
     projectId: string | null,
+    userId?: string,
   ) {
-    const plaidIds = ids.filter((i) => i.source === "PLAID").map((i) => i.id);
-    const importedIds = ids.filter((i) => i.source !== "PLAID").map((i) => i.id);
-
-    const ops: Promise<any>[] = [];
-    if (plaidIds.length > 0) {
-      ops.push(
-        this.prisma.bankTransaction.updateMany({
-          where: { id: { in: plaidIds }, companyId },
-          data: { projectId },
-        }),
-      );
+    let succeeded = 0;
+    const errors: string[] = [];
+    for (const item of ids) {
+      try {
+        await this.assignTransactionToProject(companyId, item.id, item.source, projectId, userId);
+        succeeded++;
+      } catch (err: any) {
+        errors.push(`${item.id}: ${err.message}`);
+      }
     }
-    if (importedIds.length > 0) {
-      ops.push(
-        this.prisma.importedTransaction.updateMany({
-          where: { id: { in: importedIds }, companyId },
-          data: { projectId },
-        }),
-      );
+    if (errors.length > 0) {
+      this.logger.warn(`Bulk assign: ${errors.length} errors: ${errors.slice(0, 5).join("; ")}`);
     }
-    await Promise.all(ops);
-    return { ok: true, updated: ids.length };
+    return { ok: true, updated: succeeded, errors: errors.length, errorDetails: errors.slice(0, 10) };
   }
 
   // ─── Raw transaction detail ──────────────────────────────────────
