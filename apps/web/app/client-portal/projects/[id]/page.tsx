@@ -25,6 +25,7 @@ interface PortalProject {
   recentMessages?: MessageThread[];
   invoices?: PortalInvoiceSummary[];
   files?: PortalFile[];
+  dailyLogs?: DailyLog[];
   hasFullAccess?: boolean;
 }
 
@@ -64,6 +65,27 @@ interface PortalFile {
   sizeBytes?: number;
   storageUrl?: string;
   createdAt: string;
+}
+
+interface DailyLogAttachment {
+  id: string;
+  fileName: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  url: string;
+}
+
+interface DailyLog {
+  id: string;
+  logDate: string;
+  title?: string;
+  body?: string;
+  type: string;
+  status?: string;
+  weather?: string;
+  createdAt: string;
+  createdBy?: string;
+  attachments: DailyLogAttachment[];
 }
 
 interface InvoiceDetail {
@@ -138,25 +160,25 @@ const formatBytes = (bytes?: number) => {
 
 const statusBadge = (status: string): { label: string; bg: string; color: string } => {
   const map: Record<string, { label: string; bg: string; color: string }> = {
-    ISSUED: { label: "Issued", bg: "rgba(59,130,246,0.15)", color: "#93c5fd" },
-    PARTIALLY_PAID: { label: "Partially Paid", bg: "rgba(234,179,8,0.15)", color: "#fde047" },
-    PAID: { label: "Paid", bg: "rgba(34,197,94,0.15)", color: "#86efac" },
+    ISSUED: { label: "Issued", bg: "rgba(59,130,246,0.15)", color: "#2563eb" },
+    PARTIALLY_PAID: { label: "Partially Paid", bg: "rgba(234,179,8,0.15)", color: "#ca8a04" },
+    PAID: { label: "Paid", bg: "rgba(34,197,94,0.15)", color: "#16a34a" },
   };
-  return map[status] ?? { label: status, bg: "rgba(100,116,139,0.15)", color: "#94a3b8" };
+  return map[status] ?? { label: status, bg: "rgba(100,116,139,0.15)", color: "#6b7280" };
 };
 
 const projectStatusBadge = (status: string): { bg: string; color: string } => {
   const s = status.toUpperCase();
   const map: Record<string, { bg: string; color: string }> = {
-    ACTIVE: { bg: "rgba(34,197,94,0.15)", color: "#86efac" },
-    OPEN: { bg: "rgba(34,197,94,0.15)", color: "#86efac" },
-    COMPLETE: { bg: "rgba(59,130,246,0.15)", color: "#93c5fd" },
-    COMPLETED: { bg: "rgba(59,130,246,0.15)", color: "#93c5fd" },
-    ON_HOLD: { bg: "rgba(234,179,8,0.15)", color: "#fde047" },
-    CLOSED: { bg: "rgba(100,116,139,0.15)", color: "#94a3b8" },
-    WARRANTY: { bg: "rgba(168,85,247,0.15)", color: "#c4b5fd" },
+    ACTIVE: { bg: "rgba(34,197,94,0.15)", color: "#16a34a" },
+    OPEN: { bg: "rgba(34,197,94,0.15)", color: "#16a34a" },
+    COMPLETE: { bg: "rgba(59,130,246,0.15)", color: "#2563eb" },
+    COMPLETED: { bg: "rgba(59,130,246,0.15)", color: "#2563eb" },
+    ON_HOLD: { bg: "rgba(234,179,8,0.15)", color: "#ca8a04" },
+    CLOSED: { bg: "rgba(100,116,139,0.15)", color: "#6b7280" },
+    WARRANTY: { bg: "rgba(168,85,247,0.15)", color: "#7c3aed" },
   };
-  return map[s] ?? { bg: "rgba(100,116,139,0.15)", color: "#94a3b8" };
+  return map[s] ?? { bg: "rgba(100,116,139,0.15)", color: "#6b7280" };
 };
 
 const fileIcon = (mimeType?: string): string => {
@@ -172,21 +194,21 @@ const fileIcon = (mimeType?: string): string => {
 
 const PAGE: React.CSSProperties = {
   minHeight: "100vh",
-  background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
-  color: "#f8fafc",
+  background: "#f8fafc",
+  color: "#0f172a",
   fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
 };
 
 const CARD: React.CSSProperties = {
-  background: "rgba(30,41,59,0.7)",
-  border: "1px solid #1e293b",
+  background: "#ffffff",
+  border: "1px solid #e5e7eb",
   borderRadius: 12,
   overflow: "hidden",
 };
 
 const CARD_HEADER: React.CSSProperties = {
   padding: "14px 20px",
-  borderBottom: "1px solid #1e293b",
+  borderBottom: "1px solid #e5e7eb",
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
@@ -200,13 +222,13 @@ const CARD_BODY: React.CSSProperties = {
 
 const TAB_NAV: React.CSSProperties = {
   maxWidth: 1100, margin: "0 auto", padding: "0 32px",
-  borderBottom: "1px solid #1e293b",
+  borderBottom: "1px solid #e5e7eb",
   display: "flex", gap: 0,
 };
 
 const TAB_INACTIVE: React.CSSProperties = {
   padding: "12px 20px", fontSize: 13, fontWeight: 500,
-  color: "#64748b", background: "transparent", border: "none",
+  color: "#6b7280", background: "transparent", border: "none",
   borderBottom: "2px solid transparent",
   cursor: "pointer",
 };
@@ -225,6 +247,7 @@ export default function ClientPortalProjectPage() {
   // Section collapse states
   const [scheduleOpen, setScheduleOpen] = useState(true);
   const [invoicesOpen, setInvoicesOpen] = useState(true);
+  const [dailyLogsOpen, setDailyLogsOpen] = useState(true);
   const [docsOpen, setDocsOpen] = useState(false);
   const [messagesOpen, setMessagesOpen] = useState(false);
 
@@ -283,7 +306,7 @@ export default function ClientPortalProjectPage() {
     return (
       <div style={PAGE}>
         <div style={{ maxWidth: 900, margin: "0 auto", padding: "80px 32px", textAlign: "center" }}>
-          <p style={{ color: "#64748b", fontSize: 14 }}>Loading project…</p>
+          <p style={{ color: "#6b7280", fontSize: 14 }}>Loading project…</p>
         </div>
       </div>
     );
@@ -293,7 +316,7 @@ export default function ClientPortalProjectPage() {
     return (
       <div style={PAGE}>
         <div style={{ maxWidth: 900, margin: "0 auto", padding: "80px 32px", textAlign: "center" }}>
-          <p style={{ color: "#fca5a5", fontSize: 14, marginBottom: 16 }}>{error || "Project not found."}</p>
+          <p style={{ color: "#dc2626", fontSize: 14, marginBottom: 16 }}>{error || "Project not found."}</p>
           <button
             onClick={() => router.push("/client-portal")}
             style={{
@@ -312,6 +335,7 @@ export default function ClientPortalProjectPage() {
   const files = project.files ?? [];
   const schedule = project.schedule ?? [];
   const messages = project.recentMessages ?? [];
+  const dailyLogs = project.dailyLogs ?? [];
   const pStatus = projectStatusBadge(project.status);
 
   // ── Invoice Detail View ──────────────────────────────────────────
@@ -321,12 +345,13 @@ export default function ClientPortalProjectPage() {
       <div style={PAGE}>
         <style>{`
           @media print {
-            body { background: #fff !important; color: #000 !important; }
+            body { background: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             .no-print { display: none !important; }
-            .print-invoice { background: #fff !important; color: #000 !important; border: none !important; box-shadow: none !important; }
-            .print-invoice * { color: #000 !important; }
+            .print-invoice { background: #fff !important; box-shadow: none !important; border: none !important; }
+            .print-banner { background: #dbeafe !important; border-color: #93c5fd !important; }
+            .print-banner-paid { background: rgba(34,197,94,0.1) !important; border-color: #22c55e !important; }
             .print-invoice table { border-collapse: collapse; }
-            .print-invoice th, .print-invoice td { border-bottom: 1px solid #d1d5db !important; }
+            .print-invoice th, .print-invoice td { border-bottom: 1px solid #374151 !important; color: #111827 !important; }
           }
         `}</style>
 
@@ -335,8 +360,8 @@ export default function ClientPortalProjectPage() {
             <button
               onClick={() => setActiveInvoice(null)}
               style={{
-                padding: "8px 14px", borderRadius: 6, border: "1px solid #334155",
-                background: "transparent", color: "#94a3b8", fontSize: 13, cursor: "pointer",
+                padding: "8px 14px", borderRadius: 6, border: "1px solid #d1d5db",
+                background: "transparent", color: "#6b7280", fontSize: 13, cursor: "pointer",
               }}
             >
               ← Back to Project
@@ -382,11 +407,14 @@ export default function ClientPortalProjectPage() {
                 }
               }
               return (
-                <div style={{
-                  padding: "12px 16px", borderRadius: 8, marginBottom: 24,
-                  background: bannerBg, border: `1px solid ${bannerBorder}`,
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
-                }}>
+                <div
+                  className={activeInvoice.status === "PAID" ? "print-banner-paid" : "print-banner"}
+                  style={{
+                    padding: "12px 16px", borderRadius: 8, marginBottom: 24,
+                    background: bannerBg, border: `1px solid ${bannerBorder}`,
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                  }}
+                >
                   <span style={{ fontSize: 14, fontWeight: 600 }}>{bannerText}</span>
                   <span style={{
                     ...badge, padding: "4px 12px", borderRadius: 20,
@@ -402,22 +430,22 @@ export default function ClientPortalProjectPage() {
             {/* Company + Invoice meta */}
             <div style={{ display: "flex", justifyContent: "space-between", gap: 24, flexWrap: "wrap", marginBottom: 24 }}>
               <div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: "#f1f5f9", marginBottom: 4 }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>
                   {activeInvoice.company.name}
                 </div>
-                <div style={{ fontSize: 13, color: "#64748b" }}>
+                <div style={{ fontSize: 13, color: "#6b7280" }}>
                   {activeInvoice.project.addressLine1}, {activeInvoice.project.city}, {activeInvoice.project.state} {activeInvoice.project.postalCode ?? ""}
                 </div>
               </div>
               <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 16, fontWeight: 700, color: "#f1f5f9" }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#0f172a" }}>
                   {activeInvoice.invoiceNo ?? "Invoice"}
                 </div>
-                <div style={{ fontSize: 12, color: "#64748b" }}>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>
                   Issued: {formatDate(activeInvoice.issuedAt)}
                 </div>
                 {activeInvoice.dueAt && (
-                  <div style={{ fontSize: 12, color: "#64748b" }}>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>
                     Due: {formatDate(activeInvoice.dueAt)}
                   </div>
                 )}
@@ -426,11 +454,11 @@ export default function ClientPortalProjectPage() {
 
             {/* Bill To */}
             {activeInvoice.billToName && (
-              <div style={{ marginBottom: 24, padding: "12px 16px", background: "rgba(15,23,42,0.5)", borderRadius: 8 }}>
-                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.5px" }}>Bill To</div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9" }}>{activeInvoice.billToName}</div>
+              <div style={{ marginBottom: 24, padding: "12px 16px", background: "#f1f5f9", borderRadius: 8 }}>
+                <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.5px" }}>Bill To</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a" }}>{activeInvoice.billToName}</div>
                 {activeInvoice.billToAddress && (
-                  <div style={{ fontSize: 13, color: "#94a3b8" }}>
+                  <div style={{ fontSize: 13, color: "#6b7280" }}>
                     {activeInvoice.billToAddress}
                     {activeInvoice.billToCity && `, ${activeInvoice.billToCity}`}
                     {activeInvoice.billToState && `, ${activeInvoice.billToState}`}
@@ -438,19 +466,19 @@ export default function ClientPortalProjectPage() {
                   </div>
                 )}
                 {activeInvoice.billToEmail && (
-                  <div style={{ fontSize: 12, color: "#64748b" }}>{activeInvoice.billToEmail}</div>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>{activeInvoice.billToEmail}</div>
                 )}
                 {activeInvoice.billToPhone && (
-                  <div style={{ fontSize: 12, color: "#64748b" }}>{activeInvoice.billToPhone}</div>
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>{activeInvoice.billToPhone}</div>
                 )}
               </div>
             )}
 
             {/* Project reference */}
-            <div style={{ marginBottom: 24, padding: "12px 16px", background: "rgba(15,23,42,0.5)", borderRadius: 8 }}>
-              <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.5px" }}>Project</div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9" }}>{activeInvoice.project.name}</div>
-              <div style={{ fontSize: 13, color: "#94a3b8" }}>
+            <div style={{ marginBottom: 24, padding: "12px 16px", background: "#f1f5f9", borderRadius: 8 }}>
+              <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.5px" }}>Project</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a" }}>{activeInvoice.project.name}</div>
+              <div style={{ fontSize: 13, color: "#6b7280" }}>
                 {activeInvoice.project.addressLine1}, {activeInvoice.project.city}, {activeInvoice.project.state}
               </div>
             </div>
@@ -460,25 +488,25 @@ export default function ClientPortalProjectPage() {
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
                   <tr style={{ borderBottom: "2px solid #334155" }}>
-                    <th style={{ textAlign: "left", padding: "10px 8px", color: "#94a3b8", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px" }}>#</th>
-                    <th style={{ textAlign: "left", padding: "10px 8px", color: "#94a3b8", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px" }}>Description</th>
-                    <th style={{ textAlign: "right", padding: "10px 8px", color: "#94a3b8", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px" }}>Qty</th>
-                    <th style={{ textAlign: "right", padding: "10px 8px", color: "#94a3b8", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px" }}>Unit Price</th>
-                    <th style={{ textAlign: "right", padding: "10px 8px", color: "#94a3b8", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px" }}>Amount</th>
+                    <th style={{ textAlign: "left", padding: "10px 8px", color: "#6b7280", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px" }}>#</th>
+                    <th style={{ textAlign: "left", padding: "10px 8px", color: "#6b7280", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px" }}>Description</th>
+                    <th style={{ textAlign: "right", padding: "10px 8px", color: "#6b7280", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px" }}>Qty</th>
+                    <th style={{ textAlign: "right", padding: "10px 8px", color: "#6b7280", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px" }}>Unit Price</th>
+                    <th style={{ textAlign: "right", padding: "10px 8px", color: "#6b7280", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px" }}>Amount</th>
                   </tr>
                 </thead>
                 <tbody>
                   {activeInvoice.lineItems.map((li, idx) => (
-                    <tr key={li.id} style={{ borderBottom: "1px solid #1e293b" }}>
-                      <td style={{ padding: "10px 8px", color: "#64748b" }}>{idx + 1}</td>
-                      <td style={{ padding: "10px 8px", color: "#e2e8f0" }}>{li.description}</td>
-                      <td style={{ padding: "10px 8px", color: "#cbd5e1", textAlign: "right" }}>
+                    <tr key={li.id} style={{ borderBottom: "1px solid #e5e7eb" }}>
+                      <td style={{ padding: "10px 8px", color: "#6b7280" }}>{idx + 1}</td>
+                      <td style={{ padding: "10px 8px", color: "#374151" }}>{li.description}</td>
+                      <td style={{ padding: "10px 8px", color: "#4b5563", textAlign: "right" }}>
                         {li.qty != null ? `${li.qty}${li.unitCode ? ` ${li.unitCode}` : ""}` : ""}
                       </td>
-                      <td style={{ padding: "10px 8px", color: "#cbd5e1", textAlign: "right" }}>
+                      <td style={{ padding: "10px 8px", color: "#4b5563", textAlign: "right" }}>
                         {li.unitPrice != null ? formatMoney(li.unitPrice) : ""}
                       </td>
-                      <td style={{ padding: "10px 8px", color: "#f1f5f9", fontWeight: 600, textAlign: "right" }}>
+                      <td style={{ padding: "10px 8px", color: "#0f172a", fontWeight: 600, textAlign: "right" }}>
                         {formatMoney(li.amount)}
                       </td>
                     </tr>
@@ -488,22 +516,22 @@ export default function ClientPortalProjectPage() {
             </div>
 
             {/* Totals */}
-            <div style={{ marginTop: 20, borderTop: "2px solid #334155", paddingTop: 16 }}>
+            <div style={{ marginTop: 20, borderTop: "2px solid #d1d5db", paddingTop: 16 }}>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
                 <div style={{ display: "flex", gap: 24, fontSize: 14 }}>
-                  <span style={{ color: "#94a3b8" }}>Total</span>
-                  <span style={{ color: "#f1f5f9", fontWeight: 700, minWidth: 100, textAlign: "right" }}>{formatMoney(activeInvoice.totalAmount)}</span>
+                  <span style={{ color: "#6b7280" }}>Total</span>
+                  <span style={{ color: "#0f172a", fontWeight: 700, minWidth: 100, textAlign: "right" }}>{formatMoney(activeInvoice.totalAmount)}</span>
                 </div>
                 {activeInvoice.paidAmount > 0 && (
                   <div style={{ display: "flex", gap: 24, fontSize: 14 }}>
-                    <span style={{ color: "#86efac" }}>Paid</span>
-                    <span style={{ color: "#86efac", fontWeight: 600, minWidth: 100, textAlign: "right" }}>−{formatMoney(activeInvoice.paidAmount)}</span>
+                    <span style={{ color: "#16a34a" }}>Paid</span>
+                    <span style={{ color: "#16a34a", fontWeight: 600, minWidth: 100, textAlign: "right" }}>−{formatMoney(activeInvoice.paidAmount)}</span>
                   </div>
                 )}
                 {activeInvoice.balanceDue > 0 && (
                   <div style={{ display: "flex", gap: 24, fontSize: 16, marginTop: 4 }}>
-                    <span style={{ color: "#f1f5f9", fontWeight: 700 }}>Balance Due</span>
-                    <span style={{ color: "#f1f5f9", fontWeight: 700, minWidth: 100, textAlign: "right" }}>{formatMoney(activeInvoice.balanceDue)}</span>
+                    <span style={{ color: "#0f172a", fontWeight: 700 }}>Balance Due</span>
+                    <span style={{ color: "#0f172a", fontWeight: 700, minWidth: 100, textAlign: "right" }}>{formatMoney(activeInvoice.balanceDue)}</span>
                   </div>
                 )}
               </div>
@@ -511,15 +539,15 @@ export default function ClientPortalProjectPage() {
 
             {/* Memo */}
             {activeInvoice.memo && (
-              <div style={{ marginTop: 20, padding: "12px 16px", background: "rgba(15,23,42,0.5)", borderRadius: 8, fontSize: 13, color: "#94a3b8" }}>
-                <strong style={{ color: "#cbd5e1" }}>Memo:</strong> {activeInvoice.memo}
+              <div style={{ marginTop: 20, padding: "12px 16px", background: "#f1f5f9", borderRadius: 8, fontSize: 13, color: "#6b7280" }}>
+                <strong style={{ color: "#4b5563" }}>Memo:</strong> {activeInvoice.memo}
               </div>
             )}
 
             {/* Attachments */}
             {activeInvoice.attachments.length > 0 && (
               <div style={{ marginTop: 20 }}>
-                <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.5px" }}>Supporting Documents</div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.5px" }}>Supporting Documents</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {activeInvoice.attachments.map((a) => (
                     <a
@@ -530,7 +558,7 @@ export default function ClientPortalProjectPage() {
                       style={{
                         display: "inline-flex", alignItems: "center", gap: 6,
                         padding: "6px 12px", borderRadius: 6, background: "rgba(59,130,246,0.1)",
-                        border: "1px solid rgba(59,130,246,0.2)", color: "#93c5fd",
+                        border: "1px solid rgba(59,130,246,0.2)", color: "#2563eb",
                         fontSize: 12, textDecoration: "none",
                       }}
                     >
@@ -545,13 +573,13 @@ export default function ClientPortalProjectPage() {
             {/* Payment History */}
             {activeInvoice.payments.length > 0 && (
               <div style={{ marginTop: 20 }}>
-                <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.5px" }}>Payment History</div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.5px" }}>Payment History</div>
                 {activeInvoice.payments.map((p) => (
-                  <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #1e293b", fontSize: 13 }}>
-                    <span style={{ color: "#94a3b8" }}>
+                  <div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid #e5e7eb", fontSize: 13 }}>
+                    <span style={{ color: "#6b7280" }}>
                       {formatDate(p.paidAt)} · {p.method.replace(/_/g, " ")}
                     </span>
-                    <span style={{ color: "#86efac", fontWeight: 600 }}>{formatMoney(p.amount)}</span>
+                    <span style={{ color: "#16a34a", fontWeight: 600 }}>{formatMoney(p.amount)}</span>
                   </div>
                 ))}
               </div>
@@ -570,17 +598,17 @@ export default function ClientPortalProjectPage() {
       <header style={{
         maxWidth: 900, margin: "0 auto", padding: "18px 32px",
         display: "flex", justifyContent: "space-between", alignItems: "center",
-        borderBottom: "1px solid #1e293b",
+        borderBottom: "1px solid #e5e7eb",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <img src="/nexconnect-logo.png" alt="Nexus" style={{ height: 28, width: "auto" }} />
-          <span style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9" }}>Project Portal</span>
+          <span style={{ fontSize: 14, fontWeight: 600, color: "#0f172a" }}>Project Portal</span>
         </div>
         <button
           onClick={() => router.push("/client-portal")}
           style={{
-            padding: "7px 14px", borderRadius: 6, border: "1px solid #334155",
-            background: "transparent", color: "#94a3b8", fontSize: 13, cursor: "pointer",
+            padding: "7px 14px", borderRadius: 6, border: "1px solid #d1d5db",
+            background: "transparent", color: "#6b7280", fontSize: 13, cursor: "pointer",
           }}
         >
           ← All Projects
@@ -597,7 +625,7 @@ export default function ClientPortalProjectPage() {
         {/* Project Hero */}
         <div style={{ marginBottom: 32 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-            <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, color: "#f1f5f9" }}>{project.name}</h1>
+            <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, color: "#0f172a" }}>{project.name}</h1>
             <span style={{
               padding: "4px 12px", borderRadius: 20, fontSize: 11, fontWeight: 600,
               textTransform: "uppercase", letterSpacing: "0.5px",
@@ -606,16 +634,16 @@ export default function ClientPortalProjectPage() {
               {project.status}
             </span>
           </div>
-          <div style={{ fontSize: 14, color: "#64748b" }}>
+          <div style={{ fontSize: 14, color: "#6b7280" }}>
             {project.addressLine1}
             {project.addressLine2 ? `, ${project.addressLine2}` : ""}
             , {project.city}, {project.state} {project.postalCode ?? ""}
           </div>
-          <div style={{ fontSize: 13, color: "#475569", marginTop: 4 }}>
-            Contractor: <strong style={{ color: "#94a3b8" }}>{project.company.name}</strong>
+          <div style={{ fontSize: 13, color: "#9ca3af", marginTop: 4 }}>
+            Contractor: <strong style={{ color: "#6b7280" }}>{project.company.name}</strong>
           </div>
           {project.clientContact && (
-            <div style={{ fontSize: 13, color: "#475569", marginTop: 2 }}>
+            <div style={{ fontSize: 13, color: "#9ca3af", marginTop: 2 }}>
               Your contact: {project.clientContact.name}
               {project.clientContact.email ? ` · ${project.clientContact.email}` : ""}
               {project.clientContact.phone ? ` · ${project.clientContact.phone}` : ""}
@@ -625,15 +653,92 @@ export default function ClientPortalProjectPage() {
 
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
+          {/* ── Daily Logs ────────────────────────────────────────── */}
+          {dailyLogs.length > 0 && (
+            <div style={CARD}>
+              <div style={CARD_HEADER} onClick={() => setDailyLogsOpen(!dailyLogsOpen)}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: "#0f172a" }}>Daily Logs</span>
+                  <span style={{ fontSize: 12, color: "#6b7280" }}>· {dailyLogs.length}</span>
+                </div>
+                <span style={{ color: "#9ca3af", fontSize: 14 }}>{dailyLogsOpen ? "▾" : "▸"}</span>
+              </div>
+              {dailyLogsOpen && (
+                <div style={CARD_BODY}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    {dailyLogs.map((log) => (
+                      <div key={log.id} style={{
+                        padding: "14px 16px", borderRadius: 8, background: "#f1f5f9",
+                        border: "1px solid #e5e7eb",
+                      }}>
+                        {/* Log header */}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: log.body ? 8 : 0 }}>
+                          <div>
+                            <div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a" }}>
+                              {log.title || "Daily Log"}
+                            </div>
+                            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                              {formatDate(log.logDate)}
+                              {log.createdBy ? ` · ${log.createdBy}` : ""}
+                            </div>
+                          </div>
+                          {log.weather && (
+                            <span style={{
+                              padding: "3px 10px", borderRadius: 12, fontSize: 11, fontWeight: 500,
+                              background: "rgba(59,130,246,0.08)", color: "#2563eb",
+                            }}>
+                              {log.weather}
+                            </span>
+                          )}
+                        </div>
+                        {/* Work performed */}
+                        {log.body && (
+                          <div style={{
+                            fontSize: 13, color: "#374151", lineHeight: 1.6,
+                            whiteSpace: "pre-wrap",
+                          }}>
+                            {log.body}
+                          </div>
+                        )}
+                        {/* Attachments */}
+                        {log.attachments.length > 0 && (
+                          <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                            {log.attachments.map((a) => (
+                              <a
+                                key={a.id}
+                                href={a.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{
+                                  display: "inline-flex", alignItems: "center", gap: 4,
+                                  padding: "4px 10px", borderRadius: 6, background: "rgba(59,130,246,0.08)",
+                                  border: "1px solid rgba(59,130,246,0.15)", color: "#2563eb",
+                                  fontSize: 11, textDecoration: "none",
+                                }}
+                              >
+                                {fileIcon(a.mimeType)} {a.fileName}
+                                {a.sizeBytes ? ` (${formatBytes(a.sizeBytes)})` : ""}
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ── Invoices ─────────────────────────────────────────── */}
           {invoices.length > 0 && (
             <div style={CARD}>
               <div style={CARD_HEADER} onClick={() => setInvoicesOpen(!invoicesOpen)}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 15, fontWeight: 600, color: "#f1f5f9" }}>Invoices</span>
-                  <span style={{ fontSize: 12, color: "#64748b" }}>· {invoices.length}</span>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: "#0f172a" }}>Invoices</span>
+                  <span style={{ fontSize: 12, color: "#6b7280" }}>· {invoices.length}</span>
                 </div>
-                <span style={{ color: "#475569", fontSize: 14 }}>{invoicesOpen ? "▾" : "▸"}</span>
+                <span style={{ color: "#9ca3af", fontSize: 14 }}>{invoicesOpen ? "▾" : "▸"}</span>
               </div>
               {invoicesOpen && (
                 <div style={CARD_BODY}>
@@ -646,27 +751,27 @@ export default function ClientPortalProjectPage() {
                           onClick={() => loadInvoiceDetail(inv.id)}
                           style={{
                             display: "flex", justifyContent: "space-between", alignItems: "center",
-                            padding: "14px 16px", borderRadius: 8, background: "rgba(15,23,42,0.5)",
-                            border: "1px solid #1e293b", cursor: "pointer",
+                            padding: "14px 16px", borderRadius: 8, background: "#f1f5f9",
+                            border: "1px solid #e5e7eb", cursor: "pointer",
                             transition: "border-color 0.15s",
                           }}
-                          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "#3b82f6"; }}
-                          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "#1e293b"; }}
+                          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "#2563eb"; }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "#e5e7eb"; }}
                         >
                           <div>
-                            <div style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9" }}>
+                            <div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a" }}>
                               {inv.invoiceNo ?? "Invoice"}
                             </div>
-                            <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
+                            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
                               Issued {formatDate(inv.issuedAt)}
                               {inv.dueAt ? ` · Due ${formatDate(inv.dueAt)}` : ""}
                             </div>
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                             <div style={{ textAlign: "right" }}>
-                              <div style={{ fontSize: 15, fontWeight: 700, color: "#f1f5f9" }}>{formatMoney(inv.totalAmount)}</div>
+                              <div style={{ fontSize: 15, fontWeight: 700, color: "#0f172a" }}>{formatMoney(inv.totalAmount)}</div>
                               {inv.balanceDue > 0 && inv.balanceDue < inv.totalAmount && (
-                                <div style={{ fontSize: 11, color: "#fde047" }}>
+                                <div style={{ fontSize: 11, color: "#ca8a04" }}>
                                   {formatMoney(inv.balanceDue)} due
                                 </div>
                               )}
@@ -678,14 +783,14 @@ export default function ClientPortalProjectPage() {
                             }}>
                               {badge.label}
                             </span>
-                            <span style={{ color: "#475569" }}>→</span>
+                            <span style={{ color: "#9ca3af" }}>→</span>
                           </div>
                         </div>
                       );
                     })}
                   </div>
                   {invoiceLoading && (
-                    <p style={{ textAlign: "center", color: "#64748b", fontSize: 12, marginTop: 12 }}>
+                    <p style={{ textAlign: "center", color: "#6b7280", fontSize: 12, marginTop: 12 }}>
                       Loading invoice…
                     </p>
                   )}
@@ -699,10 +804,10 @@ export default function ClientPortalProjectPage() {
             <div style={CARD}>
               <div style={CARD_HEADER} onClick={() => setScheduleOpen(!scheduleOpen)}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 15, fontWeight: 600, color: "#f1f5f9" }}>Schedule</span>
-                  <span style={{ fontSize: 12, color: "#64748b" }}>· {schedule.length} tasks</span>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: "#0f172a" }}>Schedule</span>
+                  <span style={{ fontSize: 12, color: "#6b7280" }}>· {schedule.length} tasks</span>
                 </div>
-                <span style={{ color: "#475569", fontSize: 14 }}>{scheduleOpen ? "▾" : "▸"}</span>
+                <span style={{ color: "#9ca3af", fontSize: 14 }}>{scheduleOpen ? "▾" : "▸"}</span>
               </div>
               {scheduleOpen && (
                 <div style={CARD_BODY}>
@@ -710,13 +815,13 @@ export default function ClientPortalProjectPage() {
                     {schedule.map((t) => (
                       <div key={t.id} style={{
                         display: "flex", justifyContent: "space-between", alignItems: "center",
-                        padding: "10px 14px", borderRadius: 6, background: "rgba(15,23,42,0.5)",
+                        padding: "10px 14px", borderRadius: 6, background: "#f1f5f9",
                       }}>
                         <div>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: "#e2e8f0" }}>{t.name}</div>
-                          {t.trade && <div style={{ fontSize: 11, color: "#64748b" }}>{t.trade}</div>}
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>{t.name}</div>
+                          {t.trade && <div style={{ fontSize: 11, color: "#6b7280" }}>{t.trade}</div>}
                         </div>
-                        <div style={{ fontSize: 12, color: "#64748b", textAlign: "right" }}>
+                        <div style={{ fontSize: 12, color: "#6b7280", textAlign: "right" }}>
                           {t.startDate ? formatDate(t.startDate) : ""}
                           {t.endDate ? ` – ${formatDate(t.endDate)}` : ""}
                           {t.durationDays ? ` (${t.durationDays}d)` : ""}
@@ -734,10 +839,10 @@ export default function ClientPortalProjectPage() {
             <div style={CARD}>
               <div style={CARD_HEADER} onClick={() => setDocsOpen(!docsOpen)}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 15, fontWeight: 600, color: "#f1f5f9" }}>Documents</span>
-                  <span style={{ fontSize: 12, color: "#64748b" }}>· {files.length} files</span>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: "#0f172a" }}>Documents</span>
+                  <span style={{ fontSize: 12, color: "#6b7280" }}>· {files.length} files</span>
                 </div>
-                <span style={{ color: "#475569", fontSize: 14 }}>{docsOpen ? "▾" : "▸"}</span>
+                <span style={{ color: "#9ca3af", fontSize: 14 }}>{docsOpen ? "▾" : "▸"}</span>
               </div>
               {docsOpen && (
                 <div style={CARD_BODY}>
@@ -750,19 +855,19 @@ export default function ClientPortalProjectPage() {
                         rel="noreferrer"
                         style={{
                           display: "flex", justifyContent: "space-between", alignItems: "center",
-                          padding: "10px 14px", borderRadius: 6, background: "rgba(15,23,42,0.5)",
+                          padding: "10px 14px", borderRadius: 6, background: "#f1f5f9",
                           textDecoration: "none", color: "inherit",
                           border: "1px solid transparent",
                           transition: "border-color 0.15s",
                         }}
-                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "#334155"; }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "#d1d5db"; }}
                         onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "transparent"; }}
                       >
                         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                           <span style={{ fontSize: 18 }}>{fileIcon(f.mimeType)}</span>
                           <div>
-                            <div style={{ fontSize: 13, fontWeight: 500, color: "#e2e8f0" }}>{f.fileName}</div>
-                            <div style={{ fontSize: 11, color: "#64748b" }}>
+                            <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{f.fileName}</div>
+                            <div style={{ fontSize: 11, color: "#6b7280" }}>
                               {formatDate(f.createdAt)}
                               {f.sizeBytes ? ` · ${formatBytes(f.sizeBytes)}` : ""}
                             </div>
@@ -782,26 +887,26 @@ export default function ClientPortalProjectPage() {
             <div style={CARD}>
               <div style={CARD_HEADER} onClick={() => setMessagesOpen(!messagesOpen)}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 15, fontWeight: 600, color: "#f1f5f9" }}>Messages</span>
-                  <span style={{ fontSize: 12, color: "#64748b" }}>· {messages.length} threads</span>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: "#0f172a" }}>Messages</span>
+                  <span style={{ fontSize: 12, color: "#6b7280" }}>· {messages.length} threads</span>
                 </div>
-                <span style={{ color: "#475569", fontSize: 14 }}>{messagesOpen ? "▾" : "▸"}</span>
+                <span style={{ color: "#9ca3af", fontSize: 14 }}>{messagesOpen ? "▾" : "▸"}</span>
               </div>
               {messagesOpen && (
                 <div style={CARD_BODY}>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     {messages.map((m) => (
                       <div key={m.id} style={{
-                        padding: "10px 14px", borderRadius: 6, background: "rgba(15,23,42,0.5)",
+                        padding: "10px 14px", borderRadius: 6, background: "#f1f5f9",
                       }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: "#e2e8f0" }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>
                             {m.subject || "Message"}
                           </div>
-                          <div style={{ fontSize: 11, color: "#64748b" }}>{formatDate(m.updatedAt)}</div>
+                          <div style={{ fontSize: 11, color: "#6b7280" }}>{formatDate(m.updatedAt)}</div>
                         </div>
                         {m.lastMessage && (
-                          <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4, lineHeight: 1.4 }}>
+                          <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4, lineHeight: 1.4 }}>
                             {m.lastMessage.body.length > 150 ? m.lastMessage.body.slice(0, 150) + "…" : m.lastMessage.body}
                           </div>
                         )}
@@ -814,16 +919,16 @@ export default function ClientPortalProjectPage() {
           )}
 
           {/* ── Empty state ──────────────────────────────────────── */}
-          {invoices.length === 0 && schedule.length === 0 && files.length === 0 && messages.length === 0 && (
+          {invoices.length === 0 && schedule.length === 0 && files.length === 0 && messages.length === 0 && dailyLogs.length === 0 && (
             <div style={{
               textAlign: "center", padding: "60px 32px",
-              background: "rgba(30,41,59,0.5)", borderRadius: 16, border: "1px solid #1e293b",
+              background: "#f8fafc", borderRadius: 16, border: "1px solid #e5e7eb",
             }}>
               <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
-              <h2 style={{ color: "#f1f5f9", fontSize: 18, fontWeight: 600, margin: "0 0 8px" }}>
+              <h2 style={{ color: "#0f172a", fontSize: 18, fontWeight: 600, margin: "0 0 8px" }}>
                 Project details are being prepared
               </h2>
-              <p style={{ color: "#64748b", fontSize: 14, margin: 0 }}>
+              <p style={{ color: "#6b7280", fontSize: 14, margin: 0 }}>
                 Your contractor will share invoices, documents, and schedule updates here.
               </p>
             </div>
@@ -832,8 +937,8 @@ export default function ClientPortalProjectPage() {
       </main>
 
       {/* Footer */}
-      <footer style={{ borderTop: "1px solid #1e293b", padding: "24px 32px", maxWidth: 900, margin: "0 auto" }}>
-        <p style={{ fontSize: 12, color: "#334155", margin: 0, textAlign: "center" }}>
+      <footer style={{ borderTop: "1px solid #e5e7eb", padding: "24px 32px", maxWidth: 900, margin: "0 auto" }}>
+        <p style={{ fontSize: 12, color: "#6b7280", margin: 0, textAlign: "center" }}>
           © {new Date().getFullYear()} Nexus Contractor Connect
         </p>
       </footer>
