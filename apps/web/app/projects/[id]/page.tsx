@@ -1723,6 +1723,9 @@ export default function ProjectDetailPage({
   // NexVERIFY section collapsed by default
   const [nexVerifyCollapsed, setNexVerifyCollapsed] = useState(true);
 
+  // Expanded receipt groups in the uncommitted receipts section
+  const [expandedUncommittedGroups, setExpandedUncommittedGroups] = useState<Set<string>>(new Set());
+
   // Bills table sort
   type BillsSortField = "vendor" | "date" | "amount" | "billable";
   const [billsSortField, setBillsSortField] = useState<BillsSortField>("date");
@@ -2594,7 +2597,7 @@ export default function ProjectDetailPage({
     try {
       const payload: any = {
         isBillable,
-        status: "APPROVED", // Auto-approve when dispositioning
+        status: "POSTED", // Auto-commit when dispositioning
       };
       if (isBillable && markupPercent !== undefined) {
         payload.markupPercent = markupPercent;
@@ -18419,7 +18422,7 @@ ${htmlBody}
                   );
                 })()}
 
-                {/* Uncommitted Receipts Section - ALL DRAFT bills (daily log + confirmed prescreened) */}
+                {/* Uncommitted Receipts Section - ALL DRAFT bills grouped by receipt */}
                 {!projectBillsLoading && projectBills && (() => {
                   const uncommittedReceipts = projectBills.filter(
                     (b: any) => b?.status === "DRAFT"
@@ -18429,6 +18432,20 @@ ${htmlBody}
                   const srcLabel: Record<string, string> = {
                     HD_PRO_XTRA: "HD", CHASE_BANK: "Chase", APPLE_CARD: "Apple", PLAID: "Bank",
                   };
+
+                  // Group by receipt: date + vendor + source
+                  const ucGroupMap = new Map<string, any[]>();
+                  for (const b of uncommittedReceipts) {
+                    const dateKey = b?.billDate ? String(b.billDate).slice(0, 10) : "no-date";
+                    const vendor = (b?.vendorName ?? "Unknown").toLowerCase();
+                    const src = b?.sourceTransactionSource ?? (b?.sourceDailyLogId ? "daily-log" : "manual");
+                    const groupKey = `${dateKey}|${vendor}|${src}`;
+                    if (!ucGroupMap.has(groupKey)) ucGroupMap.set(groupKey, []);
+                    ucGroupMap.get(groupKey)!.push(b);
+                  }
+
+                  // Sort groups by date desc
+                  const ucSortedGroups = [...ucGroupMap.entries()].sort((a, b) => b[0].localeCompare(a[0]));
 
                   return (
                     <div
@@ -18442,169 +18459,235 @@ ${htmlBody}
                     >
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: "#92400e" }}>
-                          📥 Uncommitted Receipts ({uncommittedReceipts.length})
+                          📥 Uncommitted Receipts ({uncommittedReceipts.length} items in {ucSortedGroups.length} receipt{ucSortedGroups.length !== 1 ? "s" : ""})
                         </div>
-                        <span style={{ fontSize: 11, color: "#b45309" }}>
-                          Review and commit — mark billable or not billable
-                        </span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 11, color: "#b45309" }}>
+                            Review and commit
+                          </span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!project) return;
+                              const token = localStorage.getItem("accessToken");
+                              if (!token) return;
+                              // 1. Mark all uncommitted DRAFT bills as billable + POSTED
+                              for (const b of uncommittedReceipts) {
+                                try {
+                                  await fetch(`${API_BASE}/projects/${project.id}/bills/${b.id}`, {
+                                    method: "PATCH",
+                                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                                    body: JSON.stringify({ isBillable: true, status: "POSTED", markupPercent: 25 }),
+                                  });
+                                } catch {}
+                              }
+                              // 2. Sync/create the billable expense invoice
+                              try {
+                                const res = await fetch(
+                                  `${API_BASE}/projects/${project.id}/invoices/sync-billable-expenses`,
+                                  {
+                                    method: "POST",
+                                    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+                                    body: JSON.stringify({}),
+                                  }
+                                );
+                                if (res.ok) {
+                                  const fullInvoice = await res.json();
+                                  setActiveInvoice(fullInvoice);
+                                  router.push(`/projects/${id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${fullInvoice.id}`);
+                                  setProjectInvoices(null);
+                                }
+                              } catch {}
+                              // 3. Refresh
+                              setProjectBills(null);
+                              setFinancialSummary(null);
+                            }}
+                            style={{
+                              padding: "4px 10px",
+                              borderRadius: 4,
+                              border: "1px solid #166534",
+                              background: "#166534",
+                              color: "#ffffff",
+                              fontSize: 10,
+                              cursor: "pointer",
+                              fontWeight: 600,
+                              whiteSpace: "nowrap",
+                            }}
+                            title="Mark all as billable (25% markup) and push to expense invoice"
+                          >
+                            💰 Move All Billable → Expense Invoice
+                          </button>
+                        </div>
                       </div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        {[...uncommittedReceipts].sort((a: any, b: any) => {
-                          const da = String(a?.billDate ?? "");
-                          const db = String(b?.billDate ?? "");
-                          return db.localeCompare(da); // newest first
-                        }).map((b: any) => {
-                          const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
-                          const attachments: any[] = Array.isArray(b?.attachments) ? b.attachments : [];
-                          // Determine if receipt is "orphaned" - source daily log is missing or changed type
-                          const sourceDailyLog = b?.sourceDailyLog;
-                          const isOrphaned = b?.sourceDailyLogId && (
-                            !sourceDailyLog || sourceDailyLog.type !== "RECEIPT_EXPENSE"
-                          );
-                          // Source origin badge
-                          const txnSource = b?.sourceTransactionSource;
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        {ucSortedGroups.map(([groupKey, bills]) => {
+                          const isExpanded = expandedUncommittedGroups.has(groupKey);
+                          const first = bills[0];
+                          const dateDisplay = first?.billDate ? new Date(String(first.billDate).slice(0, 10) + "T12:00:00").toLocaleDateString() : "Unknown date";
+                          const vendor = first?.vendorName ?? "Unknown Vendor";
+                          const txnSource = first?.sourceTransactionSource;
                           const originLabel = txnSource
                             ? (srcLabel[txnSource] ?? txnSource)
-                            : (b?.sourceDailyLogId ? "Daily Log" : "Manual");
-                          const originBg = txnSource ? "#dbeafe" : (b?.sourceDailyLogId ? "#fef3c7" : "#f3f4f6");
-                          const originColor = txnSource ? "#1d4ed8" : (b?.sourceDailyLogId ? "#92400e" : "#6b7280");
-                          return (
-                            <div
-                              key={String(b?.id ?? Math.random())}
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "space-between",
-                                gap: 8,
-                                padding: "6px 8px",
-                                borderRadius: 4,
-                                background: isOrphaned ? "#fef2f2" : "#fffbeb",
-                                border: isOrphaned ? "1px dashed #f87171" : "none",
-                              }}
-                            >
-                              {/* Source origin badge */}
-                              <span style={{
-                                padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700,
-                                background: originBg, color: originColor, whiteSpace: "nowrap",
-                              }}>
-                                {originLabel}
-                              </span>
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
-                                  {b?.vendorName ?? "Unknown Vendor"}
-                                  {isOrphaned && (
-                                    <span style={{ fontSize: 10, color: "#dc2626", fontWeight: 400 }} title="Source daily log was deleted or changed">
-                                      (orphaned)
-                                    </span>
-                                  )}
-                                </div>
-                                <div style={{ fontSize: 11, color: "#6b7280", display: "flex", alignItems: "center", gap: 6 }}>
-                                  {b?.billDate ? String(b.billDate).slice(0, 10) : "No date"}
-                                  {li?.description && ` · ${li.description}`}
-                                  {sourceDailyLog && (
-                                    <>
-                                      <span style={{ color: "#d1d5db" }}>|</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => setTab("DAILY_LOGS", { deferContentSwitch: true })}
-                                        title={`Origin: Daily Log — ${sourceDailyLog.title ?? "Untitled"}`}
-                                        style={{
-                                          border: "none", background: "none", cursor: "pointer",
-                                          color: "#2563eb", fontSize: 11, padding: 0, textDecoration: "underline",
-                                        }}
-                                      >
-                                        📋 {sourceDailyLog.title ?? "Daily Log"}
-                                      </button>
-                                    </>
-                                  )}
-                                </div>
-                              </div>
-                              <div style={{ fontWeight: 600, fontSize: 13, color: "#92400e" }}>
-                                {formatMoney(b?.totalAmount)}
-                              </div>
-                              {attachments.length > 0 && (
-                                <a
-                                  href={String(attachments[0]?.fileUrl ?? "#")}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  style={{ fontSize: 11, color: "#2563eb" }}
-                                  title="View receipt"
-                                >
-                                  🖼️ View
-                                </a>
-                              )}
-                              {/* Quick disposition buttons */}
-                              <div style={{ display: "flex", gap: 4 }}>
-                                <button
-                                  type="button"
-                                  onClick={() => quickSetBillBillable(String(b?.id), true, 25)}
-                                  style={{
-                                    padding: "3px 6px",
-                                    borderRadius: 4,
-                                    border: "1px solid #16a34a",
-                                    background: "#dcfce7",
-                                    color: "#166534",
-                                    cursor: "pointer",
-                                    fontSize: 10,
-                                    fontWeight: 500,
-                                  }}
-                                  title="Mark as billable expense (25% markup)"
-                                >
-                                  ✓ Billable
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => quickSetBillBillable(String(b?.id), false)}
-                                  style={{
-                                    padding: "3px 6px",
-                                    borderRadius: 4,
-                                    border: "1px solid #6b7280",
-                                    background: "#f3f4f6",
-                                    color: "#374151",
-                                    cursor: "pointer",
-                                    fontSize: 10,
-                                    fontWeight: 500,
-                                  }}
-                                  title="Mark as non-billable expense"
-                                >
-                                  ✗ Not Billable
-                                </button>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => openEditBillModal(b)}
+                            : (first?.sourceDailyLogId ? "Daily Log" : "Manual");
+                          const originBg = txnSource ? "#dbeafe" : (first?.sourceDailyLogId ? "#fef3c7" : "#f3f4f6");
+                          const originColor = txnSource ? "#1d4ed8" : (first?.sourceDailyLogId ? "#92400e" : "#6b7280");
+                          const groupTotal = bills.reduce((sum: number, b: any) => sum + (Number(b?.totalAmount) || 0), 0);
+
+                          // Sort line items by description for stable line numbers
+                          const sortedBills = [...bills].sort((a: any, b: any) =>
+                            (a?.lineItems?.[0]?.description ?? "").localeCompare(b?.lineItems?.[0]?.description ?? "")
+                          );
+
+                          // Single-item groups render inline (no collapse needed)
+                          if (bills.length === 1) {
+                            const b = bills[0];
+                            const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
+                            const attachments: any[] = Array.isArray(b?.attachments) ? b.attachments : [];
+                            const sourceDailyLog = b?.sourceDailyLog;
+                            const isOrphaned = b?.sourceDailyLogId && (!sourceDailyLog || sourceDailyLog.type !== "RECEIPT_EXPENSE");
+                            return (
+                              <div
+                                key={groupKey}
                                 style={{
-                                  padding: "3px 8px",
-                                  borderRadius: 4,
-                                  border: "1px solid #92400e",
-                                  background: "#f59e0b",
-                                  color: "#ffffff",
-                                  cursor: "pointer",
-                                  fontSize: 11,
-                                  fontWeight: 500,
+                                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                                  padding: "6px 8px", borderRadius: 4,
+                                  background: isOrphaned ? "#fef2f2" : "#fffbeb",
+                                  border: isOrphaned ? "1px dashed #f87171" : "none",
                                 }}
                               >
-                                Review
-                              </button>
-                              {/* Delete button - only shown for orphaned receipts */}
-                              {isOrphaned && (
-                                <button
-                                  type="button"
-                                  onClick={() => deleteOrphanedReceiptBill(String(b?.id), b?.vendorName ?? "Unknown")}
-                                  style={{
-                                    padding: "3px 6px",
-                                    borderRadius: 4,
-                                    border: "1px solid #dc2626",
-                                    background: "#fef2f2",
-                                    color: "#dc2626",
-                                    cursor: "pointer",
-                                    fontSize: 10,
-                                    fontWeight: 500,
-                                  }}
-                                  title="Delete this orphaned receipt"
-                                >
-                                  🗑️ Delete
-                                </button>
+                                <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: originBg, color: originColor, whiteSpace: "nowrap" }}>
+                                  {originLabel}
+                                </span>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+                                    {vendor}
+                                    {isOrphaned && <span style={{ fontSize: 10, color: "#dc2626", fontWeight: 400 }}>(orphaned)</span>}
+                                  </div>
+                                  <div style={{ fontSize: 11, color: "#6b7280", display: "flex", alignItems: "center", gap: 6 }}>
+                                    {dateDisplay}
+                                    {li?.description && ` · ${li.description}`}
+                                    {sourceDailyLog && (
+                                      <>
+                                        <span style={{ color: "#d1d5db" }}>|</span>
+                                        <button type="button" onClick={() => setTab("DAILY_LOGS", { deferContentSwitch: true })}
+                                          style={{ border: "none", background: "none", cursor: "pointer", color: "#2563eb", fontSize: 11, padding: 0, textDecoration: "underline" }}>
+                                          📋 {sourceDailyLog.title ?? "Daily Log"}
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                                <div style={{ fontWeight: 600, fontSize: 13, color: "#92400e" }}>{formatMoney(b?.totalAmount)}</div>
+                                {attachments.length > 0 && (
+                                  <a href={String(attachments[0]?.fileUrl ?? "#")} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#2563eb" }}>🖼️ View</a>
+                                )}
+                                <div style={{ display: "flex", gap: 4 }}>
+                                  <button type="button" onClick={() => quickSetBillBillable(String(b?.id), true, 25)}
+                                    style={{ padding: "3px 6px", borderRadius: 4, border: "1px solid #16a34a", background: "#dcfce7", color: "#166534", cursor: "pointer", fontSize: 10, fontWeight: 500 }}
+                                    title="Mark as billable expense (25% markup)">✓ Billable</button>
+                                  <button type="button" onClick={() => quickSetBillBillable(String(b?.id), false)}
+                                    style={{ padding: "3px 6px", borderRadius: 4, border: "1px solid #6b7280", background: "#f3f4f6", color: "#374151", cursor: "pointer", fontSize: 10, fontWeight: 500 }}
+                                    title="Mark as non-billable expense">✗ Not Billable</button>
+                                </div>
+                                <button type="button" onClick={() => openEditBillModal(b)}
+                                  style={{ padding: "3px 8px", borderRadius: 4, border: "1px solid #92400e", background: "#f59e0b", color: "#ffffff", cursor: "pointer", fontSize: 11, fontWeight: 500 }}>Review</button>
+                                {isOrphaned && (
+                                  <button type="button" onClick={() => deleteOrphanedReceiptBill(String(b?.id), b?.vendorName ?? "Unknown")}
+                                    style={{ padding: "3px 6px", borderRadius: 4, border: "1px solid #dc2626", background: "#fef2f2", color: "#dc2626", cursor: "pointer", fontSize: 10, fontWeight: 500 }}
+                                    title="Delete this orphaned receipt">🗑️ Delete</button>
+                                )}
+                              </div>
+                            );
+                          }
+
+                          // Multi-item group: collapsible header
+                          return (
+                            <div key={groupKey}>
+                              <div
+                                onClick={() => {
+                                  setExpandedUncommittedGroups(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(groupKey)) next.delete(groupKey); else next.add(groupKey);
+                                    return next;
+                                  });
+                                }}
+                                style={{
+                                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                                  padding: "7px 10px", borderRadius: 5, cursor: "pointer",
+                                  background: isExpanded ? "#fde68a" : "#fffbeb",
+                                  border: `1px solid ${isExpanded ? "#fbbf24" : "#fde68a"}`,
+                                  userSelect: "none",
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <span style={{ fontSize: 11, color: "#92400e", width: 14, textAlign: "center" }}>
+                                    {isExpanded ? "▼" : "▶"}
+                                  </span>
+                                  <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: originBg, color: originColor }}>
+                                    {originLabel}
+                                  </span>
+                                  <span style={{ fontWeight: 600, fontSize: 12 }}>{vendor}</span>
+                                  <span style={{ fontSize: 11, color: "#6b7280" }}>{dateDisplay}</span>
+                                  <span style={{ fontSize: 11, color: "#6b7280" }}>· {bills.length} line{bills.length !== 1 ? "s" : ""}</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <span style={{ fontWeight: 600, fontSize: 13, color: "#92400e" }}>{formatMoney(groupTotal)}</span>
+                                  {/* Group-level disposition */}
+                                  <button type="button" onClick={async (e) => {
+                                    e.stopPropagation();
+                                    for (const b of bills) {
+                                      await quickSetBillBillable(String(b?.id), true, 25);
+                                    }
+                                  }} style={{ padding: "3px 8px", borderRadius: 4, border: "1px solid #16a34a", background: "#dcfce7", color: "#166534", cursor: "pointer", fontSize: 10, fontWeight: 600 }}
+                                    title="Mark entire receipt as billable (25% markup)">✓ All Billable</button>
+                                  <button type="button" onClick={async (e) => {
+                                    e.stopPropagation();
+                                    for (const b of bills) {
+                                      await quickSetBillBillable(String(b?.id), false);
+                                    }
+                                  }} style={{ padding: "3px 8px", borderRadius: 4, border: "1px solid #6b7280", background: "#f3f4f6", color: "#374151", cursor: "pointer", fontSize: 10, fontWeight: 600 }}
+                                    title="Mark entire receipt as not billable">✗ All Not Billable</button>
+                                </div>
+                              </div>
+
+                              {/* Expanded line items */}
+                              {isExpanded && (
+                                <div style={{ marginLeft: 22, display: "flex", flexDirection: "column", gap: 3, marginTop: 3, marginBottom: 4 }}>
+                                  {sortedBills.map((b: any, lineIdx: number) => {
+                                    const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
+                                    const attachments: any[] = Array.isArray(b?.attachments) ? b.attachments : [];
+                                    return (
+                                      <div
+                                        key={String(b?.id ?? Math.random())}
+                                        style={{
+                                          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6,
+                                          padding: "4px 8px", borderRadius: 4, background: "#ffffff",
+                                          border: "1px solid #fef3c7", fontSize: 11,
+                                        }}
+                                      >
+                                        <span style={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", minWidth: 24, textAlign: "right" }}>L{lineIdx + 1}</span>
+                                        <div style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                          {li?.description ?? "—"}
+                                        </div>
+                                        <div style={{ fontWeight: 600, color: "#92400e", whiteSpace: "nowrap" }}>{formatMoney(b?.totalAmount)}</div>
+                                        {attachments.length > 0 && (
+                                          <a href={String(attachments[0]?.fileUrl ?? "#")} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: "#2563eb" }}>🖼️</a>
+                                        )}
+                                        <div style={{ display: "flex", gap: 3 }}>
+                                          <button type="button" onClick={() => quickSetBillBillable(String(b?.id), true, 25)}
+                                            style={{ padding: "2px 5px", borderRadius: 3, border: "1px solid #16a34a", background: "#dcfce7", color: "#166534", cursor: "pointer", fontSize: 9 }}
+                                            title="Billable">✓</button>
+                                          <button type="button" onClick={() => quickSetBillBillable(String(b?.id), false)}
+                                            style={{ padding: "2px 5px", borderRadius: 3, border: "1px solid #6b7280", background: "#f3f4f6", color: "#374151", cursor: "pointer", fontSize: 9 }}
+                                            title="Not billable">✗</button>
+                                          <button type="button" onClick={() => openEditBillModal(b)}
+                                            style={{ padding: "2px 5px", borderRadius: 3, border: "1px solid #d1d5db", background: "#f9fafb", color: "#374151", cursor: "pointer", fontSize: 9 }}
+                                            title="Edit">Edit</button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               )}
                             </div>
                           );
@@ -18647,7 +18730,7 @@ ${htmlBody}
                   );
                 })()}
 
-                {/* Verified Duplicates Summary — collapsed by default */}
+                {/* NexVERIFY Banner — always visible, toggle controls VERIFICATION rows in bills table */}
                 {!projectBillsLoading && projectBills && (() => {
                   const verificationBills = projectBills.filter((b: any) => b?.billRole === "VERIFICATION");
                   if (verificationBills.length === 0) return null;
@@ -18656,21 +18739,12 @@ ${htmlBody}
                   const totalVariance = verificationBills.reduce((sum: number, b: any) => sum + Math.abs(Number(b?.siblingGroup?.amountVariance) || 0), 0);
                   return (
                     <div style={{
-                      marginBottom: 12, borderRadius: 6,
+                      marginBottom: 12, padding: "10px 12px", borderRadius: 6,
                       background: "#eff6ff", border: "1px solid #bfdbfe",
                     }}>
-                      <button
-                        type="button"
-                        onClick={() => setNexVerifyCollapsed(prev => !prev)}
-                        style={{
-                          width: "100%", padding: "10px 12px", borderRadius: 6,
-                          background: "#eff6ff", border: "none", cursor: "pointer",
-                          textAlign: "left", display: "flex", alignItems: "center", justifyContent: "space-between",
-                        }}
-                      >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                         <div>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1e40af", marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}>
-                            <span style={{ fontSize: 11, color: "#6b7280" }}>{nexVerifyCollapsed ? "▸" : "▾"}</span>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1e40af", marginBottom: 2 }}>
                             🔍 NexVERIFY — Multi-Source Expense Convergence
                           </div>
                           <div style={{ display: "flex", gap: 16, fontSize: 12, color: "#1e3a5f" }}>
@@ -18680,12 +18754,21 @@ ${htmlBody}
                             {totalVariance > 0 && <span>Total variance: <strong>{formatMoney(totalVariance)}</strong></span>}
                           </div>
                         </div>
-                      </button>
-                      {!nexVerifyCollapsed && (
-                        <div style={{ padding: "0 12px 10px 12px", fontSize: 11, color: "#6b7280" }}>
-                          VERIFICATION bills (blue rows) have GAAP offset line items that net to $0. They corroborate PRIMARY bills from a different source.
-                        </div>
-                      )}
+                        <button
+                          type="button"
+                          onClick={() => setNexVerifyCollapsed(prev => !prev)}
+                          style={{
+                            padding: "3px 8px", borderRadius: 4,
+                            border: "1px solid #93c5fd", background: nexVerifyCollapsed ? "#dbeafe" : "#ffffff",
+                            color: "#1d4ed8", cursor: "pointer", fontSize: 10, fontWeight: 600,
+                          }}
+                        >
+                          {nexVerifyCollapsed ? "▶ Show Records" : "▼ Hide Records"}
+                        </button>
+                      </div>
+                      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+                        VERIFICATION bills (blue rows) have GAAP offset line items that net to $0. They corroborate PRIMARY bills from a different source.
+                      </div>
                     </div>
                   );
                 })()}
@@ -18774,6 +18857,11 @@ ${htmlBody}
                             const db = String(b?.billDate ?? "");
                             if (da !== db) return dir * da.localeCompare(db);
                             return dir * String(a?.createdAt ?? "").localeCompare(String(b?.createdAt ?? ""));
+                          })
+                          .filter((b: any) => {
+                            // Hide VERIFICATION rows when NexVERIFY section is collapsed
+                            if (nexVerifyCollapsed && b?.billRole === "VERIFICATION") return false;
+                            return true;
                           })
                           .map((b: any) => {
                             const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
