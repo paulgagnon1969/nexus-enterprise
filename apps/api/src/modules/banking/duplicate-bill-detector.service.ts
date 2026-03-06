@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
-import type { ProjectBill } from "@prisma/client";
+import { ObjectStorageService } from "../../infra/storage/object-storage.service";
+import type { ProjectBill, DupEDecision } from "@prisma/client";
 
 // ---------------------------------------------------------------------------
 // Duplicate detection thresholds — PERCENTAGE-BASED
@@ -88,7 +89,10 @@ export interface DuplicateMatch {
 export class DuplicateBillDetectorService {
   private readonly logger = new Logger(DuplicateBillDetectorService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storage: ObjectStorageService,
+  ) {}
 
   // ═══════════════════════════════════════════════════════════════════
   // Duplicate detection
@@ -138,8 +142,8 @@ export class DuplicateBillDetectorService {
     const incomingVendor = normalizeVendor(vendorName);
 
     for (const bill of candidates) {
-      // Skip bills that are already VERIFICATION (already reconciled)
-      if (bill.billRole === "VERIFICATION") continue;
+      // Skip bills that are already VERIFICATION or SIBE (already reconciled/dispositioned)
+      if (bill.billRole === "VERIFICATION" || bill.billRole === "SIBE") continue;
 
       // Vendor match
       if (!vendorsMatch(incomingVendor, normalizeVendor(bill.vendorName))) {
@@ -354,6 +358,15 @@ export class DuplicateBillDetectorService {
     const since = new Date();
     since.setDate(since.getDate() - lookbackDays);
 
+    // Load already-dispositioned group IDs so we can exclude them from results
+    const existingDispositions = await this.prisma.duplicateExpenseDisposition.findMany({
+      where: { companyId },
+      select: { groupId: true },
+    });
+    const dispositionedGroupIds = new Set(existingDispositions.map((d) => d.groupId));
+
+    // Include SIBE bills in the candidate pool so old receipts still get caught,
+    // but exclude VERIFICATION bills (those are within-project reconciliation).
     const bills = await this.prisma.projectBill.findMany({
       where: {
         companyId,
@@ -407,10 +420,12 @@ export class DuplicateBillDetectorService {
     for (const [txnId, group] of byTxnId) {
       const projectIds = new Set(group.map((b) => b.projectId));
       if (projectIds.size < 2) continue;
+      const groupId = `exact-${txnId}`;
+      if (dispositionedGroupIds.has(groupId)) continue; // Already dispositioned
       const pairKey = group.map((b) => b.id).sort().join("|");
       seenPairs.add(pairKey);
       groups.push({
-        id: `exact-${txnId}`,
+        id: groupId,
         type: "EXACT",
         confidence: 1.0,
         reason: `Same transaction (${txnId.slice(-8)}) posted to ${projectIds.size} projects`,
@@ -461,9 +476,11 @@ export class DuplicateBillDetectorService {
         else if (daysDiff <= 3) confidence += 0.05;
         confidence = Math.min(confidence, 0.98);
 
+        const fuzzyGroupId = `fuzzy-${a.id}-${b.id}`;
+        if (dispositionedGroupIds.has(fuzzyGroupId)) continue; // Already dispositioned
         seenPairs.add(pairKey);
         groups.push({
-          id: `fuzzy-${a.id}-${b.id}`,
+          id: fuzzyGroupId,
           type: "FUZZY",
           confidence,
           reason: [
@@ -583,6 +600,196 @@ export class DuplicateBillDetectorService {
         siblingGroup: b.siblingGroup,
       })),
     };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // NexDupE — Duplicate Expense Disposition
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Record a disposition decision for a duplicate expense group.
+   * For CONFIRMED_DUPLICATE: converts the losing bill to SIBE role.
+   */
+  async createDisposition(params: {
+    companyId: string;
+    userId: string;
+    groupId: string;
+    groupType: string;
+    confidence: number;
+    decision: DupEDecision;
+    note: string;
+    billIds: string[];
+    primaryBillId?: string;
+    sibeBillId?: string;
+    snapshotBase64?: string;
+  }) {
+    const {
+      companyId, userId, groupId, groupType, confidence,
+      decision, note, billIds, primaryBillId, sibeBillId, snapshotBase64,
+    } = params;
+
+    // Freeze the full bill comparison data at disposition time
+    const compareResult = await this.compareBills(companyId, billIds);
+    const billDataSnapshot = JSON.stringify(compareResult);
+
+    // Upload snapshot image to MinIO if provided
+    let snapshotImageUri: string | undefined;
+    if (snapshotBase64) {
+      try {
+        const buffer = Buffer.from(snapshotBase64, "base64");
+        const key = `nexdupe-snapshots/${companyId}/${groupId.replace(/[^a-zA-Z0-9-]/g, "_")}-${Date.now()}.png`;
+        snapshotImageUri = await this.storage.uploadBuffer({
+          key,
+          buffer,
+          contentType: "image/png",
+        });
+      } catch (err: any) {
+        this.logger.warn(`Failed to upload DupE snapshot: ${err.message}`);
+      }
+    }
+
+    // If CONFIRMED_DUPLICATE and sibeBillId provided, convert to SIBE
+    if (decision === "CONFIRMED_DUPLICATE" && sibeBillId) {
+      await this.convertToSibe(sibeBillId, primaryBillId);
+    }
+
+    const disposition = await this.prisma.duplicateExpenseDisposition.create({
+      data: {
+        companyId,
+        groupId,
+        groupType,
+        confidence,
+        decision,
+        note,
+        billIds: JSON.stringify(billIds),
+        billDataSnapshot,
+        snapshotImageUri,
+        primaryBillId: primaryBillId ?? null,
+        sibeBillId: sibeBillId ?? null,
+        dispositionedByUserId: userId,
+      },
+    });
+
+    this.logger.log(
+      `DupE disposition created: ${disposition.id} — ${decision} for group ${groupId}`,
+    );
+
+    return disposition;
+  }
+
+  /**
+   * List all past duplicate expense dispositions for a company.
+   */
+  async listDispositions(companyId: string) {
+    const dispositions = await this.prisma.duplicateExpenseDisposition.findMany({
+      where: { companyId },
+      orderBy: { dispositionedAt: "desc" },
+      include: {
+        dispositionedBy: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+      },
+    });
+
+    return dispositions.map((d) => ({
+      id: d.id,
+      groupId: d.groupId,
+      groupType: d.groupType,
+      confidence: d.confidence,
+      decision: d.decision,
+      note: d.note,
+      billIds: JSON.parse(d.billIds),
+      primaryBillId: d.primaryBillId,
+      sibeBillId: d.sibeBillId,
+      snapshotImageUrl: d.snapshotImageUri
+        ? this.storage.getPublicUrlFromUri(d.snapshotImageUri)
+        : null,
+      dispositionedAt: d.dispositionedAt,
+      dispositionedBy: d.dispositionedBy
+        ? {
+            name: [d.dispositionedBy.firstName, d.dispositionedBy.lastName].filter(Boolean).join(" ") || d.dispositionedBy.email,
+            email: d.dispositionedBy.email,
+          }
+        : null,
+    }));
+  }
+
+  /**
+   * Get a single disposition with its frozen bill data and snapshot.
+   */
+  async getDisposition(companyId: string, id: string) {
+    const d = await this.prisma.duplicateExpenseDisposition.findFirst({
+      where: { id, companyId },
+      include: {
+        dispositionedBy: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+      },
+    });
+    if (!d) return null;
+
+    return {
+      id: d.id,
+      groupId: d.groupId,
+      groupType: d.groupType,
+      confidence: d.confidence,
+      decision: d.decision,
+      note: d.note,
+      billIds: JSON.parse(d.billIds),
+      billDataSnapshot: d.billDataSnapshot ? JSON.parse(d.billDataSnapshot) : null,
+      primaryBillId: d.primaryBillId,
+      sibeBillId: d.sibeBillId,
+      snapshotImageUrl: d.snapshotImageUri
+        ? this.storage.getPublicUrlFromUri(d.snapshotImageUri)
+        : null,
+      dispositionedAt: d.dispositionedAt,
+      dispositionedBy: d.dispositionedBy
+        ? {
+            name: [d.dispositionedBy.firstName, d.dispositionedBy.lastName].filter(Boolean).join(" ") || d.dispositionedBy.email,
+            email: d.dispositionedBy.email,
+          }
+        : null,
+    };
+  }
+
+  /**
+   * Convert a bill to SIBE (Sibling Expense — record-only duplicate).
+   * Adds a DUPLICATE_OFFSET line item so it nets to $0 in project totals.
+   */
+  private async convertToSibe(billId: string, primaryBillId?: string): Promise<void> {
+    const bill = await this.prisma.projectBill.findUniqueOrThrow({
+      where: { id: billId },
+    });
+
+    if (bill.billRole === "SIBE") return; // Already SIBE
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.projectBill.update({
+        where: { id: billId },
+        data: {
+          billRole: "SIBE",
+          memo: `Duplicate Expense — record only (NexDupE). Primary: ${primaryBillId?.slice(-8) ?? "unknown"}`,
+        },
+      });
+
+      // Add offset line item if not already present
+      const existingOffset = await tx.projectBillLineItem.findFirst({
+        where: { billId, kind: "DUPLICATE_OFFSET" },
+      });
+      if (!existingOffset) {
+        await tx.projectBillLineItem.create({
+          data: {
+            billId,
+            kind: "DUPLICATE_OFFSET",
+            description: `NexDupE: Duplicate Expense offset — record only [Primary: ${primaryBillId?.slice(-8) ?? "unknown"}]`,
+            amount: -bill.totalAmount,
+            amountSource: "MANUAL",
+          },
+        });
+      }
+    });
+
+    this.logger.log(`Converted bill ${billId} to SIBE (NexDupE)`);
   }
 
   // ═══════════════════════════════════════════════════════════════════

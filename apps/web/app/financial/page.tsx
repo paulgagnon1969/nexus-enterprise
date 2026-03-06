@@ -510,6 +510,21 @@ export default function FinancialPage() {
   const [dupCompareOpen, setDupCompareOpen] = useState(false);
   const [dupCompareLoading, setDupCompareLoading] = useState(false);
   const [dupCompareBills, setDupCompareBills] = useState<Array<any>>([]);
+  // NexDupE: disposition state for the comparison modal
+  const [dupCompareGroupId, setDupCompareGroupId] = useState("");
+  const [dupCompareGroupType, setDupCompareGroupType] = useState("");
+  const [dupCompareConfidence, setDupCompareConfidence] = useState(0);
+  const [dupDispositionDecision, setDupDispositionDecision] = useState("");
+  const [dupDispositionNote, setDupDispositionNote] = useState("");
+  const [dupDispositionPrimaryBillId, setDupDispositionPrimaryBillId] = useState("");
+  const [dupDispositionSaving, setDupDispositionSaving] = useState(false);
+  // NexDupE: archive viewer
+  const [dupArchiveOpen, setDupArchiveOpen] = useState(false);
+  const [dupArchiveData, setDupArchiveData] = useState<Array<any>>([]);
+  const [dupArchiveLoading, setDupArchiveLoading] = useState(false);
+  const [dupArchiveDetail, setDupArchiveDetail] = useState<any | null>(null);
+  const [dupArchiveDetailLoading, setDupArchiveDetailLoading] = useState(false);
+  const dupCompareModalRef = typeof window !== "undefined" ? { current: null as HTMLDivElement | null } : { current: null };
 
   // Category override modal
   const [categoryModalTxn, setCategoryModalTxn] = useState<UnifiedTransactionDto | null>(null);
@@ -925,12 +940,18 @@ export default function FinancialPage() {
     } catch {}
   }
 
-  async function openDupCompare(billIds: string[]) {
+  async function openDupCompare(billIds: string[], groupId = "", groupType = "", confidence = 0) {
     const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
     if (!token) return;
     setDupCompareOpen(true);
     setDupCompareLoading(true);
     setDupCompareBills([]);
+    setDupCompareGroupId(groupId);
+    setDupCompareGroupType(groupType);
+    setDupCompareConfidence(confidence);
+    setDupDispositionDecision("");
+    setDupDispositionNote("");
+    setDupDispositionPrimaryBillId("");
     try {
       const res = await fetch(`${API_BASE}/banking/duplicate-expenses/compare?billIds=${billIds.join(",")}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -943,6 +964,107 @@ export default function FinancialPage() {
       setDupCompareOpen(false);
     } finally {
       setDupCompareLoading(false);
+    }
+  }
+
+  async function handleDupEDisposition() {
+    if (!dupDispositionDecision || !dupDispositionNote.trim()) return;
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    setDupDispositionSaving(true);
+    try {
+      // Capture modal snapshot via html2canvas
+      let snapshotBase64: string | undefined;
+      const modalEl = dupCompareModalRef.current;
+      if (modalEl) {
+        try {
+          // html2pdf bundles html2canvas — use its toCanvas() to capture the modal
+          const canvas = await new Promise<HTMLCanvasElement>((resolve) => {
+            const el = modalEl.cloneNode(true) as HTMLElement;
+            el.style.position = "fixed";
+            el.style.left = "-9999px";
+            document.body.appendChild(el);
+            import("html2pdf.js").then(mod => {
+              const worker = mod.default().set({ html2canvas: { scale: 1, useCORS: true, logging: false } }).from(el);
+              worker.toCanvas().then((c: HTMLCanvasElement) => {
+                document.body.removeChild(el);
+                resolve(c);
+              });
+            });
+          });
+          snapshotBase64 = canvas.toDataURL("image/png").split(",")[1];
+        } catch (err) {
+          console.warn("Snapshot capture failed:", err);
+        }
+      }
+
+      const billIds = dupCompareBills.map((b: any) => b.id);
+      const sibeBillId = dupDispositionDecision === "CONFIRMED_DUPLICATE" && dupDispositionPrimaryBillId
+        ? billIds.find((id: string) => id !== dupDispositionPrimaryBillId)
+        : undefined;
+
+      await fetch(`${API_BASE}/banking/duplicate-expenses/disposition`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          groupId: dupCompareGroupId,
+          groupType: dupCompareGroupType,
+          confidence: dupCompareConfidence,
+          decision: dupDispositionDecision,
+          note: dupDispositionNote.trim(),
+          billIds,
+          primaryBillId: dupDispositionPrimaryBillId || undefined,
+          sibeBillId,
+          snapshotBase64,
+        }),
+      });
+
+      // Remove group from scan results
+      if (dupScanResults) {
+        setDupScanResults({
+          ...dupScanResults,
+          duplicateGroups: dupScanResults.duplicateGroups.filter(g => g.id !== dupCompareGroupId),
+          total: dupScanResults.total - 1,
+        });
+      }
+      setDupCompareOpen(false);
+    } catch (err: any) {
+      setBankError(err?.message ?? "Failed to save disposition");
+    } finally {
+      setDupDispositionSaving(false);
+    }
+  }
+
+  async function fetchDupArchive() {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    setDupArchiveLoading(true);
+    setDupArchiveOpen(true);
+    try {
+      const res = await fetch(`${API_BASE}/banking/duplicate-expenses/dispositions`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setDupArchiveData(await res.json());
+    } catch (err: any) {
+      setBankError(err?.message ?? "Failed to load archive");
+    } finally {
+      setDupArchiveLoading(false);
+    }
+  }
+
+  async function openDupArchiveDetail(id: string) {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    setDupArchiveDetailLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/banking/duplicate-expenses/dispositions/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setDupArchiveDetail(await res.json());
+    } catch (err: any) {
+      setBankError(err?.message ?? "Failed to load disposition detail");
+    } finally {
+      setDupArchiveDetailLoading(false);
     }
   }
 
@@ -4431,6 +4553,16 @@ export default function FinancialPage() {
             >
               {dupScanLoading ? "Scanning…" : "🔍 Duplicate Expenses"}
             </button>
+            <button
+              type="button"
+              onClick={fetchDupArchive}
+              style={{
+                padding: "6px 12px", borderRadius: 6, border: "1px solid #6b7280", background: "#f9fafb",
+                color: "#374151", fontSize: 11, fontWeight: 600, cursor: "pointer",
+              }}
+            >
+              📋 Archived DupE
+            </button>
           </div>
           {prescreenResult && (
             <div style={{ fontSize: 12, marginBottom: 8, padding: "6px 10px", borderRadius: 6, background: "#f5f3ff", border: "1px solid #c4b5fd", color: "#5b21b6" }}>
@@ -4481,7 +4613,7 @@ export default function FinancialPage() {
                     ))}
                     <button
                       type="button"
-                      onClick={() => openDupCompare(group.bills.map(b => b.billId))}
+                      onClick={() => openDupCompare(group.bills.map(b => b.billId), group.id, group.type, group.confidence)}
                       style={{
                         padding: "6px 14px", borderRadius: 6, border: "1px solid #4338ca", background: "#4338ca",
                         color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
@@ -5086,7 +5218,7 @@ export default function FinancialPage() {
               position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 9999,
               display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
             }}>
-              <div style={{
+              <div ref={(el) => { dupCompareModalRef.current = el; }} style={{
                 background: "#fff", borderRadius: 12, width: "100%", maxWidth: 1000, maxHeight: "90vh",
                 overflow: "auto", boxShadow: "0 8px 30px rgba(0,0,0,0.25)",
               }}>
@@ -5202,6 +5334,185 @@ export default function FinancialPage() {
                         )}
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {/* NexDupE Disposition Form */}
+                {!dupCompareLoading && dupCompareBills.length > 0 && dupCompareGroupId && (
+                  <div style={{ padding: "16px 20px", borderTop: "2px solid #e5e7eb", background: "#f9fafb" }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: "#374151" }}>Disposition (NexDupE)</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-start" }}>
+                      <div style={{ flex: "1 1 200px" }}>
+                        <label style={{ display: "block", fontSize: 11, fontWeight: 600, marginBottom: 4, color: "#6b7280" }}>Decision</label>
+                        <select
+                          value={dupDispositionDecision}
+                          onChange={e => setDupDispositionDecision(e.target.value)}
+                          style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
+                        >
+                          <option value="">Select decision…</option>
+                          <option value="NOT_DUPLICATE">Not Duplicate</option>
+                          <option value="CONFIRMED_DUPLICATE">Confirmed Duplicate (DupE)</option>
+                          <option value="SAME_VENDOR_DIFFERENT_PURCHASE">Same Vendor, Different Purchase</option>
+                          <option value="INTENTIONAL_SPLIT">Intentional Split Across Projects</option>
+                        </select>
+                      </div>
+                      {dupDispositionDecision === "CONFIRMED_DUPLICATE" && (
+                        <div style={{ flex: "1 1 200px" }}>
+                          <label style={{ display: "block", fontSize: 11, fontWeight: 600, marginBottom: 4, color: "#6b7280" }}>Keep as Primary</label>
+                          <select
+                            value={dupDispositionPrimaryBillId}
+                            onChange={e => setDupDispositionPrimaryBillId(e.target.value)}
+                            style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
+                          >
+                            <option value="">Select primary bill…</option>
+                            {dupCompareBills.map((b: any) => (
+                              <option key={b.id} value={b.id}>{b.projectName} — ${Math.abs(b.totalAmount).toFixed(2)} ({b.id.slice(-8)})</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                      <div style={{ flex: "2 1 300px" }}>
+                        <label style={{ display: "block", fontSize: 11, fontWeight: 600, marginBottom: 4, color: "#6b7280" }}>Note (required)</label>
+                        <textarea
+                          value={dupDispositionNote}
+                          onChange={e => setDupDispositionNote(e.target.value)}
+                          placeholder="Describe your finding…"
+                          rows={2}
+                          style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12, resize: "vertical", boxSizing: "border-box" }}
+                        />
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+                      <button
+                        type="button"
+                        onClick={() => setDupCompareOpen(false)}
+                        style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12, cursor: "pointer" }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDupEDisposition}
+                        disabled={dupDispositionSaving || !dupDispositionDecision || !dupDispositionNote.trim() || (dupDispositionDecision === "CONFIRMED_DUPLICATE" && !dupDispositionPrimaryBillId)}
+                        style={{
+                          padding: "8px 20px", borderRadius: 6, border: "1px solid #0f172a",
+                          background: dupDispositionSaving || !dupDispositionDecision || !dupDispositionNote.trim() ? "#e5e7eb" : "#0f172a",
+                          color: dupDispositionSaving || !dupDispositionDecision || !dupDispositionNote.trim() ? "#6b7280" : "#fff",
+                          fontSize: 12, fontWeight: 600,
+                          cursor: dupDispositionSaving || !dupDispositionDecision || !dupDispositionNote.trim() ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        {dupDispositionSaving ? "Saving & Capturing Snapshot…" : "Save Disposition"}
+                      </button>
+                    </div>
+                    {dupDispositionDecision === "CONFIRMED_DUPLICATE" && (
+                      <p style={{ fontSize: 10, color: "#9ca3af", margin: "8px 0 0" }}>
+                        The non-primary bill will be converted to a <strong>SibE</strong> (Sibling Expense) — greyed out, record-only, excluded from project totals.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* NexDupE Archive Modal */}
+          {dupArchiveOpen && (
+            <div style={{
+              position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 9999,
+              display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+            }}>
+              <div style={{
+                background: "#fff", borderRadius: 12, width: "100%", maxWidth: 800, maxHeight: "85vh",
+                overflow: "auto", boxShadow: "0 8px 30px rgba(0,0,0,0.2)",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid #e5e7eb", position: "sticky", top: 0, background: "#fff", zIndex: 1 }}>
+                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>📋 Archived Duplicate Dispositions</h3>
+                  <button type="button" onClick={() => { setDupArchiveOpen(false); setDupArchiveDetail(null); }} style={{ border: "none", background: "none", cursor: "pointer", fontSize: 20, color: "#6b7280" }}>✕</button>
+                </div>
+
+                {dupArchiveLoading && (
+                  <div style={{ padding: 40, textAlign: "center", color: "#6b7280" }}>Loading archive…</div>
+                )}
+
+                {!dupArchiveLoading && dupArchiveData.length === 0 && (
+                  <div style={{ padding: 40, textAlign: "center", color: "#9ca3af" }}>No dispositions yet.</div>
+                )}
+
+                {/* Archive detail view */}
+                {dupArchiveDetail && (
+                  <div style={{ padding: "16px 20px" }}>
+                    <button type="button" onClick={() => setDupArchiveDetail(null)} style={{ fontSize: 12, color: "#4338ca", border: "none", background: "none", cursor: "pointer", marginBottom: 12 }}>← Back to list</button>
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+                      <span style={{ padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700, background: dupArchiveDetail.decision === "CONFIRMED_DUPLICATE" ? "#fee2e2" : "#dcfce7", color: dupArchiveDetail.decision === "CONFIRMED_DUPLICATE" ? "#991b1b" : "#166534" }}>
+                        {dupArchiveDetail.decision.replace(/_/g, " ")}
+                      </span>
+                      <span style={{ fontSize: 11, color: "#6b7280" }}>{dupArchiveDetail.groupType} — {dupArchiveDetail.confidence != null ? `${(dupArchiveDetail.confidence * 100).toFixed(0)}%` : ""}</span>
+                      <span style={{ fontSize: 11, color: "#6b7280" }}>{new Date(dupArchiveDetail.dispositionedAt).toLocaleString()}</span>
+                      <span style={{ fontSize: 11, color: "#6b7280" }}>by {dupArchiveDetail.dispositionedBy?.name ?? "—"}</span>
+                    </div>
+                    <div style={{ fontSize: 12, padding: "10px 14px", borderRadius: 8, background: "#f9fafb", border: "1px solid #e5e7eb", marginBottom: 16 }}>
+                      <strong>Note:</strong> {dupArchiveDetail.note}
+                    </div>
+                    {dupArchiveDetail.snapshotImageUrl && (
+                      <div style={{ marginBottom: 16 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: "#374151" }}>Modal Snapshot</div>
+                        <img src={dupArchiveDetail.snapshotImageUrl} alt="Disposition snapshot" style={{ width: "100%", borderRadius: 8, border: "1px solid #e5e7eb" }} />
+                      </div>
+                    )}
+                    {dupArchiveDetail.billDataSnapshot?.bills && (
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: "#374151" }}>Frozen Bill Data</div>
+                        <div style={{ display: "grid", gridTemplateColumns: `repeat(${dupArchiveDetail.billDataSnapshot.bills.length}, 1fr)`, gap: 12 }}>
+                          {dupArchiveDetail.billDataSnapshot.bills.map((bill: any) => (
+                            <div key={bill.id} style={{ padding: "12px", borderRadius: 8, border: "1px solid #e5e7eb", background: bill.id === dupArchiveDetail.sibeBillId ? "#f3f4f6" : "#fff", opacity: bill.id === dupArchiveDetail.sibeBillId ? 0.6 : 1 }}>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: "#1e40af", marginBottom: 4 }}>{bill.projectName}</div>
+                              {bill.id === dupArchiveDetail.sibeBillId && <div style={{ fontSize: 10, color: "#991b1b", fontWeight: 700, marginBottom: 4 }}>SibE — Record Only</div>}
+                              <div style={{ fontSize: 11 }}>{bill.vendorName} — ${Math.abs(bill.totalAmount).toFixed(2)}</div>
+                              <div style={{ fontSize: 11, color: "#6b7280" }}>{new Date(bill.billDate).toLocaleDateString()} · {bill.status}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Archive list */}
+                {!dupArchiveLoading && !dupArchiveDetail && dupArchiveData.length > 0 && (
+                  <div style={{ padding: "8px 0" }}>
+                    {dupArchiveData.map((d: any) => {
+                      const decisionColors: Record<string, { bg: string; color: string }> = {
+                        NOT_DUPLICATE: { bg: "#dcfce7", color: "#166534" },
+                        CONFIRMED_DUPLICATE: { bg: "#fee2e2", color: "#991b1b" },
+                        SAME_VENDOR_DIFFERENT_PURCHASE: { bg: "#fef9c3", color: "#854d0e" },
+                        INTENTIONAL_SPLIT: { bg: "#dbeafe", color: "#1d4ed8" },
+                      };
+                      const dc = decisionColors[d.decision] ?? decisionColors.NOT_DUPLICATE;
+                      return (
+                        <button
+                          key={d.id}
+                          type="button"
+                          onClick={() => openDupArchiveDetail(d.id)}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "12px 20px",
+                            border: "none", borderBottom: "1px solid #f3f4f6", background: "transparent",
+                            cursor: "pointer", textAlign: "left",
+                          }}
+                        >
+                          <span style={{ padding: "3px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700, background: dc.bg, color: dc.color, whiteSpace: "nowrap" }}>
+                            {d.decision.replace(/_/g, " ")}
+                          </span>
+                          <span style={{ fontSize: 11, color: "#374151", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {d.note.slice(0, 80)}{d.note.length > 80 ? "…" : ""}
+                          </span>
+                          <span style={{ fontSize: 10, color: "#9ca3af", whiteSpace: "nowrap" }}>
+                            {d.groupType} · {new Date(d.dispositionedAt).toLocaleDateString()}
+                          </span>
+                          {d.snapshotImageUrl && <span title="Has snapshot" style={{ fontSize: 12 }}>🖼️</span>}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>

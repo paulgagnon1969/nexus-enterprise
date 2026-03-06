@@ -328,6 +328,9 @@ model Company {
   agreementTemplates AgreementTemplate[]
   agreements         Agreement[]
 
+  // NexDupE — Duplicate Expense Dispositions
+  duplicateExpenseDispositions DuplicateExpenseDisposition[]
+
   // NexCheck — Site compliance kiosk system
   sitePasses       SitePass[]
   siteDocuments    SiteDocument[]
@@ -788,6 +791,9 @@ model User {
   supportSessionsAsClient SupportSession[]      @relation("SupportSessionClient")
   supportSessionsAsAgent  SupportSession[]      @relation("SupportSessionAgent")
   supportSessionEvents    SupportSessionEvent[] @relation("SupportSessionEventActor")
+
+  // NexDupE — Duplicate Expense Dispositions
+  dupEDispositions DuplicateExpenseDisposition[] @relation("DupEDispositionBy")
 }
 
 /// Notification delivered to a single user
@@ -2133,6 +2139,14 @@ enum NexPriceConfidence {
 enum BillRole {
   PRIMARY
   VERIFICATION
+  SIBE
+}
+
+enum DupEDecision {
+  NOT_DUPLICATE
+  CONFIRMED_DUPLICATE
+  SAME_VENDOR_DIFFERENT_PURCHASE
+  INTENTIONAL_SPLIT
 }
 
 enum BillVerificationStatus {
@@ -9794,6 +9808,53 @@ model BillSiblingGroup {
 
   @@index([companyId, projectId], map: "BillSiblingGroup_company_project_idx")
   @@index([companyId, verificationStatus], map: "BillSiblingGroup_company_status_idx")
+}
+
+// ===================================================================
+// NexDupE — Duplicate Expense Disposition
+// ===================================================================
+
+/// Records the outcome of a duplicate expense review. When a cross-project
+/// duplicate group is dispositioned, the decision, a free-text note, a JSON
+/// snapshot of the full bill comparison data, and a PNG snapshot image are
+/// persisted permanently. For CONFIRMED_DUPLICATE decisions, the losing bill
+/// is converted to SIBE (Sibling Expense — record-only, greyed out).
+model DuplicateExpenseDisposition {
+  id        String @id @default(cuid())
+  companyId String
+
+  /// Scan-generated group ID (e.g. "exact-xxx" or "fuzzy-xxx-yyy")
+  groupId   String
+  groupType String // "EXACT" | "FUZZY"
+  confidence Float?
+
+  decision DupEDecision
+  note     String @db.Text
+
+  /// JSON array of bill IDs that were in the comparison group
+  billIds String // JSON
+
+  /// Frozen copy of the full bill comparison payload at disposition time.
+  /// Even if the underlying bills are later deleted, this data survives.
+  billDataSnapshot String? @db.Text // JSON
+
+  /// MinIO storage URI for the PNG screenshot of the comparison modal
+  snapshotImageUri String?
+
+  /// For CONFIRMED_DUPLICATE: which bill was kept as the active expense
+  primaryBillId String?
+  /// For CONFIRMED_DUPLICATE: which bill was converted to SIBE
+  sibeBillId    String?
+
+  dispositionedByUserId String?
+  dispositionedAt       DateTime @default(now())
+  createdAt             DateTime @default(now())
+
+  company         Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  dispositionedBy User?   @relation("DupEDispositionBy", fields: [dispositionedByUserId], references: [id])
+
+  @@unique([companyId, groupId], name: "DuplicateExpenseDisposition_company_group_key")
+  @@index([companyId, dispositionedAt], map: "DuplicateExpenseDisposition_company_date_idx")
 }
 
 // ===================================================================

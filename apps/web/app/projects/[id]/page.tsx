@@ -18601,6 +18601,30 @@ ${htmlBody}
                   <div style={{ color: "#6b7280" }}>No bills recorded yet.</div>
                 )}
 
+                {/* NexDupE SibE Summary */}
+                {!projectBillsLoading && projectBills && (() => {
+                  const sibeBills = projectBills.filter((b: any) => b?.billRole === "SIBE");
+                  if (sibeBills.length === 0) return null;
+                  const totalSibeAmount = sibeBills.reduce((sum: number, b: any) => sum + Math.abs(Number(b?.totalAmount) || 0), 0);
+                  return (
+                    <div style={{
+                      marginBottom: 12, padding: "10px 12px", borderRadius: 6,
+                      background: "#fef2f2", border: "1px solid #fecaca",
+                    }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#991b1b", marginBottom: 4 }}>
+                        🔴 NexDupE — Duplicate Expense Archive
+                      </div>
+                      <div style={{ display: "flex", gap: 16, fontSize: 12, color: "#7f1d1d" }}>
+                        <span><strong>{sibeBills.length}</strong> duplicate expense{sibeBills.length !== 1 ? "s" : ""} archived</span>
+                        <span>Total archived: <strong>{formatMoney(totalSibeAmount)}</strong></span>
+                      </div>
+                      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+                        SibE bills (greyed-out rows) are record-only duplicates with GAAP offset line items. They do not count toward project totals.
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Verified Duplicates Summary */}
                 {!projectBillsLoading && projectBills && (() => {
                   const verificationBills = projectBills.filter((b: any) => b?.billRole === "VERIFICATION");
@@ -18725,9 +18749,10 @@ ${htmlBody}
                             const gmPercent = isBillable && billableTotal > 0 ? (gmDollars / billableTotal) * 100 : 0;
                             const billRole = b?.billRole ?? "PRIMARY";
                             const isVerification = billRole === "VERIFICATION";
+                            const isSibe = billRole === "SIBE";
                             const sibGroup = b?.siblingGroup;
                             return (
-                              <tr key={String(b?.id ?? Math.random())} style={{ background: isVerification ? "#eff6ff" : undefined }}>
+                              <tr key={String(b?.id ?? Math.random())} style={{ background: isVerification ? "#eff6ff" : isSibe ? "#f9fafb" : undefined, opacity: isSibe ? 0.55 : 1 }}>
                                 <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
                                   {b?.vendorName ?? "—"}
                                 </td>
@@ -18749,6 +18774,16 @@ ${htmlBody}
                                     >
                                       VERIFICATION
                                       {sibGroup && ` (${(sibGroup.matchConfidence * 100).toFixed(0)}%)`}
+                                    </span>
+                                  ) : isSibe ? (
+                                    <span
+                                      style={{
+                                        padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600,
+                                        background: "#fee2e2", color: "#991b1b",
+                                      }}
+                                      title="NexDupE: Duplicate Expense — record only. This bill does not count toward project totals."
+                                    >
+                                      DupE — Record Only
                                     </span>
                                   ) : (
                                     <span style={{ padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: "#f3f4f6", color: "#374151" }}>

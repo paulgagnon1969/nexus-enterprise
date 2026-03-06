@@ -484,4 +484,59 @@ export class CsvImportController {
     if (ids.length === 0) throw new BadRequestException("billIds is required (comma-separated).");
     return this.duplicateDetector.compareBills(actor.companyId, ids);
   }
+
+  // ─── NexDupE: Duplicate Expense Dispositions ─────────────────────
+
+  @Post("duplicate-expenses/disposition")
+  async createDupEDisposition(
+    @Req() req: any,
+    @Body() body: {
+      groupId: string;
+      groupType: string;
+      confidence: number;
+      decision: string;
+      note: string;
+      billIds: string[];
+      primaryBillId?: string;
+      sibeBillId?: string;
+      snapshotBase64?: string;
+    },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    if (!body.groupId) throw new BadRequestException("groupId is required.");
+    if (!body.decision) throw new BadRequestException("decision is required.");
+    if (!body.note?.trim()) throw new BadRequestException("note is required.");
+    if (!body.billIds?.length) throw new BadRequestException("billIds is required.");
+    if (body.decision === "CONFIRMED_DUPLICATE" && !body.primaryBillId) {
+      throw new BadRequestException("primaryBillId is required for CONFIRMED_DUPLICATE.");
+    }
+    if (body.decision === "CONFIRMED_DUPLICATE" && !body.sibeBillId) {
+      throw new BadRequestException("sibeBillId is required for CONFIRMED_DUPLICATE.");
+    }
+    return this.duplicateDetector.createDisposition({
+      companyId: actor.companyId,
+      userId: actor.userId,
+      groupId: body.groupId,
+      groupType: body.groupType,
+      confidence: body.confidence,
+      decision: body.decision as any,
+      note: body.note.trim(),
+      billIds: body.billIds,
+      primaryBillId: body.primaryBillId,
+      sibeBillId: body.sibeBillId,
+      snapshotBase64: body.snapshotBase64,
+    });
+  }
+
+  @Get("duplicate-expenses/dispositions")
+  async listDupEDispositions(@Req() req: any) {
+    const actor = req.user as AuthenticatedUser;
+    return this.duplicateDetector.listDispositions(actor.companyId);
+  }
+
+  @Get("duplicate-expenses/dispositions/:id")
+  async getDupEDisposition(@Req() req: any, @Param("id") id: string) {
+    const actor = req.user as AuthenticatedUser;
+    return this.duplicateDetector.getDisposition(actor.companyId, id);
+  }
 }
