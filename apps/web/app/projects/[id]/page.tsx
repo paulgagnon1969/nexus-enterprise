@@ -1720,6 +1720,9 @@ export default function ProjectDetailPage({
   // Expanded receipt groups in the prescreened TENTATIVE bills section
   const [expandedReceiptGroups, setExpandedReceiptGroups] = useState<Set<string>>(new Set());
 
+  // NexVERIFY section collapsed by default
+  const [nexVerifyCollapsed, setNexVerifyCollapsed] = useState(true);
+
   // Bills table sort
   type BillsSortField = "vendor" | "date" | "amount" | "billable";
   const [billsSortField, setBillsSortField] = useState<BillsSortField>("date");
@@ -18416,12 +18419,17 @@ ${htmlBody}
                   );
                 })()}
 
-                {/* Uncommitted Receipts Section - Draft bills from daily log receipts */}
+                {/* Uncommitted Receipts Section - ALL DRAFT bills (daily log + confirmed prescreened) */}
                 {!projectBillsLoading && projectBills && (() => {
                   const uncommittedReceipts = projectBills.filter(
-                    (b: any) => b?.sourceDailyLogId && b?.status === "DRAFT"
+                    (b: any) => b?.status === "DRAFT"
                   );
                   if (uncommittedReceipts.length === 0) return null;
+
+                  const srcLabel: Record<string, string> = {
+                    HD_PRO_XTRA: "HD", CHASE_BANK: "Chase", APPLE_CARD: "Apple", PLAID: "Bank",
+                  };
+
                   return (
                     <div
                       style={{
@@ -18437,7 +18445,7 @@ ${htmlBody}
                           📥 Uncommitted Receipts ({uncommittedReceipts.length})
                         </div>
                         <span style={{ fontSize: 11, color: "#b45309" }}>
-                          Submitted by field crew - review and commit
+                          Review and commit — mark billable or not billable
                         </span>
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -18453,6 +18461,13 @@ ${htmlBody}
                           const isOrphaned = b?.sourceDailyLogId && (
                             !sourceDailyLog || sourceDailyLog.type !== "RECEIPT_EXPENSE"
                           );
+                          // Source origin badge
+                          const txnSource = b?.sourceTransactionSource;
+                          const originLabel = txnSource
+                            ? (srcLabel[txnSource] ?? txnSource)
+                            : (b?.sourceDailyLogId ? "Daily Log" : "Manual");
+                          const originBg = txnSource ? "#dbeafe" : (b?.sourceDailyLogId ? "#fef3c7" : "#f3f4f6");
+                          const originColor = txnSource ? "#1d4ed8" : (b?.sourceDailyLogId ? "#92400e" : "#6b7280");
                           return (
                             <div
                               key={String(b?.id ?? Math.random())}
@@ -18467,6 +18482,13 @@ ${htmlBody}
                                 border: isOrphaned ? "1px dashed #f87171" : "none",
                               }}
                             >
+                              {/* Source origin badge */}
+                              <span style={{
+                                padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700,
+                                background: originBg, color: originColor, whiteSpace: "nowrap",
+                              }}>
+                                {originLabel}
+                              </span>
                               <div style={{ flex: 1 }}>
                                 <div style={{ fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
                                   {b?.vendorName ?? "Unknown Vendor"}
@@ -18625,7 +18647,7 @@ ${htmlBody}
                   );
                 })()}
 
-                {/* Verified Duplicates Summary */}
+                {/* Verified Duplicates Summary — collapsed by default */}
                 {!projectBillsLoading && projectBills && (() => {
                   const verificationBills = projectBills.filter((b: any) => b?.billRole === "VERIFICATION");
                   if (verificationBills.length === 0) return null;
@@ -18634,21 +18656,36 @@ ${htmlBody}
                   const totalVariance = verificationBills.reduce((sum: number, b: any) => sum + Math.abs(Number(b?.siblingGroup?.amountVariance) || 0), 0);
                   return (
                     <div style={{
-                      marginBottom: 12, padding: "10px 12px", borderRadius: 6,
+                      marginBottom: 12, borderRadius: 6,
                       background: "#eff6ff", border: "1px solid #bfdbfe",
                     }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1e40af", marginBottom: 4 }}>
-                        🔍 NexVERIFY — Multi-Source Expense Convergence
-                      </div>
-                      <div style={{ display: "flex", gap: 16, fontSize: 12, color: "#1e3a5f" }}>
-                        <span><strong>{verificationBills.length}</strong> duplicate bill{verificationBills.length !== 1 ? "s" : ""} detected</span>
-                        <span style={{ color: "#16a34a" }}><strong>{totalVerified}</strong> verified</span>
-                        {totalPending > 0 && <span style={{ color: "#b45309" }}><strong>{totalPending}</strong> pending verification</span>}
-                        {totalVariance > 0 && <span>Total variance: <strong>{formatMoney(totalVariance)}</strong></span>}
-                      </div>
-                      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
-                        VERIFICATION bills (blue rows) have GAAP offset line items that net to $0. They corroborate PRIMARY bills from a different source.
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setNexVerifyCollapsed(prev => !prev)}
+                        style={{
+                          width: "100%", padding: "10px 12px", borderRadius: 6,
+                          background: "#eff6ff", border: "none", cursor: "pointer",
+                          textAlign: "left", display: "flex", alignItems: "center", justifyContent: "space-between",
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1e40af", marginBottom: 2, display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontSize: 11, color: "#6b7280" }}>{nexVerifyCollapsed ? "▸" : "▾"}</span>
+                            🔍 NexVERIFY — Multi-Source Expense Convergence
+                          </div>
+                          <div style={{ display: "flex", gap: 16, fontSize: 12, color: "#1e3a5f" }}>
+                            <span><strong>{verificationBills.length}</strong> duplicate bill{verificationBills.length !== 1 ? "s" : ""} detected</span>
+                            <span style={{ color: "#16a34a" }}><strong>{totalVerified}</strong> verified</span>
+                            {totalPending > 0 && <span style={{ color: "#b45309" }}><strong>{totalPending}</strong> pending verification</span>}
+                            {totalVariance > 0 && <span>Total variance: <strong>{formatMoney(totalVariance)}</strong></span>}
+                          </div>
+                        </div>
+                      </button>
+                      {!nexVerifyCollapsed && (
+                        <div style={{ padding: "0 12px 10px 12px", fontSize: 11, color: "#6b7280" }}>
+                          VERIFICATION bills (blue rows) have GAAP offset line items that net to $0. They corroborate PRIMARY bills from a different source.
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
