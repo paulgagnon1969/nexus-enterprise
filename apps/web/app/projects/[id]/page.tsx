@@ -22961,7 +22961,8 @@ ${htmlBody}
                           <thead>
                             <tr style={{ backgroundColor: "#f9fafb" }}>
                               <th style={{ textAlign: "left", padding: "6px 8px" }}>Vendor</th>
-                              <th style={{ textAlign: "right", padding: "6px 8px" }}>Amount</th>
+                              <th style={{ textAlign: "right", padding: "6px 8px", width: 110 }}>Retail</th>
+                              <th style={{ textAlign: "right", padding: "6px 8px", width: 110 }}>Amount</th>
                               <th style={{ textAlign: "right", padding: "6px 8px", width: 80 }}>Actions</th>
                             </tr>
                           </thead>
@@ -22969,7 +22970,7 @@ ${htmlBody}
                             {activeInvoiceLineItemGroups.length === 0 ? (
                               <tr>
                                 <td
-                                  colSpan={3}
+                                  colSpan={4}
                                   style={{
                                     padding: "8px 10px",
                                     borderTop: "1px solid #e5e7eb",
@@ -23018,6 +23019,7 @@ ${htmlBody}
                                         ({group.items.length} item{group.items.length !== 1 ? "s" : ""})
                                       </span>
                                     </td>
+                                    <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }} />
                                     <td
                                       style={{
                                         padding: "6px 8px",
@@ -23058,22 +23060,49 @@ ${htmlBody}
                                             li.description
                                           )}
                                         </td>
+                                        {/* Retail / Adj column */}
                                         <td
                                           style={{
                                             padding: "4px 8px",
                                             borderTop: "1px solid #f3f4f6",
                                             textAlign: "right",
-                                            color: isCredit ? "#b91c1c" : "#4b5563",
-                                            fontWeight: isCredit ? 600 : undefined,
-                                            fontSize: 11,
+                                            fontSize: isDiscountLine ? 11 : 12,
+                                            color: isDiscountLine ? "#b91c1c" : "#374151",
+                                            fontWeight: isDiscountLine ? 600 : 700,
                                           }}
                                         >
                                           {(() => {
+                                            if (isDiscountLine) {
+                                              // Show discount amount in red
+                                              const amt = Number(li.amount ?? 0);
+                                              return `-$${Math.abs(amt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                                            }
+                                            // Show cost book / original rate if available
+                                            const cbPrice = Number(li.costBookUnitPrice ?? 0);
+                                            if (cbPrice > 0) {
+                                              return cbPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                            }
+                                            return "";
+                                          })()}
+                                        </td>
+                                        {/* Amount column — actual billed amount */}
+                                        <td
+                                          style={{
+                                            padding: "4px 8px",
+                                            borderTop: "1px solid #f3f4f6",
+                                            textAlign: "right",
+                                            color: isCredit ? "#b91c1c" : "#111827",
+                                            fontWeight: 700,
+                                            fontSize: 12,
+                                          }}
+                                        >
+                                          {(() => {
+                                            if (isDiscountLine) return ""; // discount shown in Adj column
                                             const amt = Number(li.amount ?? 0);
                                             if (isCredit || amt < 0) {
                                               return `-$${Math.abs(amt).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
                                             }
-                                            return `$${amt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                                            return amt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                                           })()}
                                         </td>
                                         <td
@@ -23113,17 +23142,36 @@ ${htmlBody}
                         </table>
                       </div>
 
-                      {/* Invoice totals: Subtotal, Adjustments, Amount Due */}
+                      {/* Invoice totals: Retail, Discounts, Amount Due */}
                       {activeInvoiceLineItemGroups.length > 0 && (() => {
                         const allItems = activeInvoiceLineItemGroups.flatMap(g => g.items);
-                        const subtotal = allItems
-                          .filter((li: any) => Number(li?.amount ?? 0) >= 0 && String(li?.kind ?? "").toUpperCase() !== "CREDIT")
-                          .reduce((sum: number, li: any) => sum + (Number(li?.amount ?? 0) || 0), 0);
-                        const adjustments = allItems
-                          .filter((li: any) => Number(li?.amount ?? 0) < 0 || String(li?.kind ?? "").toUpperCase() === "CREDIT")
-                          .reduce((sum: number, li: any) => sum + (Number(li?.amount ?? 0) || 0), 0);
-                        const amountDue = subtotal + adjustments;
-                        const hasAdjustments = Math.abs(adjustments) > 0.005;
+                        // Non-discount, non-credit line items
+                        const mainItems = allItems.filter((li: any) => {
+                          const isCredit = String(li?.kind ?? "").toUpperCase() === "CREDIT" || Number(li?.amount ?? 0) < 0;
+                          const isDiscount = isCredit || /discount/i.test(String(li?.description ?? ""));
+                          return !isDiscount;
+                        });
+                        // Retail total: use costBookUnitPrice * qty where available, else amount
+                        const retailTotal = mainItems.reduce((sum: number, li: any) => {
+                          const cbPrice = Number(li?.costBookUnitPrice ?? 0);
+                          const qty = Number(li?.qty ?? 1) || 1;
+                          if (cbPrice > 0) return sum + cbPrice * qty;
+                          return sum + (Number(li?.amount ?? 0) || 0);
+                        }, 0);
+                        // Actual billed total (amount due)
+                        const amountDue = mainItems.reduce((sum: number, li: any) => sum + (Number(li?.amount ?? 0) || 0), 0);
+                        // Total discounts (retail - actual)
+                        const totalDiscounts = retailTotal - amountDue;
+                        const hasDiscounts = Math.abs(totalDiscounts) > 0.005;
+                        // Also sum any explicit credit/discount line items
+                        const creditItems = allItems.filter((li: any) => {
+                          const isCredit = String(li?.kind ?? "").toUpperCase() === "CREDIT" || Number(li?.amount ?? 0) < 0;
+                          const isDiscount = isCredit || /discount/i.test(String(li?.description ?? ""));
+                          return isDiscount;
+                        });
+                        const creditTotal = creditItems.reduce((sum: number, li: any) => sum + (Number(li?.amount ?? 0) || 0), 0);
+                        const netAmountDue = amountDue + creditTotal;
+                        const hasCreditLines = Math.abs(creditTotal) > 0.005;
                         return (
                           <div
                             style={{
@@ -23140,30 +23188,36 @@ ${htmlBody}
                               marginLeft: "auto",
                             }}
                           >
-                            {hasAdjustments && (
-                              <>
-                                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                                  <span style={{ color: "#4b5563" }}>Subtotal</span>
-                                  <span style={{ fontWeight: 600 }}>{formatMoney(subtotal)}</span>
-                                </div>
-                                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                                  <span style={{ color: "#b91c1c" }}>Adjustments</span>
-                                  <span style={{ fontWeight: 600, color: "#b91c1c" }}>
-                                    -${Math.abs(adjustments).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                  </span>
-                                </div>
-                                <div style={{ borderTop: "1px solid #d1d5db", paddingTop: 4, display: "flex", justifyContent: "space-between" }}>
-                                  <span style={{ fontWeight: 700 }}>Amount Due</span>
-                                  <span style={{ fontWeight: 700, fontSize: 13 }}>{formatMoney(amountDue)}</span>
-                                </div>
-                              </>
-                            )}
-                            {!hasAdjustments && (
+                            {hasDiscounts && (
                               <div style={{ display: "flex", justifyContent: "space-between" }}>
-                                <span style={{ fontWeight: 700 }}>Total</span>
-                                <span style={{ fontWeight: 700, fontSize: 13 }}>{formatMoney(subtotal)}</span>
+                                <span style={{ color: "#4b5563" }}>Retail Total</span>
+                                <span style={{ fontWeight: 600 }}>{formatMoney(retailTotal)}</span>
                               </div>
                             )}
+                            <div style={{ display: "flex", justifyContent: "space-between" }}>
+                              <span style={{ color: "#4b5563" }}>Subtotal</span>
+                              <span style={{ fontWeight: 600 }}>{formatMoney(amountDue)}</span>
+                            </div>
+                            {hasDiscounts && (
+                              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                <span style={{ color: "#b91c1c" }}>Discounts</span>
+                                <span style={{ fontWeight: 600, color: "#b91c1c" }}>
+                                  -${Math.abs(totalDiscounts).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                              </div>
+                            )}
+                            {hasCreditLines && (
+                              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                <span style={{ color: "#b91c1c" }}>Adjustments</span>
+                                <span style={{ fontWeight: 600, color: "#b91c1c" }}>
+                                  -${Math.abs(creditTotal).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                              </div>
+                            )}
+                            <div style={{ borderTop: "1px solid #d1d5db", paddingTop: 4, display: "flex", justifyContent: "space-between" }}>
+                              <span style={{ fontWeight: 700 }}>Amount Due</span>
+                              <span style={{ fontWeight: 700, fontSize: 13 }}>{formatMoney(netAmountDue)}</span>
+                            </div>
                           </div>
                         );
                       })()}
