@@ -22799,17 +22799,27 @@ ${htmlBody}
                                 if (isOpen) {
                                   for (const li of group.items) {
                                     const isCredit = String(li.kind ?? "").toUpperCase() === "CREDIT" || (Number(li.amount ?? 0) < 0);
+                                    const isDiscountLine = isCredit || /discount/i.test(String(li.description ?? ""));
                                     rows.push(
                                       <tr key={li.id} style={{ background: "#fafafa" }}>
                                         <td
                                           style={{
-                                            padding: "4px 8px 4px 24px",
+                                            padding: isDiscountLine ? "4px 8px 4px 38px" : "4px 8px 4px 24px",
                                             borderTop: "1px solid #f3f4f6",
                                             color: isCredit ? "#b91c1c" : "#4b5563",
                                             fontSize: 11,
                                           }}
                                         >
-                                          {li.description}
+                                          {isDiscountLine ? (
+                                            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                              <span style={{ color: "#9ca3af", fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                                                ↳
+                                              </span>
+                                              <span>{li.description}</span>
+                                            </span>
+                                          ) : (
+                                            li.description
+                                          )}
                                         </td>
                                         <td
                                           style={{

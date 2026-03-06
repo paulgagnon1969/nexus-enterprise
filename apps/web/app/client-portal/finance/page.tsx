@@ -61,13 +61,13 @@ const formatDate = (iso?: string) => {
 };
 
 const invoiceStatusBadge = (status: string, isOverdue: boolean): { label: string; bg: string; color: string } => {
-  if (isOverdue) return { label: "Overdue", bg: "rgba(239,68,68,0.15)", color: "#fca5a5" };
+  if (isOverdue) return { label: "Overdue", bg: "rgba(239,68,68,0.15)", color: "#dc2626" };
   const map: Record<string, { label: string; bg: string; color: string }> = {
-    ISSUED:         { label: "Issued",         bg: "rgba(59,130,246,0.15)",  color: "#93c5fd" },
-    PARTIALLY_PAID: { label: "Partially Paid", bg: "rgba(234,179,8,0.15)",   color: "#fde047" },
-    PAID:           { label: "Paid",           bg: "rgba(34,197,94,0.15)",   color: "#86efac" },
+    ISSUED:         { label: "Issued",         bg: "rgba(59,130,246,0.15)",  color: "#2563eb" },
+    PARTIALLY_PAID: { label: "Partially Paid", bg: "rgba(234,179,8,0.15)",   color: "#ca8a04" },
+    PAID:           { label: "Paid",           bg: "rgba(34,197,94,0.15)",   color: "#16a34a" },
   };
-  return map[status] ?? { label: status, bg: "rgba(100,116,139,0.15)", color: "#94a3b8" };
+  return map[status] ?? { label: status, bg: "rgba(100,116,139,0.15)", color: "#6b7280" };
 };
 
 const paymentMethodLabel = (method?: string) => {
@@ -83,21 +83,21 @@ const paymentMethodLabel = (method?: string) => {
 
 const PAGE: React.CSSProperties = {
   minHeight: "100vh",
-  background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
-  color: "#f8fafc",
+  background: "#f8fafc",
+  color: "#0f172a",
   fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
 };
 
 const CARD: React.CSSProperties = {
-  background: "rgba(30,41,59,0.7)",
-  border: "1px solid #1e293b",
+  background: "#ffffff",
+  border: "1px solid #e5e7eb",
   borderRadius: 12,
   overflow: "hidden",
 };
 
 const CARD_HEADER: React.CSSProperties = {
   padding: "14px 20px",
-  borderBottom: "1px solid #1e293b",
+  borderBottom: "1px solid #e5e7eb",
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
@@ -239,21 +239,21 @@ export default function ClientPortalFinancePage() {
       {/* Header */}
       <header style={{
         display: "flex", justifyContent: "space-between", alignItems: "center",
-        padding: "18px 32px", borderBottom: "1px solid #1e293b",
+        padding: "18px 32px", borderBottom: "1px solid #e5e7eb",
         maxWidth: 1200, margin: "0 auto",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <img src="/nexconnect-logo.png" alt="Nexus" style={{ height: 32, width: "auto" }} />
-          <span style={{ fontSize: 15, fontWeight: 600, color: "#f1f5f9" }}>Client Portal</span>
+          <span style={{ fontSize: 15, fontWeight: 600, color: "#0f172a" }}>Client Portal</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           {userName && (
-            <span style={{ fontSize: 13, color: "#64748b" }}>{userName}</span>
+            <span style={{ fontSize: 13, color: "#6b7280" }}>{userName}</span>
           )}
           <button onClick={handleSignOut} style={{
             padding: "7px 14px", borderRadius: 6,
-            border: "1px solid #334155", background: "transparent",
-            color: "#94a3b8", fontSize: 13, cursor: "pointer",
+            border: "1px solid #d1d5db", background: "transparent",
+            color: "#6b7280", fontSize: 13, cursor: "pointer",
           }}>
             Sign Out
           </button>
@@ -263,14 +263,14 @@ export default function ClientPortalFinancePage() {
       {/* Tab Nav */}
       <nav style={{
         maxWidth: 1200, margin: "0 auto", padding: "0 32px",
-        borderBottom: "1px solid #1e293b",
+        borderBottom: "1px solid #e5e7eb",
         display: "flex", gap: 0,
       }}>
         <button
           onClick={() => router.push("/client-portal")}
           style={{
             padding: "12px 20px", fontSize: 13, fontWeight: 500,
-            color: "#64748b", background: "transparent", border: "none",
+            color: "#6b7280", background: "transparent", border: "none",
             borderBottom: "2px solid transparent",
             cursor: "pointer",
           }}
@@ -280,7 +280,7 @@ export default function ClientPortalFinancePage() {
         <button
           style={{
             padding: "12px 20px", fontSize: 13, fontWeight: 600,
-            color: "#f1f5f9", background: "transparent", border: "none",
+            color: "#0f172a", background: "transparent", border: "none",
             borderBottom: "2px solid #3b82f6",
             cursor: "pointer",
           }}
@@ -293,11 +293,11 @@ export default function ClientPortalFinancePage() {
       <main style={{ maxWidth: 1200, margin: "0 auto", padding: "32px 32px 48px" }}>
         {loading ? (
           <div style={{ textAlign: "center", padding: 80 }}>
-            <p style={{ color: "#64748b", fontSize: 14 }}>Loading financial summary…</p>
+            <p style={{ color: "#6b7280", fontSize: 14 }}>Loading financial summary…</p>
           </div>
         ) : error ? (
           <div style={{ textAlign: "center", padding: 80 }}>
-            <p style={{ color: "#fca5a5", fontSize: 14, marginBottom: 16 }}>{error}</p>
+            <p style={{ color: "#dc2626", fontSize: 14, marginBottom: 16 }}>{error}</p>
             <button onClick={() => router.push("/login")} style={{
               padding: "10px 20px", borderRadius: 8, border: "none",
               background: "#3b82f6", color: "#fff", fontSize: 14, cursor: "pointer",
@@ -306,12 +306,12 @@ export default function ClientPortalFinancePage() {
         ) : !data || data.invoices.length === 0 ? (
           <div style={{
             textAlign: "center", padding: "80px 32px",
-            background: "rgba(30,41,59,0.5)", borderRadius: 16,
-            border: "1px solid #1e293b",
+            background: "#f8fafc", borderRadius: 16,
+            border: "1px solid #e5e7eb",
           }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>💰</div>
-            <h2 style={{ color: "#f1f5f9", fontSize: 20, fontWeight: 600, margin: "0 0 8px" }}>No invoices yet</h2>
-            <p style={{ color: "#64748b", fontSize: 14, margin: 0 }}>
+            <h2 style={{ color: "#0f172a", fontSize: 20, fontWeight: 600, margin: "0 0 8px" }}>No invoices yet</h2>
+            <p style={{ color: "#6b7280", fontSize: 14, margin: 0 }}>
               When invoices are issued for your projects, they&apos;ll appear here.
             </p>
           </div>
@@ -319,8 +319,8 @@ export default function ClientPortalFinancePage() {
           <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
             {/* Page title */}
             <div>
-              <h1 style={{ fontSize: 24, fontWeight: 700, margin: "0 0 4px", color: "#f1f5f9" }}>Finance</h1>
-              <p style={{ margin: 0, fontSize: 13, color: "#64748b" }}>
+              <h1 style={{ fontSize: 24, fontWeight: 700, margin: "0 0 4px", color: "#0f172a" }}>Finance</h1>
+              <p style={{ margin: 0, fontSize: 13, color: "#6b7280" }}>
                 Financial overview across all your projects
               </p>
             </div>
@@ -328,10 +328,10 @@ export default function ClientPortalFinancePage() {
             {/* Summary Cards */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14 }}>
               {[
-                { label: "Total Invoiced", value: formatMoney(summary!.totalInvoiced), icon: "📄", accent: "#93c5fd" },
-                { label: "Total Paid", value: formatMoney(summary!.totalPaid), icon: "✅", accent: "#86efac" },
-                { label: "Outstanding", value: formatMoney(summary!.totalOutstanding), icon: "⏳", accent: summary!.totalOutstanding > 0 ? "#fde047" : "#86efac" },
-                { label: "Overdue", value: String(summary!.overdueCount), icon: "⚠️", accent: summary!.overdueCount > 0 ? "#fca5a5" : "#86efac" },
+                { label: "Total Invoiced", value: formatMoney(summary!.totalInvoiced), icon: "📄", accent: "#2563eb" },
+                { label: "Total Paid", value: formatMoney(summary!.totalPaid), icon: "✅", accent: "#16a34a" },
+                { label: "Outstanding", value: formatMoney(summary!.totalOutstanding), icon: "⏳", accent: summary!.totalOutstanding > 0 ? "#ca8a04" : "#16a34a" },
+                { label: "Overdue", value: String(summary!.overdueCount), icon: "⚠️", accent: summary!.overdueCount > 0 ? "#dc2626" : "#16a34a" },
               ].map((card) => (
                 <div key={card.label} style={{
                   ...CARD,
@@ -339,7 +339,7 @@ export default function ClientPortalFinancePage() {
                   display: "flex", flexDirection: "column", gap: 8,
                 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 12, fontWeight: 500, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.5px" }}>
                       {card.label}
                     </span>
                     <span style={{ fontSize: 20 }}>{card.icon}</span>
@@ -354,9 +354,9 @@ export default function ClientPortalFinancePage() {
             {/* Invoices Table */}
             <div style={CARD}>
               <div style={{ ...CARD_HEADER, flexWrap: "wrap", gap: 10 }}>
-                <span style={{ fontSize: 14, fontWeight: 600, color: "#e2e8f0" }}>
+                <span style={{ fontSize: 14, fontWeight: 600, color: "#0f172a" }}>
                   Invoices
-                  <span style={{ fontWeight: 400, color: "#64748b", marginLeft: 8, fontSize: 12 }}>
+                  <span style={{ fontWeight: 400, color: "#6b7280", marginLeft: 8, fontSize: 12 }}>
                     {filteredInvoices.length} of {data.invoices.length}
                   </span>
                 </span>
@@ -369,8 +369,8 @@ export default function ClientPortalFinancePage() {
                     onChange={(e) => setSearchQuery(e.target.value)}
                     style={{
                       padding: "6px 12px", borderRadius: 6,
-                      border: "1px solid #334155", background: "rgba(15,23,42,0.6)",
-                      color: "#e2e8f0", fontSize: 12, width: 160, outline: "none",
+                      border: "1px solid #d1d5db", background: "#ffffff",
+                      color: "#0f172a", fontSize: 12, width: 160, outline: "none",
                     }}
                   />
                   {/* Status filter */}
@@ -379,8 +379,8 @@ export default function ClientPortalFinancePage() {
                     onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
                     style={{
                       padding: "6px 10px", borderRadius: 6,
-                      border: "1px solid #334155", background: "rgba(15,23,42,0.6)",
-                      color: "#e2e8f0", fontSize: 12, cursor: "pointer",
+                      border: "1px solid #d1d5db", background: "#ffffff",
+                      color: "#0f172a", fontSize: 12, cursor: "pointer",
                     }}
                   >
                     <option value="ALL">All Statuses</option>
@@ -396,8 +396,8 @@ export default function ClientPortalFinancePage() {
                       onChange={(e) => setCompanyFilter(e.target.value)}
                       style={{
                         padding: "6px 10px", borderRadius: 6,
-                        border: "1px solid #334155", background: "rgba(15,23,42,0.6)",
-                        color: "#e2e8f0", fontSize: 12, cursor: "pointer",
+                        border: "1px solid #d1d5db", background: "#ffffff",
+                        color: "#0f172a", fontSize: 12, cursor: "pointer",
                       }}
                     >
                       <option value="ALL">All Contractors</option>
@@ -413,7 +413,7 @@ export default function ClientPortalFinancePage() {
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
-                    <tr style={{ borderBottom: "1px solid #1e293b" }}>
+                    <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
                       {[
                         { field: "issuedAt" as SortField, label: "Date" },
                         { field: null, label: "Invoice #" },
@@ -430,7 +430,7 @@ export default function ClientPortalFinancePage() {
                           style={{
                             padding: "10px 14px",
                             textAlign: col.label === "Amount" || col.label === "Paid" || col.label === "Balance" ? "right" : "left",
-                            color: "#64748b", fontWeight: 500, fontSize: 11,
+                            color: "#6b7280", fontWeight: 500, fontSize: 11,
                             textTransform: "uppercase", letterSpacing: "0.5px",
                             cursor: col.field ? "pointer" : "default",
                             whiteSpace: "nowrap",
@@ -445,7 +445,7 @@ export default function ClientPortalFinancePage() {
                   <tbody>
                     {filteredInvoices.length === 0 ? (
                       <tr>
-                        <td colSpan={8} style={{ padding: 32, textAlign: "center", color: "#475569", fontSize: 13 }}>
+                        <td colSpan={8} style={{ padding: 32, textAlign: "center", color: "#9ca3af", fontSize: 13 }}>
                           No invoices match your filters.
                         </td>
                       </tr>
@@ -457,23 +457,23 @@ export default function ClientPortalFinancePage() {
                             key={inv.id}
                             onClick={() => router.push(`/client-portal/projects/${inv.projectId}`)}
                             style={{
-                              borderBottom: "1px solid rgba(30,41,59,0.5)",
+                              borderBottom: "1px solid #f1f5f9",
                               cursor: "pointer",
                               transition: "background 0.1s",
                             }}
-                            onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(59,130,246,0.05)")}
+                            onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")}
                             onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                           >
-                            <td style={{ padding: "10px 14px", color: "#94a3b8", whiteSpace: "nowrap" }}>
+                            <td style={{ padding: "10px 14px", color: "#6b7280", whiteSpace: "nowrap" }}>
                               {formatDate(inv.issuedAt)}
                             </td>
-                            <td style={{ padding: "10px 14px", color: "#e2e8f0", fontWeight: 500 }}>
+                            <td style={{ padding: "10px 14px", color: "#0f172a", fontWeight: 500 }}>
                               {inv.invoiceNo ?? "—"}
                             </td>
                             <td style={{ padding: "10px 14px" }}>
-                              <div style={{ color: "#e2e8f0", fontSize: 13 }}>{inv.projectName}</div>
+                              <div style={{ color: "#0f172a", fontSize: 13 }}>{inv.projectName}</div>
                               {companyNames.length > 1 && (
-                                <div style={{ color: "#475569", fontSize: 11, marginTop: 1 }}>{inv.companyName}</div>
+                                <div style={{ color: "#9ca3af", fontSize: 11, marginTop: 1 }}>{inv.companyName}</div>
                               )}
                             </td>
                             <td style={{ padding: "10px 14px" }}>
@@ -487,21 +487,21 @@ export default function ClientPortalFinancePage() {
                                 {badge.label}
                               </span>
                             </td>
-                            <td style={{ padding: "10px 14px", textAlign: "right", color: "#e2e8f0", fontVariantNumeric: "tabular-nums" }}>
+                            <td style={{ padding: "10px 14px", textAlign: "right", color: "#0f172a", fontVariantNumeric: "tabular-nums" }}>
                               {formatMoney(inv.totalAmount)}
                             </td>
-                            <td style={{ padding: "10px 14px", textAlign: "right", color: "#86efac", fontVariantNumeric: "tabular-nums" }}>
+                            <td style={{ padding: "10px 14px", textAlign: "right", color: "#16a34a", fontVariantNumeric: "tabular-nums" }}>
                               {inv.paidAmount > 0 ? formatMoney(inv.paidAmount) : "—"}
                             </td>
                             <td style={{
                               padding: "10px 14px", textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums",
-                              color: inv.balanceDue > 0 ? (inv.isOverdue ? "#fca5a5" : "#fde047") : "#86efac",
+                              color: inv.balanceDue > 0 ? (inv.isOverdue ? "#dc2626" : "#ca8a04") : "#16a34a",
                             }}>
                               {formatMoney(inv.balanceDue)}
                             </td>
                             <td style={{
                               padding: "10px 14px", whiteSpace: "nowrap",
-                              color: inv.isOverdue ? "#fca5a5" : "#94a3b8",
+                              color: inv.isOverdue ? "#dc2626" : "#6b7280",
                               fontWeight: inv.isOverdue ? 600 : 400,
                             }}>
                               {formatDate(inv.dueAt)}
@@ -519,8 +519,8 @@ export default function ClientPortalFinancePage() {
             {data.recentPayments.length > 0 && (
               <div style={CARD}>
                 <div style={CARD_HEADER}>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: "#e2e8f0" }}>Recent Payments</span>
-                  <span style={{ fontSize: 12, color: "#64748b" }}>{data.recentPayments.length} most recent</span>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: "#0f172a" }}>Recent Payments</span>
+                  <span style={{ fontSize: 12, color: "#6b7280" }}>{data.recentPayments.length} most recent</span>
                 </div>
                 <div style={CARD_BODY}>
                   <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
@@ -528,27 +528,27 @@ export default function ClientPortalFinancePage() {
                       <div key={pay.id} style={{
                         display: "flex", justifyContent: "space-between", alignItems: "center",
                         padding: "12px 0",
-                        borderBottom: "1px solid rgba(30,41,59,0.5)",
+                        borderBottom: "1px solid #f1f5f9",
                       }}>
                         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                             <span style={{
                               width: 6, height: 6, borderRadius: "50%",
-                              background: "#86efac", flexShrink: 0,
+                              background: "#16a34a", flexShrink: 0,
                             }} />
-                            <span style={{ fontSize: 13, color: "#e2e8f0" }}>
+                            <span style={{ fontSize: 13, color: "#0f172a" }}>
                               {paymentMethodLabel(pay.method)}
                               {pay.invoiceNo && (
-                                <span style={{ color: "#64748b" }}> — Inv #{pay.invoiceNo}</span>
+                                <span style={{ color: "#6b7280" }}> — Inv #{pay.invoiceNo}</span>
                               )}
                             </span>
                           </div>
-                          <span style={{ fontSize: 11, color: "#475569", paddingLeft: 14 }}>
+                          <span style={{ fontSize: 11, color: "#9ca3af", paddingLeft: 14 }}>
                             {pay.projectName} • {formatDate(pay.paidAt)}
                           </span>
                         </div>
                         <span style={{
-                          fontSize: 14, fontWeight: 600, color: "#86efac",
+                          fontSize: 14, fontWeight: 600, color: "#16a34a",
                           fontVariantNumeric: "tabular-nums",
                         }}>
                           {formatMoney(pay.amount)}
@@ -564,11 +564,11 @@ export default function ClientPortalFinancePage() {
       </main>
 
       {/* Footer */}
-      <footer style={{ borderTop: "1px solid #1e293b", padding: "24px 32px", maxWidth: 1200, margin: "0 auto" }}>
-        <p style={{ fontSize: 12, color: "#334155", margin: 0, textAlign: "center" }}>
+      <footer style={{ borderTop: "1px solid #e5e7eb", padding: "24px 32px", maxWidth: 1200, margin: "0 auto" }}>
+        <p style={{ fontSize: 12, color: "#6b7280", margin: 0, textAlign: "center" }}>
           © {new Date().getFullYear()} Nexus Contractor Connect
           <span style={{ margin: "0 12px" }}>•</span>
-          <a href="/welcome#privacy" style={{ color: "#475569", textDecoration: "none" }}>Privacy Policy</a>
+          <a href="/welcome#privacy" style={{ color: "#9ca3af", textDecoration: "none" }}>Privacy Policy</a>
         </p>
       </footer>
     </div>

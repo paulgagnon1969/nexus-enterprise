@@ -22,18 +22,18 @@ interface CompanyGroup {
 
 const PAGE: React.CSSProperties = {
   minHeight: "100vh",
-  background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
-  color: "#f8fafc",
+  background: "#f8fafc",
+  color: "#0f172a",
   fontFamily: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
 };
 
 const statusStyle = (status: string): React.CSSProperties => {
   const map: Record<string, { bg: string; color: string }> = {
-    ACTIVE:    { bg: "rgba(34,197,94,0.15)",  color: "#86efac" },
-    COMPLETE:  { bg: "rgba(59,130,246,0.15)", color: "#93c5fd" },
-    ON_HOLD:   { bg: "rgba(234,179,8,0.15)",  color: "#fde047" },
+    ACTIVE:    { bg: "rgba(34,197,94,0.15)",  color: "#16a34a" },
+    COMPLETE:  { bg: "rgba(59,130,246,0.15)", color: "#2563eb" },
+    ON_HOLD:   { bg: "rgba(234,179,8,0.15)",  color: "#ca8a04" },
   };
-  const s = map[status] ?? { bg: "rgba(100,116,139,0.15)", color: "#94a3b8" };
+  const s = map[status] ?? { bg: "rgba(100,116,139,0.15)", color: "#6b7280" };
   return { padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600,
     background: s.bg, color: s.color, textTransform: "uppercase", letterSpacing: "0.5px" };
 };
@@ -97,21 +97,21 @@ export default function ClientPortalPage() {
       {/* Header */}
       <header style={{
         display: "flex", justifyContent: "space-between", alignItems: "center",
-        padding: "18px 32px", borderBottom: "1px solid #1e293b",
+        padding: "18px 32px", borderBottom: "1px solid #e5e7eb",
         maxWidth: 1100, margin: "0 auto",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <img src="/nexconnect-logo.png" alt="Nexus" style={{ height: 32, width: "auto" }} />
-          <span style={{ fontSize: 15, fontWeight: 600, color: "#f1f5f9" }}>Project Portal</span>
+          <span style={{ fontSize: 15, fontWeight: 600, color: "#0f172a" }}>Project Portal</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           {userName && (
-            <span style={{ fontSize: 13, color: "#64748b" }}>{userName}</span>
+            <span style={{ fontSize: 13, color: "#6b7280" }}>{userName}</span>
           )}
           <button onClick={handleSignOut} style={{
             padding: "7px 14px", borderRadius: 6,
-            border: "1px solid #334155", background: "transparent",
-            color: "#94a3b8", fontSize: 13, cursor: "pointer",
+            border: "1px solid #d1d5db", background: "transparent",
+            color: "#6b7280", fontSize: 13, cursor: "pointer",
           }}>
             Sign Out
           </button>
@@ -121,13 +121,13 @@ export default function ClientPortalPage() {
       {/* Tab Nav */}
       <nav style={{
         maxWidth: 1100, margin: "0 auto", padding: "0 32px",
-        borderBottom: "1px solid #1e293b",
+        borderBottom: "1px solid #e5e7eb",
         display: "flex", gap: 0,
       }}>
         <button
           style={{
             padding: "12px 20px", fontSize: 13, fontWeight: 600,
-            color: "#f1f5f9", background: "transparent", border: "none",
+            color: "#0f172a", background: "transparent", border: "none",
             borderBottom: "2px solid #3b82f6",
             cursor: "pointer",
           }}
@@ -138,7 +138,7 @@ export default function ClientPortalPage() {
           onClick={() => router.push("/client-portal/finance")}
           style={{
             padding: "12px 20px", fontSize: 13, fontWeight: 500,
-            color: "#64748b", background: "transparent", border: "none",
+            color: "#6b7280", background: "transparent", border: "none",
             borderBottom: "2px solid transparent",
             cursor: "pointer",
           }}
@@ -151,11 +151,11 @@ export default function ClientPortalPage() {
       <main style={{ maxWidth: 1100, margin: "0 auto", padding: "40px 32px" }}>
         {loading ? (
           <div style={{ textAlign: "center", padding: 80 }}>
-            <p style={{ color: "#64748b", fontSize: 14 }}>Loading your projects…</p>
+            <p style={{ color: "#6b7280", fontSize: 14 }}>Loading your projects…</p>
           </div>
         ) : error ? (
           <div style={{ textAlign: "center", padding: 80 }}>
-            <p style={{ color: "#fca5a5", fontSize: 14, marginBottom: 16 }}>{error}</p>
+            <p style={{ color: "#dc2626", fontSize: 14, marginBottom: 16 }}>{error}</p>
             <button onClick={() => router.push("/login")} style={{
               padding: "10px 20px", borderRadius: 8, border: "none",
               background: "#3b82f6", color: "#fff", fontSize: 14, cursor: "pointer",
@@ -164,20 +164,20 @@ export default function ClientPortalPage() {
         ) : groups.length === 0 ? (
           <div style={{
             textAlign: "center", padding: "80px 32px",
-            background: "rgba(30,41,59,0.5)", borderRadius: 16,
-            border: "1px solid #1e293b",
+            background: "#f8fafc", borderRadius: 16,
+            border: "1px solid #e5e7eb",
           }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>🏗️</div>
-            <h2 style={{ color: "#f1f5f9", fontSize: 20, fontWeight: 600, margin: "0 0 8px" }}>No projects yet</h2>
-            <p style={{ color: "#64748b", fontSize: 14, margin: 0 }}>
+            <h2 style={{ color: "#0f172a", fontSize: 20, fontWeight: 600, margin: "0 0 8px" }}>No projects yet</h2>
+            <p style={{ color: "#6b7280", fontSize: 14, margin: 0 }}>
               When a contractor invites you to a project, it will appear here.
             </p>
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
             <div>
-              <h1 style={{ fontSize: 24, fontWeight: 700, margin: "0 0 4px", color: "#f1f5f9" }}>Your Projects</h1>
-              <p style={{ margin: 0, fontSize: 13, color: "#64748b" }}>
+              <h1 style={{ fontSize: 24, fontWeight: 700, margin: "0 0 4px", color: "#0f172a" }}>Your Projects</h1>
+              <p style={{ margin: 0, fontSize: 13, color: "#6b7280" }}>
                 {totalProjects} project{totalProjects !== 1 ? "s" : ""} across {groups.length} contractor{groups.length !== 1 ? "s" : ""}
               </p>
             </div>
@@ -196,8 +196,8 @@ export default function ClientPortalPage() {
                   }}>
                     {(g.companyName || "?").charAt(0).toUpperCase()}
                   </div>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: "#cbd5e1" }}>{g.companyName || "Unknown"}</span>
-                  <span style={{ fontSize: 12, color: "#475569" }}>• {g.projects.length} project{g.projects.length !== 1 ? "s" : ""}</span>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: "#374151" }}>{g.companyName || "Unknown"}</span>
+                  <span style={{ fontSize: 12, color: "#9ca3af" }}>• {g.projects.length} project{g.projects.length !== 1 ? "s" : ""}</span>
                 </div>
 
                 {/* Project cards */}
@@ -207,29 +207,29 @@ export default function ClientPortalPage() {
                       key={p.id}
                       onClick={() => router.push(`/client-portal/projects/${p.id}`)}
                       style={{
-                        background: "rgba(30,41,59,0.7)",
-                        border: "1px solid #1e293b",
+                        background: "#ffffff",
+                        border: "1px solid #e5e7eb",
                         borderRadius: 12,
                         padding: "20px 22px",
                         cursor: "pointer",
                         transition: "border-color 0.15s, transform 0.1s",
                       }}
                       onMouseEnter={e => {
-                        (e.currentTarget as HTMLElement).style.borderColor = "#3b82f6";
+                        (e.currentTarget as HTMLElement).style.borderColor = "#2563eb";
                         (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)";
                       }}
                       onMouseLeave={e => {
-                        (e.currentTarget as HTMLElement).style.borderColor = "#1e293b";
+                        (e.currentTarget as HTMLElement).style.borderColor = "#e5e7eb";
                         (e.currentTarget as HTMLElement).style.transform = "none";
                       }}
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
                         <span style={statusStyle(p.status)}>{statusLabel(p.status)}</span>
-                        <span style={{ color: "#475569", fontSize: 18 }}>→</span>
+                        <span style={{ color: "#9ca3af", fontSize: 18 }}>→</span>
                       </div>
-                      <h3 style={{ fontSize: 16, fontWeight: 600, color: "#f1f5f9", margin: "0 0 4px" }}>{p.name}</h3>
+                      <h3 style={{ fontSize: 16, fontWeight: 600, color: "#0f172a", margin: "0 0 4px" }}>{p.name}</h3>
                       {p.address && (
-                        <p style={{ fontSize: 13, color: "#64748b", margin: 0, lineHeight: 1.4 }}>{p.address}</p>
+                        <p style={{ fontSize: 13, color: "#6b7280", margin: 0, lineHeight: 1.4 }}>{p.address}</p>
                       )}
                     </div>
                   ))}
@@ -241,11 +241,11 @@ export default function ClientPortalPage() {
       </main>
 
       {/* Footer */}
-      <footer style={{ borderTop: "1px solid #1e293b", padding: "24px 32px", maxWidth: 1100, margin: "0 auto" }}>
-        <p style={{ fontSize: 12, color: "#334155", margin: 0, textAlign: "center" }}>
+      <footer style={{ borderTop: "1px solid #e5e7eb", padding: "24px 32px", maxWidth: 1100, margin: "0 auto" }}>
+        <p style={{ fontSize: 12, color: "#6b7280", margin: 0, textAlign: "center" }}>
           © {new Date().getFullYear()} Nexus Contractor Connect
           <span style={{ margin: "0 12px" }}>•</span>
-          <a href="/welcome#privacy" style={{ color: "#475569", textDecoration: "none" }}>Privacy Policy</a>
+          <a href="/welcome#privacy" style={{ color: "#9ca3af", textDecoration: "none" }}>Privacy Policy</a>
         </p>
       </footer>
     </div>
