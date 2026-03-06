@@ -4178,108 +4178,6 @@ ${htmlBody}
   const [newInvoiceLineUnitCode, setNewInvoiceLineUnitCode] = useState<string>("");
   const [newInvoiceLineUnitPrice, setNewInvoiceLineUnitPrice] = useState<string>("");
   const [newInvoiceLineAmount, setNewInvoiceLineAmount] = useState<string>("");
-  const [newInvoiceLineMarkup, setNewInvoiceLineMarkup] = useState(false);
-
-  // Invoice line edit modal state
-  const [invoiceLineEdit, setInvoiceLineEdit] = useState<{
-    open: boolean;
-    line: any;
-    draft: {
-      description: string;
-      kind: string;
-      billingTag: string;
-      qty: string;
-      unitCode: string;
-      unitPrice: string;
-      amount: string;
-      markupEnabled: boolean;
-    };
-    saving: boolean;
-    error: string | null;
-  }>({
-    open: false,
-    line: null,
-    draft: { description: "", kind: "MANUAL", billingTag: "NONE", qty: "", unitCode: "", unitPrice: "", amount: "", markupEnabled: false },
-    saving: false,
-    error: null,
-  });
-
-  function openInvoiceLineEdit(li: any) {
-    setInvoiceLineEdit({
-      open: true,
-      line: li,
-      draft: {
-        description: String(li.description ?? ""),
-        kind: String(li.kind ?? "MANUAL"),
-        billingTag: String(li.billingTag ?? "NONE"),
-        qty: li.qty != null ? String(li.qty) : "",
-        unitCode: String((li as any).unitCode ?? ""),
-        unitPrice: li.unitPrice != null ? String(li.unitPrice) : "",
-        amount: li.amount != null ? String(li.amount) : "",
-        markupEnabled: false,
-      },
-      saving: false,
-      error: null,
-    });
-  }
-
-  function closeInvoiceLineEdit() {
-    setInvoiceLineEdit(prev => ({ ...prev, open: false }));
-  }
-
-  async function saveInvoiceLineEdit() {
-    if (!project || !activeInvoice?.id || !invoiceLineEdit.line?.id) return;
-    const token = localStorage.getItem("accessToken");
-    if (!token) return;
-    const d = invoiceLineEdit.draft;
-    if (!d.description.trim()) {
-      setInvoiceLineEdit(prev => ({ ...prev, error: "Description is required." }));
-      return;
-    }
-    const qty = d.qty.trim() === "" ? undefined : Number(d.qty);
-    const unitPrice = d.unitPrice.trim() === "" ? undefined : Number(d.unitPrice);
-    let amount = d.amount.trim() === "" ? undefined : Number(d.amount);
-    if (amount === undefined && qty !== undefined && unitPrice !== undefined) {
-      amount = qty * unitPrice;
-    }
-    if (d.markupEnabled && amount !== undefined) {
-      amount = amount * 1.25;
-    }
-    if (amount !== undefined && !Number.isFinite(amount)) {
-      setInvoiceLineEdit(prev => ({ ...prev, error: "Amount must be a valid number." }));
-      return;
-    }
-    setInvoiceLineEdit(prev => ({ ...prev, saving: true, error: null }));
-    try {
-      const res = await fetch(
-        `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/lines/${invoiceLineEdit.line.id}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({
-            description: d.description.trim(),
-            kind: d.kind,
-            billingTag: d.billingTag,
-            qty,
-            unitCode: d.unitCode || undefined,
-            unitPrice,
-            amount,
-          }),
-        },
-      );
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        setInvoiceLineEdit(prev => ({ ...prev, saving: false, error: `Save failed (${res.status}) ${text}` }));
-        return;
-      }
-      const json: any = await res.json();
-      setActiveInvoice(json);
-      setProjectInvoices(null);
-      closeInvoiceLineEdit();
-    } catch (err: any) {
-      setInvoiceLineEdit(prev => ({ ...prev, saving: false, error: err?.message ?? "Save failed." }));
-    }
-  }
 
   // Company unit codes (editable dropdown list)
   const [companyUnitCodes, setCompanyUnitCodes] = useState<{ id: string; code: string; label: string | null }[] | null>(null);
@@ -4380,16 +4278,12 @@ ${htmlBody}
     );
   }, [projectPaymentsSorted]);
 
-  // Payroll & Workforce collapsed (default collapsed)
-  const [payrollCollapsed, setPayrollCollapsed] = useState(true);
-
-  // Billable Expenses collapsed (default collapsed)
-  const [billableExpensesCollapsed, setBillableExpensesCollapsed] = useState(true);
-
   // Payroll roster (who has been paid on this project, including subs/1099s)
   const [payrollEmployees, setPayrollEmployees] = useState<ProjectEmployee[] | null>(null);
   const [payrollLoading, setPayrollLoading] = useState(false);
   const [payrollError, setPayrollError] = useState<string | null>(null);
+  const [payrollCollapsed, setPayrollCollapsed] = useState(true);
+  const [billableExpensesCollapsed, setBillableExpensesCollapsed] = useState(true);
 
   // Actor identity + project-level roles (for header display)
   const [actorDisplayName, setActorDisplayName] = useState<string | null>(null);
@@ -19795,220 +19689,6 @@ ${htmlBody}
                     </div>
                   </div>
 
-      {/* Invoice line edit modal */}
-      {invoiceLineEdit.open && (
-        <div
-          className="no-print"
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 85,
-            background: "rgba(15,23,42,0.45)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 12,
-          }}
-          onClick={() => { if (!invoiceLineEdit.saving) closeInvoiceLineEdit(); }}
-        >
-          <div
-            style={{
-              width: 540,
-              maxWidth: "96vw",
-              maxHeight: "90vh",
-              overflow: "auto",
-              background: "#ffffff",
-              borderRadius: 10,
-              border: "1px solid #e5e7eb",
-              boxShadow: "0 20px 50px rgba(15,23,42,0.35)",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div style={{ padding: "10px 14px", borderBottom: "1px solid #e5e7eb", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#f3f4f6" }}>
-              <div style={{ fontSize: 13, fontWeight: 600 }}>Edit Invoice Line</div>
-              <button type="button" onClick={() => { if (!invoiceLineEdit.saving) closeInvoiceLineEdit(); }} style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 18, lineHeight: 1 }}>×</button>
-            </div>
-
-            <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-              {/* Kind + Billing Tag row */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 3, color: "#374151" }}>Kind</div>
-                  <select
-                    value={invoiceLineEdit.draft.kind}
-                    onChange={(e) => setInvoiceLineEdit(prev => ({ ...prev, draft: { ...prev.draft, kind: e.target.value } }))}
-                    style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
-                  >
-                    <option value="MANUAL">Manual</option>
-                    <option value="BILLABLE_HOURS">Billable hours</option>
-                    <option value="EQUIPMENT_RENTAL">Equipment rental</option>
-                    <option value="LABOR_ONLY">Labor Only</option>
-                    <option value="MATERIALS_ONLY">Materials only</option>
-                    <option value="LABOR_AND_MATERIALS">Labor & Materials</option>
-                    <option value="CREDIT">Credit</option>
-                    <option value="COST_BOOK">Cost Book</option>
-                    <option value="OTHER">Other</option>
-                  </select>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 3, color: "#374151" }}>Billing Tag</div>
-                  <select
-                    value={invoiceLineEdit.draft.billingTag}
-                    onChange={(e) => setInvoiceLineEdit(prev => ({ ...prev, draft: { ...prev.draft, billingTag: e.target.value } }))}
-                    style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
-                  >
-                    <option value="NONE">(no tag)</option>
-                    <option value="PETL_LINE_ITEM">PETL Line Item</option>
-                    <option value="CHANGE_ORDER">Change Order</option>
-                    <option value="SUPPLEMENT">Supplement</option>
-                    <option value="WARRANTY">Warranty</option>
-                    <option value="CREDIT">Credit</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Description */}
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 3, color: "#374151" }}>Description</div>
-                <input
-                  value={invoiceLineEdit.draft.description}
-                  onChange={(e) => setInvoiceLineEdit(prev => ({ ...prev, draft: { ...prev.draft, description: e.target.value } }))}
-                  style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
-                />
-              </div>
-
-              {/* Qty / Unit Code / Unit $ row */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 3, color: "#374151" }}>Qty</div>
-                  <input
-                    value={invoiceLineEdit.draft.qty}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      const q = Number(val);
-                      const u = Number(invoiceLineEdit.draft.unitPrice);
-                      const autoAmt = Number.isFinite(q) && Number.isFinite(u) && val.trim() !== "" && invoiceLineEdit.draft.unitPrice.trim() !== ""
-                        ? (q * u).toFixed(2) : undefined;
-                      setInvoiceLineEdit(prev => ({ ...prev, draft: { ...prev.draft, qty: val, ...(autoAmt !== undefined ? { amount: autoAmt } : {}) } }));
-                    }}
-                    style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
-                    placeholder="Qty"
-                  />
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 3, color: "#374151" }}>Unit Code</div>
-                  <select
-                    value={invoiceLineEdit.draft.unitCode}
-                    onChange={(e) => setInvoiceLineEdit(prev => ({ ...prev, draft: { ...prev.draft, unitCode: e.target.value } }))}
-                    style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
-                  >
-                    <option value="">Unit</option>
-                    {(companyUnitCodes ?? []).map(uc => (
-                      <option key={uc.id} value={uc.code}>{uc.code}{uc.label ? ` - ${uc.label}` : ""}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 3, color: "#374151" }}>Unit $</div>
-                  <input
-                    value={invoiceLineEdit.draft.unitPrice}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      const q = Number(invoiceLineEdit.draft.qty);
-                      const u = Number(val);
-                      const autoAmt = Number.isFinite(q) && Number.isFinite(u) && invoiceLineEdit.draft.qty.trim() !== "" && val.trim() !== ""
-                        ? (q * u).toFixed(2) : undefined;
-                      setInvoiceLineEdit(prev => ({ ...prev, draft: { ...prev.draft, unitPrice: val, ...(autoAmt !== undefined ? { amount: autoAmt } : {}) } }));
-                    }}
-                    style={{ width: "100%", padding: "6px 8px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: 12 }}
-                    placeholder="Unit $"
-                  />
-                </div>
-              </div>
-
-              {/* Amount */}
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 3, color: "#374151" }}>Amount</div>
-                <input
-                  value={invoiceLineEdit.draft.amount}
-                  onChange={(e) => setInvoiceLineEdit(prev => ({ ...prev, draft: { ...prev.draft, amount: e.target.value } }))}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    borderRadius: 6,
-                    border: "1px solid #d1d5db",
-                    fontSize: 12,
-                    background: invoiceLineEdit.draft.qty.trim() !== "" && invoiceLineEdit.draft.unitPrice.trim() !== "" ? "#f0fdf4" : "#ffffff",
-                  }}
-                  placeholder="Amount"
-                />
-              </div>
-
-              {/* 25% Markup toggle — hidden for CREDIT kind */}
-              {invoiceLineEdit.draft.kind !== "CREDIT" && (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12 }}>
-                    <input
-                      type="checkbox"
-                      checked={invoiceLineEdit.draft.markupEnabled}
-                      onChange={(e) => setInvoiceLineEdit(prev => ({ ...prev, draft: { ...prev.draft, markupEnabled: e.target.checked } }))}
-                    />
-                    <span style={{ fontWeight: 600 }}>Apply 25% markup</span>
-                  </label>
-                  {invoiceLineEdit.draft.markupEnabled && (() => {
-                    const base = Number(invoiceLineEdit.draft.amount) || 0;
-                    const marked = base * 1.25;
-                    const delta = marked - base;
-                    return (
-                      <span style={{ fontSize: 11, color: "#16a34a", fontWeight: 500 }}>
-                        Base: ${base.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        {" → "}
-                        Invoiced: ${marked.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        {" "}(+${delta.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
-                      </span>
-                    );
-                  })()}
-                </div>
-              )}
-
-              {/* Error */}
-              {invoiceLineEdit.error && (
-                <div style={{ fontSize: 12, color: "#b91c1c", padding: "4px 0" }}>{invoiceLineEdit.error}</div>
-              )}
-
-              {/* Actions */}
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, paddingTop: 4 }}>
-                <button
-                  type="button"
-                  onClick={() => { if (!invoiceLineEdit.saving) closeInvoiceLineEdit(); }}
-                  style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #d1d5db", background: "#ffffff", fontSize: 12, cursor: "pointer" }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={saveInvoiceLineEdit}
-                  disabled={invoiceLineEdit.saving}
-                  style={{
-                    padding: "6px 14px",
-                    borderRadius: 6,
-                    border: "1px solid #0f172a",
-                    background: "#0f172a",
-                    color: "#f9fafb",
-                    fontSize: 12,
-                    cursor: invoiceLineEdit.saving ? "default" : "pointer",
-                    opacity: invoiceLineEdit.saving ? 0.6 : 1,
-                  }}
-                >
-                  {invoiceLineEdit.saving ? "Saving…" : "Save"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {invoiceApplyModalOpen && activeInvoice && (
         <div
           className="no-print"
@@ -20271,1761 +19951,6 @@ ${htmlBody}
               )}
             </div>
           </div>
-
-          {!invoiceFullscreen && (
-            <>
-
-          {/* Payroll & Workforce roster */}
-          <div
-            style={{
-              marginTop: 10,
-              borderRadius: 8,
-              border: "1px solid #e5e7eb",
-              background: "#ffffff",
-            }}
-          >
-            <div
-              style={{
-                padding: "6px 10px",
-                borderBottom: payrollCollapsed ? "none" : "1px solid #e5e7eb",
-                fontSize: 13,
-                fontWeight: 600,
-                background: "#f3f4f6",
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => startUiTransition(() => setPayrollCollapsed((v) => !v))}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  cursor: "pointer",
-                  padding: 0,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "#111827",
-                  display: "flex",
-                  alignItems: "baseline",
-                  gap: 8,
-                  textAlign: "left",
-                }}
-              >
-                <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
-                  {payrollCollapsed ? "▸" : "▾"}
-                </span>
-                <span>Payroll &amp; Workforce</span>
-                {payrollEmployees && payrollEmployees.length > 0 && (
-                  <span style={{ fontSize: 11, fontWeight: 500, color: "#6b7280" }}>
-                    · {payrollEmployees.length} employee{payrollEmployees.length !== 1 ? "s" : ""}
-                  </span>
-                )}
-              </button>
-            </div>
-
-            {!payrollCollapsed && (
-            <div style={{ padding: 10, fontSize: 12 }}>
-              <p style={{ marginTop: 0, marginBottom: 8, color: "#4b5563" }}>
-                This roster shows everyone who has recorded payroll on this project
-                (including subs and 1099s), based on Certified Payroll and LCP data.
-                It does not grant them login access.
-              </p>
-
-              {payrollLoading && (
-                <p style={{ fontSize: 12, color: "#6b7280" }}>
-                  Loading payroll roster…
-                </p>
-              )}
-
-              {payrollError && !payrollLoading && (
-                <p style={{ fontSize: 12, color: "#b91c1c" }}>{payrollError}</p>
-              )}
-
-              {!payrollLoading &&
-                !payrollError &&
-                (!payrollEmployees || payrollEmployees.length === 0) && (
-                  <p style={{ fontSize: 12, color: "#6b7280" }}>
-                    No payroll records found yet for this project.
-                  </p>
-                )}
-
-              {!payrollLoading && !payrollError && payrollEmployees && payrollEmployees.length > 0 && (
-                <div style={{ maxHeight: "60vh", overflow: "auto" }}>
-                  <table
-                    style={{
-                      width: "100%",
-                      borderCollapse: "collapse",
-                      fontSize: 12,
-                    }}
-                  >
-                    <thead>
-                      <tr style={{ backgroundColor: "#f9fafb" }}>
-                        <th style={{ textAlign: "left", padding: "6px 8px" }}>Name</th>
-                        <th style={{ textAlign: "left", padding: "6px 8px" }}>Role / Class</th>
-                        <th style={{ textAlign: "left", padding: "6px 8px" }}>SSN (last 4)</th>
-                        <th style={{ textAlign: "right", padding: "6px 8px" }}>Total Hours</th>
-                        <th style={{ textAlign: "left", padding: "6px 8px" }}>First Week</th>
-                        <th style={{ textAlign: "left", padding: "6px 8px" }}>Last Week</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {payrollEmployees.map((emp, idx) => {
-                        const name = [emp.firstName ?? "", emp.lastName ?? ""]
-                          .map(s => s.trim())
-                          .filter(Boolean)
-                          .join(" ") || "(Unnamed)";
-                        const firstWeek = emp.firstWeekEnd
-                          ? new Date(emp.firstWeekEnd).toLocaleDateString()
-                          : "—";
-                        const lastWeek = emp.lastWeekEnd
-                          ? new Date(emp.lastWeekEnd).toLocaleDateString()
-                          : "—";
-                        const hasDetails = !!emp.employeeId;
-                        const detailHref = hasDetails
-                          ? `/projects/${project.id}/payroll/${encodeURIComponent(
-                              emp.employeeId as string,
-                            )}`
-                          : undefined;
-                        return (
-                          <tr key={`${emp.employeeId ?? "emp"}-${idx}`}>
-                            <td
-                              style={{
-                                padding: "6px 8px",
-                                borderTop: "1px solid #e5e7eb",
-                              }}
-                            >
-                              {hasDetails ? (
-                                <a
-                                  href={detailHref}
-                                  style={{ color: "#2563eb", textDecoration: "none" }}
-                                >
-                                  {name}
-                                </a>
-                              ) : (
-                                name
-                              )}
-                            </td>
-                            <td
-                              style={{
-                                padding: "6px 8px",
-                                borderTop: "1px solid #e5e7eb",
-                                color: "#4b5563",
-                              }}
-                            >
-                              {emp.classCode || "—"}
-                            </td>
-                            <td
-                              style={{
-                                padding: "6px 8px",
-                                borderTop: "1px solid #e5e7eb",
-                                color: "#4b5563",
-                              }}
-                            >
-                              {emp.ssnLast4 ? `***-**-${emp.ssnLast4}` : "—"}
-                            </td>
-                            <td
-                              style={{
-                                padding: "6px 8px",
-                                borderTop: "1px solid #e5e7eb",
-                                textAlign: "right",
-                              }}
-                            >
-                              {emp.totalHours.toFixed(2)}
-                            </td>
-                            <td
-                              style={{
-                                padding: "6px 8px",
-                                borderTop: "1px solid #e5e7eb",
-                              }}
-                            >
-                              {firstWeek}
-                            </td>
-                            <td
-                              style={{
-                                padding: "6px 8px",
-                                borderTop: "1px solid #e5e7eb",
-                              }}
-                            >
-                              {lastWeek}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-            )}
-          </div>
-
-          {/* Billable Expenses Invoice */}
-          {(() => {
-            const billableBills = (projectBills ?? []).filter((b: any) => b?.isBillable);
-            const billableTotal = billableBills.reduce((sum: number, b: any) => sum + (Number(b?.billableAmount) || 0), 0);
-            const costTotal = billableBills.reduce((sum: number, b: any) => sum + (Number(b?.totalAmount) || 0), 0);
-            const gmTotal = billableTotal - costTotal;
-
-            // Find the EXPENSE category invoice
-            const expenseInvoice = (projectInvoices ?? []).find((inv: any) => inv?.category === "EXPENSE");
-
-            if (billableBills.length === 0) return null;
-
-            return (
-              <div
-                style={{
-                  marginTop: 16,
-                  borderRadius: 8,
-                  border: "1px solid #16a34a",
-                  background: "#f0fdf4",
-                }}
-              >
-                <div
-                  style={{
-                    padding: "10px 12px",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    background: "#dcfce7",
-                    borderBottom: billableExpensesCollapsed ? "none" : "1px solid #16a34a",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 8,
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => startUiTransition(() => setBillableExpensesCollapsed((v) => !v))}
-                    style={{
-                      border: "none",
-                      background: "transparent",
-                      cursor: "pointer",
-                      padding: 0,
-                      fontSize: 13,
-                      fontWeight: 600,
-                      color: "#166534",
-                      display: "flex",
-                      alignItems: "baseline",
-                      gap: 8,
-                      textAlign: "left",
-                    }}
-                  >
-                    <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
-                      {billableExpensesCollapsed ? "▸" : "▾"}
-                    </span>
-                    <span>💰 Billable Expenses Invoice</span>
-                    <span style={{ fontSize: 11, fontWeight: 500, color: "#166534" }}>
-                      · {billableBills.length} item{billableBills.length !== 1 ? "s" : ""} · Total {formatMoney(billableTotal)}
-                      {expenseInvoice && ` · ${expenseInvoice.status}`}
-                      {expenseInvoice?.invoiceNo && ` · ${expenseInvoice.invoiceNo}`}
-                    </span>
-                  </button>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!project) return;
-                        const token = localStorage.getItem("accessToken");
-                        if (!token) return;
-                        try {
-                          // Create/sync the expense invoice
-                          const res = await fetch(
-                            `${API_BASE}/projects/${project.id}/invoices/sync-billable-expenses`,
-                            {
-                              method: "POST",
-                              headers: {
-                                Authorization: `Bearer ${token}`,
-                                "Content-Type": "application/json",
-                              },
-                              body: JSON.stringify({}),
-                            }
-                          );
-                          if (res.ok) {
-                            const fullInvoice = await res.json();
-                            setActiveInvoice(fullInvoice);
-                            // Navigate to fullscreen invoice view
-                            router.push(`/projects/${id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${fullInvoice.id}`);
-                            // Refresh invoices list
-                            setProjectInvoices(null);
-                          }
-                        } catch {
-                          // ignore
-                        }
-                      }}
-                      style={{
-                        padding: "4px 10px",
-                        borderRadius: 4,
-                        border: "1px solid #166534",
-                        background: "#166534",
-                        color: "#ffffff",
-                        fontSize: 11,
-                        cursor: "pointer",
-                        fontWeight: 600,
-                      }}
-                    >
-                      {expenseInvoice ? "Open Invoice" : "Create Invoice"}
-                    </button>
-                  </div>
-                </div>
-                {!billableExpensesCollapsed && (
-                <div style={{ padding: 12, fontSize: 12 }}>
-                  <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: 12 }}>
-                    <div>
-                      <div style={{ fontSize: 11, color: "#166534", marginBottom: 2 }}>Cost</div>
-                      <div style={{ fontWeight: 600 }}>{formatMoney(costTotal)}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 11, color: "#166534", marginBottom: 2 }}>Gross Margin</div>
-                      <div style={{ fontWeight: 600, color: "#16a34a" }}>{formatMoney(gmTotal)}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 11, color: "#166534", marginBottom: 2 }}>Billable Total</div>
-                      <div style={{ fontWeight: 700, fontSize: 14 }}>{formatMoney(billableTotal)}</div>
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 11, color: "#166534" }}>
-                    This invoice is auto-generated from bills marked as &quot;Billable&quot;. Review the items below and issue when ready.
-                  </div>
-                  {/* Move expense lines action bar */}
-                  {expenseInvoice && expenseInvoice.status === "DRAFT" && selectedExpenseLineIds.size > 0 && (() => {
-                    // Get all DRAFT invoices except the current expense invoice
-                    const allDraftInvoices = (projectInvoices ?? []).filter(
-                      (inv: any) => inv?.status === "DRAFT"
-                    );
-                    const otherDraftInvoices = allDraftInvoices.filter(
-                      (inv: any) => inv?.id !== expenseInvoice.id
-                    );
-                    return (
-                    <div style={{ marginTop: 8, padding: "8px 10px", background: "#dbeafe", borderRadius: 6 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: "#1d4ed8" }}>
-                        {selectedExpenseLineIds.size} line{selectedExpenseLineIds.size !== 1 ? "s" : ""} selected
-                      </span>
-                      <span style={{ fontSize: 11, color: "#1d4ed8" }}>→ Move to:</span>
-                      <select
-                        value={moveExpenseTargetInvoiceId}
-                        onChange={(e) => setMoveExpenseTargetInvoiceId(e.target.value)}
-                        style={{
-                          padding: "4px 8px",
-                          borderRadius: 4,
-                          border: "1px solid #93c5fd",
-                          fontSize: 11,
-                          background: "#ffffff",
-                        }}
-                      >
-                        <option value="">New Invoice</option>
-                        {otherDraftInvoices.map((inv: any) => {
-                          // Find index among ALL drafts for consistent numbering
-                          const draftNum = allDraftInvoices.findIndex((d: any) => d?.id === inv?.id) + 1;
-                          const label = inv.invoiceNo ?? `Draft #${draftNum}`;
-                          const category = inv.category === "EXPENSE" ? "Expenses" : inv.category === "PETL" ? "Progress" : inv.category ?? "Invoice";
-                          const amount = typeof inv.totalAmount === "number" ? ` $${inv.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "";
-                          return (
-                            <option key={inv.id} value={inv.id}>
-                              {label} ({category}{amount})
-                            </option>
-                          );
-                        })}
-                      </select>
-                      <button
-                        type="button"
-                        disabled={moveExpenseLinesBusy}
-                        onClick={async () => {
-                          if (!project || !expenseInvoice) return;
-                          const token = localStorage.getItem("accessToken");
-                          if (!token) {
-                            setMoveExpenseLinesMessage("Missing access token.");
-                            return;
-                          }
-
-                          // Get the bill IDs for selected items
-                          const billIds: string[] = Array.from(selectedExpenseLineIds);
-
-                          if (billIds.length === 0) {
-                            setMoveExpenseLinesMessage("No items selected.");
-                            return;
-                          }
-
-                          const targetLabel = moveExpenseTargetInvoiceId
-                            ? otherDraftInvoices.find((inv: any) => inv.id === moveExpenseTargetInvoiceId)?.invoiceNo ?? "selected invoice"
-                            : "a new invoice";
-                          const ok = window.confirm(
-                            `Move ${billIds.length} expense${billIds.length !== 1 ? "s" : ""} to ${targetLabel}?`
-                          );
-                          if (!ok) return;
-
-                          setMoveExpenseLinesBusy(true);
-                          setMoveExpenseLinesMessage(null);
-
-                          try {
-                            const payload: { billIds: string[]; targetInvoiceId?: string } = { billIds };
-                            if (moveExpenseTargetInvoiceId) {
-                              payload.targetInvoiceId = moveExpenseTargetInvoiceId;
-                            }
-                            const res = await fetch(
-                              `${API_BASE}/projects/${project.id}/invoices/${expenseInvoice.id}/move-expense-lines`,
-                              {
-                                method: "POST",
-                                headers: {
-                                  "Content-Type": "application/json",
-                                  Authorization: `Bearer ${token}`,
-                                },
-                                body: JSON.stringify(payload),
-                              }
-                            );
-
-                            if (!res.ok) {
-                              const text = await res.text().catch(() => "");
-                              throw new Error(`Failed to move lines (${res.status}) ${text}`);
-                            }
-
-                            const result = await res.json();
-                            const destLabel = result.targetInvoice?.invoiceNo ?? "target invoice";
-                            setMoveExpenseLinesMessage(
-                              `Moved ${result.movedLineCount ?? billIds.length} expense(s) to ${destLabel}.`
-                            );
-                            setSelectedExpenseLineIds(new Set());
-                            setMoveExpenseTargetInvoiceId("");
-                            // Refresh invoices and bills
-                            setProjectInvoices(null);
-                            setProjectBills(null);
-                          } catch (err: any) {
-                            setMoveExpenseLinesMessage(err?.message ?? "Failed to move lines.");
-                          } finally {
-                            setMoveExpenseLinesBusy(false);
-                          }
-                        }}
-                        style={{
-                          padding: "4px 10px",
-                          borderRadius: 4,
-                          border: "1px solid #1d4ed8",
-                          background: "#1d4ed8",
-                          color: "#ffffff",
-                          fontSize: 11,
-                          cursor: moveExpenseLinesBusy ? "wait" : "pointer",
-                          fontWeight: 600,
-                        }}
-                      >
-                        {moveExpenseLinesBusy ? "Moving…" : "Move"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedExpenseLineIds(new Set());
-                          setMoveExpenseTargetInvoiceId("");
-                        }}
-                        style={{
-                          padding: "4px 10px",
-                          borderRadius: 4,
-                          border: "1px solid #d1d5db",
-                          background: "#ffffff",
-                          fontSize: 11,
-                          cursor: "pointer",
-                        }}
-                      >
-                        Clear
-                      </button>
-                      </div>
-                      <div style={{ marginTop: 6, fontSize: 10, color: "#6b7280" }}>
-                        Dropdown shows other draft invoices to consolidate into (current Expenses invoice excluded).
-                        {otherDraftInvoices.length === 0 && " No other drafts available."}
-                      </div>
-                    </div>
-                    );
-                  })()}
-                  {moveExpenseLinesMessage && (
-                    <div style={{ marginTop: 6, fontSize: 11, color: moveExpenseLinesMessage.includes("fail") || moveExpenseLinesMessage.includes("Failed") ? "#b91c1c" : "#166534" }}>
-                      {moveExpenseLinesMessage}
-                    </div>
-                  )}
-                  <div style={{ marginTop: 12 }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-                      <thead>
-                        <tr style={{ textAlign: "left", borderBottom: "1px solid #bbf7d0" }}>
-                          {expenseInvoice && expenseInvoice.status === "DRAFT" && (
-                            <th style={{ padding: "4px 6px", width: 24 }}>
-                              <input
-                                type="checkbox"
-                                checked={selectedExpenseLineIds.size === billableBills.length && billableBills.length > 0}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSelectedExpenseLineIds(new Set(billableBills.map((b: any) => String(b?.id ?? ""))));
-                                  } else {
-                                    setSelectedExpenseLineIds(new Set());
-                                  }
-                                }}
-                                style={{ cursor: "pointer" }}
-                              />
-                            </th>
-                          )}
-                          <th style={{ padding: "4px 6px" }}>Vendor</th>
-                          <th style={{ padding: "4px 6px" }}>Invoice</th>
-                          <th style={{ padding: "4px 6px" }}>Description</th>
-                          <th style={{ padding: "4px 6px", textAlign: "right" }}>Cost</th>
-                          <th style={{ padding: "4px 6px", textAlign: "right" }}>GM%</th>
-                          <th style={{ padding: "4px 6px", textAlign: "right" }}>Billable</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[...billableBills]
-                          .sort((a: any, b: any) => {
-                            // Sort by createdAt descending (newest first)
-                            const dateA = new Date(a?.createdAt ?? 0).getTime();
-                            const dateB = new Date(b?.createdAt ?? 0).getTime();
-                            return dateB - dateA;
-                          })
-                          .map((b: any) => {
-                          const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
-                          const cost = Number(b?.totalAmount) || 0;
-                          const billable = Number(b?.billableAmount) || 0;
-                          const gmPct = billable > 0 ? ((billable - cost) / billable) * 100 : 0;
-                          const billId = String(b?.id ?? "");
-                          const isSelected = selectedExpenseLineIds.has(billId);
-                          
-                          // Check if this expense's invoice is paid/locked
-                          // Use invoiceLines to find the actual invoice this bill is attached to
-                          const invoiceLine = Array.isArray(b?.invoiceLines) ? b.invoiceLines[0] : null;
-                          const targetInv = invoiceLine?.invoice ?? null;
-                          const isPaid = targetInv && (targetInv.status === "PAID" || targetInv.status === "PARTIALLY_PAID");
-                          const isLocked = targetInv && targetInv.status !== "DRAFT";
-                          
-                          // Row styling based on status
-                          const rowBg = isSelected ? "#dbeafe" : isPaid ? "#fef2f2" : undefined;
-                          const textColor = isPaid ? "#991b1b" : isLocked ? "#6b7280" : "#166534";
-                          
-                          return (
-                            <tr key={billId || Math.random()} style={{ borderTop: "1px solid #bbf7d0", background: rowBg }}>
-                              {expenseInvoice && expenseInvoice.status === "DRAFT" && (
-                                <td style={{ padding: "4px 6px" }}>
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={(e) => {
-                                      setSelectedExpenseLineIds((prev) => {
-                                        const next = new Set(prev);
-                                        if (e.target.checked) {
-                                          next.add(billId);
-                                        } else {
-                                          next.delete(billId);
-                                        }
-                                        return next;
-                                      });
-                                    }}
-                                    style={{ cursor: "pointer" }}
-                                    disabled={isLocked}
-                                  />
-                                </td>
-                              )}
-                              <td style={{ padding: "4px 6px", color: textColor }}>{b?.vendorName ?? "—"}</td>
-                              <td style={{ padding: "4px 6px", fontSize: 10 }}>
-                                {targetInv ? (
-                                  <span style={{
-                                    padding: "2px 6px",
-                                    borderRadius: 4,
-                                    background: isPaid ? "#fecaca" : isLocked ? "#e5e7eb" : "#dcfce7",
-                                    color: isPaid ? "#991b1b" : isLocked ? "#4b5563" : "#166534",
-                                    fontSize: 10,
-                                  }}>
-                                    {targetInv.invoiceNo ?? "Draft"}
-                                  </span>
-                                ) : (
-                                  <span style={{ color: "#9ca3af" }}>—</span>
-                                )}
-                              </td>
-                              <td style={{ padding: "4px 6px", color: textColor }}>{li?.description ?? "—"}</td>
-                              <td style={{ padding: "4px 6px", textAlign: "right", color: textColor }}>{formatMoney(cost)}</td>
-                              <td style={{ padding: "4px 6px", textAlign: "right", color: isPaid ? "#991b1b" : "#16a34a" }}>{gmPct.toFixed(1)}%</td>
-                              <td style={{ padding: "4px 6px", textAlign: "right", fontWeight: 600, color: textColor }}>{formatMoney(billable)}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-                )}
-              </div>
-            );
-          })()}
-
-          {isAdminOrAbove && (
-            <div
-              style={{
-                marginTop: 16,
-                borderRadius: 8,
-                border: "1px solid #e5e7eb",
-                background: "#ffffff",
-              }}
-            >
-              <div
-                style={{
-                  padding: "6px 10px",
-                  borderBottom: petlArchivesCollapsed ? "none" : "1px solid #e5e7eb",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  background: "#f3f4f6",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 8,
-                }}
-              >
-                <button
-                  type="button"
-                onClick={() => startUiTransition(() => setPetlArchivesCollapsed((v) => !v))}
-                  style={{
-                    border: "none",
-                    background: "transparent",
-                    cursor: "pointer",
-                    padding: 0,
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: "#111827",
-                    display: "flex",
-                    alignItems: "baseline",
-                    gap: 8,
-                    textAlign: "left",
-                  }}
-                >
-                  <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
-                    {petlArchivesCollapsed ? "▸" : "▾"}
-                  </span>
-                  <span>PETL Archives</span>
-                  {Array.isArray(petlArchives) && (
-                    <span style={{ fontSize: 11, fontWeight: 500, color: "#6b7280" }}>
-                      · {petlArchives.length}
-                    </span>
-                  )}
-                </button>
-
-                {!petlArchivesCollapsed && (
-                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                    <button
-                      type="button"
-                      onClick={refreshPetlArchives}
-                      disabled={petlArchivesLoading}
-                      style={{
-                        padding: "4px 8px",
-                        borderRadius: 6,
-                        border: "1px solid #d1d5db",
-                        background: "#ffffff",
-                        cursor: petlArchivesLoading ? "default" : "pointer",
-                        fontSize: 12,
-                      }}
-                    >
-                      {petlArchivesLoading ? "Refreshing…" : "Refresh"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={createPetlArchive}
-                      style={{
-                        padding: "4px 8px",
-                        borderRadius: 6,
-                        border: "1px solid #0f172a",
-                        background: "#0f172a",
-                        color: "#f9fafb",
-                        cursor: "pointer",
-                        fontSize: 12,
-                      }}
-                    >
-                      + Create archive
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {!petlArchivesCollapsed && (
-                <div style={{ padding: 10, fontSize: 12 }}>
-                  {petlArchivesMessage && (
-                    <div
-                      style={{
-                        marginBottom: 8,
-                        fontSize: 12,
-                        color: petlArchivesMessage.toLowerCase().includes("fail") ? "#b91c1c" : "#4b5563",
-                      }}
-                    >
-                      {petlArchivesMessage}
-                    </div>
-                  )}
-
-                  {petlArchivesLoading && (
-                    <div style={{ color: "#6b7280" }}>Loading PETL archives…</div>
-                  )}
-                  {petlArchivesError && !petlArchivesLoading && (
-                    <div style={{ color: "#b91c1c" }}>{petlArchivesError}</div>
-                  )}
-
-                  {!petlArchivesLoading && !petlArchivesError && Array.isArray(petlArchives) && petlArchives.length === 0 && (
-                    <div style={{ color: "#6b7280" }}>No PETL archives yet.</div>
-                  )}
-
-                  {!petlArchivesLoading && !petlArchivesError && Array.isArray(petlArchives) && petlArchives.length > 0 && (
-                    <div style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                        <thead>
-                          <tr style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>
-                            <th style={{ padding: "6px 8px" }}>Created</th>
-                            <th style={{ padding: "6px 8px" }}>Label</th>
-                            <th style={{ padding: "6px 8px" }}>Source</th>
-                            <th style={{ padding: "6px 8px" }}>File</th>
-                            <th style={{ padding: "6px 8px" }}>Restored</th>
-                            <th style={{ padding: "6px 8px", textAlign: "right" }}>Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {petlArchives.map((a: any) => {
-                            const createdAt = a?.createdAt ? new Date(a.createdAt).toLocaleString() : "—";
-                            const label = String(a?.label ?? "").trim() || "—";
-                            const note = String(a?.note ?? "").trim() || "";
-                            const sourceSeq = a?.sourceEstimateVersion?.sequenceNo;
-                            const sourceLabel =
-                              typeof sourceSeq === "number" ? `v${sourceSeq}` : (a?.sourceEstimateVersion?.id ?? "—");
-                            const fileName = a?.projectFile?.fileName ?? "—";
-                            const restoredAt = a?.restoredAt ? new Date(a.restoredAt).toLocaleString() : "—";
-
-                            return (
-                              <tr key={String(a?.id ?? Math.random())}>
-                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", whiteSpace: "nowrap" }}>
-                                  {createdAt}
-                                </td>
-                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
-                                  <div style={{ fontWeight: 600 }}>{label}</div>
-                                  {note ? (
-                                    <div style={{ fontSize: 11, color: "#6b7280" }}>{note}</div>
-                                  ) : null}
-                                </td>
-                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
-                                  {sourceLabel}
-                                </td>
-                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
-                                  {fileName}
-                                </td>
-                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
-                                  {restoredAt}
-                                </td>
-                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
-                                  <button
-                                    type="button"
-                                    onClick={() => restorePetlArchive(a)}
-                                    style={{
-                                      padding: "2px 6px",
-                                      borderRadius: 4,
-                                      border: "1px solid #d1d5db",
-                                      background: "#ffffff",
-                                      fontSize: 11,
-                                      cursor: "pointer",
-                                    }}
-                                  >
-                                    Restore
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-
-                  {!petlArchivesLoading && !petlArchivesError && !Array.isArray(petlArchives) && (
-                    <div style={{ color: "#6b7280" }}>Open this section to load archives.</div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Bills (Expenses) */}
-          <div
-            style={{
-              marginTop: 16,
-              borderRadius: 8,
-              border: "1px solid #e5e7eb",
-              background: "#ffffff",
-            }}
-          >
-            <div
-              style={{
-                padding: "6px 10px",
-                borderBottom: billsCollapsed ? "none" : "1px solid #e5e7eb",
-                fontSize: 13,
-                fontWeight: 600,
-                background: "#f3f4f6",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 8,
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => startUiTransition(() => setBillsCollapsed((v) => !v))}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  cursor: "pointer",
-                  padding: 0,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "#111827",
-                  display: "flex",
-                  alignItems: "baseline",
-                  gap: 8,
-                  textAlign: "left",
-                }}
-              >
-                <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
-                  {billsCollapsed ? "▸" : "▾"}
-                </span>
-                <span>Bills (Expenses)</span>
-                {billsRollup && (
-                  <span style={{ fontSize: 11, fontWeight: 500, color: "#6b7280" }}>
-                    · {billsRollup.count} · Total {formatMoney(billsRollup.total)}
-                  </span>
-                )}
-              </button>
-
-              {!billsCollapsed && (
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setBillsMessage(null);
-                      setProjectBills(null);
-                    }}
-                    disabled={projectBillsLoading}
-                    style={{
-                      padding: "4px 8px",
-                      borderRadius: 6,
-                      border: "1px solid #d1d5db",
-                      background: "#ffffff",
-                      cursor: projectBillsLoading ? "default" : "pointer",
-                      fontSize: 12,
-                    }}
-                  >
-                    {projectBillsLoading ? "Refreshing…" : "Refresh"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={openCreateBillModal}
-                    style={{
-                      padding: "4px 8px",
-                      borderRadius: 6,
-                      border: "1px solid #0f172a",
-                      background: "#0f172a",
-                      color: "#f9fafb",
-                      cursor: "pointer",
-                      fontSize: 12,
-                    }}
-                  >
-                    + Add bill
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {!billsCollapsed && (
-              <div style={{ padding: 10, fontSize: 12 }}>
-                {billsMessage && (
-                  <div
-                    style={{
-                      marginBottom: 8,
-                      fontSize: 12,
-                      color: billsMessage.toLowerCase().includes("fail") ? "#b91c1c" : "#4b5563",
-                    }}
-                  >
-                    {billsMessage}
-                  </div>
-                )}
-
-                {/* Pending Prescreened Transactions — TENTATIVE bills grouped by receipt */}
-                {!projectBillsLoading && projectBills && (() => {
-                  const tentativeBills = projectBills.filter(
-                    (b: any) => b?.status === "TENTATIVE"
-                  );
-                  if (tentativeBills.length === 0) return null;
-                  const highConfCount = tentativeBills.filter((b: any) => (b?.prescreenConfidence ?? 0) >= 0.7).length;
-
-                  // Group tentative bills by receipt: date + vendor + source
-                  const receiptGroupMap = new Map<string, any[]>();
-                  for (const b of tentativeBills) {
-                    const dateKey = b?.billDate ? String(b.billDate).slice(0, 10) : "no-date";
-                    const vendor = (b?.vendorName ?? "Unknown").toLowerCase();
-                    const src = b?.sourceTransactionSource ?? "UNKNOWN";
-                    const groupKey = `${dateKey}|${vendor}|${src}`;
-                    if (!receiptGroupMap.has(groupKey)) receiptGroupMap.set(groupKey, []);
-                    receiptGroupMap.get(groupKey)!.push(b);
-                  }
-
-                  // Sort groups by date desc, then vendor
-                  const sortedGroups = [...receiptGroupMap.entries()].sort((a, b) => {
-                    const [ka] = a;
-                    const [kb] = b;
-                    return kb.localeCompare(ka); // date desc since date is first in key
-                  });
-
-                  const srcLabel: Record<string, string> = {
-                    HD_PRO_XTRA: "HD", CHASE_BANK: "Chase", APPLE_CARD: "Apple", PLAID: "Bank",
-                  };
-
-                  return (
-                    <div
-                      style={{
-                        marginBottom: 12,
-                        padding: "10px 12px",
-                        borderRadius: 6,
-                        background: "#eff6ff",
-                        border: "1px solid #93c5fd",
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: "#1d4ed8" }}>
-                          🔍 Pending Prescreened Transactions ({tentativeBills.length} items in {sortedGroups.length} receipt{sortedGroups.length !== 1 ? "s" : ""})
-                        </div>
-                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                          {highConfCount > 0 && (
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                const token = localStorage.getItem("accessToken");
-                                if (!token) return;
-                                try {
-                                  await fetch(`${API_BASE}/banking/transactions/bulk-prescreen-accept-by-confidence`, {
-                                    method: "PATCH",
-                                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                                    body: JSON.stringify({ minConfidence: 0.7, projectId: project?.id }),
-                                  });
-                                  setProjectBills(null);
-                                  setFinancialSummary(null);
-                                } catch {}
-                              }}
-                              style={{
-                                padding: "3px 8px", borderRadius: 4, border: "1px solid #16a34a",
-                                background: "#dcfce7", color: "#166534", cursor: "pointer", fontSize: 10, fontWeight: 600,
-                              }}
-                            >
-                              ✓ Confirm All High Confidence ({highConfCount})
-                            </button>
-                          )}
-                          <span style={{ fontSize: 11, color: "#3b82f6" }}>
-                            Smart prescreened — review and confirm
-                          </span>
-                        </div>
-                      </div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                        {sortedGroups.map(([groupKey, bills]) => {
-                          const isExpanded = expandedReceiptGroups.has(groupKey);
-                          const first = bills[0];
-                          const dateDisplay = first?.billDate ? new Date(String(first.billDate).slice(0, 10) + "T12:00:00").toLocaleDateString() : "Unknown date";
-                          const vendor = first?.vendorName ?? "Unknown Vendor";
-                          const src = first?.sourceTransactionSource ?? "";
-                          const groupTotal = bills.reduce((sum: number, b: any) => sum + (Number(b?.totalAmount) || 0), 0);
-                          const groupAvgConf = bills.reduce((sum: number, b: any) => sum + (Number(b?.prescreenConfidence) || 0), 0) / bills.length;
-                          const groupConfPct = Math.round(groupAvgConf * 100);
-                          const confStyle = groupAvgConf >= 0.7
-                            ? { bg: "#dcfce7", color: "#166534", border: "#86efac" }
-                            : groupAvgConf >= 0.5
-                              ? { bg: "#fef9c3", color: "#854d0e", border: "#fde047" }
-                              : { bg: "#ffedd5", color: "#9a3412", border: "#fdba74" };
-
-                          // Sort line items by description for stable line numbers
-                          const sortedBills = [...bills].sort((a: any, b: any) =>
-                            (a?.lineItems?.[0]?.description ?? "").localeCompare(b?.lineItems?.[0]?.description ?? "")
-                          );
-
-                          return (
-                            <div key={groupKey}>
-                              {/* Receipt group header */}
-                              <div
-                                onClick={() => {
-                                  setExpandedReceiptGroups(prev => {
-                                    const next = new Set(prev);
-                                    if (next.has(groupKey)) next.delete(groupKey); else next.add(groupKey);
-                                    return next;
-                                  });
-                                }}
-                                style={{
-                                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
-                                  padding: "7px 10px", borderRadius: 5, cursor: "pointer",
-                                  background: isExpanded ? "#dbeafe" : "#ffffff",
-                                  border: `1px solid ${isExpanded ? "#93c5fd" : "#e5e7eb"}`,
-                                  userSelect: "none",
-                                }}
-                              >
-                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                  <span style={{ fontSize: 11, color: "#6b7280", width: 14, textAlign: "center" }}>
-                                    {isExpanded ? "▼" : "▶"}
-                                  </span>
-                                  <span style={{ padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: confStyle.bg, color: confStyle.color, border: `1px solid ${confStyle.border}` }}>
-                                    ~{groupConfPct}%
-                                  </span>
-                                  {src && (
-                                    <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: "#f3f4f6", color: "#6b7280" }}>
-                                      {srcLabel[src] ?? src}
-                                    </span>
-                                  )}
-                                  <span style={{ fontWeight: 600, fontSize: 12 }}>{vendor}</span>
-                                  <span style={{ fontSize: 11, color: "#6b7280" }}>{dateDisplay}</span>
-                                  <span style={{ fontSize: 11, color: "#6b7280" }}>
-                                    · {bills.length} line{bills.length !== 1 ? "s" : ""}
-                                  </span>
-                                </div>
-                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                  <span style={{ fontWeight: 600, fontSize: 13, color: "#1d4ed8" }}>
-                                    {formatMoney(groupTotal)}
-                                  </span>
-                                  {/* Group-level confirm all */}
-                                  <button
-                                    type="button"
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      const token = localStorage.getItem("accessToken");
-                                      if (!token) return;
-                                      for (const b of bills) {
-                                        if (!b?.sourceTransactionId) continue;
-                                        try {
-                                          await fetch(`${API_BASE}/banking/transactions/${b.sourceTransactionId}/prescreen-accept`, {
-                                            method: "PATCH",
-                                            headers: { Authorization: `Bearer ${token}` },
-                                          });
-                                        } catch {}
-                                      }
-                                      setProjectBills(null);
-                                      setFinancialSummary(null);
-                                    }}
-                                    style={{
-                                      padding: "3px 8px", borderRadius: 4, border: "1px solid #16a34a",
-                                      background: "#dcfce7", color: "#166534", cursor: "pointer", fontSize: 10, fontWeight: 600,
-                                    }}
-                                    title="Confirm entire receipt"
-                                  >
-                                    ✓ Confirm Receipt
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      const token = localStorage.getItem("accessToken");
-                                      if (!token) return;
-                                      for (const b of bills) {
-                                        if (!b?.sourceTransactionId) continue;
-                                        try {
-                                          await fetch(`${API_BASE}/banking/transactions/${b.sourceTransactionId}/prescreen-reject`, {
-                                            method: "PATCH",
-                                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                                            body: JSON.stringify({ reason: "Rejected receipt group from project bills" }),
-                                          });
-                                        } catch {}
-                                      }
-                                      setProjectBills(null);
-                                      setFinancialSummary(null);
-                                    }}
-                                    style={{
-                                      padding: "3px 8px", borderRadius: 4, border: "1px solid #dc2626",
-                                      background: "#fef2f2", color: "#b91c1c", cursor: "pointer", fontSize: 10, fontWeight: 600,
-                                    }}
-                                    title="Reject entire receipt"
-                                  >
-                                    ✕ Reject Receipt
-                                  </button>
-                                </div>
-                              </div>
-
-                              {/* Expanded line items */}
-                              {isExpanded && (
-                                <div style={{ marginLeft: 22, display: "flex", flexDirection: "column", gap: 3, marginTop: 3, marginBottom: 4 }}>
-                                  {sortedBills.map((b: any, lineIdx: number) => {
-                                    const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
-                                    const conf = typeof b?.prescreenConfidence === "number" ? b.prescreenConfidence : 0;
-                                    const pct = Math.round(conf * 100);
-                                    const chipStyle = conf >= 0.7
-                                      ? { bg: "#dcfce7", color: "#166534", border: "#86efac" }
-                                      : conf >= 0.5
-                                        ? { bg: "#fef9c3", color: "#854d0e", border: "#fde047" }
-                                        : { bg: "#ffedd5", color: "#9a3412", border: "#fdba74" };
-                                    return (
-                                      <div
-                                        key={String(b?.id ?? Math.random())}
-                                        style={{
-                                          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6,
-                                          padding: "4px 8px", borderRadius: 4, background: "#ffffff",
-                                          border: "1px solid #f3f4f6", fontSize: 11,
-                                        }}
-                                      >
-                                        {/* Line number */}
-                                        <span style={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", minWidth: 24, textAlign: "right" }}>
-                                          L{lineIdx + 1}
-                                        </span>
-                                        <span style={{ padding: "1px 5px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: chipStyle.bg, color: chipStyle.color, border: `1px solid ${chipStyle.border}` }}>
-                                          {pct}%
-                                        </span>
-                                        <div style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                          {li?.description ?? "—"}
-                                        </div>
-                                        <div style={{ fontWeight: 600, color: "#1d4ed8", whiteSpace: "nowrap" }}>
-                                          {formatMoney(b?.totalAmount)}
-                                        </div>
-                                        <div style={{ display: "flex", gap: 3 }}>
-                                          <button
-                                            type="button"
-                                            onClick={async () => {
-                                              const token = localStorage.getItem("accessToken");
-                                              if (!token || !b?.sourceTransactionId) return;
-                                              try {
-                                                await fetch(`${API_BASE}/banking/transactions/${b.sourceTransactionId}/prescreen-accept`, {
-                                                  method: "PATCH",
-                                                  headers: { Authorization: `Bearer ${token}` },
-                                                });
-                                                setProjectBills(null);
-                                                setFinancialSummary(null);
-                                              } catch {}
-                                            }}
-                                            style={{
-                                              padding: "2px 5px", borderRadius: 3, border: "1px solid #16a34a",
-                                              background: "#dcfce7", color: "#166534", cursor: "pointer", fontSize: 9,
-                                            }}
-                                            title="Confirm"
-                                          >
-                                            ✓
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={async () => {
-                                              const token = localStorage.getItem("accessToken");
-                                              if (!token || !b?.sourceTransactionId) return;
-                                              try {
-                                                await fetch(`${API_BASE}/banking/transactions/${b.sourceTransactionId}/prescreen-reject`, {
-                                                  method: "PATCH",
-                                                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                                                  body: JSON.stringify({ reason: "Rejected from project bills" }),
-                                                });
-                                                setProjectBills(null);
-                                                setFinancialSummary(null);
-                                              } catch {}
-                                            }}
-                                            style={{
-                                              padding: "2px 5px", borderRadius: 3, border: "1px solid #dc2626",
-                                              background: "#fef2f2", color: "#b91c1c", cursor: "pointer", fontSize: 9,
-                                            }}
-                                            title="Reject"
-                                          >
-                                            ✕
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => openEditBillModal(b)}
-                                            style={{
-                                              padding: "2px 5px", borderRadius: 3, border: "1px solid #d1d5db",
-                                              background: "#f9fafb", color: "#374151", cursor: "pointer", fontSize: 9,
-                                            }}
-                                            title="Edit"
-                                          >
-                                            Edit
-                                          </button>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Uncommitted Receipts Section - ALL DRAFT bills grouped by receipt */}
-                {!projectBillsLoading && projectBills && (() => {
-                  const uncommittedReceipts = projectBills.filter(
-                    (b: any) => b?.status === "DRAFT"
-                  );
-                  if (uncommittedReceipts.length === 0) return null;
-
-                  const srcLabel: Record<string, string> = {
-                    HD_PRO_XTRA: "HD", CHASE_BANK: "Chase", APPLE_CARD: "Apple", PLAID: "Bank",
-                  };
-
-                  // Group by receipt: date + vendor + source
-                  const ucGroupMap = new Map<string, any[]>();
-                  for (const b of uncommittedReceipts) {
-                    const dateKey = b?.billDate ? String(b.billDate).slice(0, 10) : "no-date";
-                    const vendor = (b?.vendorName ?? "Unknown").toLowerCase();
-                    const src = b?.sourceTransactionSource ?? (b?.sourceDailyLogId ? "daily-log" : "manual");
-                    const groupKey = `${dateKey}|${vendor}|${src}`;
-                    if (!ucGroupMap.has(groupKey)) ucGroupMap.set(groupKey, []);
-                    ucGroupMap.get(groupKey)!.push(b);
-                  }
-
-                  // Sort groups by date desc
-                  const ucSortedGroups = [...ucGroupMap.entries()].sort((a, b) => b[0].localeCompare(a[0]));
-
-                  return (
-                    <div
-                      style={{
-                        marginBottom: 12,
-                        padding: "10px 12px",
-                        borderRadius: 6,
-                        background: "#fef3c7",
-                        border: "1px solid #fcd34d",
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: "#92400e" }}>
-                          📥 Uncommitted Receipts ({uncommittedReceipts.length} items in {ucSortedGroups.length} receipt{ucSortedGroups.length !== 1 ? "s" : ""})
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 11, color: "#b45309" }}>
-                            Review and commit
-                          </span>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              if (!project) return;
-                              const token = localStorage.getItem("accessToken");
-                              if (!token) return;
-                              // 1. Mark all uncommitted DRAFT bills as billable + POSTED
-                              for (const b of uncommittedReceipts) {
-                                try {
-                                  await fetch(`${API_BASE}/projects/${project.id}/bills/${b.id}`, {
-                                    method: "PATCH",
-                                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                                    body: JSON.stringify({ isBillable: true, status: "POSTED", markupPercent: 25 }),
-                                  });
-                                } catch {}
-                              }
-                              // 2. Sync/create the billable expense invoice
-                              try {
-                                const res = await fetch(
-                                  `${API_BASE}/projects/${project.id}/invoices/sync-billable-expenses`,
-                                  {
-                                    method: "POST",
-                                    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-                                    body: JSON.stringify({}),
-                                  }
-                                );
-                                if (res.ok) {
-                                  const fullInvoice = await res.json();
-                                  setActiveInvoice(fullInvoice);
-                                  router.push(`/projects/${id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${fullInvoice.id}`);
-                                  setProjectInvoices(null);
-                                }
-                              } catch {}
-                              // 3. Refresh
-                              setProjectBills(null);
-                              setFinancialSummary(null);
-                            }}
-                            style={{
-                              padding: "4px 10px",
-                              borderRadius: 4,
-                              border: "1px solid #166534",
-                              background: "#166534",
-                              color: "#ffffff",
-                              fontSize: 10,
-                              cursor: "pointer",
-                              fontWeight: 600,
-                              whiteSpace: "nowrap",
-                            }}
-                            title="Mark all as billable (25% markup) and push to expense invoice"
-                          >
-                            💰 Move All Billable → Expense Invoice
-                          </button>
-                        </div>
-                      </div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                        {ucSortedGroups.map(([groupKey, bills]) => {
-                          const isExpanded = expandedUncommittedGroups.has(groupKey);
-                          const first = bills[0];
-                          const dateDisplay = first?.billDate ? new Date(String(first.billDate).slice(0, 10) + "T12:00:00").toLocaleDateString() : "Unknown date";
-                          const vendor = first?.vendorName ?? "Unknown Vendor";
-                          const txnSource = first?.sourceTransactionSource;
-                          const originLabel = txnSource
-                            ? (srcLabel[txnSource] ?? txnSource)
-                            : (first?.sourceDailyLogId ? "Daily Log" : "Manual");
-                          const originBg = txnSource ? "#dbeafe" : (first?.sourceDailyLogId ? "#fef3c7" : "#f3f4f6");
-                          const originColor = txnSource ? "#1d4ed8" : (first?.sourceDailyLogId ? "#92400e" : "#6b7280");
-                          const groupTotal = bills.reduce((sum: number, b: any) => sum + (Number(b?.totalAmount) || 0), 0);
-
-                          // Sort line items by description for stable line numbers
-                          const sortedBills = [...bills].sort((a: any, b: any) =>
-                            (a?.lineItems?.[0]?.description ?? "").localeCompare(b?.lineItems?.[0]?.description ?? "")
-                          );
-
-                          // Single-item groups render inline (no collapse needed)
-                          if (bills.length === 1) {
-                            const b = bills[0];
-                            const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
-                            const attachments: any[] = Array.isArray(b?.attachments) ? b.attachments : [];
-                            const sourceDailyLog = b?.sourceDailyLog;
-                            const isOrphaned = b?.sourceDailyLogId && (!sourceDailyLog || sourceDailyLog.type !== "RECEIPT_EXPENSE");
-                            return (
-                              <div
-                                key={groupKey}
-                                style={{
-                                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
-                                  padding: "6px 8px", borderRadius: 4,
-                                  background: isOrphaned ? "#fef2f2" : "#fffbeb",
-                                  border: isOrphaned ? "1px dashed #f87171" : "none",
-                                }}
-                              >
-                                <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: originBg, color: originColor, whiteSpace: "nowrap" }}>
-                                  {originLabel}
-                                </span>
-                                <div style={{ flex: 1 }}>
-                                  <div style={{ fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
-                                    {vendor}
-                                    {isOrphaned && <span style={{ fontSize: 10, color: "#dc2626", fontWeight: 400 }}>(orphaned)</span>}
-                                  </div>
-                                  <div style={{ fontSize: 11, color: "#6b7280", display: "flex", alignItems: "center", gap: 6 }}>
-                                    {dateDisplay}
-                                    {li?.description && ` · ${li.description}`}
-                                    {sourceDailyLog && (
-                                      <>
-                                        <span style={{ color: "#d1d5db" }}>|</span>
-                                        <button type="button" onClick={() => setTab("DAILY_LOGS", { deferContentSwitch: true })}
-                                          style={{ border: "none", background: "none", cursor: "pointer", color: "#2563eb", fontSize: 11, padding: 0, textDecoration: "underline" }}>
-                                          📋 {sourceDailyLog.title ?? "Daily Log"}
-                                        </button>
-                                      </>
-                                    )}
-                                  </div>
-                                </div>
-                                <div style={{ fontWeight: 600, fontSize: 13, color: "#92400e" }}>{formatMoney(b?.totalAmount)}</div>
-                                {attachments.length > 0 && (
-                                  <a href={String(attachments[0]?.fileUrl ?? "#")} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#2563eb" }}>🖼️ View</a>
-                                )}
-                                <div style={{ display: "flex", gap: 4 }}>
-                                  <button type="button" onClick={() => quickSetBillBillable(String(b?.id), true, 25)}
-                                    style={{ padding: "3px 6px", borderRadius: 4, border: "1px solid #16a34a", background: "#dcfce7", color: "#166534", cursor: "pointer", fontSize: 10, fontWeight: 500 }}
-                                    title="Mark as billable expense (25% markup)">✓ Billable</button>
-                                  <button type="button" onClick={() => quickSetBillBillable(String(b?.id), false)}
-                                    style={{ padding: "3px 6px", borderRadius: 4, border: "1px solid #6b7280", background: "#f3f4f6", color: "#374151", cursor: "pointer", fontSize: 10, fontWeight: 500 }}
-                                    title="Mark as non-billable expense">✗ Not Billable</button>
-                                </div>
-                                <button type="button" onClick={() => openEditBillModal(b)}
-                                  style={{ padding: "3px 8px", borderRadius: 4, border: "1px solid #92400e", background: "#f59e0b", color: "#ffffff", cursor: "pointer", fontSize: 11, fontWeight: 500 }}>Review</button>
-                                {isOrphaned && (
-                                  <button type="button" onClick={() => deleteOrphanedReceiptBill(String(b?.id), b?.vendorName ?? "Unknown")}
-                                    style={{ padding: "3px 6px", borderRadius: 4, border: "1px solid #dc2626", background: "#fef2f2", color: "#dc2626", cursor: "pointer", fontSize: 10, fontWeight: 500 }}
-                                    title="Delete this orphaned receipt">🗑️ Delete</button>
-                                )}
-                              </div>
-                            );
-                          }
-
-                          // Multi-item group: collapsible header
-                          return (
-                            <div key={groupKey}>
-                              <div
-                                onClick={() => {
-                                  setExpandedUncommittedGroups(prev => {
-                                    const next = new Set(prev);
-                                    if (next.has(groupKey)) next.delete(groupKey); else next.add(groupKey);
-                                    return next;
-                                  });
-                                }}
-                                style={{
-                                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
-                                  padding: "7px 10px", borderRadius: 5, cursor: "pointer",
-                                  background: isExpanded ? "#fde68a" : "#fffbeb",
-                                  border: `1px solid ${isExpanded ? "#fbbf24" : "#fde68a"}`,
-                                  userSelect: "none",
-                                }}
-                              >
-                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                  <span style={{ fontSize: 11, color: "#92400e", width: 14, textAlign: "center" }}>
-                                    {isExpanded ? "▼" : "▶"}
-                                  </span>
-                                  <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: originBg, color: originColor }}>
-                                    {originLabel}
-                                  </span>
-                                  <span style={{ fontWeight: 600, fontSize: 12 }}>{vendor}</span>
-                                  <span style={{ fontSize: 11, color: "#6b7280" }}>{dateDisplay}</span>
-                                  <span style={{ fontSize: 11, color: "#6b7280" }}>· {bills.length} line{bills.length !== 1 ? "s" : ""}</span>
-                                </div>
-                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                  <span style={{ fontWeight: 600, fontSize: 13, color: "#92400e" }}>{formatMoney(groupTotal)}</span>
-                                  {/* Group-level disposition */}
-                                  <button type="button" onClick={async (e) => {
-                                    e.stopPropagation();
-                                    for (const b of bills) {
-                                      await quickSetBillBillable(String(b?.id), true, 25);
-                                    }
-                                  }} style={{ padding: "3px 8px", borderRadius: 4, border: "1px solid #16a34a", background: "#dcfce7", color: "#166534", cursor: "pointer", fontSize: 10, fontWeight: 600 }}
-                                    title="Mark entire receipt as billable (25% markup)">✓ All Billable</button>
-                                  <button type="button" onClick={async (e) => {
-                                    e.stopPropagation();
-                                    for (const b of bills) {
-                                      await quickSetBillBillable(String(b?.id), false);
-                                    }
-                                  }} style={{ padding: "3px 8px", borderRadius: 4, border: "1px solid #6b7280", background: "#f3f4f6", color: "#374151", cursor: "pointer", fontSize: 10, fontWeight: 600 }}
-                                    title="Mark entire receipt as not billable">✗ All Not Billable</button>
-                                </div>
-                              </div>
-
-                              {/* Expanded line items */}
-                              {isExpanded && (
-                                <div style={{ marginLeft: 22, display: "flex", flexDirection: "column", gap: 3, marginTop: 3, marginBottom: 4 }}>
-                                  {sortedBills.map((b: any, lineIdx: number) => {
-                                    const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
-                                    const attachments: any[] = Array.isArray(b?.attachments) ? b.attachments : [];
-                                    return (
-                                      <div
-                                        key={String(b?.id ?? Math.random())}
-                                        style={{
-                                          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6,
-                                          padding: "4px 8px", borderRadius: 4, background: "#ffffff",
-                                          border: "1px solid #fef3c7", fontSize: 11,
-                                        }}
-                                      >
-                                        <span style={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", minWidth: 24, textAlign: "right" }}>L{lineIdx + 1}</span>
-                                        <div style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                          {li?.description ?? "—"}
-                                        </div>
-                                        <div style={{ fontWeight: 600, color: "#92400e", whiteSpace: "nowrap" }}>{formatMoney(b?.totalAmount)}</div>
-                                        {attachments.length > 0 && (
-                                          <a href={String(attachments[0]?.fileUrl ?? "#")} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: "#2563eb" }}>🖼️</a>
-                                        )}
-                                        <div style={{ display: "flex", gap: 3 }}>
-                                          <button type="button" onClick={() => quickSetBillBillable(String(b?.id), true, 25)}
-                                            style={{ padding: "2px 5px", borderRadius: 3, border: "1px solid #16a34a", background: "#dcfce7", color: "#166534", cursor: "pointer", fontSize: 9 }}
-                                            title="Billable">✓</button>
-                                          <button type="button" onClick={() => quickSetBillBillable(String(b?.id), false)}
-                                            style={{ padding: "2px 5px", borderRadius: 3, border: "1px solid #6b7280", background: "#f3f4f6", color: "#374151", cursor: "pointer", fontSize: 9 }}
-                                            title="Not billable">✗</button>
-                                          <button type="button" onClick={() => openEditBillModal(b)}
-                                            style={{ padding: "2px 5px", borderRadius: 3, border: "1px solid #d1d5db", background: "#f9fafb", color: "#374151", cursor: "pointer", fontSize: 9 }}
-                                            title="Edit">Edit</button>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {projectBillsLoading && <div style={{ color: "#6b7280" }}>Loading bills…</div>}
-                {projectBillsError && !projectBillsLoading && (
-                  <div style={{ color: "#b91c1c" }}>{projectBillsError}</div>
-                )}
-
-                {!projectBillsLoading && !projectBillsError && projectBills && projectBills.length === 0 && (
-                  <div style={{ color: "#6b7280" }}>No bills recorded yet.</div>
-                )}
-
-                {/* NexDupE SibE Summary */}
-                {!projectBillsLoading && projectBills && (() => {
-                  const sibeBills = projectBills.filter((b: any) => b?.billRole === "SIBE");
-                  if (sibeBills.length === 0) return null;
-                  const totalSibeAmount = sibeBills.reduce((sum: number, b: any) => sum + Math.abs(Number(b?.totalAmount) || 0), 0);
-                  return (
-                    <div style={{
-                      marginBottom: 12, padding: "10px 12px", borderRadius: 6,
-                      background: "#fef2f2", border: "1px solid #fecaca",
-                    }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#991b1b", marginBottom: 4 }}>
-                        🔴 NexDupE — Duplicate Expense Archive
-                      </div>
-                      <div style={{ display: "flex", gap: 16, fontSize: 12, color: "#7f1d1d" }}>
-                        <span><strong>{sibeBills.length}</strong> duplicate expense{sibeBills.length !== 1 ? "s" : ""} archived</span>
-                        <span>Total archived: <strong>{formatMoney(totalSibeAmount)}</strong></span>
-                      </div>
-                      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
-                        SibE bills (greyed-out rows) are record-only duplicates with GAAP offset line items. They do not count toward project totals.
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* NexVERIFY Banner — always visible, toggle controls VERIFICATION rows in bills table */}
-                {!projectBillsLoading && projectBills && (() => {
-                  const verificationBills = projectBills.filter((b: any) => b?.billRole === "VERIFICATION");
-                  if (verificationBills.length === 0) return null;
-                  const totalVerified = verificationBills.filter((b: any) => b?.siblingGroup?.verificationStatus === "VERIFIED").length;
-                  const totalPending = verificationBills.length - totalVerified;
-                  const totalVariance = verificationBills.reduce((sum: number, b: any) => sum + Math.abs(Number(b?.siblingGroup?.amountVariance) || 0), 0);
-                  return (
-                    <div style={{
-                      marginBottom: 12, padding: "10px 12px", borderRadius: 6,
-                      background: "#eff6ff", border: "1px solid #bfdbfe",
-                    }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                        <div>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1e40af", marginBottom: 2 }}>
-                            🔍 NexVERIFY — Multi-Source Expense Convergence
-                          </div>
-                          <div style={{ display: "flex", gap: 16, fontSize: 12, color: "#1e3a5f" }}>
-                            <span><strong>{verificationBills.length}</strong> duplicate bill{verificationBills.length !== 1 ? "s" : ""} detected</span>
-                            <span style={{ color: "#16a34a" }}><strong>{totalVerified}</strong> verified</span>
-                            {totalPending > 0 && <span style={{ color: "#b45309" }}><strong>{totalPending}</strong> pending verification</span>}
-                            {totalVariance > 0 && <span>Total variance: <strong>{formatMoney(totalVariance)}</strong></span>}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setNexVerifyCollapsed(prev => !prev)}
-                          style={{
-                            padding: "3px 8px", borderRadius: 4,
-                            border: "1px solid #93c5fd", background: nexVerifyCollapsed ? "#dbeafe" : "#ffffff",
-                            color: "#1d4ed8", cursor: "pointer", fontSize: 10, fontWeight: 600,
-                          }}
-                        >
-                          {nexVerifyCollapsed ? "▶ Show Records" : "▼ Hide Records"}
-                        </button>
-                      </div>
-                      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
-                        VERIFICATION bills (blue rows) have GAAP offset line items that net to $0. They corroborate PRIMARY bills from a different source.
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {!projectBillsLoading && !projectBillsError && projectBills && projectBills.length > 0 && (() => {
-                  // Pre-compute receipt line references for all bills
-                  // Group non-TENTATIVE PRIMARY bills by date+vendor+source for line numbering
-                  const billRefMap = new Map<string, string>(); // billId → "L3"
-                  const billReceiptGroups = new Map<string, any[]>();
-                  for (const b of projectBills) {
-                    if (b?.status === "TENTATIVE") continue; // tentative has its own section
-                    const dateKey = b?.billDate ? String(b.billDate).slice(0, 10) : "no-date";
-                    const vendor = (b?.vendorName ?? "").toLowerCase();
-                    const src = b?.sourceTransactionSource ?? "manual";
-                    const gk = `${dateKey}|${vendor}|${src}`;
-                    if (!billReceiptGroups.has(gk)) billReceiptGroups.set(gk, []);
-                    billReceiptGroups.get(gk)!.push(b);
-                  }
-                  for (const [, group] of billReceiptGroups) {
-                    if (group.length < 2) continue; // no ref needed for single-item receipts
-                    const sorted = [...group].sort((a: any, b: any) =>
-                      (a?.lineItems?.[0]?.description ?? "").localeCompare(b?.lineItems?.[0]?.description ?? "")
-                    );
-                    sorted.forEach((b: any, idx: number) => {
-                      billRefMap.set(String(b.id), `L${idx + 1}`);
-                    });
-                  }
-
-                  return (
-                  <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                      <thead>
-                        <tr style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>
-                          <th
-                            style={{ padding: "6px 8px", cursor: "pointer", userSelect: "none", background: billsSortField === "vendor" ? "#eef2ff" : undefined }}
-                            onClick={() => toggleBillsSort("vendor")}
-                          >
-                            Vendor {billsSortField === "vendor" && <span style={{ fontSize: 10 }}>{billsSortDir === "asc" ? "▲" : "▼"}</span>}
-                          </th>
-                          <th
-                            style={{ padding: "6px 8px", cursor: "pointer", userSelect: "none", background: billsSortField === "date" ? "#eef2ff" : undefined }}
-                            onClick={() => toggleBillsSort("date")}
-                          >
-                            Bill date {billsSortField === "date" && <span style={{ fontSize: 10 }}>{billsSortDir === "asc" ? "▲" : "▼"}</span>}
-                          </th>
-                          <th style={{ padding: "6px 8px" }}>Status</th>
-                          <th style={{ padding: "6px 8px" }}>Role</th>
-                          <th style={{ padding: "6px 8px" }} title="Receipt line reference / NexVERIFY cross-ref">Ref</th>
-                          <th style={{ padding: "6px 8px" }}>Kind</th>
-                          <th style={{ padding: "6px 8px" }}>Description</th>
-                          <th
-                            style={{ padding: "6px 8px", textAlign: "right", cursor: "pointer", userSelect: "none", background: billsSortField === "amount" ? "#eef2ff" : undefined }}
-                            onClick={() => toggleBillsSort("amount")}
-                          >
-                            Amount {billsSortField === "amount" && <span style={{ fontSize: 10 }}>{billsSortDir === "asc" ? "▲" : "▼"}</span>}
-                          </th>
-                          <th
-                            style={{ padding: "6px 8px", textAlign: "center", cursor: "pointer", userSelect: "none", background: billsSortField === "billable" ? "#eef2ff" : undefined }}
-                            onClick={() => toggleBillsSort("billable")}
-                          >
-                            Billable {billsSortField === "billable" && <span style={{ fontSize: 10 }}>{billsSortDir === "asc" ? "▲" : "▼"}</span>}
-                          </th>
-                          <th style={{ padding: "6px 8px", textAlign: "right" }}>GM%</th>
-                          <th style={{ padding: "6px 8px", textAlign: "right" }}>GM$</th>
-                          <th style={{ padding: "6px 8px" }}>Attachments</th>
-                          <th style={{ padding: "6px 8px", textAlign: "right" }}>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[...projectBills]
-                          .sort((a: any, b: any) => {
-                            const dir = billsSortDir === "asc" ? 1 : -1;
-                            if (billsSortField === "vendor") {
-                              return dir * (a?.vendorName ?? "").localeCompare(b?.vendorName ?? "");
-                            }
-                            if (billsSortField === "amount") {
-                              return dir * ((Number(a?.totalAmount) || 0) - (Number(b?.totalAmount) || 0));
-                            }
-                            if (billsSortField === "billable") {
-                              const ba = a?.isBillable ? (Number(a?.totalAmount) || 0) * (1 + (Number(a?.markupPercent) || 0) / 100) : 0;
-                              const bb = b?.isBillable ? (Number(b?.totalAmount) || 0) * (1 + (Number(b?.markupPercent) || 0) / 100) : 0;
-                              return dir * (ba - bb);
-                            }
-                            // Default: date
-                            const da = String(a?.billDate ?? "");
-                            const db = String(b?.billDate ?? "");
-                            if (da !== db) return dir * da.localeCompare(db);
-                            return dir * String(a?.createdAt ?? "").localeCompare(String(b?.createdAt ?? ""));
-                          })
-                          .filter((b: any) => {
-                            // Hide VERIFICATION rows when NexVERIFY section is collapsed
-                            if (nexVerifyCollapsed && b?.billRole === "VERIFICATION") return false;
-                            return true;
-                          })
-                          .map((b: any) => {
-                            const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
-                            const attachments: any[] = Array.isArray(b?.attachments) ? b.attachments : [];
-                            const isBillable = !!b?.isBillable;
-                            const cost = Number(b?.totalAmount) || 0;
-                            const markupPct = Number(b?.markupPercent) || 0;
-                            const gmDollars = isBillable ? cost * (markupPct / 100) : 0;
-                            const billableTotal = cost + gmDollars;
-                            const gmPercent = isBillable && billableTotal > 0 ? (gmDollars / billableTotal) * 100 : 0;
-                            const billRole = b?.billRole ?? "PRIMARY";
-                            const isVerification = billRole === "VERIFICATION";
-                            const isSibe = billRole === "SIBE";
-                            const sibGroup = b?.siblingGroup;
-                            return (
-                              <tr key={String(b?.id ?? Math.random())} style={{ background: isVerification ? "#eff6ff" : isSibe ? "#f9fafb" : undefined, opacity: isSibe ? 0.55 : 1 }}>
-                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
-                                  {b?.vendorName ?? "—"}
-                                </td>
-                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
-                                  {b?.billDate ? String(b.billDate).slice(0, 10) : "—"}
-                                </td>
-                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
-                                  {b?.status ?? "—"}
-                                </td>
-                                {/* Role column */}
-                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
-                                  {isVerification ? (
-                                    <span
-                                      style={{
-                                        padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600,
-                                        background: "#dbeafe", color: "#1d4ed8",
-                                      }}
-                                      title={sibGroup ? `Match: ${(sibGroup.matchConfidence * 100).toFixed(0)}% — ${sibGroup.matchReason}` : "Verification bill"}
-                                    >
-                                      VERIFICATION
-                                      {sibGroup && ` (${(sibGroup.matchConfidence * 100).toFixed(0)}%)`}
-                                    </span>
-                                  ) : isSibe ? (
-                                    <span
-                                      style={{
-                                        padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600,
-                                        background: "#fee2e2", color: "#991b1b",
-                                      }}
-                                      title="NexDupE: Duplicate Expense — record only. This bill does not count toward project totals."
-                                    >
-                                      DupE — Record Only
-                                    </span>
-                                  ) : (
-                                    <span style={{ padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: "#f3f4f6", color: "#374151" }}>
-                                      PRIMARY
-                                    </span>
-                                  )}
-                                </td>
-                                {/* Ref column — receipt line # or NexVERIFY cross-ref */}
-                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 10, fontWeight: 600, color: isVerification ? "#1d4ed8" : "#9ca3af", whiteSpace: "nowrap" }}>
-                                  {(() => {
-                                    if (isVerification && sibGroup?.primaryBillId) {
-                                      const primaryRef = billRefMap.get(sibGroup.primaryBillId);
-                                      const primaryBill = projectBills?.find((pb: any) => pb?.id === sibGroup.primaryBillId);
-                                      const primaryDesc = primaryBill?.lineItems?.[0]?.description;
-                                      return (
-                                        <span title={primaryDesc ? `Verifies: ${primaryDesc}` : `Verifies bill ${sibGroup.primaryBillId.slice(-6)}`}>
-                                          ↔ {primaryRef || `#${sibGroup.primaryBillId.slice(-6)}`}
-                                        </span>
-                                      );
-                                    }
-                                    const ref = billRefMap.get(String(b?.id));
-                                    return ref || "—";
-                                  })()}
-                                </td>
-                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
-                                  {li?.kind ?? "—"}
-                                </td>
-                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
-                                  <div style={{ fontWeight: 600 }}>{li?.description ?? "—"}</div>
-                                  {b?.billNumber && (
-                                    <div style={{ fontSize: 11, color: "#6b7280" }}>#{String(b.billNumber)}</div>
-                                  )}
-                                </td>
-                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", fontWeight: 600 }}>
-                                  {formatMoney(b?.totalAmount)}
-                                </td>
-                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "center" }}>
-                                  {isBillable ? (
-                                    <span style={{ color: "#16a34a", fontWeight: 600 }}>✓ {markupPct}%</span>
-                                  ) : (
-                                    <span style={{ color: "#9ca3af" }}>—</span>
-                                  )}
-                                </td>
-                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: isBillable ? "#111827" : "#9ca3af" }}>
-                                  {isBillable ? `${gmPercent.toFixed(1)}%` : "—"}
-                                </td>
-                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", fontWeight: isBillable ? 600 : 400, color: isBillable ? "#16a34a" : "#9ca3af" }}>
-                                  {isBillable ? formatMoney(gmDollars) : "—"}
-                                </td>
-                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
-                                  {attachments.length === 0 ? (
-                                    <span style={{ color: "#9ca3af" }}>—</span>
-                                  ) : (
-                                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                                      {attachments.slice(0, 3).map((a: any) => (
-                                        <a
-                                          key={String(a?.id ?? a?.projectFileId ?? Math.random())}
-                                          href={String(a?.fileUrl ?? "#")}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          style={{ fontSize: 11, color: "#2563eb", textDecoration: "none" }}
-                                        >
-                                          {String(a?.fileName ?? "Attachment")}
-                                        </a>
-                                      ))}
-                                      {attachments.length > 3 && (
-                                        <span style={{ fontSize: 11, color: "#6b7280" }}>
-                                          +{attachments.length - 3} more
-                                        </span>
-                                      )}
-                                    </div>
-                                  )}
-                                </td>
-                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
-                                  <button
-                                    type="button"
-                                    onClick={() => openEditBillModal(b)}
-                                    style={{
-                                      padding: "2px 6px",
-                                      borderRadius: 4,
-                                      border: "1px solid #d1d5db",
-                                      background: "#ffffff",
-                                      fontSize: 11,
-                                      cursor: "pointer",
-                                    }}
-                                  >
-                                    Edit
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                      </tbody>
-                    </table>
-                  </div>
-                  );
-                })()}
-              </div>
-            )}
-          </div>
-
-            </>
-          )}
-
         </div>
       )}
 
@@ -23863,7 +21788,97 @@ ${htmlBody}
                                           <>
                                         <button
                                           type="button"
-                                          onClick={() => openInvoiceLineEdit(li)}
+                                          onClick={async () => {
+                                            if (!project) return;
+                                            const token = localStorage.getItem("accessToken");
+                                            if (!token) {
+                                              setInvoiceMessage("Missing access token.");
+                                              return;
+                                            }
+
+                                            const nextDesc =
+                                              prompt("Description", String(li.description ?? "")) ??
+                                              String(li.description ?? "");
+
+                                            const nextAmountStr =
+                                              prompt("Amount", String(li.amount ?? "")) ??
+                                              String(li.amount ?? "");
+                                            const nextAmount = Number(nextAmountStr);
+                                            if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+                                              setInvoiceMessage("Amount must be a positive number.");
+                                              return;
+                                            }
+
+                                            const nextKindRaw =
+                                              prompt(
+                                                "Kind (MANUAL, BILLABLE_HOURS, EQUIPMENT_RENTAL, LABOR_ONLY, MATERIALS_ONLY, LABOR_AND_MATERIALS, COST_BOOK, OTHER)",
+                                                String(li.kind ?? "MANUAL"),
+                                              ) ?? String(li.kind ?? "MANUAL");
+                                            const nextKind = nextKindRaw.trim().toUpperCase();
+                                            const allowedKinds = new Set([
+                                              "MANUAL",
+                                              "BILLABLE_HOURS",
+                                              "EQUIPMENT_RENTAL",
+                                              "LABOR_ONLY",
+                                              "MATERIALS_ONLY",
+                                              "LABOR_AND_MATERIALS",
+                                              "COST_BOOK",
+                                              "OTHER",
+                                            ]);
+                                            if (!allowedKinds.has(nextKind)) {
+                                              setInvoiceMessage("Invalid kind.");
+                                              return;
+                                            }
+
+                                            const nextTagRaw =
+                                              prompt(
+                                                "Billing tag (NONE, PETL_LINE_ITEM, CHANGE_ORDER, SUPPLEMENT, WARRANTY)",
+                                                String(li.billingTag ?? "NONE"),
+                                              ) ?? String(li.billingTag ?? "NONE");
+                                            const nextTag = nextTagRaw.trim().toUpperCase();
+                                            const allowedTags = new Set([
+                                              "NONE",
+                                              "PETL_LINE_ITEM",
+                                              "CHANGE_ORDER",
+                                              "SUPPLEMENT",
+                                              "WARRANTY",
+                                            ]);
+                                            if (!allowedTags.has(nextTag)) {
+                                              setInvoiceMessage("Invalid billing tag.");
+                                              return;
+                                            }
+
+                                            try {
+                                              const res = await fetch(
+                                                `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/lines/${li.id}`,
+                                                {
+                                                  method: "PATCH",
+                                                  headers: {
+                                                    "Content-Type": "application/json",
+                                                    Authorization: `Bearer ${token}`,
+                                                  },
+                                                  body: JSON.stringify({
+                                                    description: nextDesc,
+                                                    amount: nextAmount,
+                                                    kind: nextKind,
+                                                    billingTag: nextTag,
+                                                  }),
+                                                },
+                                              );
+                                              if (!res.ok) {
+                                                const text = await res.text().catch(() => "");
+                                                setInvoiceMessage(
+                                                  `Edit failed (${res.status}) ${text}`,
+                                                );
+                                                return;
+                                              }
+                                              const json: any = await res.json();
+                                              setActiveInvoice(json);
+                                              setProjectInvoices(null);
+                                            } catch (err: any) {
+                                              setInvoiceMessage(err?.message ?? "Edit failed.");
+                                            }
+                                          }}
                                           style={{
                                             padding: "2px 6px",
                                             borderRadius: 4,
@@ -24082,13 +22097,6 @@ ${htmlBody}
                             background: newInvoiceLineQty.trim() !== "" && newInvoiceLineUnitPrice.trim() !== "" ? "#f0fdf4" : "#ffffff",
                           }}
                         />
-                        {/* 25% markup toggle — hidden for CREDIT kind */}
-                        {newInvoiceLineKind !== "CREDIT" && (
-                          <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 11, whiteSpace: "nowrap" }}>
-                            <input type="checkbox" checked={newInvoiceLineMarkup} onChange={(e) => setNewInvoiceLineMarkup(e.target.checked)} />
-                            <span style={{ fontWeight: 600 }}>+25%</span>
-                          </label>
-                        )}
                         <button
                           type="button"
                           onClick={async () => {
@@ -24123,11 +22131,6 @@ ${htmlBody}
                             // Calculate amount from qty × unitPrice if not explicitly provided
                             if (amount === undefined && qty !== undefined && unitPrice !== undefined) {
                               amount = qty * unitPrice;
-                            }
-
-                            // Apply 25% markup if enabled
-                            if (newInvoiceLineMarkup && amount !== undefined && newInvoiceLineKind !== "CREDIT") {
-                              amount = amount * 1.25;
                             }
 
                             // For CREDIT kind, ensure amount is negative
@@ -24170,7 +22173,7 @@ ${htmlBody}
                               setNewInvoiceLineUnitCode("");
                               setNewInvoiceLineUnitPrice("");
                               setNewInvoiceLineAmount("");
-                              setInvoiceMessage(newInvoiceLineMarkup ? "Line added (25% markup applied)." : "Line added.");
+                              setInvoiceMessage("Line added.");
                             } catch (err: any) {
                               setInvoiceMessage(err?.message ?? "Add line failed.");
                             }
@@ -24535,21 +22538,6 @@ ${htmlBody}
                       </div>
                       )}
 
-                      {/* Markup preview when +25% is toggled */}
-                      {newInvoiceLineMarkup && newInvoiceLineKind !== "CREDIT" && newInvoiceLineAmount.trim() !== "" && (() => {
-                        const base = Number(newInvoiceLineAmount) || 0;
-                        const marked = base * 1.25;
-                        const delta = marked - base;
-                        return (
-                          <div style={{ fontSize: 11, color: "#16a34a", fontWeight: 500, marginTop: 2 }}>
-                            25% markup: ${base.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            {" → "}
-                            ${marked.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            {" "}(+${delta.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
-                          </div>
-                        );
-                      })()}
-
                       {/* Attachments list */}
                       {Array.isArray(activeInvoice?.attachments) && activeInvoice.attachments.length > 0 && (
                         <div style={{ marginTop: 8 }}>
@@ -24653,6 +22641,1760 @@ ${htmlBody}
               )}
             </div>
           </div>
+
+          {!invoiceFullscreen && (
+            <>
+
+          {/* Payroll & Workforce roster */}
+          <div
+            style={{
+              marginTop: 10,
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+            }}
+          >
+            <div
+              style={{
+                padding: "6px 10px",
+                borderBottom: payrollCollapsed ? "none" : "1px solid #e5e7eb",
+                fontSize: 13,
+                fontWeight: 600,
+                background: "#f3f4f6",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => startUiTransition(() => setPayrollCollapsed((v) => !v))}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  padding: 0,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "#111827",
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: 8,
+                  textAlign: "left",
+                }}
+              >
+                <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                  {payrollCollapsed ? "▸" : "▾"}
+                </span>
+                <span>Payroll &amp; Workforce</span>
+                {payrollEmployees && payrollEmployees.length > 0 && (
+                  <span style={{ fontSize: 11, fontWeight: 500, color: "#6b7280" }}>
+                    · {payrollEmployees.length} employee{payrollEmployees.length !== 1 ? "s" : ""}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {!payrollCollapsed && (
+            <div style={{ padding: 10, fontSize: 12 }}>
+              <p style={{ marginTop: 0, marginBottom: 8, color: "#4b5563" }}>
+                This roster shows everyone who has recorded payroll on this project
+                (including subs and 1099s), based on Certified Payroll and LCP data.
+                It does not grant them login access.
+              </p>
+
+              {payrollLoading && (
+                <p style={{ fontSize: 12, color: "#6b7280" }}>
+                  Loading payroll roster…
+                </p>
+              )}
+
+              {payrollError && !payrollLoading && (
+                <p style={{ fontSize: 12, color: "#b91c1c" }}>{payrollError}</p>
+              )}
+
+              {!payrollLoading &&
+                !payrollError &&
+                (!payrollEmployees || payrollEmployees.length === 0) && (
+                  <p style={{ fontSize: 12, color: "#6b7280" }}>
+                    No payroll records found yet for this project.
+                  </p>
+                )}
+
+              {!payrollLoading && !payrollError && payrollEmployees && payrollEmployees.length > 0 && (
+                <div style={{ maxHeight: "60vh", overflow: "auto" }}>
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      fontSize: 12,
+                    }}
+                  >
+                    <thead>
+                      <tr style={{ backgroundColor: "#f9fafb" }}>
+                        <th style={{ textAlign: "left", padding: "6px 8px" }}>Name</th>
+                        <th style={{ textAlign: "left", padding: "6px 8px" }}>Role / Class</th>
+                        <th style={{ textAlign: "left", padding: "6px 8px" }}>SSN (last 4)</th>
+                        <th style={{ textAlign: "right", padding: "6px 8px" }}>Total Hours</th>
+                        <th style={{ textAlign: "left", padding: "6px 8px" }}>First Week</th>
+                        <th style={{ textAlign: "left", padding: "6px 8px" }}>Last Week</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {payrollEmployees.map((emp, idx) => {
+                        const name = [emp.firstName ?? "", emp.lastName ?? ""]
+                          .map(s => s.trim())
+                          .filter(Boolean)
+                          .join(" ") || "(Unnamed)";
+                        const firstWeek = emp.firstWeekEnd
+                          ? new Date(emp.firstWeekEnd).toLocaleDateString()
+                          : "—";
+                        const lastWeek = emp.lastWeekEnd
+                          ? new Date(emp.lastWeekEnd).toLocaleDateString()
+                          : "—";
+                        const hasDetails = !!emp.employeeId;
+                        const detailHref = hasDetails
+                          ? `/projects/${project.id}/payroll/${encodeURIComponent(
+                              emp.employeeId as string,
+                            )}`
+                          : undefined;
+                        return (
+                          <tr key={`${emp.employeeId ?? "emp"}-${idx}`}>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderTop: "1px solid #e5e7eb",
+                              }}
+                            >
+                              {hasDetails ? (
+                                <a
+                                  href={detailHref}
+                                  style={{ color: "#2563eb", textDecoration: "none" }}
+                                >
+                                  {name}
+                                </a>
+                              ) : (
+                                name
+                              )}
+                            </td>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderTop: "1px solid #e5e7eb",
+                                color: "#4b5563",
+                              }}
+                            >
+                              {emp.classCode || "—"}
+                            </td>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderTop: "1px solid #e5e7eb",
+                                color: "#4b5563",
+                              }}
+                            >
+                              {emp.ssnLast4 ? `***-**-${emp.ssnLast4}` : "—"}
+                            </td>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderTop: "1px solid #e5e7eb",
+                                textAlign: "right",
+                              }}
+                            >
+                              {emp.totalHours.toFixed(2)}
+                            </td>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderTop: "1px solid #e5e7eb",
+                              }}
+                            >
+                              {firstWeek}
+                            </td>
+                            <td
+                              style={{
+                                padding: "6px 8px",
+                                borderTop: "1px solid #e5e7eb",
+                              }}
+                            >
+                              {lastWeek}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            )}
+          </div>
+
+          {/* Billable Expenses Invoice */}
+          {(() => {
+            const billableBills = (projectBills ?? []).filter((b: any) => b?.isBillable);
+            const billableTotal = billableBills.reduce((sum: number, b: any) => sum + (Number(b?.billableAmount) || 0), 0);
+            const costTotal = billableBills.reduce((sum: number, b: any) => sum + (Number(b?.totalAmount) || 0), 0);
+            const gmTotal = billableTotal - costTotal;
+
+            // Find the EXPENSE category invoice
+            const expenseInvoice = (projectInvoices ?? []).find((inv: any) => inv?.category === "EXPENSE");
+
+            if (billableBills.length === 0) return null;
+
+            return (
+              <div
+                style={{
+                  marginTop: 16,
+                  borderRadius: 8,
+                  border: "1px solid #16a34a",
+                  background: "#f0fdf4",
+                }}
+              >
+                <div
+                  style={{
+                    padding: "10px 12px",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    background: "#dcfce7",
+                    borderBottom: billableExpensesCollapsed ? "none" : "1px solid #16a34a",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 8,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => startUiTransition(() => setBillableExpensesCollapsed((v) => !v))}
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
+                      padding: 0,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: "#166534",
+                      display: "flex",
+                      alignItems: "baseline",
+                      gap: 8,
+                      textAlign: "left",
+                    }}
+                  >
+                    <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                      {billableExpensesCollapsed ? "▸" : "▾"}
+                    </span>
+                    <span>💰 Billable Expenses Invoice</span>
+                    <span style={{ fontSize: 11, fontWeight: 500, color: "#166534" }}>
+                      · {billableBills.length} item{billableBills.length !== 1 ? "s" : ""} · Total {formatMoney(billableTotal)}
+                      {expenseInvoice && ` · ${expenseInvoice.status}`}
+                      {expenseInvoice?.invoiceNo && ` · ${expenseInvoice.invoiceNo}`}
+                    </span>
+                  </button>
+                  {!billableExpensesCollapsed && <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!project) return;
+                        const token = localStorage.getItem("accessToken");
+                        if (!token) return;
+                        try {
+                          // Create/sync the expense invoice
+                          const res = await fetch(
+                            `${API_BASE}/projects/${project.id}/invoices/sync-billable-expenses`,
+                            {
+                              method: "POST",
+                              headers: {
+                                Authorization: `Bearer ${token}`,
+                                "Content-Type": "application/json",
+                              },
+                              body: JSON.stringify({}),
+                            }
+                          );
+                          if (res.ok) {
+                            const fullInvoice = await res.json();
+                            setActiveInvoice(fullInvoice);
+                            // Navigate to fullscreen invoice view
+                            router.push(`/projects/${id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${fullInvoice.id}`);
+                            // Refresh invoices list
+                            setProjectInvoices(null);
+                          }
+                        } catch {
+                          // ignore
+                        }
+                      }}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: 4,
+                        border: "1px solid #166534",
+                        background: "#166534",
+                        color: "#ffffff",
+                        fontSize: 11,
+                        cursor: "pointer",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {expenseInvoice ? "Open Invoice" : "Create Invoice"}
+                    </button>
+                  </div>}
+                </div>
+                {!billableExpensesCollapsed && (
+                <div style={{ padding: 12, fontSize: 12 }}>
+                  <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: "#166534", marginBottom: 2 }}>Cost</div>
+                      <div style={{ fontWeight: 600 }}>{formatMoney(costTotal)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: "#166534", marginBottom: 2 }}>Gross Margin</div>
+                      <div style={{ fontWeight: 600, color: "#16a34a" }}>{formatMoney(gmTotal)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, color: "#166534", marginBottom: 2 }}>Billable Total</div>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{formatMoney(billableTotal)}</div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#166534" }}>
+                    This invoice is auto-generated from bills marked as &quot;Billable&quot;. Review the items below and issue when ready.
+                  </div>
+                  {/* Move expense lines action bar */}
+                  {expenseInvoice && expenseInvoice.status === "DRAFT" && selectedExpenseLineIds.size > 0 && (() => {
+                    // Get all DRAFT invoices except the current expense invoice
+                    const allDraftInvoices = (projectInvoices ?? []).filter(
+                      (inv: any) => inv?.status === "DRAFT"
+                    );
+                    const otherDraftInvoices = allDraftInvoices.filter(
+                      (inv: any) => inv?.id !== expenseInvoice.id
+                    );
+                    return (
+                    <div style={{ marginTop: 8, padding: "8px 10px", background: "#dbeafe", borderRadius: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: "#1d4ed8" }}>
+                        {selectedExpenseLineIds.size} line{selectedExpenseLineIds.size !== 1 ? "s" : ""} selected
+                      </span>
+                      <span style={{ fontSize: 11, color: "#1d4ed8" }}>→ Move to:</span>
+                      <select
+                        value={moveExpenseTargetInvoiceId}
+                        onChange={(e) => setMoveExpenseTargetInvoiceId(e.target.value)}
+                        style={{
+                          padding: "4px 8px",
+                          borderRadius: 4,
+                          border: "1px solid #93c5fd",
+                          fontSize: 11,
+                          background: "#ffffff",
+                        }}
+                      >
+                        <option value="">New Invoice</option>
+                        {otherDraftInvoices.map((inv: any) => {
+                          // Find index among ALL drafts for consistent numbering
+                          const draftNum = allDraftInvoices.findIndex((d: any) => d?.id === inv?.id) + 1;
+                          const label = inv.invoiceNo ?? `Draft #${draftNum}`;
+                          const category = inv.category === "EXPENSE" ? "Expenses" : inv.category === "PETL" ? "Progress" : inv.category ?? "Invoice";
+                          const amount = typeof inv.totalAmount === "number" ? ` $${inv.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "";
+                          return (
+                            <option key={inv.id} value={inv.id}>
+                              {label} ({category}{amount})
+                            </option>
+                          );
+                        })}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={moveExpenseLinesBusy}
+                        onClick={async () => {
+                          if (!project || !expenseInvoice) return;
+                          const token = localStorage.getItem("accessToken");
+                          if (!token) {
+                            setMoveExpenseLinesMessage("Missing access token.");
+                            return;
+                          }
+
+                          // Get the bill IDs for selected items
+                          const billIds: string[] = Array.from(selectedExpenseLineIds);
+
+                          if (billIds.length === 0) {
+                            setMoveExpenseLinesMessage("No items selected.");
+                            return;
+                          }
+
+                          const targetLabel = moveExpenseTargetInvoiceId
+                            ? otherDraftInvoices.find((inv: any) => inv.id === moveExpenseTargetInvoiceId)?.invoiceNo ?? "selected invoice"
+                            : "a new invoice";
+                          const ok = window.confirm(
+                            `Move ${billIds.length} expense${billIds.length !== 1 ? "s" : ""} to ${targetLabel}?`
+                          );
+                          if (!ok) return;
+
+                          setMoveExpenseLinesBusy(true);
+                          setMoveExpenseLinesMessage(null);
+
+                          try {
+                            const payload: { billIds: string[]; targetInvoiceId?: string } = { billIds };
+                            if (moveExpenseTargetInvoiceId) {
+                              payload.targetInvoiceId = moveExpenseTargetInvoiceId;
+                            }
+                            const res = await fetch(
+                              `${API_BASE}/projects/${project.id}/invoices/${expenseInvoice.id}/move-expense-lines`,
+                              {
+                                method: "POST",
+                                headers: {
+                                  "Content-Type": "application/json",
+                                  Authorization: `Bearer ${token}`,
+                                },
+                                body: JSON.stringify(payload),
+                              }
+                            );
+
+                            if (!res.ok) {
+                              const text = await res.text().catch(() => "");
+                              throw new Error(`Failed to move lines (${res.status}) ${text}`);
+                            }
+
+                            const result = await res.json();
+                            const destLabel = result.targetInvoice?.invoiceNo ?? "target invoice";
+                            setMoveExpenseLinesMessage(
+                              `Moved ${result.movedLineCount ?? billIds.length} expense(s) to ${destLabel}.`
+                            );
+                            setSelectedExpenseLineIds(new Set());
+                            setMoveExpenseTargetInvoiceId("");
+                            // Refresh invoices and bills
+                            setProjectInvoices(null);
+                            setProjectBills(null);
+                          } catch (err: any) {
+                            setMoveExpenseLinesMessage(err?.message ?? "Failed to move lines.");
+                          } finally {
+                            setMoveExpenseLinesBusy(false);
+                          }
+                        }}
+                        style={{
+                          padding: "4px 10px",
+                          borderRadius: 4,
+                          border: "1px solid #1d4ed8",
+                          background: "#1d4ed8",
+                          color: "#ffffff",
+                          fontSize: 11,
+                          cursor: moveExpenseLinesBusy ? "wait" : "pointer",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {moveExpenseLinesBusy ? "Moving…" : "Move"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedExpenseLineIds(new Set());
+                          setMoveExpenseTargetInvoiceId("");
+                        }}
+                        style={{
+                          padding: "4px 10px",
+                          borderRadius: 4,
+                          border: "1px solid #d1d5db",
+                          background: "#ffffff",
+                          fontSize: 11,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Clear
+                      </button>
+                      </div>
+                      <div style={{ marginTop: 6, fontSize: 10, color: "#6b7280" }}>
+                        Dropdown shows other draft invoices to consolidate into (current Expenses invoice excluded).
+                        {otherDraftInvoices.length === 0 && " No other drafts available."}
+                      </div>
+                    </div>
+                    );
+                  })()}
+                  {moveExpenseLinesMessage && (
+                    <div style={{ marginTop: 6, fontSize: 11, color: moveExpenseLinesMessage.includes("fail") || moveExpenseLinesMessage.includes("Failed") ? "#b91c1c" : "#166534" }}>
+                      {moveExpenseLinesMessage}
+                    </div>
+                  )}
+                  <div style={{ marginTop: 12 }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                      <thead>
+                        <tr style={{ textAlign: "left", borderBottom: "1px solid #bbf7d0" }}>
+                          {expenseInvoice && expenseInvoice.status === "DRAFT" && (
+                            <th style={{ padding: "4px 6px", width: 24 }}>
+                              <input
+                                type="checkbox"
+                                checked={selectedExpenseLineIds.size === billableBills.length && billableBills.length > 0}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedExpenseLineIds(new Set(billableBills.map((b: any) => String(b?.id ?? ""))));
+                                  } else {
+                                    setSelectedExpenseLineIds(new Set());
+                                  }
+                                }}
+                                style={{ cursor: "pointer" }}
+                              />
+                            </th>
+                          )}
+                          <th style={{ padding: "4px 6px" }}>Vendor</th>
+                          <th style={{ padding: "4px 6px" }}>Invoice</th>
+                          <th style={{ padding: "4px 6px" }}>Description</th>
+                          <th style={{ padding: "4px 6px", textAlign: "right" }}>Cost</th>
+                          <th style={{ padding: "4px 6px", textAlign: "right" }}>GM%</th>
+                          <th style={{ padding: "4px 6px", textAlign: "right" }}>Billable</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...billableBills]
+                          .sort((a: any, b: any) => {
+                            // Sort by createdAt descending (newest first)
+                            const dateA = new Date(a?.createdAt ?? 0).getTime();
+                            const dateB = new Date(b?.createdAt ?? 0).getTime();
+                            return dateB - dateA;
+                          })
+                          .map((b: any) => {
+                          const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
+                          const cost = Number(b?.totalAmount) || 0;
+                          const billable = Number(b?.billableAmount) || 0;
+                          const gmPct = billable > 0 ? ((billable - cost) / billable) * 100 : 0;
+                          const billId = String(b?.id ?? "");
+                          const isSelected = selectedExpenseLineIds.has(billId);
+                          
+                          // Check if this expense's invoice is paid/locked
+                          // Use invoiceLines to find the actual invoice this bill is attached to
+                          const invoiceLine = Array.isArray(b?.invoiceLines) ? b.invoiceLines[0] : null;
+                          const targetInv = invoiceLine?.invoice ?? null;
+                          const isPaid = targetInv && (targetInv.status === "PAID" || targetInv.status === "PARTIALLY_PAID");
+                          const isLocked = targetInv && targetInv.status !== "DRAFT";
+                          
+                          // Row styling based on status
+                          const rowBg = isSelected ? "#dbeafe" : isPaid ? "#fef2f2" : undefined;
+                          const textColor = isPaid ? "#991b1b" : isLocked ? "#6b7280" : "#166534";
+                          
+                          return (
+                            <tr key={billId || Math.random()} style={{ borderTop: "1px solid #bbf7d0", background: rowBg }}>
+                              {expenseInvoice && expenseInvoice.status === "DRAFT" && (
+                                <td style={{ padding: "4px 6px" }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      setSelectedExpenseLineIds((prev) => {
+                                        const next = new Set(prev);
+                                        if (e.target.checked) {
+                                          next.add(billId);
+                                        } else {
+                                          next.delete(billId);
+                                        }
+                                        return next;
+                                      });
+                                    }}
+                                    style={{ cursor: "pointer" }}
+                                    disabled={isLocked}
+                                  />
+                                </td>
+                              )}
+                              <td style={{ padding: "4px 6px", color: textColor }}>{b?.vendorName ?? "—"}</td>
+                              <td style={{ padding: "4px 6px", fontSize: 10 }}>
+                                {targetInv ? (
+                                  <span style={{
+                                    padding: "2px 6px",
+                                    borderRadius: 4,
+                                    background: isPaid ? "#fecaca" : isLocked ? "#e5e7eb" : "#dcfce7",
+                                    color: isPaid ? "#991b1b" : isLocked ? "#4b5563" : "#166534",
+                                    fontSize: 10,
+                                  }}>
+                                    {targetInv.invoiceNo ?? "Draft"}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: "#9ca3af" }}>—</span>
+                                )}
+                              </td>
+                              <td style={{ padding: "4px 6px", color: textColor }}>{li?.description ?? "—"}</td>
+                              <td style={{ padding: "4px 6px", textAlign: "right", color: textColor }}>{formatMoney(cost)}</td>
+                              <td style={{ padding: "4px 6px", textAlign: "right", color: isPaid ? "#991b1b" : "#16a34a" }}>{gmPct.toFixed(1)}%</td>
+                              <td style={{ padding: "4px 6px", textAlign: "right", fontWeight: 600, color: textColor }}>{formatMoney(billable)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {isAdminOrAbove && (
+            <div
+              style={{
+                marginTop: 16,
+                borderRadius: 8,
+                border: "1px solid #e5e7eb",
+                background: "#ffffff",
+              }}
+            >
+              <div
+                style={{
+                  padding: "6px 10px",
+                  borderBottom: petlArchivesCollapsed ? "none" : "1px solid #e5e7eb",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  background: "#f3f4f6",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                }}
+              >
+                <button
+                  type="button"
+                onClick={() => startUiTransition(() => setPetlArchivesCollapsed((v) => !v))}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    padding: 0,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "#111827",
+                    display: "flex",
+                    alignItems: "baseline",
+                    gap: 8,
+                    textAlign: "left",
+                  }}
+                >
+                  <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                    {petlArchivesCollapsed ? "▸" : "▾"}
+                  </span>
+                  <span>PETL Archives</span>
+                  {Array.isArray(petlArchives) && (
+                    <span style={{ fontSize: 11, fontWeight: 500, color: "#6b7280" }}>
+                      · {petlArchives.length}
+                    </span>
+                  )}
+                </button>
+
+                {!petlArchivesCollapsed && (
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <button
+                      type="button"
+                      onClick={refreshPetlArchives}
+                      disabled={petlArchivesLoading}
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        border: "1px solid #d1d5db",
+                        background: "#ffffff",
+                        cursor: petlArchivesLoading ? "default" : "pointer",
+                        fontSize: 12,
+                      }}
+                    >
+                      {petlArchivesLoading ? "Refreshing…" : "Refresh"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={createPetlArchive}
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        border: "1px solid #0f172a",
+                        background: "#0f172a",
+                        color: "#f9fafb",
+                        cursor: "pointer",
+                        fontSize: 12,
+                      }}
+                    >
+                      + Create archive
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {!petlArchivesCollapsed && (
+                <div style={{ padding: 10, fontSize: 12 }}>
+                  {petlArchivesMessage && (
+                    <div
+                      style={{
+                        marginBottom: 8,
+                        fontSize: 12,
+                        color: petlArchivesMessage.toLowerCase().includes("fail") ? "#b91c1c" : "#4b5563",
+                      }}
+                    >
+                      {petlArchivesMessage}
+                    </div>
+                  )}
+
+                  {petlArchivesLoading && (
+                    <div style={{ color: "#6b7280" }}>Loading PETL archives…</div>
+                  )}
+                  {petlArchivesError && !petlArchivesLoading && (
+                    <div style={{ color: "#b91c1c" }}>{petlArchivesError}</div>
+                  )}
+
+                  {!petlArchivesLoading && !petlArchivesError && Array.isArray(petlArchives) && petlArchives.length === 0 && (
+                    <div style={{ color: "#6b7280" }}>No PETL archives yet.</div>
+                  )}
+
+                  {!petlArchivesLoading && !petlArchivesError && Array.isArray(petlArchives) && petlArchives.length > 0 && (
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>
+                            <th style={{ padding: "6px 8px" }}>Created</th>
+                            <th style={{ padding: "6px 8px" }}>Label</th>
+                            <th style={{ padding: "6px 8px" }}>Source</th>
+                            <th style={{ padding: "6px 8px" }}>File</th>
+                            <th style={{ padding: "6px 8px" }}>Restored</th>
+                            <th style={{ padding: "6px 8px", textAlign: "right" }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {petlArchives.map((a: any) => {
+                            const createdAt = a?.createdAt ? new Date(a.createdAt).toLocaleString() : "—";
+                            const label = String(a?.label ?? "").trim() || "—";
+                            const note = String(a?.note ?? "").trim() || "";
+                            const sourceSeq = a?.sourceEstimateVersion?.sequenceNo;
+                            const sourceLabel =
+                              typeof sourceSeq === "number" ? `v${sourceSeq}` : (a?.sourceEstimateVersion?.id ?? "—");
+                            const fileName = a?.projectFile?.fileName ?? "—";
+                            const restoredAt = a?.restoredAt ? new Date(a.restoredAt).toLocaleString() : "—";
+
+                            return (
+                              <tr key={String(a?.id ?? Math.random())}>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", whiteSpace: "nowrap" }}>
+                                  {createdAt}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                  <div style={{ fontWeight: 600 }}>{label}</div>
+                                  {note ? (
+                                    <div style={{ fontSize: 11, color: "#6b7280" }}>{note}</div>
+                                  ) : null}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
+                                  {sourceLabel}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
+                                  {fileName}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
+                                  {restoredAt}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => restorePetlArchive(a)}
+                                    style={{
+                                      padding: "2px 6px",
+                                      borderRadius: 4,
+                                      border: "1px solid #d1d5db",
+                                      background: "#ffffff",
+                                      fontSize: 11,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    Restore
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {!petlArchivesLoading && !petlArchivesError && !Array.isArray(petlArchives) && (
+                    <div style={{ color: "#6b7280" }}>Open this section to load archives.</div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Bills (Expenses) */}
+          <div
+            style={{
+              marginTop: 16,
+              borderRadius: 8,
+              border: "1px solid #e5e7eb",
+              background: "#ffffff",
+            }}
+          >
+            <div
+              style={{
+                padding: "6px 10px",
+                borderBottom: billsCollapsed ? "none" : "1px solid #e5e7eb",
+                fontSize: 13,
+                fontWeight: 600,
+                background: "#f3f4f6",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => startUiTransition(() => setBillsCollapsed((v) => !v))}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  padding: 0,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "#111827",
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: 8,
+                  textAlign: "left",
+                }}
+              >
+                <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                  {billsCollapsed ? "▸" : "▾"}
+                </span>
+                <span>Bills (Expenses)</span>
+                {billsRollup && (
+                  <span style={{ fontSize: 11, fontWeight: 500, color: "#6b7280" }}>
+                    · {billsRollup.count} · Total {formatMoney(billsRollup.total)}
+                  </span>
+                )}
+              </button>
+
+              {!billsCollapsed && (
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBillsMessage(null);
+                      setProjectBills(null);
+                    }}
+                    disabled={projectBillsLoading}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #d1d5db",
+                      background: "#ffffff",
+                      cursor: projectBillsLoading ? "default" : "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    {projectBillsLoading ? "Refreshing…" : "Refresh"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openCreateBillModal}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #0f172a",
+                      background: "#0f172a",
+                      color: "#f9fafb",
+                      cursor: "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    + Add bill
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {!billsCollapsed && (
+              <div style={{ padding: 10, fontSize: 12 }}>
+                {billsMessage && (
+                  <div
+                    style={{
+                      marginBottom: 8,
+                      fontSize: 12,
+                      color: billsMessage.toLowerCase().includes("fail") ? "#b91c1c" : "#4b5563",
+                    }}
+                  >
+                    {billsMessage}
+                  </div>
+                )}
+
+                {/* Pending Prescreened Transactions — TENTATIVE bills grouped by receipt */}
+                {!projectBillsLoading && projectBills && (() => {
+                  const tentativeBills = projectBills.filter(
+                    (b: any) => b?.status === "TENTATIVE"
+                  );
+                  if (tentativeBills.length === 0) return null;
+                  const highConfCount = tentativeBills.filter((b: any) => (b?.prescreenConfidence ?? 0) >= 0.7).length;
+
+                  // Group tentative bills by receipt: date + vendor + source
+                  const receiptGroupMap = new Map<string, any[]>();
+                  for (const b of tentativeBills) {
+                    const dateKey = b?.billDate ? String(b.billDate).slice(0, 10) : "no-date";
+                    const vendor = (b?.vendorName ?? "Unknown").toLowerCase();
+                    const src = b?.sourceTransactionSource ?? "UNKNOWN";
+                    const groupKey = `${dateKey}|${vendor}|${src}`;
+                    if (!receiptGroupMap.has(groupKey)) receiptGroupMap.set(groupKey, []);
+                    receiptGroupMap.get(groupKey)!.push(b);
+                  }
+
+                  // Sort groups by date desc, then vendor
+                  const sortedGroups = [...receiptGroupMap.entries()].sort((a, b) => {
+                    const [ka] = a;
+                    const [kb] = b;
+                    return kb.localeCompare(ka); // date desc since date is first in key
+                  });
+
+                  const srcLabel: Record<string, string> = {
+                    HD_PRO_XTRA: "HD", CHASE_BANK: "Chase", APPLE_CARD: "Apple", PLAID: "Bank",
+                  };
+
+                  return (
+                    <div
+                      style={{
+                        marginBottom: 12,
+                        padding: "10px 12px",
+                        borderRadius: 6,
+                        background: "#eff6ff",
+                        border: "1px solid #93c5fd",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#1d4ed8" }}>
+                          🔍 Pending Prescreened Transactions ({tentativeBills.length} items in {sortedGroups.length} receipt{sortedGroups.length !== 1 ? "s" : ""})
+                        </div>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          {highConfCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const token = localStorage.getItem("accessToken");
+                                if (!token) return;
+                                try {
+                                  await fetch(`${API_BASE}/banking/transactions/bulk-prescreen-accept-by-confidence`, {
+                                    method: "PATCH",
+                                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                                    body: JSON.stringify({ minConfidence: 0.7, projectId: project?.id }),
+                                  });
+                                  setProjectBills(null);
+                                  setFinancialSummary(null);
+                                } catch {}
+                              }}
+                              style={{
+                                padding: "3px 8px", borderRadius: 4, border: "1px solid #16a34a",
+                                background: "#dcfce7", color: "#166534", cursor: "pointer", fontSize: 10, fontWeight: 600,
+                              }}
+                            >
+                              ✓ Confirm All High Confidence ({highConfCount})
+                            </button>
+                          )}
+                          <span style={{ fontSize: 11, color: "#3b82f6" }}>
+                            Smart prescreened — review and confirm
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        {sortedGroups.map(([groupKey, bills]) => {
+                          const isExpanded = expandedReceiptGroups.has(groupKey);
+                          const first = bills[0];
+                          const dateDisplay = first?.billDate ? new Date(String(first.billDate).slice(0, 10) + "T12:00:00").toLocaleDateString() : "Unknown date";
+                          const vendor = first?.vendorName ?? "Unknown Vendor";
+                          const src = first?.sourceTransactionSource ?? "";
+                          const groupTotal = bills.reduce((sum: number, b: any) => sum + (Number(b?.totalAmount) || 0), 0);
+                          const groupAvgConf = bills.reduce((sum: number, b: any) => sum + (Number(b?.prescreenConfidence) || 0), 0) / bills.length;
+                          const groupConfPct = Math.round(groupAvgConf * 100);
+                          const confStyle = groupAvgConf >= 0.7
+                            ? { bg: "#dcfce7", color: "#166534", border: "#86efac" }
+                            : groupAvgConf >= 0.5
+                              ? { bg: "#fef9c3", color: "#854d0e", border: "#fde047" }
+                              : { bg: "#ffedd5", color: "#9a3412", border: "#fdba74" };
+
+                          // Sort line items by description for stable line numbers
+                          const sortedBills = [...bills].sort((a: any, b: any) =>
+                            (a?.lineItems?.[0]?.description ?? "").localeCompare(b?.lineItems?.[0]?.description ?? "")
+                          );
+
+                          return (
+                            <div key={groupKey}>
+                              {/* Receipt group header */}
+                              <div
+                                onClick={() => {
+                                  setExpandedReceiptGroups(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(groupKey)) next.delete(groupKey); else next.add(groupKey);
+                                    return next;
+                                  });
+                                }}
+                                style={{
+                                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                                  padding: "7px 10px", borderRadius: 5, cursor: "pointer",
+                                  background: isExpanded ? "#dbeafe" : "#ffffff",
+                                  border: `1px solid ${isExpanded ? "#93c5fd" : "#e5e7eb"}`,
+                                  userSelect: "none",
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <span style={{ fontSize: 11, color: "#6b7280", width: 14, textAlign: "center" }}>
+                                    {isExpanded ? "▼" : "▶"}
+                                  </span>
+                                  <span style={{ padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: confStyle.bg, color: confStyle.color, border: `1px solid ${confStyle.border}` }}>
+                                    ~{groupConfPct}%
+                                  </span>
+                                  {src && (
+                                    <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: "#f3f4f6", color: "#6b7280" }}>
+                                      {srcLabel[src] ?? src}
+                                    </span>
+                                  )}
+                                  <span style={{ fontWeight: 600, fontSize: 12 }}>{vendor}</span>
+                                  <span style={{ fontSize: 11, color: "#6b7280" }}>{dateDisplay}</span>
+                                  <span style={{ fontSize: 11, color: "#6b7280" }}>
+                                    · {bills.length} line{bills.length !== 1 ? "s" : ""}
+                                  </span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <span style={{ fontWeight: 600, fontSize: 13, color: "#1d4ed8" }}>
+                                    {formatMoney(groupTotal)}
+                                  </span>
+                                  {/* Group-level confirm all */}
+                                  <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      const token = localStorage.getItem("accessToken");
+                                      if (!token) return;
+                                      for (const b of bills) {
+                                        if (!b?.sourceTransactionId) continue;
+                                        try {
+                                          await fetch(`${API_BASE}/banking/transactions/${b.sourceTransactionId}/prescreen-accept`, {
+                                            method: "PATCH",
+                                            headers: { Authorization: `Bearer ${token}` },
+                                          });
+                                        } catch {}
+                                      }
+                                      setProjectBills(null);
+                                      setFinancialSummary(null);
+                                    }}
+                                    style={{
+                                      padding: "3px 8px", borderRadius: 4, border: "1px solid #16a34a",
+                                      background: "#dcfce7", color: "#166534", cursor: "pointer", fontSize: 10, fontWeight: 600,
+                                    }}
+                                    title="Confirm entire receipt"
+                                  >
+                                    ✓ Confirm Receipt
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      const token = localStorage.getItem("accessToken");
+                                      if (!token) return;
+                                      for (const b of bills) {
+                                        if (!b?.sourceTransactionId) continue;
+                                        try {
+                                          await fetch(`${API_BASE}/banking/transactions/${b.sourceTransactionId}/prescreen-reject`, {
+                                            method: "PATCH",
+                                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                                            body: JSON.stringify({ reason: "Rejected receipt group from project bills" }),
+                                          });
+                                        } catch {}
+                                      }
+                                      setProjectBills(null);
+                                      setFinancialSummary(null);
+                                    }}
+                                    style={{
+                                      padding: "3px 8px", borderRadius: 4, border: "1px solid #dc2626",
+                                      background: "#fef2f2", color: "#b91c1c", cursor: "pointer", fontSize: 10, fontWeight: 600,
+                                    }}
+                                    title="Reject entire receipt"
+                                  >
+                                    ✕ Reject Receipt
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Expanded line items */}
+                              {isExpanded && (
+                                <div style={{ marginLeft: 22, display: "flex", flexDirection: "column", gap: 3, marginTop: 3, marginBottom: 4 }}>
+                                  {sortedBills.map((b: any, lineIdx: number) => {
+                                    const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
+                                    const conf = typeof b?.prescreenConfidence === "number" ? b.prescreenConfidence : 0;
+                                    const pct = Math.round(conf * 100);
+                                    const chipStyle = conf >= 0.7
+                                      ? { bg: "#dcfce7", color: "#166534", border: "#86efac" }
+                                      : conf >= 0.5
+                                        ? { bg: "#fef9c3", color: "#854d0e", border: "#fde047" }
+                                        : { bg: "#ffedd5", color: "#9a3412", border: "#fdba74" };
+                                    return (
+                                      <div
+                                        key={String(b?.id ?? Math.random())}
+                                        style={{
+                                          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6,
+                                          padding: "4px 8px", borderRadius: 4, background: "#ffffff",
+                                          border: "1px solid #f3f4f6", fontSize: 11,
+                                        }}
+                                      >
+                                        {/* Line number */}
+                                        <span style={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", minWidth: 24, textAlign: "right" }}>
+                                          L{lineIdx + 1}
+                                        </span>
+                                        <span style={{ padding: "1px 5px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: chipStyle.bg, color: chipStyle.color, border: `1px solid ${chipStyle.border}` }}>
+                                          {pct}%
+                                        </span>
+                                        <div style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                          {li?.description ?? "—"}
+                                        </div>
+                                        <div style={{ fontWeight: 600, color: "#1d4ed8", whiteSpace: "nowrap" }}>
+                                          {formatMoney(b?.totalAmount)}
+                                        </div>
+                                        <div style={{ display: "flex", gap: 3 }}>
+                                          <button
+                                            type="button"
+                                            onClick={async () => {
+                                              const token = localStorage.getItem("accessToken");
+                                              if (!token || !b?.sourceTransactionId) return;
+                                              try {
+                                                await fetch(`${API_BASE}/banking/transactions/${b.sourceTransactionId}/prescreen-accept`, {
+                                                  method: "PATCH",
+                                                  headers: { Authorization: `Bearer ${token}` },
+                                                });
+                                                setProjectBills(null);
+                                                setFinancialSummary(null);
+                                              } catch {}
+                                            }}
+                                            style={{
+                                              padding: "2px 5px", borderRadius: 3, border: "1px solid #16a34a",
+                                              background: "#dcfce7", color: "#166534", cursor: "pointer", fontSize: 9,
+                                            }}
+                                            title="Confirm"
+                                          >
+                                            ✓
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={async () => {
+                                              const token = localStorage.getItem("accessToken");
+                                              if (!token || !b?.sourceTransactionId) return;
+                                              try {
+                                                await fetch(`${API_BASE}/banking/transactions/${b.sourceTransactionId}/prescreen-reject`, {
+                                                  method: "PATCH",
+                                                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                                                  body: JSON.stringify({ reason: "Rejected from project bills" }),
+                                                });
+                                                setProjectBills(null);
+                                                setFinancialSummary(null);
+                                              } catch {}
+                                            }}
+                                            style={{
+                                              padding: "2px 5px", borderRadius: 3, border: "1px solid #dc2626",
+                                              background: "#fef2f2", color: "#b91c1c", cursor: "pointer", fontSize: 9,
+                                            }}
+                                            title="Reject"
+                                          >
+                                            ✕
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => openEditBillModal(b)}
+                                            style={{
+                                              padding: "2px 5px", borderRadius: 3, border: "1px solid #d1d5db",
+                                              background: "#f9fafb", color: "#374151", cursor: "pointer", fontSize: 9,
+                                            }}
+                                            title="Edit"
+                                          >
+                                            Edit
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Uncommitted Receipts Section - ALL DRAFT bills grouped by receipt */}
+                {!projectBillsLoading && projectBills && (() => {
+                  const uncommittedReceipts = projectBills.filter(
+                    (b: any) => b?.status === "DRAFT"
+                  );
+                  if (uncommittedReceipts.length === 0) return null;
+
+                  const srcLabel: Record<string, string> = {
+                    HD_PRO_XTRA: "HD", CHASE_BANK: "Chase", APPLE_CARD: "Apple", PLAID: "Bank",
+                  };
+
+                  // Group by receipt: date + vendor + source
+                  const ucGroupMap = new Map<string, any[]>();
+                  for (const b of uncommittedReceipts) {
+                    const dateKey = b?.billDate ? String(b.billDate).slice(0, 10) : "no-date";
+                    const vendor = (b?.vendorName ?? "Unknown").toLowerCase();
+                    const src = b?.sourceTransactionSource ?? (b?.sourceDailyLogId ? "daily-log" : "manual");
+                    const groupKey = `${dateKey}|${vendor}|${src}`;
+                    if (!ucGroupMap.has(groupKey)) ucGroupMap.set(groupKey, []);
+                    ucGroupMap.get(groupKey)!.push(b);
+                  }
+
+                  // Sort groups by date desc
+                  const ucSortedGroups = [...ucGroupMap.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+
+                  return (
+                    <div
+                      style={{
+                        marginBottom: 12,
+                        padding: "10px 12px",
+                        borderRadius: 6,
+                        background: "#fef3c7",
+                        border: "1px solid #fcd34d",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#92400e" }}>
+                          📥 Uncommitted Receipts ({uncommittedReceipts.length} items in {ucSortedGroups.length} receipt{ucSortedGroups.length !== 1 ? "s" : ""})
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 11, color: "#b45309" }}>
+                            Review and commit
+                          </span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!project) return;
+                              const token = localStorage.getItem("accessToken");
+                              if (!token) return;
+                              // 1. Mark all uncommitted DRAFT bills as billable + POSTED
+                              for (const b of uncommittedReceipts) {
+                                try {
+                                  await fetch(`${API_BASE}/projects/${project.id}/bills/${b.id}`, {
+                                    method: "PATCH",
+                                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                                    body: JSON.stringify({ isBillable: true, status: "POSTED", markupPercent: 25 }),
+                                  });
+                                } catch {}
+                              }
+                              // 2. Sync/create the billable expense invoice
+                              try {
+                                const res = await fetch(
+                                  `${API_BASE}/projects/${project.id}/invoices/sync-billable-expenses`,
+                                  {
+                                    method: "POST",
+                                    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+                                    body: JSON.stringify({}),
+                                  }
+                                );
+                                if (res.ok) {
+                                  const fullInvoice = await res.json();
+                                  setActiveInvoice(fullInvoice);
+                                  router.push(`/projects/${id}?tab=FINANCIAL&invoiceFullscreen=1&invoiceId=${fullInvoice.id}`);
+                                  setProjectInvoices(null);
+                                }
+                              } catch {}
+                              // 3. Refresh
+                              setProjectBills(null);
+                              setFinancialSummary(null);
+                            }}
+                            style={{
+                              padding: "4px 10px",
+                              borderRadius: 4,
+                              border: "1px solid #166534",
+                              background: "#166534",
+                              color: "#ffffff",
+                              fontSize: 10,
+                              cursor: "pointer",
+                              fontWeight: 600,
+                              whiteSpace: "nowrap",
+                            }}
+                            title="Mark all as billable (25% markup) and push to expense invoice"
+                          >
+                            💰 Move All Billable → Expense Invoice
+                          </button>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        {ucSortedGroups.map(([groupKey, bills]) => {
+                          const isExpanded = expandedUncommittedGroups.has(groupKey);
+                          const first = bills[0];
+                          const dateDisplay = first?.billDate ? new Date(String(first.billDate).slice(0, 10) + "T12:00:00").toLocaleDateString() : "Unknown date";
+                          const vendor = first?.vendorName ?? "Unknown Vendor";
+                          const txnSource = first?.sourceTransactionSource;
+                          const originLabel = txnSource
+                            ? (srcLabel[txnSource] ?? txnSource)
+                            : (first?.sourceDailyLogId ? "Daily Log" : "Manual");
+                          const originBg = txnSource ? "#dbeafe" : (first?.sourceDailyLogId ? "#fef3c7" : "#f3f4f6");
+                          const originColor = txnSource ? "#1d4ed8" : (first?.sourceDailyLogId ? "#92400e" : "#6b7280");
+                          const groupTotal = bills.reduce((sum: number, b: any) => sum + (Number(b?.totalAmount) || 0), 0);
+
+                          // Sort line items by description for stable line numbers
+                          const sortedBills = [...bills].sort((a: any, b: any) =>
+                            (a?.lineItems?.[0]?.description ?? "").localeCompare(b?.lineItems?.[0]?.description ?? "")
+                          );
+
+                          // Single-item groups render inline (no collapse needed)
+                          if (bills.length === 1) {
+                            const b = bills[0];
+                            const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
+                            const attachments: any[] = Array.isArray(b?.attachments) ? b.attachments : [];
+                            const sourceDailyLog = b?.sourceDailyLog;
+                            const isOrphaned = b?.sourceDailyLogId && (!sourceDailyLog || sourceDailyLog.type !== "RECEIPT_EXPENSE");
+                            return (
+                              <div
+                                key={groupKey}
+                                style={{
+                                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                                  padding: "6px 8px", borderRadius: 4,
+                                  background: isOrphaned ? "#fef2f2" : "#fffbeb",
+                                  border: isOrphaned ? "1px dashed #f87171" : "none",
+                                }}
+                              >
+                                <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: originBg, color: originColor, whiteSpace: "nowrap" }}>
+                                  {originLabel}
+                                </span>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontWeight: 600, fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+                                    {vendor}
+                                    {isOrphaned && <span style={{ fontSize: 10, color: "#dc2626", fontWeight: 400 }}>(orphaned)</span>}
+                                  </div>
+                                  <div style={{ fontSize: 11, color: "#6b7280", display: "flex", alignItems: "center", gap: 6 }}>
+                                    {dateDisplay}
+                                    {li?.description && ` · ${li.description}`}
+                                    {sourceDailyLog && (
+                                      <>
+                                        <span style={{ color: "#d1d5db" }}>|</span>
+                                        <button type="button" onClick={() => setTab("DAILY_LOGS", { deferContentSwitch: true })}
+                                          style={{ border: "none", background: "none", cursor: "pointer", color: "#2563eb", fontSize: 11, padding: 0, textDecoration: "underline" }}>
+                                          📋 {sourceDailyLog.title ?? "Daily Log"}
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                                <div style={{ fontWeight: 600, fontSize: 13, color: "#92400e" }}>{formatMoney(b?.totalAmount)}</div>
+                                {attachments.length > 0 && (
+                                  <a href={String(attachments[0]?.fileUrl ?? "#")} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#2563eb" }}>🖼️ View</a>
+                                )}
+                                <div style={{ display: "flex", gap: 4 }}>
+                                  <button type="button" onClick={() => quickSetBillBillable(String(b?.id), true, 25)}
+                                    style={{ padding: "3px 6px", borderRadius: 4, border: "1px solid #16a34a", background: "#dcfce7", color: "#166534", cursor: "pointer", fontSize: 10, fontWeight: 500 }}
+                                    title="Mark as billable expense (25% markup)">✓ Billable</button>
+                                  <button type="button" onClick={() => quickSetBillBillable(String(b?.id), false)}
+                                    style={{ padding: "3px 6px", borderRadius: 4, border: "1px solid #6b7280", background: "#f3f4f6", color: "#374151", cursor: "pointer", fontSize: 10, fontWeight: 500 }}
+                                    title="Mark as non-billable expense">✗ Not Billable</button>
+                                </div>
+                                <button type="button" onClick={() => openEditBillModal(b)}
+                                  style={{ padding: "3px 8px", borderRadius: 4, border: "1px solid #92400e", background: "#f59e0b", color: "#ffffff", cursor: "pointer", fontSize: 11, fontWeight: 500 }}>Review</button>
+                                {isOrphaned && (
+                                  <button type="button" onClick={() => deleteOrphanedReceiptBill(String(b?.id), b?.vendorName ?? "Unknown")}
+                                    style={{ padding: "3px 6px", borderRadius: 4, border: "1px solid #dc2626", background: "#fef2f2", color: "#dc2626", cursor: "pointer", fontSize: 10, fontWeight: 500 }}
+                                    title="Delete this orphaned receipt">🗑️ Delete</button>
+                                )}
+                              </div>
+                            );
+                          }
+
+                          // Multi-item group: collapsible header
+                          return (
+                            <div key={groupKey}>
+                              <div
+                                onClick={() => {
+                                  setExpandedUncommittedGroups(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(groupKey)) next.delete(groupKey); else next.add(groupKey);
+                                    return next;
+                                  });
+                                }}
+                                style={{
+                                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                                  padding: "7px 10px", borderRadius: 5, cursor: "pointer",
+                                  background: isExpanded ? "#fde68a" : "#fffbeb",
+                                  border: `1px solid ${isExpanded ? "#fbbf24" : "#fde68a"}`,
+                                  userSelect: "none",
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <span style={{ fontSize: 11, color: "#92400e", width: 14, textAlign: "center" }}>
+                                    {isExpanded ? "▼" : "▶"}
+                                  </span>
+                                  <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: originBg, color: originColor }}>
+                                    {originLabel}
+                                  </span>
+                                  <span style={{ fontWeight: 600, fontSize: 12 }}>{vendor}</span>
+                                  <span style={{ fontSize: 11, color: "#6b7280" }}>{dateDisplay}</span>
+                                  <span style={{ fontSize: 11, color: "#6b7280" }}>· {bills.length} line{bills.length !== 1 ? "s" : ""}</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <span style={{ fontWeight: 600, fontSize: 13, color: "#92400e" }}>{formatMoney(groupTotal)}</span>
+                                  {/* Group-level disposition */}
+                                  <button type="button" onClick={async (e) => {
+                                    e.stopPropagation();
+                                    for (const b of bills) {
+                                      await quickSetBillBillable(String(b?.id), true, 25);
+                                    }
+                                  }} style={{ padding: "3px 8px", borderRadius: 4, border: "1px solid #16a34a", background: "#dcfce7", color: "#166534", cursor: "pointer", fontSize: 10, fontWeight: 600 }}
+                                    title="Mark entire receipt as billable (25% markup)">✓ All Billable</button>
+                                  <button type="button" onClick={async (e) => {
+                                    e.stopPropagation();
+                                    for (const b of bills) {
+                                      await quickSetBillBillable(String(b?.id), false);
+                                    }
+                                  }} style={{ padding: "3px 8px", borderRadius: 4, border: "1px solid #6b7280", background: "#f3f4f6", color: "#374151", cursor: "pointer", fontSize: 10, fontWeight: 600 }}
+                                    title="Mark entire receipt as not billable">✗ All Not Billable</button>
+                                </div>
+                              </div>
+
+                              {/* Expanded line items */}
+                              {isExpanded && (
+                                <div style={{ marginLeft: 22, display: "flex", flexDirection: "column", gap: 3, marginTop: 3, marginBottom: 4 }}>
+                                  {sortedBills.map((b: any, lineIdx: number) => {
+                                    const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
+                                    const attachments: any[] = Array.isArray(b?.attachments) ? b.attachments : [];
+                                    return (
+                                      <div
+                                        key={String(b?.id ?? Math.random())}
+                                        style={{
+                                          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6,
+                                          padding: "4px 8px", borderRadius: 4, background: "#ffffff",
+                                          border: "1px solid #fef3c7", fontSize: 11,
+                                        }}
+                                      >
+                                        <span style={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", minWidth: 24, textAlign: "right" }}>L{lineIdx + 1}</span>
+                                        <div style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                          {li?.description ?? "—"}
+                                        </div>
+                                        <div style={{ fontWeight: 600, color: "#92400e", whiteSpace: "nowrap" }}>{formatMoney(b?.totalAmount)}</div>
+                                        {attachments.length > 0 && (
+                                          <a href={String(attachments[0]?.fileUrl ?? "#")} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: "#2563eb" }}>🖼️</a>
+                                        )}
+                                        <div style={{ display: "flex", gap: 3 }}>
+                                          <button type="button" onClick={() => quickSetBillBillable(String(b?.id), true, 25)}
+                                            style={{ padding: "2px 5px", borderRadius: 3, border: "1px solid #16a34a", background: "#dcfce7", color: "#166534", cursor: "pointer", fontSize: 9 }}
+                                            title="Billable">✓</button>
+                                          <button type="button" onClick={() => quickSetBillBillable(String(b?.id), false)}
+                                            style={{ padding: "2px 5px", borderRadius: 3, border: "1px solid #6b7280", background: "#f3f4f6", color: "#374151", cursor: "pointer", fontSize: 9 }}
+                                            title="Not billable">✗</button>
+                                          <button type="button" onClick={() => openEditBillModal(b)}
+                                            style={{ padding: "2px 5px", borderRadius: 3, border: "1px solid #d1d5db", background: "#f9fafb", color: "#374151", cursor: "pointer", fontSize: 9 }}
+                                            title="Edit">Edit</button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {projectBillsLoading && <div style={{ color: "#6b7280" }}>Loading bills…</div>}
+                {projectBillsError && !projectBillsLoading && (
+                  <div style={{ color: "#b91c1c" }}>{projectBillsError}</div>
+                )}
+
+                {!projectBillsLoading && !projectBillsError && projectBills && projectBills.length === 0 && (
+                  <div style={{ color: "#6b7280" }}>No bills recorded yet.</div>
+                )}
+
+                {/* NexDupE SibE Summary */}
+                {!projectBillsLoading && projectBills && (() => {
+                  const sibeBills = projectBills.filter((b: any) => b?.billRole === "SIBE");
+                  if (sibeBills.length === 0) return null;
+                  const totalSibeAmount = sibeBills.reduce((sum: number, b: any) => sum + Math.abs(Number(b?.totalAmount) || 0), 0);
+                  return (
+                    <div style={{
+                      marginBottom: 12, padding: "10px 12px", borderRadius: 6,
+                      background: "#fef2f2", border: "1px solid #fecaca",
+                    }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#991b1b", marginBottom: 4 }}>
+                        🔴 NexDupE — Duplicate Expense Archive
+                      </div>
+                      <div style={{ display: "flex", gap: 16, fontSize: 12, color: "#7f1d1d" }}>
+                        <span><strong>{sibeBills.length}</strong> duplicate expense{sibeBills.length !== 1 ? "s" : ""} archived</span>
+                        <span>Total archived: <strong>{formatMoney(totalSibeAmount)}</strong></span>
+                      </div>
+                      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+                        SibE bills (greyed-out rows) are record-only duplicates with GAAP offset line items. They do not count toward project totals.
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* NexVERIFY Banner — always visible, toggle controls VERIFICATION rows in bills table */}
+                {!projectBillsLoading && projectBills && (() => {
+                  const verificationBills = projectBills.filter((b: any) => b?.billRole === "VERIFICATION");
+                  if (verificationBills.length === 0) return null;
+                  const totalVerified = verificationBills.filter((b: any) => b?.siblingGroup?.verificationStatus === "VERIFIED").length;
+                  const totalPending = verificationBills.length - totalVerified;
+                  const totalVariance = verificationBills.reduce((sum: number, b: any) => sum + Math.abs(Number(b?.siblingGroup?.amountVariance) || 0), 0);
+                  return (
+                    <div style={{
+                      marginBottom: 12, padding: "10px 12px", borderRadius: 6,
+                      background: "#eff6ff", border: "1px solid #bfdbfe",
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1e40af", marginBottom: 2 }}>
+                            🔍 NexVERIFY — Multi-Source Expense Convergence
+                          </div>
+                          <div style={{ display: "flex", gap: 16, fontSize: 12, color: "#1e3a5f" }}>
+                            <span><strong>{verificationBills.length}</strong> duplicate bill{verificationBills.length !== 1 ? "s" : ""} detected</span>
+                            <span style={{ color: "#16a34a" }}><strong>{totalVerified}</strong> verified</span>
+                            {totalPending > 0 && <span style={{ color: "#b45309" }}><strong>{totalPending}</strong> pending verification</span>}
+                            {totalVariance > 0 && <span>Total variance: <strong>{formatMoney(totalVariance)}</strong></span>}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setNexVerifyCollapsed(prev => !prev)}
+                          style={{
+                            padding: "3px 8px", borderRadius: 4,
+                            border: "1px solid #93c5fd", background: nexVerifyCollapsed ? "#dbeafe" : "#ffffff",
+                            color: "#1d4ed8", cursor: "pointer", fontSize: 10, fontWeight: 600,
+                          }}
+                        >
+                          {nexVerifyCollapsed ? "▶ Show Records" : "▼ Hide Records"}
+                        </button>
+                      </div>
+                      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+                        VERIFICATION bills (blue rows) have GAAP offset line items that net to $0. They corroborate PRIMARY bills from a different source.
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {!projectBillsLoading && !projectBillsError && projectBills && projectBills.length > 0 && (() => {
+                  // Pre-compute receipt line references for all bills
+                  // Group non-TENTATIVE PRIMARY bills by date+vendor+source for line numbering
+                  const billRefMap = new Map<string, string>(); // billId → "L3"
+                  const billReceiptGroups = new Map<string, any[]>();
+                  for (const b of projectBills) {
+                    if (b?.status === "TENTATIVE") continue; // tentative has its own section
+                    const dateKey = b?.billDate ? String(b.billDate).slice(0, 10) : "no-date";
+                    const vendor = (b?.vendorName ?? "").toLowerCase();
+                    const src = b?.sourceTransactionSource ?? "manual";
+                    const gk = `${dateKey}|${vendor}|${src}`;
+                    if (!billReceiptGroups.has(gk)) billReceiptGroups.set(gk, []);
+                    billReceiptGroups.get(gk)!.push(b);
+                  }
+                  for (const [, group] of billReceiptGroups) {
+                    if (group.length < 2) continue; // no ref needed for single-item receipts
+                    const sorted = [...group].sort((a: any, b: any) =>
+                      (a?.lineItems?.[0]?.description ?? "").localeCompare(b?.lineItems?.[0]?.description ?? "")
+                    );
+                    sorted.forEach((b: any, idx: number) => {
+                      billRefMap.set(String(b.id), `L${idx + 1}`);
+                    });
+                  }
+
+                  return (
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                      <thead>
+                        <tr style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>
+                          <th
+                            style={{ padding: "6px 8px", cursor: "pointer", userSelect: "none", background: billsSortField === "vendor" ? "#eef2ff" : undefined }}
+                            onClick={() => toggleBillsSort("vendor")}
+                          >
+                            Vendor {billsSortField === "vendor" && <span style={{ fontSize: 10 }}>{billsSortDir === "asc" ? "▲" : "▼"}</span>}
+                          </th>
+                          <th
+                            style={{ padding: "6px 8px", cursor: "pointer", userSelect: "none", background: billsSortField === "date" ? "#eef2ff" : undefined }}
+                            onClick={() => toggleBillsSort("date")}
+                          >
+                            Bill date {billsSortField === "date" && <span style={{ fontSize: 10 }}>{billsSortDir === "asc" ? "▲" : "▼"}</span>}
+                          </th>
+                          <th style={{ padding: "6px 8px" }}>Status</th>
+                          <th style={{ padding: "6px 8px" }}>Role</th>
+                          <th style={{ padding: "6px 8px" }} title="Receipt line reference / NexVERIFY cross-ref">Ref</th>
+                          <th style={{ padding: "6px 8px" }}>Kind</th>
+                          <th style={{ padding: "6px 8px" }}>Description</th>
+                          <th
+                            style={{ padding: "6px 8px", textAlign: "right", cursor: "pointer", userSelect: "none", background: billsSortField === "amount" ? "#eef2ff" : undefined }}
+                            onClick={() => toggleBillsSort("amount")}
+                          >
+                            Amount {billsSortField === "amount" && <span style={{ fontSize: 10 }}>{billsSortDir === "asc" ? "▲" : "▼"}</span>}
+                          </th>
+                          <th
+                            style={{ padding: "6px 8px", textAlign: "center", cursor: "pointer", userSelect: "none", background: billsSortField === "billable" ? "#eef2ff" : undefined }}
+                            onClick={() => toggleBillsSort("billable")}
+                          >
+                            Billable {billsSortField === "billable" && <span style={{ fontSize: 10 }}>{billsSortDir === "asc" ? "▲" : "▼"}</span>}
+                          </th>
+                          <th style={{ padding: "6px 8px", textAlign: "right" }}>GM%</th>
+                          <th style={{ padding: "6px 8px", textAlign: "right" }}>GM$</th>
+                          <th style={{ padding: "6px 8px" }}>Attachments</th>
+                          <th style={{ padding: "6px 8px", textAlign: "right" }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...projectBills]
+                          .sort((a: any, b: any) => {
+                            const dir = billsSortDir === "asc" ? 1 : -1;
+                            if (billsSortField === "vendor") {
+                              return dir * (a?.vendorName ?? "").localeCompare(b?.vendorName ?? "");
+                            }
+                            if (billsSortField === "amount") {
+                              return dir * ((Number(a?.totalAmount) || 0) - (Number(b?.totalAmount) || 0));
+                            }
+                            if (billsSortField === "billable") {
+                              const ba = a?.isBillable ? (Number(a?.totalAmount) || 0) * (1 + (Number(a?.markupPercent) || 0) / 100) : 0;
+                              const bb = b?.isBillable ? (Number(b?.totalAmount) || 0) * (1 + (Number(b?.markupPercent) || 0) / 100) : 0;
+                              return dir * (ba - bb);
+                            }
+                            // Default: date
+                            const da = String(a?.billDate ?? "");
+                            const db = String(b?.billDate ?? "");
+                            if (da !== db) return dir * da.localeCompare(db);
+                            return dir * String(a?.createdAt ?? "").localeCompare(String(b?.createdAt ?? ""));
+                          })
+                          .filter((b: any) => {
+                            // Hide VERIFICATION rows when NexVERIFY section is collapsed
+                            if (nexVerifyCollapsed && b?.billRole === "VERIFICATION") return false;
+                            return true;
+                          })
+                          .map((b: any) => {
+                            const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
+                            const attachments: any[] = Array.isArray(b?.attachments) ? b.attachments : [];
+                            const isBillable = !!b?.isBillable;
+                            const cost = Number(b?.totalAmount) || 0;
+                            const markupPct = Number(b?.markupPercent) || 0;
+                            const gmDollars = isBillable ? cost * (markupPct / 100) : 0;
+                            const billableTotal = cost + gmDollars;
+                            const gmPercent = isBillable && billableTotal > 0 ? (gmDollars / billableTotal) * 100 : 0;
+                            const billRole = b?.billRole ?? "PRIMARY";
+                            const isVerification = billRole === "VERIFICATION";
+                            const isSibe = billRole === "SIBE";
+                            const sibGroup = b?.siblingGroup;
+                            return (
+                              <tr key={String(b?.id ?? Math.random())} style={{ background: isVerification ? "#eff6ff" : isSibe ? "#f9fafb" : undefined, opacity: isSibe ? 0.55 : 1 }}>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                  {b?.vendorName ?? "—"}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
+                                  {b?.billDate ? String(b.billDate).slice(0, 10) : "—"}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
+                                  {b?.status ?? "—"}
+                                </td>
+                                {/* Role column */}
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                  {isVerification ? (
+                                    <span
+                                      style={{
+                                        padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600,
+                                        background: "#dbeafe", color: "#1d4ed8",
+                                      }}
+                                      title={sibGroup ? `Match: ${(sibGroup.matchConfidence * 100).toFixed(0)}% — ${sibGroup.matchReason}` : "Verification bill"}
+                                    >
+                                      VERIFICATION
+                                      {sibGroup && ` (${(sibGroup.matchConfidence * 100).toFixed(0)}%)`}
+                                    </span>
+                                  ) : isSibe ? (
+                                    <span
+                                      style={{
+                                        padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600,
+                                        background: "#fee2e2", color: "#991b1b",
+                                      }}
+                                      title="NexDupE: Duplicate Expense — record only. This bill does not count toward project totals."
+                                    >
+                                      DupE — Record Only
+                                    </span>
+                                  ) : (
+                                    <span style={{ padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: "#f3f4f6", color: "#374151" }}>
+                                      PRIMARY
+                                    </span>
+                                  )}
+                                </td>
+                                {/* Ref column — receipt line # or NexVERIFY cross-ref */}
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 10, fontWeight: 600, color: isVerification ? "#1d4ed8" : "#9ca3af", whiteSpace: "nowrap" }}>
+                                  {(() => {
+                                    if (isVerification && sibGroup?.primaryBillId) {
+                                      const primaryRef = billRefMap.get(sibGroup.primaryBillId);
+                                      const primaryBill = projectBills?.find((pb: any) => pb?.id === sibGroup.primaryBillId);
+                                      const primaryDesc = primaryBill?.lineItems?.[0]?.description;
+                                      return (
+                                        <span title={primaryDesc ? `Verifies: ${primaryDesc}` : `Verifies bill ${sibGroup.primaryBillId.slice(-6)}`}>
+                                          ↔ {primaryRef || `#${sibGroup.primaryBillId.slice(-6)}`}
+                                        </span>
+                                      );
+                                    }
+                                    const ref = billRefMap.get(String(b?.id));
+                                    return ref || "—";
+                                  })()}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
+                                  {li?.kind ?? "—"}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                  <div style={{ fontWeight: 600 }}>{li?.description ?? "—"}</div>
+                                  {b?.billNumber && (
+                                    <div style={{ fontSize: 11, color: "#6b7280" }}>#{String(b.billNumber)}</div>
+                                  )}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", fontWeight: 600 }}>
+                                  {formatMoney(b?.totalAmount)}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "center" }}>
+                                  {isBillable ? (
+                                    <span style={{ color: "#16a34a", fontWeight: 600 }}>✓ {markupPct}%</span>
+                                  ) : (
+                                    <span style={{ color: "#9ca3af" }}>—</span>
+                                  )}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: isBillable ? "#111827" : "#9ca3af" }}>
+                                  {isBillable ? `${gmPercent.toFixed(1)}%` : "—"}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", fontWeight: isBillable ? 600 : 400, color: isBillable ? "#16a34a" : "#9ca3af" }}>
+                                  {isBillable ? formatMoney(gmDollars) : "—"}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb" }}>
+                                  {attachments.length === 0 ? (
+                                    <span style={{ color: "#9ca3af" }}>—</span>
+                                  ) : (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                      {attachments.slice(0, 3).map((a: any) => (
+                                        <a
+                                          key={String(a?.id ?? a?.projectFileId ?? Math.random())}
+                                          href={String(a?.fileUrl ?? "#")}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          style={{ fontSize: 11, color: "#2563eb", textDecoration: "none" }}
+                                        >
+                                          {String(a?.fileName ?? "Attachment")}
+                                        </a>
+                                      ))}
+                                      {attachments.length > 3 && (
+                                        <span style={{ fontSize: 11, color: "#6b7280" }}>
+                                          +{attachments.length - 3} more
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </td>
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditBillModal(b)}
+                                    style={{
+                                      padding: "2px 6px",
+                                      borderRadius: 4,
+                                      border: "1px solid #d1d5db",
+                                      background: "#ffffff",
+                                      fontSize: 11,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    Edit
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+
+            </>
+          )}
         </div>
       )}
       {/* BOM tab content */}
