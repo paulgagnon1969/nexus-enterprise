@@ -651,4 +651,111 @@ export class TenantClientService {
       projectsRevoked: client.projects.length,
     };
   }
+
+  // --- Adjustment Reason Types ---
+
+  /**
+   * List all active adjustment reason types for a company.
+   * Seeds defaults if none exist.
+   */
+  async listAdjustmentReasons(companyId: string) {
+    let reasons = await this.prisma.adjustmentReasonType.findMany({
+      where: { companyId, isActive: true },
+      orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
+    });
+
+    // Seed defaults on first access
+    if (reasons.length === 0) {
+      const defaults = [
+        { label: "Client Contract Terms", slug: "client_contract_terms", sortOrder: 0 },
+        { label: "Client Loyalty", slug: "client_loyalty", sortOrder: 1 },
+        { label: "Special Item Correction", slug: "special_item_correction", sortOrder: 2 },
+      ];
+      await this.prisma.adjustmentReasonType.createMany({
+        data: defaults.map((d) => ({ ...d, companyId, isDefault: true })),
+      });
+      reasons = await this.prisma.adjustmentReasonType.findMany({
+        where: { companyId, isActive: true },
+        orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
+      });
+    }
+
+    return reasons;
+  }
+
+  /**
+   * Create a new adjustment reason type.
+   */
+  async createAdjustmentReason(companyId: string, label: string, slug?: string) {
+    const finalSlug = slug || label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/_+$/, "");
+
+    // Check for duplicate slug
+    const existing = await this.prisma.adjustmentReasonType.findFirst({
+      where: { companyId, slug: finalSlug },
+    });
+    if (existing) {
+      throw new BadRequestException(`Adjustment reason with slug "${finalSlug}" already exists`);
+    }
+
+    const maxSort = await this.prisma.adjustmentReasonType.aggregate({
+      where: { companyId },
+      _max: { sortOrder: true },
+    });
+
+    return this.prisma.adjustmentReasonType.create({
+      data: {
+        companyId,
+        label,
+        slug: finalSlug,
+        sortOrder: (maxSort._max.sortOrder ?? 0) + 1,
+      },
+    });
+  }
+
+  // --- Client Rate Adjustments ---
+
+  /**
+   * List all active rate adjustments for a specific client.
+   */
+  async listClientRateAdjustments(companyId: string, clientId: string) {
+    return this.prisma.clientRateAdjustment.findMany({
+      where: { companyId, tenantClientId: clientId, isActive: true },
+      include: {
+        companyPriceListItem: {
+          select: {
+            id: true,
+            description: true,
+            cat: true,
+            sel: true,
+            unitPrice: true,
+            unit: true,
+          },
+        },
+        adjustmentReason: { select: { id: true, label: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  /**
+   * Given a list of cost book item IDs, returns any active adjustments for a client.
+   * Used by the frontend to pre-populate adjustment fields when adding cost book lines.
+   */
+  async getClientRateAdjustmentsByItems(
+    companyId: string,
+    clientId: string,
+    itemIds: string[],
+  ) {
+    return this.prisma.clientRateAdjustment.findMany({
+      where: {
+        companyId,
+        tenantClientId: clientId,
+        companyPriceListItemId: { in: itemIds },
+        isActive: true,
+      },
+      include: {
+        adjustmentReason: { select: { id: true, label: true } },
+      },
+    });
+  }
 }

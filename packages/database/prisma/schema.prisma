@@ -189,6 +189,10 @@ model Company {
   // Invoice-to-invoice credit applications
   projectInvoiceApplications ProjectInvoiceApplication[]
 
+  // Client rate adjustments
+  adjustmentReasonTypes  AdjustmentReasonType[]
+  clientRateAdjustments  ClientRateAdjustment[]
+
   // PnP (Policy & Procedure) library documents
   tenantPnpDocuments TenantPnpDocument[]
 
@@ -794,6 +798,9 @@ model User {
 
   // NexDupE — Duplicate Expense Dispositions
   dupEDispositions DuplicateExpenseDisposition[] @relation("DupEDispositionBy")
+
+  // Client Rate Adjustments
+  clientRateAdjustmentsCreated ClientRateAdjustment[] @relation("ClientRateAdjustmentCreatedBy")
 }
 
 /// Notification delivered to a single user
@@ -1585,6 +1592,7 @@ model TenantClient {
   tenant   Company   @relation(fields: [companyId], references: [id])
   user     User?     @relation(fields: [userId], references: [id])
   projects Project[]
+  clientRateAdjustments ClientRateAdjustment[]
 
   @@index([companyId], map: "TenantClient_company_idx")
   @@index([companyId, email], map: "TenantClient_company_email_idx")
@@ -2240,6 +2248,53 @@ model ProjectInvoice {
   @@index([companyId, projectId, status], map: "ProjectInvoice_company_project_status_idx")
 }
 
+/// Admin-managed lookup table for client rate adjustment reasons.
+/// Ships with 3 defaults; Admin+ can add more over time.
+model AdjustmentReasonType {
+  id        String  @id @default(cuid())
+  companyId String
+  label     String // Display name, e.g. "Client Contract Terms"
+  slug      String // Machine key, e.g. "client_contract_terms"
+  isDefault Boolean @default(false)
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company              Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  clientRateAdjustments ClientRateAdjustment[]
+  invoiceLineItems     ProjectInvoiceLineItem[] @relation("InvoiceLineItemAdjustmentReason")
+
+  @@unique([companyId, slug], name: "AdjustmentReasonType_company_slug_key")
+  @@index([companyId, isActive], map: "AdjustmentReasonType_company_active_idx")
+}
+
+/// Persists client-specific rate adjustments per cost book item.
+/// One active adjustment per (tenantClient, costBookItem).
+model ClientRateAdjustment {
+  id                     String  @id @default(cuid())
+  companyId              String
+  tenantClientId         String
+  companyPriceListItemId String
+  adjustmentReasonId     String?
+  adjustedUnitPrice      Float // The agreed client rate (source of truth)
+  note                   String? @db.Text
+  isActive               Boolean @default(true)
+  createdByUserId        String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  company              Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  tenantClient         TenantClient          @relation(fields: [tenantClientId], references: [id], onDelete: Cascade)
+  companyPriceListItem CompanyPriceListItem  @relation("ClientRateAdjustmentCostBookItem", fields: [companyPriceListItemId], references: [id], onDelete: Cascade)
+  adjustmentReason     AdjustmentReasonType? @relation(fields: [adjustmentReasonId], references: [id], onDelete: SetNull)
+  createdBy            User?                 @relation("ClientRateAdjustmentCreatedBy", fields: [createdByUserId], references: [id])
+  invoiceLineItems     ProjectInvoiceLineItem[] @relation("InvoiceLineItemClientRateAdj")
+
+  @@index([tenantClientId, companyPriceListItemId, isActive], map: "ClientRateAdj_client_item_active_idx")
+  @@index([companyId, tenantClientId], map: "ClientRateAdj_company_client_idx")
+}
+
 model ProjectInvoiceLineItem {
   id        String @id @default(cuid())
   invoiceId String
@@ -2267,18 +2322,32 @@ model ProjectInvoiceLineItem {
   amount      Float
   sortOrder   Int    @default(0)
 
+  // Client Rate Adjustment fields
+  adjustmentReasonId    String? // FK to AdjustmentReasonType
+  costBookUnitPrice     Float?  // Original cost book unit price before adjustment
+  adjustedUnitPrice     Float?  // Actual charge per unit after adjustment
+  discountPercent       Float?  // Stored for fast display
+  parentLineItemId      String? // For credit lines: points to the cost book line they offset
+  clientRateAdjustmentId String? // Pointer to the persisted ClientRateAdjustment
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   invoice              ProjectInvoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   companyPriceListItem CompanyPriceListItem? @relation("InvoiceLineItemCostBookItem", fields: [companyPriceListItemId], references: [id], onDelete: SetNull)
   sourceBill           ProjectBill?          @relation("InvoiceLineItemSourceBill", fields: [sourceBillId], references: [id], onDelete: SetNull)
+  adjustmentReason     AdjustmentReasonType? @relation("InvoiceLineItemAdjustmentReason", fields: [adjustmentReasonId], references: [id], onDelete: SetNull)
+  parentLineItem       ProjectInvoiceLineItem?  @relation("InvoiceLineItemParent", fields: [parentLineItemId], references: [id], onDelete: SetNull)
+  creditLines          ProjectInvoiceLineItem[] @relation("InvoiceLineItemParent")
+  clientRateAdjustment ClientRateAdjustment? @relation("InvoiceLineItemClientRateAdj", fields: [clientRateAdjustmentId], references: [id], onDelete: SetNull)
 
   @@index([invoiceId, sortOrder], map: "ProjectInvoiceLineItem_invoice_sort_idx")
   @@index([invoiceId, kind], map: "ProjectInvoiceLineItem_invoice_kind_idx")
   @@index([invoiceId, billingTag], map: "ProjectInvoiceLineItem_invoice_billing_tag_idx")
   @@index([companyPriceListItemId], map: "ProjectInvoiceLineItem_company_price_item_idx")
   @@index([sourceBillId], map: "ProjectInvoiceLineItem_source_bill_idx")
+  @@index([parentLineItemId], map: "ProjectInvoiceLineItem_parent_line_idx")
+  @@index([clientRateAdjustmentId], map: "ProjectInvoiceLineItem_client_rate_adj_idx")
 }
 
 model ProjectInvoiceAttachment {
@@ -4076,6 +4145,9 @@ model CompanyPriceListItem {
   priceUpdates              TenantPriceUpdateLog[]
   petlReconciliationEntries PetlReconciliationEntry[]
   invoiceLineItems          ProjectInvoiceLineItem[]  @relation("InvoiceLineItemCostBookItem")
+
+  // Client rate adjustments from cost book items
+  clientRateAdjustments ClientRateAdjustment[] @relation("ClientRateAdjustmentCostBookItem")
 
   // Drawings BOM matches
   drawingBomMatches DrawingBomLine[] @relation("DrawingBomCostBookMatch")

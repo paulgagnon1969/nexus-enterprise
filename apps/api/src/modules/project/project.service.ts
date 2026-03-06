@@ -12020,12 +12020,64 @@ export class ProjectService {
         _max: { sortOrder: true },
       });
 
-      const sortOrder =
+      let sortOrder =
         typeof dto.sortOrder === "number" ? dto.sortOrder : (maxSort._max.sortOrder ?? 0) + 1;
 
       const unitCode = dto.unitCode?.trim().toUpperCase().slice(0, 5) || null;
 
-      await this.prisma.projectInvoiceLineItem.create({
+      // --- Detect if this is a discounted line item ---
+      const hasDiscount =
+        typeof dto.adjustedUnitPrice === "number" &&
+        typeof dto.costBookUnitPrice === "number" &&
+        dto.adjustedUnitPrice < dto.costBookUnitPrice;
+
+      // If there's a discount, the main line uses the full cost book price and we
+      // auto-create a CREDIT line immediately after for the discount amount.
+      const mainUnitPrice = hasDiscount ? dto.costBookUnitPrice! : (unitPrice ?? 0);
+      const mainAmount = hasDiscount
+        ? (qty ?? 1) * mainUnitPrice
+        : amount;
+
+      // Optionally save adjustment to client record
+      let clientRateAdjustmentId: string | null = dto.clientRateAdjustmentId?.trim() || null;
+
+      if (hasDiscount && dto.saveToClientRecord && dto.tenantClientId && companyPriceListItemId) {
+        const existing = await this.prisma.clientRateAdjustment.findFirst({
+          where: {
+            companyId: project.companyId,
+            tenantClientId: dto.tenantClientId,
+            companyPriceListItemId,
+            isActive: true,
+          },
+        });
+
+        if (existing) {
+          // Update existing adjustment
+          await this.prisma.clientRateAdjustment.update({
+            where: { id: existing.id },
+            data: {
+              adjustedUnitPrice: dto.adjustedUnitPrice!,
+              adjustmentReasonId: dto.adjustmentReasonId || null,
+            },
+          });
+          clientRateAdjustmentId = existing.id;
+        } else {
+          // Create new client rate adjustment
+          const adj = await this.prisma.clientRateAdjustment.create({
+            data: {
+              companyId: project.companyId,
+              tenantClientId: dto.tenantClientId,
+              companyPriceListItemId,
+              adjustedUnitPrice: dto.adjustedUnitPrice!,
+              adjustmentReasonId: dto.adjustmentReasonId || null,
+              createdByUserId: actor.userId,
+            },
+          });
+          clientRateAdjustmentId = adj.id;
+        }
+      }
+
+      const mainLine = await this.prisma.projectInvoiceLineItem.create({
         data: {
           invoiceId: invoice.id,
           kind,
@@ -12034,11 +12086,56 @@ export class ProjectService {
           unitCode,
           description: dto.description,
           qty,
-          unitPrice,
-          amount,
+          unitPrice: mainUnitPrice,
+          amount: mainAmount,
           sortOrder,
+          // Adjustment metadata
+          costBookUnitPrice: dto.costBookUnitPrice ?? null,
+          adjustedUnitPrice: dto.adjustedUnitPrice ?? null,
+          discountPercent: dto.discountPercent ?? null,
+          adjustmentReasonId: dto.adjustmentReasonId?.trim() || null,
+          clientRateAdjustmentId,
         },
       });
+
+      // If discount, create the companion CREDIT line
+      if (hasDiscount && qty != null) {
+        const discountPerUnit = dto.costBookUnitPrice! - dto.adjustedUnitPrice!;
+        const creditAmount = -(qty * discountPerUnit);
+
+        // Build credit description from adjustment reason
+        let creditDesc = "Client Adjustment";
+        if (dto.adjustmentReasonId) {
+          const reason = await this.prisma.adjustmentReasonType.findUnique({
+            where: { id: dto.adjustmentReasonId },
+            select: { label: true },
+          });
+          if (reason) creditDesc = reason.label;
+        }
+
+        sortOrder += 1;
+
+        await this.prisma.projectInvoiceLineItem.create({
+          data: {
+            invoiceId: invoice.id,
+            kind: ProjectInvoiceLineItemKind.CREDIT as any,
+            billingTag: ProjectInvoicePetlLineBillingTag.CREDIT,
+            companyPriceListItemId,
+            unitCode,
+            description: `${creditDesc}: ${dto.description}`,
+            qty,
+            unitPrice: -discountPerUnit,
+            amount: creditAmount,
+            sortOrder,
+            parentLineItemId: mainLine.id,
+            costBookUnitPrice: dto.costBookUnitPrice ?? null,
+            adjustedUnitPrice: dto.adjustedUnitPrice ?? null,
+            discountPercent: dto.discountPercent ?? null,
+            adjustmentReasonId: dto.adjustmentReasonId?.trim() || null,
+            clientRateAdjustmentId,
+          },
+        });
+      }
 
       await this.recomputeInvoiceTotal(invoice.id);
       return this.getProjectInvoice(projectId, invoice.id, actor);

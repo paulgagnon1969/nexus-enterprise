@@ -62,6 +62,48 @@ export class AddInvoiceLineItemDto {
   @IsOptional()
   @IsNumber()
   sortOrder?: number;
+
+  // --- Client Rate Adjustment fields ---
+
+  // Original cost book unit price before adjustment
+  @IsOptional()
+  @IsNumber()
+  costBookUnitPrice?: number;
+
+  // Actual charge per unit after adjustment
+  @IsOptional()
+  @IsNumber()
+  adjustedUnitPrice?: number;
+
+  // Stored discount percent for display
+  @IsOptional()
+  @IsNumber()
+  discountPercent?: number;
+
+  // FK to AdjustmentReasonType
+  @IsOptional()
+  @IsString()
+  adjustmentReasonId?: string;
+
+  // FK to parent line item (for credit lines)
+  @IsOptional()
+  @IsString()
+  parentLineItemId?: string;
+
+  // FK to persisted ClientRateAdjustment
+  @IsOptional()
+  @IsString()
+  clientRateAdjustmentId?: string;
+
+  // Whether to save this adjustment to the client record for future use
+  @IsOptional()
+  @IsBoolean()
+  saveToClientRecord?: boolean;
+
+  // Tenant client ID (needed when saving adjustments to client record)
+  @IsOptional()
+  @IsString()
+  tenantClientId?: string;
 }
 
 export class UpdateInvoiceLineItemDto {
@@ -101,6 +143,23 @@ export class UpdateInvoiceLineItemDto {
   @IsOptional()
   @IsNumber()
   sortOrder?: number;
+
+  // --- Client Rate Adjustment fields ---
+  @IsOptional()
+  @IsNumber()
+  costBookUnitPrice?: number;
+
+  @IsOptional()
+  @IsNumber()
+  adjustedUnitPrice?: number;
+
+  @IsOptional()
+  @IsNumber()
+  discountPercent?: number;
+
+  @IsOptional()
+  @IsString()
+  adjustmentReasonId?: string;
 }
 
 export class IssueInvoiceDto {

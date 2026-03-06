@@ -19,6 +19,67 @@ import { ProjectVisibilityLevel } from "@prisma/client";
 export class TenantClientController {
   constructor(private readonly tenantClientService: TenantClientService) {}
 
+  // --- Adjustment Reason Types (company-scoped) ---
+
+  /**
+   * GET /clients/adjustment-reasons
+   * List all active adjustment reason types for the current company.
+   */
+  @Get("adjustment-reasons")
+  async listAdjustmentReasons(@Req() req: any) {
+    const companyId = req.user?.companyId;
+    if (!companyId) return [];
+    return this.tenantClientService.listAdjustmentReasons(companyId);
+  }
+
+  /**
+   * POST /clients/adjustment-reasons
+   * Create a new adjustment reason type (Admin+).
+   */
+  @Post("adjustment-reasons")
+  async createAdjustmentReason(
+    @Req() req: any,
+    @Body() body: { label: string; slug?: string },
+  ) {
+    const companyId = req.user?.companyId;
+    if (!companyId) throw new Error("Company context required");
+    return this.tenantClientService.createAdjustmentReason(companyId, body.label, body.slug);
+  }
+
+  // --- Client Rate Adjustments ---
+
+  /**
+   * GET /clients/:id/rate-adjustments
+   * List active rate adjustments for a specific client.
+   */
+  @Get(":id/rate-adjustments")
+  async listClientRateAdjustments(
+    @Req() req: any,
+    @Param("id") clientId: string,
+  ) {
+    const companyId = req.user?.companyId;
+    if (!companyId) return [];
+    return this.tenantClientService.listClientRateAdjustments(companyId, clientId);
+  }
+
+  /**
+   * GET /clients/:id/rate-adjustments/by-items
+   * Given a list of cost book item IDs, returns any active adjustments for this client.
+   * Query param: itemIds (comma-separated)
+   */
+  @Get(":id/rate-adjustments/by-items")
+  async getClientRateAdjustmentsByItems(
+    @Req() req: any,
+    @Param("id") clientId: string,
+    @Query("itemIds") itemIds: string,
+  ) {
+    const companyId = req.user?.companyId;
+    if (!companyId) return [];
+    const ids = (itemIds || "").split(",").map(s => s.trim()).filter(Boolean);
+    if (!ids.length) return [];
+    return this.tenantClientService.getClientRateAdjustmentsByItems(companyId, clientId, ids);
+  }
+
   /**
    * GET /clients/search?q=<query>
    * Search for clients by name, email, or phone.

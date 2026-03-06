@@ -560,6 +560,8 @@ interface Project {
   teamTreeJson?: Record<string, string[]> | null;
   // Org template provenance (set when a PO template was applied)
   orgTemplateId?: string | null;
+  // Tenant client linked to this project (for rate adjustments)
+  tenantClientId?: string | null;
 }
 
 interface PetlItem {
@@ -3814,13 +3816,79 @@ ${htmlBody}
     }
   };
 
-  const submitAddInvoiceLinesFromCostBook = async (selection: CostBookSelection[]) => {
+  // Opens the adjustment review step between cost book selection and invoice submission
+  const openAdjustmentReview = async (selection: CostBookSelection[]) => {
     if (!project) return;
-
     if (!activeInvoice || activeInvoice.status !== "DRAFT") {
       setInvoiceMessage("Open a draft invoice first (Open living invoice), then add Cost Book lines.");
       return;
     }
+    if (!selection || selection.length === 0) {
+      setInvoiceMessage("No cost book items selected.");
+      return;
+    }
+
+    // Close the cost book picker and open the adjustment review
+    setInvoiceCostBookPickerOpen(false);
+    setAdjReviewSelection(selection);
+    setAdjReviewAdjusted(new Set());
+    setAdjReviewPrices({});
+    setAdjReviewReasons({});
+    setAdjReviewSaveToClient(new Set());
+    setAdjReviewOpen(true);
+
+    // Fetch adjustment reasons for the dropdown
+    const token = localStorage.getItem("accessToken");
+    if (token) {
+      try {
+        const res = await fetch(`${API_BASE}/clients/adjustment-reasons`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const reasons = await res.json();
+          setAdjReviewReasonOptions(reasons.map((r: any) => ({ id: r.id, label: r.label })));
+        }
+      } catch { /* non-fatal */ }
+
+      // If project has a tenant client, check for existing rate adjustments
+      if (project.tenantClientId) {
+        try {
+          const itemIds = selection.map(s => s.item.id).join(",");
+          const res = await fetch(
+            `${API_BASE}/clients/${project.tenantClientId}/rate-adjustments/by-items?itemIds=${encodeURIComponent(itemIds)}`,
+            { headers: { Authorization: `Bearer ${token}` } },
+          );
+          if (res.ok) {
+            const adjs: any[] = await res.json();
+            // Pre-populate adjustment fields from existing client rate adjustments
+            const newAdjusted = new Set<number>();
+            const newPrices: Record<number, string> = {};
+            const newReasons: Record<number, string> = {};
+            const newSave = new Set<number>();
+            selection.forEach((sel, idx) => {
+              const match = adjs.find(a => a.companyPriceListItemId === sel.item.id);
+              if (match) {
+                newAdjusted.add(idx);
+                newPrices[idx] = String(match.adjustedUnitPrice);
+                if (match.adjustmentReasonId) newReasons[idx] = match.adjustmentReasonId;
+                newSave.add(idx);
+              }
+            });
+            if (newAdjusted.size > 0) {
+              setAdjReviewAdjusted(newAdjusted);
+              setAdjReviewPrices(newPrices);
+              setAdjReviewReasons(newReasons);
+              setAdjReviewSaveToClient(newSave);
+            }
+          }
+        } catch { /* non-fatal */ }
+      }
+    }
+  };
+
+  // Submit the adjusted cost book items to the invoice
+  const submitAddInvoiceLinesFromCostBook = async () => {
+    if (!project || !activeInvoice) return;
 
     const token = localStorage.getItem("accessToken");
     if (!token) {
@@ -3828,19 +3896,14 @@ ${htmlBody}
       return;
     }
 
-    if (!selection || selection.length === 0) {
-      setInvoiceMessage("No cost book items selected.");
-      return;
-    }
-
+    setAdjReviewBusy(true);
     setInvoiceMessage(null);
-    setInvoiceCostBookPickerBusy(true);
 
     try {
       let lastInvoiceJson: any = null;
 
-      // Add sequentially to preserve a predictable line ordering.
-      for (const sel of selection) {
+      for (let idx = 0; idx < adjReviewSelection.length; idx++) {
+        const sel = adjReviewSelection[idx];
         const item = sel.item;
         const qty = sel.qty;
 
@@ -3850,8 +3913,31 @@ ${htmlBody}
         const prefix = cat || selCode ? `${cat}${selCode ? `/${selCode}` : ""}` : "";
         const description = prefix ? `${prefix}${baseDesc ? ` - ${baseDesc}` : ""}` : baseDesc;
 
-        const unitPrice =
+        const costBookUnitPrice =
           typeof item.unitPrice === "number" && Number.isFinite(item.unitPrice) ? item.unitPrice : 0;
+
+        const isAdjusted = adjReviewAdjusted.has(idx);
+        const adjustedPrice = isAdjusted ? parseFloat(adjReviewPrices[idx] ?? "") : NaN;
+        const hasValidAdjustment = isAdjusted && Number.isFinite(adjustedPrice) && adjustedPrice < costBookUnitPrice;
+
+        const body: any = {
+          description: description || "(Cost Book item)",
+          kind: "COST_BOOK",
+          companyPriceListItemId: item.id,
+          qty,
+          unitPrice: costBookUnitPrice,
+        };
+
+        if (hasValidAdjustment) {
+          body.costBookUnitPrice = costBookUnitPrice;
+          body.adjustedUnitPrice = adjustedPrice;
+          body.discountPercent = ((costBookUnitPrice - adjustedPrice) / costBookUnitPrice) * 100;
+          if (adjReviewReasons[idx]) body.adjustmentReasonId = adjReviewReasons[idx];
+          if (adjReviewSaveToClient.has(idx) && project.tenantClientId) {
+            body.saveToClientRecord = true;
+            body.tenantClientId = project.tenantClientId;
+          }
+        }
 
         const res = await fetch(
           `${API_BASE}/projects/${project.id}/invoices/${activeInvoice.id}/lines`,
@@ -3861,13 +3947,7 @@ ${htmlBody}
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
             },
-            body: JSON.stringify({
-              description: description || "(Cost Book item)",
-              kind: "COST_BOOK",
-              companyPriceListItemId: item.id,
-              qty,
-              unitPrice,
-            }),
+            body: JSON.stringify(body),
           },
         );
 
@@ -3884,12 +3964,15 @@ ${htmlBody}
         setProjectInvoices(null);
       }
 
-      setInvoiceMessage(`Added ${selection.length} cost book line(s).`);
-      setInvoiceCostBookPickerOpen(false);
+      const adjCount = adjReviewAdjusted.size;
+      setInvoiceMessage(
+        `Added ${adjReviewSelection.length} cost book line(s)${adjCount > 0 ? ` (${adjCount} adjusted)` : ""}.`,
+      );
+      setAdjReviewOpen(false);
     } catch (err: any) {
       setInvoiceMessage(err?.message ?? "Failed to add cost book lines.");
     } finally {
-      setInvoiceCostBookPickerBusy(false);
+      setAdjReviewBusy(false);
     }
   };
 
@@ -4190,6 +4273,16 @@ ${htmlBody}
   const [invoiceCostBookPickerOpen, setInvoiceCostBookPickerOpen] = useState(false);
   const [invoiceCostBookPickerBusy, setInvoiceCostBookPickerBusy] = useState(false);
 
+  // --- Adjustment Review Modal state ---
+  const [adjReviewOpen, setAdjReviewOpen] = useState(false);
+  const [adjReviewSelection, setAdjReviewSelection] = useState<CostBookSelection[]>([]);
+  const [adjReviewAdjusted, setAdjReviewAdjusted] = useState<Set<number>>(new Set());
+  const [adjReviewPrices, setAdjReviewPrices] = useState<Record<number, string>>({});
+  const [adjReviewReasons, setAdjReviewReasons] = useState<Record<number, string>>({});
+  const [adjReviewSaveToClient, setAdjReviewSaveToClient] = useState<Set<number>>(new Set());
+  const [adjReviewReasonOptions, setAdjReviewReasonOptions] = useState<{ id: string; label: string }[]>([]);
+  const [adjReviewBusy, setAdjReviewBusy] = useState(false);
+
   const [issueBillToName, setIssueBillToName] = useState<string>("");
   const [issueBillToEmail, setIssueBillToEmail] = useState<string>("");
   const [issueMemo, setIssueMemo] = useState<string>("");
@@ -4284,6 +4377,7 @@ ${htmlBody}
   const [payrollError, setPayrollError] = useState<string | null>(null);
   const [payrollCollapsed, setPayrollCollapsed] = useState(true);
   const [billableExpensesCollapsed, setBillableExpensesCollapsed] = useState(true);
+  const [expandedBillableVendors, setExpandedBillableVendors] = useState<Set<string>>(new Set());
 
   // Actor identity + project-level roles (for header display)
   const [actorDisplayName, setActorDisplayName] = useState<string | null>(null);
@@ -16332,16 +16426,256 @@ ${htmlBody}
                   ? "Select line items to add to the current draft invoice."
                   : "Browse the tenant cost book. (Open a draft invoice to add selected items.)"
               }
-              confirmLabel={invoiceCostBookPickerBusy ? "Adding…" : "Add selected to invoice"}
+              confirmLabel={invoiceCostBookPickerBusy ? "Adding…" : "Review & Add to Invoice"}
               confirmDisabled={
                 invoiceCostBookPickerBusy || !activeInvoice || activeInvoice.status !== "DRAFT"
               }
-              onConfirm={submitAddInvoiceLinesFromCostBook}
+              onConfirm={openAdjustmentReview}
               onClose={() => {
                 if (invoiceCostBookPickerBusy) return;
                 setInvoiceCostBookPickerOpen(false);
               }}
             />
+          )}
+
+          {/* Adjustment Review Modal */}
+          {adjReviewOpen && (
+            <div
+              style={{
+                position: "fixed",
+                inset: 0,
+                zIndex: 85,
+                backgroundColor: "rgba(15, 23, 42, 0.4)",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "flex-start",
+                padding: "6vh 12px",
+              }}
+              onClick={() => { if (!adjReviewBusy) setAdjReviewOpen(false); }}
+            >
+              <div
+                style={{
+                  width: 720,
+                  maxWidth: "98vw",
+                  maxHeight: "82vh",
+                  backgroundColor: "#ffffff",
+                  borderRadius: 10,
+                  border: "1px solid #e5e7eb",
+                  boxShadow: "0 12px 40px rgba(15,23,42,0.22)",
+                  overflow: "hidden",
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Header */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "12px 16px",
+                    borderBottom: "1px solid #e5e7eb",
+                    backgroundColor: "#f8fafc",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 700 }}>Review &amp; Adjust Pricing</div>
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>
+                      Check "Adjust" to apply a client rate adjustment. Full price + credit line will appear on invoice.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { if (!adjReviewBusy) setAdjReviewOpen(false); }}
+                    style={{ border: "none", background: "transparent", cursor: adjReviewBusy ? "default" : "pointer", fontSize: 20, lineHeight: 1, padding: 6 }}
+                    disabled={adjReviewBusy}
+                  >
+                    ×
+                  </button>
+                </div>
+
+                {/* Items list */}
+                <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
+                  {adjReviewSelection.map((sel, idx) => {
+                    const item = sel.item;
+                    const costBookPrice = typeof item.unitPrice === "number" ? item.unitPrice : 0;
+                    const isAdj = adjReviewAdjusted.has(idx);
+                    const adjPrice = parseFloat(adjReviewPrices[idx] ?? "");
+                    const hasValidAdj = isAdj && Number.isFinite(adjPrice) && adjPrice < costBookPrice;
+                    const discountPct = hasValidAdj ? ((costBookPrice - adjPrice) / costBookPrice * 100) : 0;
+                    const discountDollars = hasValidAdj ? (costBookPrice - adjPrice) : 0;
+
+                    return (
+                      <div
+                        key={idx}
+                        style={{
+                          padding: "10px 12px",
+                          marginBottom: 8,
+                          borderRadius: 6,
+                          border: isAdj ? "1px solid #93c5fd" : "1px solid #e5e7eb",
+                          backgroundColor: isAdj ? "#eff6ff" : "#fafafa",
+                        }}
+                      >
+                        {/* Line summary */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: isAdj ? 8 : 0 }}>
+                          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", flex: 1 }}>
+                            <input
+                              type="checkbox"
+                              checked={isAdj}
+                              onChange={() => {
+                                setAdjReviewAdjusted(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(idx)) next.delete(idx); else next.add(idx);
+                                  return next;
+                                });
+                              }}
+                            />
+                            <span style={{ fontSize: 12, fontWeight: 600, color: "#111827" }}>Adjust</span>
+                          </label>
+                          <div style={{ flex: 3, fontSize: 13, color: "#111827" }}>
+                            {String(item.cat ?? "")}{item.sel ? `/${item.sel}` : ""} — {item.description ?? "(no desc)"}
+                          </div>
+                          <div style={{ fontSize: 12, color: "#6b7280", minWidth: 50, textAlign: "right" }}>
+                            Qty: {sel.qty}
+                          </div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: "#111827", minWidth: 80, textAlign: "right" }}>
+                            ${costBookPrice.toFixed(2)}/ea
+                          </div>
+                        </div>
+
+                        {/* Expanded adjustment controls */}
+                        {isAdj && (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end", paddingLeft: 24 }}>
+                            {/* Reason dropdown */}
+                            <div style={{ minWidth: 160 }}>
+                              <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>Reason</div>
+                              <select
+                                value={adjReviewReasons[idx] ?? ""}
+                                onChange={(e) => setAdjReviewReasons(prev => ({ ...prev, [idx]: e.target.value }))}
+                                style={{
+                                  width: "100%",
+                                  padding: "4px 6px",
+                                  borderRadius: 4,
+                                  border: "1px solid #d1d5db",
+                                  fontSize: 12,
+                                  backgroundColor: "#ffffff",
+                                }}
+                              >
+                                <option value="">Select reason…</option>
+                                {adjReviewReasonOptions.map(r => (
+                                  <option key={r.id} value={r.id}>{r.label}</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* Adjusted price input */}
+                            <div style={{ minWidth: 100 }}>
+                              <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>Adjusted $/unit</div>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={adjReviewPrices[idx] ?? ""}
+                                onChange={(e) => setAdjReviewPrices(prev => ({ ...prev, [idx]: e.target.value }))}
+                                placeholder="e.g. 25.00"
+                                style={{
+                                  width: "100%",
+                                  padding: "4px 6px",
+                                  borderRadius: 4,
+                                  border: "1px solid #d1d5db",
+                                  fontSize: 12,
+                                }}
+                              />
+                            </div>
+
+                            {/* Auto-calculated discount display */}
+                            {hasValidAdj && (
+                              <div style={{ fontSize: 11, color: "#dc2626", minWidth: 120 }}>
+                                <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>Discount</div>
+                                <span style={{ fontWeight: 600 }}>
+                                  −${discountDollars.toFixed(2)} ({discountPct.toFixed(1)}%)
+                                </span>
+                              </div>
+                            )}
+
+                            {/* Save to client toggle */}
+                            {project?.tenantClientId && (
+                              <label style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 11, color: "#374151" }}>
+                                <input
+                                  type="checkbox"
+                                  checked={adjReviewSaveToClient.has(idx)}
+                                  onChange={() => {
+                                    setAdjReviewSaveToClient(prev => {
+                                      const next = new Set(prev);
+                                      if (next.has(idx)) next.delete(idx); else next.add(idx);
+                                      return next;
+                                    });
+                                  }}
+                                />
+                                Save rate to client
+                              </label>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Footer */}
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "10px 16px",
+                    borderTop: "1px solid #e5e7eb",
+                    backgroundColor: "#f8fafc",
+                  }}
+                >
+                  <div style={{ fontSize: 12, color: "#6b7280" }}>
+                    {adjReviewSelection.length} item(s) · {adjReviewAdjusted.size} adjusted
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => setAdjReviewOpen(false)}
+                      disabled={adjReviewBusy}
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: 6,
+                        border: "1px solid #d1d5db",
+                        background: "#ffffff",
+                        color: "#374151",
+                        fontSize: 13,
+                        cursor: adjReviewBusy ? "default" : "pointer",
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={submitAddInvoiceLinesFromCostBook}
+                      disabled={adjReviewBusy}
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: 6,
+                        border: "1px solid #1d4ed8",
+                        background: "#2563eb",
+                        color: "#ffffff",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: adjReviewBusy ? "default" : "pointer",
+                        opacity: adjReviewBusy ? 0.6 : 1,
+                      }}
+                    >
+                      {adjReviewBusy ? "Adding…" : `Add ${adjReviewSelection.length} to Invoice`}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Unit Code Management Modal (Admin only) */}
@@ -21950,6 +22284,61 @@ ${htmlBody}
                         </table>
                       </div>
 
+                      {/* Invoice totals: Subtotal, Adjustments, Amount Due */}
+                      {activeInvoiceLineItemGroups.length > 0 && (() => {
+                        const allItems = activeInvoiceLineItemGroups.flatMap(g => g.items);
+                        const subtotal = allItems
+                          .filter((li: any) => Number(li?.amount ?? 0) >= 0 && String(li?.kind ?? "").toUpperCase() !== "CREDIT")
+                          .reduce((sum: number, li: any) => sum + (Number(li?.amount ?? 0) || 0), 0);
+                        const adjustments = allItems
+                          .filter((li: any) => Number(li?.amount ?? 0) < 0 || String(li?.kind ?? "").toUpperCase() === "CREDIT")
+                          .reduce((sum: number, li: any) => sum + (Number(li?.amount ?? 0) || 0), 0);
+                        const amountDue = subtotal + adjustments;
+                        const hasAdjustments = Math.abs(adjustments) > 0.005;
+                        return (
+                          <div
+                            style={{
+                              marginTop: 8,
+                              padding: "8px 12px",
+                              background: "#f9fafb",
+                              borderRadius: 6,
+                              border: "1px solid #e5e7eb",
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 4,
+                              fontSize: 12,
+                              maxWidth: 320,
+                              marginLeft: "auto",
+                            }}
+                          >
+                            {hasAdjustments && (
+                              <>
+                                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                  <span style={{ color: "#4b5563" }}>Subtotal</span>
+                                  <span style={{ fontWeight: 600 }}>{formatMoney(subtotal)}</span>
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                  <span style={{ color: "#b91c1c" }}>Adjustments</span>
+                                  <span style={{ fontWeight: 600, color: "#b91c1c" }}>
+                                    -${Math.abs(adjustments).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </span>
+                                </div>
+                                <div style={{ borderTop: "1px solid #d1d5db", paddingTop: 4, display: "flex", justifyContent: "space-between" }}>
+                                  <span style={{ fontWeight: 700 }}>Amount Due</span>
+                                  <span style={{ fontWeight: 700, fontSize: 13 }}>{formatMoney(amountDue)}</span>
+                                </div>
+                              </>
+                            )}
+                            {!hasAdjustments && (
+                              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                <span style={{ fontWeight: 700 }}>Total</span>
+                                <span style={{ fontWeight: 700, fontSize: 13 }}>{formatMoney(subtotal)}</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
                       {(activeInvoice.status === "DRAFT" || invoiceEditUnlocked) && (
                       <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
                         <select
@@ -23107,109 +23496,156 @@ ${htmlBody}
                       {moveExpenseLinesMessage}
                     </div>
                   )}
-                  <div style={{ marginTop: 12 }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-                      <thead>
-                        <tr style={{ textAlign: "left", borderBottom: "1px solid #bbf7d0" }}>
-                          {expenseInvoice && expenseInvoice.status === "DRAFT" && (
-                            <th style={{ padding: "4px 6px", width: 24 }}>
-                              <input
-                                type="checkbox"
-                                checked={selectedExpenseLineIds.size === billableBills.length && billableBills.length > 0}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSelectedExpenseLineIds(new Set(billableBills.map((b: any) => String(b?.id ?? ""))));
-                                  } else {
-                                    setSelectedExpenseLineIds(new Set());
-                                  }
-                                }}
-                                style={{ cursor: "pointer" }}
-                              />
-                            </th>
-                          )}
-                          <th style={{ padding: "4px 6px" }}>Vendor</th>
-                          <th style={{ padding: "4px 6px" }}>Invoice</th>
-                          <th style={{ padding: "4px 6px" }}>Description</th>
-                          <th style={{ padding: "4px 6px", textAlign: "right" }}>Cost</th>
-                          <th style={{ padding: "4px 6px", textAlign: "right" }}>GM%</th>
-                          <th style={{ padding: "4px 6px", textAlign: "right" }}>Billable</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[...billableBills]
-                          .sort((a: any, b: any) => {
-                            // Sort by createdAt descending (newest first)
-                            const dateA = new Date(a?.createdAt ?? 0).getTime();
-                            const dateB = new Date(b?.createdAt ?? 0).getTime();
-                            return dateB - dateA;
-                          })
-                          .map((b: any) => {
-                          const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
-                          const cost = Number(b?.totalAmount) || 0;
-                          const billable = Number(b?.billableAmount) || 0;
-                          const gmPct = billable > 0 ? ((billable - cost) / billable) * 100 : 0;
-                          const billId = String(b?.id ?? "");
-                          const isSelected = selectedExpenseLineIds.has(billId);
-                          
-                          // Check if this expense's invoice is paid/locked
-                          // Use invoiceLines to find the actual invoice this bill is attached to
-                          const invoiceLine = Array.isArray(b?.invoiceLines) ? b.invoiceLines[0] : null;
-                          const targetInv = invoiceLine?.invoice ?? null;
-                          const isPaid = targetInv && (targetInv.status === "PAID" || targetInv.status === "PARTIALLY_PAID");
-                          const isLocked = targetInv && targetInv.status !== "DRAFT";
-                          
-                          // Row styling based on status
-                          const rowBg = isSelected ? "#dbeafe" : isPaid ? "#fef2f2" : undefined;
-                          const textColor = isPaid ? "#991b1b" : isLocked ? "#6b7280" : "#166534";
-                          
-                          return (
-                            <tr key={billId || Math.random()} style={{ borderTop: "1px solid #bbf7d0", background: rowBg }}>
-                              {expenseInvoice && expenseInvoice.status === "DRAFT" && (
-                                <td style={{ padding: "4px 6px" }}>
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={(e) => {
-                                      setSelectedExpenseLineIds((prev) => {
-                                        const next = new Set(prev);
-                                        if (e.target.checked) {
-                                          next.add(billId);
-                                        } else {
-                                          next.delete(billId);
-                                        }
-                                        return next;
-                                      });
-                                    }}
-                                    style={{ cursor: "pointer" }}
-                                    disabled={isLocked}
-                                  />
-                                </td>
-                              )}
-                              <td style={{ padding: "4px 6px", color: textColor }}>{b?.vendorName ?? "—"}</td>
-                              <td style={{ padding: "4px 6px", fontSize: 10 }}>
-                                {targetInv ? (
-                                  <span style={{
-                                    padding: "2px 6px",
-                                    borderRadius: 4,
-                                    background: isPaid ? "#fecaca" : isLocked ? "#e5e7eb" : "#dcfce7",
-                                    color: isPaid ? "#991b1b" : isLocked ? "#4b5563" : "#166534",
-                                    fontSize: 10,
-                                  }}>
-                                    {targetInv.invoiceNo ?? "Draft"}
-                                  </span>
-                                ) : (
-                                  <span style={{ color: "#9ca3af" }}>—</span>
-                                )}
-                              </td>
-                              <td style={{ padding: "4px 6px", color: textColor }}>{li?.description ?? "—"}</td>
-                              <td style={{ padding: "4px 6px", textAlign: "right", color: textColor }}>{formatMoney(cost)}</td>
-                              <td style={{ padding: "4px 6px", textAlign: "right", color: isPaid ? "#991b1b" : "#16a34a" }}>{gmPct.toFixed(1)}%</td>
-                              <td style={{ padding: "4px 6px", textAlign: "right", fontWeight: 600, color: textColor }}>{formatMoney(billable)}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                  <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 2 }}>
+                    {(() => {
+                      // Group billable bills by vendor name
+                      const vendorGroupMap = new Map<string, any[]>();
+                      for (const b of billableBills) {
+                        const vendor = (b?.vendorName ?? "Unknown Vendor").trim();
+                        if (!vendorGroupMap.has(vendor)) vendorGroupMap.set(vendor, []);
+                        vendorGroupMap.get(vendor)!.push(b);
+                      }
+                      // Sort vendors alphabetically
+                      const vendorGroups = [...vendorGroupMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+
+                      return vendorGroups.map(([vendor, bills]) => {
+                        const isExpanded = expandedBillableVendors.has(vendor);
+                        const groupCost = bills.reduce((sum: number, b: any) => sum + (Number(b?.totalAmount) || 0), 0);
+                        const groupBillable = bills.reduce((sum: number, b: any) => sum + (Number(b?.billableAmount) || 0), 0);
+                        const groupGmPct = groupBillable > 0 ? ((groupBillable - groupCost) / groupBillable) * 100 : 0;
+
+                        return (
+                          <div key={vendor}>
+                            {/* Vendor summary row */}
+                            <div
+                              onClick={() => {
+                                setExpandedBillableVendors(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(vendor)) next.delete(vendor); else next.add(vendor);
+                                  return next;
+                                });
+                              }}
+                              style={{
+                                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                                padding: "6px 8px", borderRadius: 5, cursor: "pointer",
+                                background: isExpanded ? "#dcfce7" : "#f0fdf4",
+                                border: `1px solid ${isExpanded ? "#86efac" : "#bbf7d0"}`,
+                                userSelect: "none",
+                              }}
+                            >
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <span style={{ fontSize: 11, color: "#166534", width: 14, textAlign: "center" }}>
+                                  {isExpanded ? "▼" : "▶"}
+                                </span>
+                                <span style={{ fontWeight: 600, fontSize: 12, color: "#166534" }}>{vendor}</span>
+                                <span style={{ fontSize: 11, color: "#6b7280" }}>
+                                  · {bills.length} item{bills.length !== 1 ? "s" : ""}
+                                </span>
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 11 }}>
+                                <span style={{ color: "#4b5563" }}>Cost: <strong>{formatMoney(groupCost)}</strong></span>
+                                <span style={{ color: "#16a34a" }}>GM: <strong>{groupGmPct.toFixed(1)}%</strong></span>
+                                <span style={{ fontWeight: 700, fontSize: 12, color: "#166534" }}>{formatMoney(groupBillable)}</span>
+                              </div>
+                            </div>
+
+                            {/* Expanded: individual bills for this vendor */}
+                            {isExpanded && (
+                              <div style={{ marginLeft: 22, marginTop: 2, marginBottom: 4 }}>
+                                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                                  <thead>
+                                    <tr style={{ textAlign: "left", borderBottom: "1px solid #bbf7d0" }}>
+                                      {expenseInvoice && expenseInvoice.status === "DRAFT" && (
+                                        <th style={{ padding: "3px 6px", width: 24 }}>
+                                          <input
+                                            type="checkbox"
+                                            checked={bills.every((b: any) => selectedExpenseLineIds.has(String(b?.id ?? "")))}
+                                            onChange={(e) => {
+                                              setSelectedExpenseLineIds(prev => {
+                                                const next = new Set(prev);
+                                                for (const b of bills) {
+                                                  const billId = String(b?.id ?? "");
+                                                  if (e.target.checked) next.add(billId); else next.delete(billId);
+                                                }
+                                                return next;
+                                              });
+                                            }}
+                                            style={{ cursor: "pointer" }}
+                                          />
+                                        </th>
+                                      )}
+                                      <th style={{ padding: "3px 6px" }}>Invoice</th>
+                                      <th style={{ padding: "3px 6px" }}>Description</th>
+                                      <th style={{ padding: "3px 6px", textAlign: "right" }}>Cost</th>
+                                      <th style={{ padding: "3px 6px", textAlign: "right" }}>GM%</th>
+                                      <th style={{ padding: "3px 6px", textAlign: "right" }}>Billable</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {[...bills]
+                                      .sort((a: any, b: any) => new Date(b?.createdAt ?? 0).getTime() - new Date(a?.createdAt ?? 0).getTime())
+                                      .map((b: any) => {
+                                        const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
+                                        const cost = Number(b?.totalAmount) || 0;
+                                        const billable = Number(b?.billableAmount) || 0;
+                                        const gmPct = billable > 0 ? ((billable - cost) / billable) * 100 : 0;
+                                        const billId = String(b?.id ?? "");
+                                        const isSelected = selectedExpenseLineIds.has(billId);
+                                        const invoiceLine = Array.isArray(b?.invoiceLines) ? b.invoiceLines[0] : null;
+                                        const targetInv = invoiceLine?.invoice ?? null;
+                                        const isPaid = targetInv && (targetInv.status === "PAID" || targetInv.status === "PARTIALLY_PAID");
+                                        const isLocked = targetInv && targetInv.status !== "DRAFT";
+                                        const rowBg = isSelected ? "#dbeafe" : isPaid ? "#fef2f2" : undefined;
+                                        const textColor = isPaid ? "#991b1b" : isLocked ? "#6b7280" : "#166534";
+
+                                        return (
+                                          <tr key={billId || Math.random()} style={{ borderTop: "1px solid #bbf7d0", background: rowBg }}>
+                                            {expenseInvoice && expenseInvoice.status === "DRAFT" && (
+                                              <td style={{ padding: "3px 6px" }}>
+                                                <input
+                                                  type="checkbox"
+                                                  checked={isSelected}
+                                                  onChange={(e) => {
+                                                    setSelectedExpenseLineIds(prev => {
+                                                      const next = new Set(prev);
+                                                      if (e.target.checked) next.add(billId); else next.delete(billId);
+                                                      return next;
+                                                    });
+                                                  }}
+                                                  style={{ cursor: "pointer" }}
+                                                  disabled={isLocked}
+                                                />
+                                              </td>
+                                            )}
+                                            <td style={{ padding: "3px 6px", fontSize: 10 }}>
+                                              {targetInv ? (
+                                                <span style={{
+                                                  padding: "2px 6px", borderRadius: 4,
+                                                  background: isPaid ? "#fecaca" : isLocked ? "#e5e7eb" : "#dcfce7",
+                                                  color: isPaid ? "#991b1b" : isLocked ? "#4b5563" : "#166534",
+                                                  fontSize: 10,
+                                                }}>
+                                                  {targetInv.invoiceNo ?? "Draft"}
+                                                </span>
+                                              ) : (
+                                                <span style={{ color: "#9ca3af" }}>—</span>
+                                              )}
+                                            </td>
+                                            <td style={{ padding: "3px 6px", color: textColor }}>{li?.description ?? "—"}</td>
+                                            <td style={{ padding: "3px 6px", textAlign: "right", color: textColor }}>{formatMoney(cost)}</td>
+                                            <td style={{ padding: "3px 6px", textAlign: "right", color: isPaid ? "#991b1b" : "#16a34a" }}>{gmPct.toFixed(1)}%</td>
+                                            <td style={{ padding: "3px 6px", textAlign: "right", fontWeight: 600, color: textColor }}>{formatMoney(billable)}</td>
+                                          </tr>
+                                        );
+                                      })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      });
+                    })()}
                   </div>
                 </div>
                 )}
