@@ -51,10 +51,17 @@ export function FleetOnboardScreen({ onBack, onFleetCreated }: Props) {
   }, []);
 
   const captureSerial = useCallback(async () => {
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ["images"],
-      quality: 0.9,
-    });
+    let result: ImagePicker.ImagePickerResult;
+    try {
+      result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"],
+        quality: 0.9,
+      });
+    } catch (err: any) {
+      console.warn("[FleetOnboard] Camera error:", err?.message);
+      Alert.alert("Camera Error", "Could not open camera. Check permissions and try again.");
+      return;
+    }
 
     if (result.canceled || !result.assets?.length) return;
     const photo = result.assets[0]!;
@@ -124,6 +131,7 @@ export function FleetOnboardScreen({ onBack, onFleetCreated }: Props) {
           templateAssetId: selectedTemplate.id,
           serialNumbers: serials.map((s) => s.serial),
         }),
+        _skipRetry: true, // Prevent auto-retry — fleet creation is not idempotent
       });
 
       Alert.alert(

@@ -81,6 +81,7 @@ function uploadOriginalsInBackground(
 export function TagReadScreen({ onBack, onAssetCreated }: Props) {
   const [photos, setPhotos] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
 
   // Editable fields (populated from AI extraction)
@@ -193,28 +194,36 @@ export function TagReadScreen({ onBack, onAssetCreated }: Props) {
   }, [refreshDrafts]);
 
   const takePhoto = useCallback(async () => {
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ["images"],
-      quality: 0.9,
-      allowsMultipleSelection: true,
-      selectionLimit: 4 - photos.length,
-    });
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"],
+        quality: 0.9,
+      });
 
-    if (!result.canceled && result.assets?.length) {
-      setPhotos((prev) => [...prev, ...result.assets!].slice(0, 4));
+      if (!result.canceled && result.assets?.length) {
+        setPhotos((prev) => [...prev, ...result.assets!].slice(0, 4));
+      }
+    } catch (err: any) {
+      console.warn("[TagRead] Camera error:", err?.message);
+      Alert.alert("Camera Error", "Could not open camera. Check permissions and try again.");
     }
   }, [photos.length]);
 
   const pickFromLibrary = useCallback(async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      quality: 0.9,
-      allowsMultipleSelection: true,
-      selectionLimit: 4 - photos.length,
-    });
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        quality: 0.9,
+        allowsMultipleSelection: true,
+        selectionLimit: 4 - photos.length,
+      });
 
-    if (!result.canceled && result.assets?.length) {
-      setPhotos((prev) => [...prev, ...result.assets!].slice(0, 4));
+      if (!result.canceled && result.assets?.length) {
+        setPhotos((prev) => [...prev, ...result.assets!].slice(0, 4));
+      }
+    } catch (err: any) {
+      console.warn("[TagRead] Library error:", err?.message);
+      Alert.alert("Library Error", "Could not open photo library. Check permissions and try again.");
     }
   }, [photos.length]);
 
@@ -229,20 +238,25 @@ export function TagReadScreen({ onBack, onAssetCreated }: Props) {
     }
 
     setUploading(true);
+    setUploadStatus(`Compressing ${photos.length} photo${photos.length !== 1 ? "s" : ""}…`);
     try {
-      // Compress photos for fast AI analysis (800px, quality 0.6)
+      // Compress photos in parallel for fast AI analysis (800px, quality 0.6)
       // Originals stay on-device until user verifies the extraction
-      const formData = new FormData();
-      for (const photo of photos) {
-        const compressed = await compressImage(photo.uri, "high");
-        const filename = compressed.uri.split("/").pop() || "tag.jpg";
+      const compressed = await Promise.all(
+        photos.map((photo) => compressImage(photo.uri, "high")),
+      );
 
+      const formData = new FormData();
+      for (const c of compressed) {
+        const filename = c.uri.split("/").pop() || "tag.jpg";
         formData.append("photos", {
-          uri: Platform.OS === "ios" ? compressed.uri.replace("file://", "") : compressed.uri,
+          uri: Platform.OS === "ios" ? c.uri.replace("file://", "") : c.uri,
           name: filename,
           type: "image/jpeg",
         } as any);
       }
+
+      setUploadStatus("Uploading & analyzing with AI…");
 
       // 120s timeout — compressed images are small but GPT-4o still needs time
       const controller = new AbortController();
@@ -282,6 +296,7 @@ export function TagReadScreen({ onBack, onAssetCreated }: Props) {
       Alert.alert("Scan Failed", msg);
     } finally {
       setUploading(false);
+      setUploadStatus(null);
     }
   };
 
@@ -437,7 +452,12 @@ export function TagReadScreen({ onBack, onAssetCreated }: Props) {
             disabled={!photos.length || uploading}
           >
             {uploading ? (
-              <ActivityIndicator color="#fff" />
+              <View style={{ alignItems: "center" }}>
+                <ActivityIndicator color="#fff" />
+                {uploadStatus && (
+                  <Text style={{ color: "#94A3B8", fontSize: 12, marginTop: 6 }}>{uploadStatus}</Text>
+                )}
+              </View>
             ) : (
               <Text style={styles.primaryBtnText}>Analyze Tag with AI</Text>
             )}

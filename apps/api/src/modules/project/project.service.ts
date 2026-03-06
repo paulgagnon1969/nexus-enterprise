@@ -1462,8 +1462,27 @@ export class ProjectService {
       throw new NotFoundException('File not found');
     }
 
+    // storageUrl may be a gs://bucket/key URI or a full HTTPS public URL.
+    // downloadToTmp() requires a gs:// URI, so convert HTTP URLs back.
+    let storageUri = file.storageUrl;
+    if (!storageUri.match(/^(?:gs|s3):\/\//)) {
+      try {
+        const parsed = new URL(storageUri);
+        let pathStr = parsed.pathname;
+        // Strip /files/ prefix if the public URL is routed through the API
+        if (pathStr.startsWith('/files/')) {
+          pathStr = pathStr.substring(7);
+        } else {
+          pathStr = pathStr.replace(/^\/+/, '');
+        }
+        storageUri = `gs://${pathStr}`;
+      } catch {
+        throw new NotFoundException('File storage location is invalid');
+      }
+    }
+
     const fsPromises = await import('fs/promises');
-    const localPath = await this.storage.downloadToTmp(file.storageUrl);
+    const localPath = await this.storage.downloadToTmp(storageUri);
     const buffer = await fsPromises.readFile(localPath);
     await fsPromises.unlink(localPath).catch(() => {});
 
