@@ -503,6 +503,10 @@ export default function FinancialPage() {
   // Duplicate expense scan
   const [dupScanLoading, setDupScanLoading] = useState(false);
   const [dupScanResults, setDupScanResults] = useState<{ scannedBills: number; lookbackDays: number; duplicateGroups: Array<{ id: string; type: string; confidence: number; reason: string; bills: Array<{ billId: string; projectId: string; projectName: string; vendorName: string; amount: number; date: string; status: string }> }>; total: number } | null>(null);
+  // Duplicate comparison modal
+  const [dupCompareOpen, setDupCompareOpen] = useState(false);
+  const [dupCompareLoading, setDupCompareLoading] = useState(false);
+  const [dupCompareBills, setDupCompareBills] = useState<Array<any>>([]);
 
   // Category override modal
   const [categoryModalTxn, setCategoryModalTxn] = useState<UnifiedTransactionDto | null>(null);
@@ -916,6 +920,27 @@ export default function FinancialPage() {
         setBankProjects(items);
       }
     } catch {}
+  }
+
+  async function openDupCompare(billIds: string[]) {
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("accessToken") : null;
+    if (!token) return;
+    setDupCompareOpen(true);
+    setDupCompareLoading(true);
+    setDupCompareBills([]);
+    try {
+      const res = await fetch(`${API_BASE}/banking/duplicate-expenses/compare?billIds=${billIds.join(",")}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`Failed (${res.status})`);
+      const json = await res.json();
+      setDupCompareBills(json.bills ?? []);
+    } catch (err: any) {
+      setBankError(err?.message ?? "Failed to load bill details");
+      setDupCompareOpen(false);
+    } finally {
+      setDupCompareLoading(false);
+    }
   }
 
   async function scanDuplicateExpenses() {
@@ -4441,7 +4466,7 @@ export default function FinancialPage() {
                     </span>
                     <span style={{ fontSize: 11, color: "#6b7280" }}>{group.reason}</span>
                   </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
                     {group.bills.map(bill => (
                       <div key={bill.billId} style={{
                         flex: "1 1 200px", padding: "8px 10px", borderRadius: 6, border: "1px solid #e5e7eb", background: "#fff", fontSize: 11,
@@ -4451,6 +4476,16 @@ export default function FinancialPage() {
                         <div style={{ color: "#6b7280" }}>{bill.date} · {bill.status}</div>
                       </div>
                     ))}
+                    <button
+                      type="button"
+                      onClick={() => openDupCompare(group.bills.map(b => b.billId))}
+                      style={{
+                        padding: "6px 14px", borderRadius: 6, border: "1px solid #4338ca", background: "#4338ca",
+                        color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+                      }}
+                    >
+                      Compare Side-by-Side
+                    </button>
                   </div>
                 </div>
               ))}
@@ -4933,6 +4968,134 @@ export default function FinancialPage() {
                     {categorySaving ? "Saving…" : "Save"}
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Duplicate Comparison Modal */}
+          {dupCompareOpen && (
+            <div style={{
+              position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 9999,
+              display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+            }}>
+              <div style={{
+                background: "#fff", borderRadius: 12, width: "100%", maxWidth: 1000, maxHeight: "90vh",
+                overflow: "auto", boxShadow: "0 8px 30px rgba(0,0,0,0.25)",
+              }}>
+                {/* Header */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid #e5e7eb", position: "sticky", top: 0, background: "#fff", zIndex: 1 }}>
+                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Duplicate Expense Comparison</h3>
+                  <button type="button" onClick={() => setDupCompareOpen(false)} style={{ border: "none", background: "none", cursor: "pointer", fontSize: 20, color: "#6b7280", lineHeight: 1 }}>✕</button>
+                </div>
+
+                {dupCompareLoading && (
+                  <div style={{ padding: 40, textAlign: "center", color: "#6b7280" }}>Loading bill details…</div>
+                )}
+
+                {!dupCompareLoading && dupCompareBills.length > 0 && (
+                  <div style={{ display: "grid", gridTemplateColumns: `repeat(${dupCompareBills.length}, 1fr)`, gap: 0 }}>
+                    {dupCompareBills.map((bill: any, idx: number) => (
+                      <div key={bill.id} style={{ padding: "16px 20px", borderRight: idx < dupCompareBills.length - 1 ? "1px solid #e5e7eb" : undefined }}>
+                        {/* Project header */}
+                        <div style={{ padding: "8px 12px", borderRadius: 8, background: "#eef2ff", marginBottom: 12 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: "#1e40af" }}>{bill.projectName}</div>
+                          <div style={{ fontSize: 11, color: "#6b7280" }}>Bill {bill.id.slice(-8)}</div>
+                        </div>
+
+                        {/* Bill details */}
+                        <div style={{ fontSize: 12, marginBottom: 16 }}>
+                          {[
+                            { label: "Vendor", value: bill.vendorName },
+                            { label: "Amount", value: `$${Math.abs(bill.totalAmount).toFixed(2)}` },
+                            { label: "Date", value: new Date(bill.billDate).toLocaleDateString() },
+                            { label: "Status", value: bill.status },
+                            { label: "Role", value: bill.billRole },
+                            { label: "Billable", value: bill.isBillable ? `Yes (${bill.markupPercent}% markup → $${bill.billableAmount.toFixed(2)})` : "No" },
+                            { label: "Source Txn", value: bill.sourceTransactionId ? `${bill.sourceTransactionSource} •••${bill.sourceTransactionId.slice(-6)}` : "—" },
+                            { label: "Created By", value: bill.createdBy?.name ?? "—" },
+                            { label: "Created", value: new Date(bill.createdAt).toLocaleString() },
+                            { label: "Memo", value: bill.memo || "—" },
+                          ].map(row => (
+                            <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid #f3f4f6" }}>
+                              <span style={{ color: "#6b7280", fontWeight: 600 }}>{row.label}</span>
+                              <span style={{ textAlign: "right", maxWidth: "60%" }}>{row.value}</span>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Line items */}
+                        <div style={{ marginBottom: 16 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: "#374151" }}>Line Items</div>
+                          {bill.lineItems.length === 0 ? (
+                            <div style={{ fontSize: 11, color: "#9ca3af" }}>No line items</div>
+                          ) : bill.lineItems.map((li: any) => (
+                            <div key={li.id} style={{ padding: "6px 8px", borderRadius: 6, background: "#f9fafb", marginBottom: 4, fontSize: 11 }}>
+                              <div style={{ fontWeight: 600 }}>{li.kind}</div>
+                              <div>{li.description}</div>
+                              <div style={{ color: "#059669", fontWeight: 600 }}>${Math.abs(li.amount).toFixed(2)}</div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Attachments / receipt images */}
+                        <div style={{ marginBottom: 16 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: "#374151" }}>Attachments</div>
+                          {bill.attachments.length === 0 ? (
+                            <div style={{ fontSize: 11, color: "#9ca3af" }}>No attachments</div>
+                          ) : bill.attachments.map((att: any) => (
+                            <div key={att.id} style={{ marginBottom: 8 }}>
+                              {att.mimeType?.startsWith("image/") ? (
+                                <a href={att.fileUrl} target="_blank" rel="noopener noreferrer">
+                                  <img src={att.fileUrl} alt={att.fileName || "Receipt"} style={{ width: "100%", maxHeight: 300, objectFit: "contain", borderRadius: 6, border: "1px solid #e5e7eb" }} />
+                                </a>
+                              ) : (
+                                <a href={att.fileUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "#2563eb" }}>
+                                  {att.fileName || "Attachment"}
+                                </a>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* OCR data */}
+                        {bill.ocr && (
+                          <div style={{ marginBottom: 16 }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: "#374151" }}>OCR Receipt Data</div>
+                            <div style={{ padding: "8px 10px", borderRadius: 6, background: "#f0fdf4", border: "1px solid #bbf7d0", fontSize: 11 }}>
+                              {[
+                                { label: "Vendor", value: bill.ocr.vendorName },
+                                { label: "Store #", value: bill.ocr.vendorStoreNumber },
+                                { label: "Address", value: bill.ocr.vendorAddress },
+                                { label: "Receipt Date", value: bill.ocr.receiptDate ? new Date(bill.ocr.receiptDate).toLocaleDateString() : null },
+                                { label: "Subtotal", value: bill.ocr.subtotal != null ? `$${Number(bill.ocr.subtotal).toFixed(2)}` : null },
+                                { label: "Tax", value: bill.ocr.taxAmount != null ? `$${Number(bill.ocr.taxAmount).toFixed(2)}` : null },
+                                { label: "Total", value: bill.ocr.totalAmount != null ? `$${Number(bill.ocr.totalAmount).toFixed(2)}` : null },
+                                { label: "Payment", value: bill.ocr.paymentMethod },
+                                { label: "Confidence", value: bill.ocr.confidence != null ? `${(bill.ocr.confidence * 100).toFixed(0)}%` : null },
+                              ].filter(r => r.value).map(row => (
+                                <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
+                                  <span style={{ color: "#166534", fontWeight: 600 }}>{row.label}</span>
+                                  <span>{row.value}</span>
+                                </div>
+                              ))}
+                              {bill.ocr.lineItems && bill.ocr.lineItems.length > 0 && (
+                                <div style={{ marginTop: 6, borderTop: "1px solid #bbf7d0", paddingTop: 6 }}>
+                                  <div style={{ fontWeight: 600, color: "#166534", marginBottom: 4 }}>Receipt Items</div>
+                                  {bill.ocr.lineItems.map((item: any, i: number) => (
+                                    <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", fontSize: 10 }}>
+                                      <span>{item.description || item.sku || `Item ${i + 1}`}{item.qty && item.qty !== 1 ? ` ×${item.qty}` : ""}</span>
+                                      <span style={{ fontWeight: 600 }}>${Number(item.amount ?? 0).toFixed(2)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}

@@ -501,6 +501,91 @@ export class DuplicateBillDetectorService {
   }
 
   // ═══════════════════════════════════════════════════════════════════
+  // Compare bills side-by-side
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Fetch full bill details for a set of bill IDs — used for the
+   * side-by-side duplicate comparison viewer. Returns bills with
+   * line items, attachments, OCR results, and project context.
+   */
+  async compareBills(companyId: string, billIds: string[]) {
+    const bills = await this.prisma.projectBill.findMany({
+      where: { id: { in: billIds }, companyId },
+      include: {
+        project: { select: { id: true, name: true } },
+        lineItems: { orderBy: { createdAt: "asc" } },
+        attachments: { orderBy: { createdAt: "asc" } },
+        ocrResult: true,
+        createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+        siblingGroup: {
+          select: {
+            id: true,
+            primaryBillId: true,
+            matchConfidence: true,
+            verificationStatus: true,
+            amountVariance: true,
+          },
+        },
+      },
+      orderBy: { billDate: "desc" },
+    });
+
+    return {
+      bills: bills.map((b) => ({
+        id: b.id,
+        projectId: b.projectId,
+        projectName: (b as any).project?.name ?? "Unknown",
+        vendorName: b.vendorName,
+        billNumber: b.billNumber,
+        billDate: b.billDate,
+        dueAt: b.dueAt,
+        status: b.status,
+        memo: b.memo,
+        totalAmount: b.totalAmount,
+        isBillable: b.isBillable,
+        markupPercent: b.markupPercent,
+        billableAmount: b.billableAmount,
+        billRole: b.billRole,
+        sourceTransactionId: b.sourceTransactionId,
+        sourceTransactionSource: b.sourceTransactionSource,
+        createdBy: b.createdBy
+          ? { name: [b.createdBy.firstName, b.createdBy.lastName].filter(Boolean).join(" ") || b.createdBy.email, email: b.createdBy.email }
+          : null,
+        createdAt: b.createdAt,
+        lineItems: b.lineItems.map((li) => ({
+          id: li.id,
+          kind: li.kind,
+          description: li.description,
+          amount: li.amount,
+          amountSource: li.amountSource,
+        })),
+        attachments: b.attachments.map((a) => ({
+          id: a.id,
+          fileUrl: a.fileUrl,
+          fileName: a.fileName,
+          mimeType: a.mimeType,
+        })),
+        ocr: b.ocrResult
+          ? {
+              vendorName: b.ocrResult.vendorName,
+              vendorStoreNumber: b.ocrResult.vendorStoreNumber,
+              vendorAddress: b.ocrResult.vendorAddress,
+              receiptDate: b.ocrResult.receiptDate,
+              subtotal: b.ocrResult.subtotal,
+              taxAmount: b.ocrResult.taxAmount,
+              totalAmount: b.ocrResult.totalAmount,
+              paymentMethod: b.ocrResult.paymentMethod,
+              lineItems: b.ocrResult.lineItemsJson ? JSON.parse(b.ocrResult.lineItemsJson) : null,
+              confidence: b.ocrResult.confidence,
+            }
+          : null,
+        siblingGroup: b.siblingGroup,
+      })),
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
   // Retroactive swap — OCR receipt arrives after CC tentative bill
   // ═══════════════════════════════════════════════════════════════════
 

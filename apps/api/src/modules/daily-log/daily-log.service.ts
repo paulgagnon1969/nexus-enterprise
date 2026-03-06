@@ -799,10 +799,11 @@ export class DailyLogService {
       },
     });
 
-    // Auto-trigger OCR for image attachments on any log type (PUDL, JSA, etc.)
-    const isImage = payload.mimeType?.startsWith('image/') || 
-      payload.fileUrl?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/);
-    if (isImage) {
+    // Auto-trigger OCR for image and PDF attachments on any log type (PUDL, JSA, etc.)
+    const isOcrEligible = payload.mimeType?.startsWith('image/') ||
+      payload.mimeType === 'application/pdf' ||
+      payload.fileUrl?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|pdf)$/);
+    if (isOcrEligible) {
       try {
         // Create a temporary ProjectFile record for OCR
         const projectFile = await this.prisma.projectFile.create({
@@ -863,11 +864,12 @@ export class DailyLogService {
     const results: { attachmentId: string; status: string; error?: string }[] = [];
 
     for (const attachment of log.attachments) {
-      const isImage = attachment.mimeType?.startsWith('image/') ||
-        attachment.fileUrl?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp)$/);
+      const isOcrEligible = attachment.mimeType?.startsWith('image/') ||
+        attachment.mimeType === 'application/pdf' ||
+        attachment.fileUrl?.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|pdf)$/);
 
-      if (!isImage) {
-        results.push({ attachmentId: attachment.id, status: 'skipped', error: 'Not an image' });
+      if (!isOcrEligible) {
+        results.push({ attachmentId: attachment.id, status: 'skipped', error: 'Not an image or PDF' });
         continue;
       }
 

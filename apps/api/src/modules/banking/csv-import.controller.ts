@@ -473,4 +473,15 @@ export class CsvImportController {
       { lookbackDays: lookbackDays ? parseInt(lookbackDays, 10) : undefined },
     );
   }
+
+  @Get("duplicate-expenses/compare")
+  async compareDuplicateBills(
+    @Req() req: any,
+    @Query("billIds") billIds: string,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    const ids = billIds?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
+    if (ids.length === 0) throw new BadRequestException("billIds is required (comma-separated).");
+    return this.duplicateDetector.compareBills(actor.companyId, ids);
+  }
 }

@@ -28150,7 +28150,9 @@ onClick={() => setManageTemplatesOpen(true)}
                                       }
                                     }
                                   }
-                                } catch {}
+                              } catch (ocrErr: any) {
+                                console.error(`OCR failed for ${imgFile.fileName}:`, ocrErr);
+                              }
                               }
 
                               if (ocrSuccessCount > 0) {

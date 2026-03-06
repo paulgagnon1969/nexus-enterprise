@@ -50,12 +50,13 @@ Rules:
 
 Home Depot receipt format:
 - "MAX REFUND VALUE $X.XX" lines appear after each item — these are store policy info, NOT line items. IGNORE them entirely.
-- "RECALL AMOUNT" is NOT a return — it is the item subtotal. Treat as a normal positive amount.
+- "RECALL AMOUNT" lines are store policy info showing the theoretical refund value. They are NEVER a line item. IGNORE them entirely — do NOT include them in line_items.
 - Quantity format: "N@price" means N units at $price each (e.g. "10@12.68" = 10 × $12.68). Use the multiplied total as the line item amount.
 - "<A>" and "<M>" after item names are store tags (e.g. Military Appreciation). Ignore them.
 - Trailing "N" after an amount (e.g. "13.26N") means non-taxable — ignore the "N", use the number.
 - The 4-digit number in the header (e.g. "6989") is the store number. "Home Depot" is the vendor name even if not explicitly printed.
 - Military Discount is a REAL line item with a negative amount.
+- Order pickup receipts (with "ORDER ID" and "KEYTAG#") may only show RECALL AMOUNT + SUBTOTAL/TAX/TOTAL — use SUBTOTAL as a single "Order Pickup" line item, NOT the RECALL AMOUNT.
 
 - SELF-CHECK: Before returning, verify: (1) line items sum to total_amount, (2) no duplicate items, (3) total_amount matches what the receipt says after "TOTAL", (4) every barcode line in the receipt has a corresponding line item.
 - SKU: Look for item/product codes (10-13 digit numbers) next to each line item
@@ -513,11 +514,12 @@ Rules:
 
 Home Depot receipt format:
 - "MAX REFUND VALUE $X.XX" lines appear after each item — these are store policy info, NOT line items. IGNORE them entirely.
-- "RECALL AMOUNT" is NOT a return — it is the item subtotal. Treat as a normal positive amount.
+- "RECALL AMOUNT" lines are store policy info showing the theoretical refund value. They are NEVER a line item. IGNORE them entirely — do NOT include them in line_items.
 - Quantity format: "N@price" means N units at $price each (e.g. "10@12.68" = 10 × $12.68, "2@28.86" = 2 × $28.86). Use the multiplied total as the line item amount and set quantity/unit_price accordingly.
 - "<A>" and "<M>" after item names are store tags — ignore them when extracting the product description.
 - Trailing "N" after an amount (e.g. "13.26N") means non-taxable — ignore the "N", use the number.
 - Military Discount is a REAL line item with a negative amount.
+- Order pickup receipts (with "ORDER ID" and "KEYTAG#") may only show RECALL AMOUNT + SUBTOTAL/TAX/TOTAL — use SUBTOTAL as a single "Order Pickup" line item, NOT the RECALL AMOUNT.
 
 - Date must be ISO format YYYY-MM-DD. If year is 2-digit (e.g. 02/15/26), assume 2026.
 - SELF-CHECK: Before returning, verify: (1) line items sum to total_amount, (2) every barcode line has a corresponding line item, (3) total_amount matches the TOTAL line on the receipt.
