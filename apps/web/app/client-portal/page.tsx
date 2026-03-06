@@ -194,9 +194,9 @@ export default function ClientPortalPage() {
                     display: "flex", alignItems: "center", justifyContent: "center",
                     fontSize: 13, fontWeight: 700, color: "#fff", flexShrink: 0,
                   }}>
-                    {g.companyName.charAt(0).toUpperCase()}
+                    {(g.companyName || "?").charAt(0).toUpperCase()}
                   </div>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: "#cbd5e1" }}>{g.companyName}</span>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: "#cbd5e1" }}>{g.companyName || "Unknown"}</span>
                   <span style={{ fontSize: 12, color: "#475569" }}>• {g.projects.length} project{g.projects.length !== 1 ? "s" : ""}</span>
                 </div>
 

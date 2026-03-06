@@ -1117,7 +1117,18 @@ export class ProjectService {
       });
     }
 
-    return Array.from(byCompany.values());
+    return Array.from(byCompany.entries()).map(([companyId, group]) => ({
+      companyId,
+      companyName: group.company.name,
+      projects: group.projects.map((p) => ({
+        id: p.id,
+        name: p.name,
+        status: p.status,
+        address: [p.addressLine1, p.city, p.state].filter(Boolean).join(', ') || null,
+        role: p.collaborationRole ?? 'VIEWER',
+        source: group.source,
+      })),
+    }));
   }
 
   /**
