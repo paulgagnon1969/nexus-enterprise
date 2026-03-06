@@ -15558,6 +15558,50 @@ ${htmlBody}
             </div>
           </div>
 
+          {/* === Client Portal Preview === */}
+          <div style={{ marginBottom: 12 }}>
+            <div
+              style={{
+                borderRadius: 8,
+                border: "1px solid #c7d2fe",
+                background: "linear-gradient(135deg, #eef2ff 0%, #f0f9ff 100%)",
+                padding: "16px 20px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 16,
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#1e40af" }}>
+                  View Client Portal
+                </div>
+                <div style={{ fontSize: 12, color: "#4b5563", marginTop: 2 }}>
+                  See what the client sees — project status, schedule, invoices, files, and daily logs.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  window.open(`/client-portal/projects/${project.id}`, "_blank");
+                }}
+                style={{
+                  padding: "8px 18px",
+                  borderRadius: 6,
+                  border: "1px solid #3b82f6",
+                  background: "#2563eb",
+                  color: "#ffffff",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Open Portal →
+              </button>
+            </div>
+          </div>
+
           {/* === ROW 3: Schedule / Gantt === */}
           <ScheduleSection
             projectId={project.id}
