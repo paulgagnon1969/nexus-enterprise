@@ -488,6 +488,9 @@ export default function FinancialPage() {
   const [bankSelectedIds, setBankSelectedIds] = useState<Set<string>>(new Set());
   const [bankBulkProjectId, setBankBulkProjectId] = useState<string>("");
 
+  // HD receipt group expansion tracking
+  const [expandedHdReceiptGroups, setExpandedHdReceiptGroups] = useState<Set<string>>(new Set());
+
   // Prescreen rerun
   const [prescreenRunning, setPrescreenRunning] = useState(false);
   const [prescreenResult, setPrescreenResult] = useState<string | null>(null);
@@ -4602,7 +4605,29 @@ export default function FinancialPage() {
                       : "No transactions found."}
                   </td></tr>
                 )}
-                {!bankLoading && bankTransactions.map(txn => {
+                {!bankLoading && (() => {
+                  // Pre-compute HD receipt groups for header rows
+                  const hdGroupMap = new Map<string, { txns: any[]; total: number }>();
+                  const txnGroupKey = new Map<string, string>(); // txnId -> groupKey
+                  const txnLineIdx = new Map<string, number>(); // txnId -> line index within group
+                  for (const txn of bankTransactions) {
+                    const gk = txn.source === "HD_PRO_XTRA" ? (txn.extra?.receiptGroupKey ?? null) : null;
+                    if (gk) {
+                      if (!hdGroupMap.has(gk)) hdGroupMap.set(gk, { txns: [], total: 0 });
+                      const g = hdGroupMap.get(gk)!;
+                      g.txns.push(txn);
+                      g.total += txn.amount;
+                      txnGroupKey.set(txn.id, gk);
+                    }
+                  }
+                  // Assign line indices for multi-item groups
+                  for (const [, g] of hdGroupMap) {
+                    if (g.txns.length < 2) continue;
+                    g.txns.forEach((t: any, i: number) => txnLineIdx.set(t.id, i + 1));
+                  }
+                  const renderedGroupHeaders = new Set<string>();
+
+                  return bankTransactions.map(txn => {
                   const srcBadge: Record<string, { label: string; bg: string; color: string }> = {
                     PLAID: { label: txn.extra?.institutionName ?? "Bank", bg: "#dbeafe", color: "#1d4ed8" },
                     HD_PRO_XTRA: { label: "HD", bg: "#ffedd5", color: "#c2410c" },
@@ -4616,7 +4641,84 @@ export default function FinancialPage() {
                     : (txn.extra?.storeNumber ? `#${txn.extra.storeNumber}` : null);
                   const merchantOrJob = txn.extra?.jobName || txn.merchant || "—";
                   const isSelected = bankSelectedIds.has(txn.id);
-                  return (
+
+                  // Receipt group header for multi-item HD receipts
+                  const gk = txnGroupKey.get(txn.id);
+                  const group = gk ? hdGroupMap.get(gk) : null;
+                  const isMultiItemGroup = group && group.txns.length > 1;
+                  const showGroupHeader = isMultiItemGroup && gk && !renderedGroupHeaders.has(gk);
+                  if (showGroupHeader && gk) renderedGroupHeaders.add(gk);
+                  const isGroupExpanded = gk ? expandedHdReceiptGroups.has(gk) : true;
+                  const lineIdx = txnLineIdx.get(txn.id);
+
+                  // For collapsed multi-item groups, skip individual rows (header handles it)
+                  if (isMultiItemGroup && !showGroupHeader && !isGroupExpanded) return null;
+
+                  const rows: React.ReactNode[] = [];
+
+                  // Insert group header row
+                  if (showGroupHeader && gk && group) {
+                    const allSelected = group.txns.every((t: any) => bankSelectedIds.has(t.id));
+                    rows.push(
+                      <tr
+                        key={`hd-grp-${gk}`}
+                        style={{
+                          borderTop: "2px solid #f97316",
+                          background: isGroupExpanded ? "#fff7ed" : "#fffbeb",
+                          cursor: "pointer",
+                        }}
+                        onClick={() => {
+                          setExpandedHdReceiptGroups(prev => {
+                            const next = new Set(prev);
+                            if (next.has(gk)) next.delete(gk); else next.add(gk);
+                            return next;
+                          });
+                        }}
+                      >
+                        <td style={{ padding: "8px 6px", textAlign: "center" }} onClick={e => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={allSelected}
+                            onChange={() => {
+                              setBankSelectedIds(prev => {
+                                const next = new Set(prev);
+                                if (allSelected) {
+                                  group.txns.forEach((t: any) => next.delete(t.id));
+                                } else {
+                                  group.txns.forEach((t: any) => next.add(t.id));
+                                }
+                                return next;
+                              });
+                            }}
+                          />
+                        </td>
+                        <td style={{ padding: "8px 10px", whiteSpace: "nowrap", fontWeight: 600 }}>
+                          {new Date(txn.date).toLocaleDateString()}
+                        </td>
+                        <td style={{ padding: "8px 10px" }}>
+                          <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 700, background: "#ffedd5", color: "#c2410c" }}>
+                            HD
+                          </span>
+                        </td>
+                        <td style={{ padding: "8px 10px", whiteSpace: "nowrap", fontSize: 11, color: "#9ca3af" }}>
+                          {acctStore ?? "—"}
+                        </td>
+                        <td colSpan={3} style={{ padding: "8px 10px", fontWeight: 600, fontSize: 12 }}>
+                          <span style={{ marginRight: 6 }}>{isGroupExpanded ? "▼" : "▶"}</span>
+                          HD Receipt — {merchantOrJob} — {group.txns.length} items
+                        </td>
+                        <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, whiteSpace: "nowrap", color: group.total < 0 ? "#22c55e" : "#ef4444" }}>
+                          {group.total < 0 ? "+" : "-"}${Math.abs(group.total).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td colSpan={5} />
+                      </tr>
+                    );
+                  }
+
+                  // Skip individual row if group is collapsed
+                  if (isMultiItemGroup && !isGroupExpanded) return rows.length > 0 ? <>{rows}</> : null;
+
+                  rows.push(
                     <tr key={txn.id} style={{ borderTop: "1px solid #e5e7eb", background: isSelected ? "#eef2ff" : undefined }}>
                       <td style={{ padding: "8px 6px", textAlign: "center" }}>
                         <input
@@ -4645,6 +4747,9 @@ export default function FinancialPage() {
                       <td style={{ padding: "8px 10px", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                         title={txn.extra?.sku ? `SKU: ${txn.extra.sku}` : undefined}
                       >
+                        {lineIdx != null && (
+                          <span style={{ fontSize: 9, fontWeight: 700, color: "#9ca3af", marginRight: 4 }}>L{lineIdx}</span>
+                        )}
                         {txn.description}
                       </td>
                       <td style={{ padding: "8px 10px", color: "#374151", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
@@ -4813,7 +4918,10 @@ export default function FinancialPage() {
                       </td>
                     </tr>
                   );
-                })}
+
+                  return rows.length > 0 ? <>{rows}</> : null;
+                  });
+                })()}
               </tbody>
             </table>
           </div>

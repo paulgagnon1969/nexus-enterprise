@@ -821,6 +821,12 @@ export class CsvImportService {
 
       totalImported = importedCount;
       for (const t of importedRows) {
+        // Receipt group key: clusters line items from the same physical receipt.
+        // Uses transactionRef when available, falls back to date+source+merchant+job+store.
+        const dateKey = t.date.toISOString().slice(0, 10);
+        const receiptGroupKey = t.transactionRef
+          ? `${dateKey}|${t.source}|${t.transactionRef}`
+          : `${dateKey}|${t.source}|${(t.merchant ?? "").toLowerCase()}|${(t.jobName ?? t.jobNameRaw ?? "").toLowerCase()}|${t.storeNumber ?? ""}`;
         results.push({
           id: t.id,
           source: t.source,
@@ -851,6 +857,7 @@ export class CsvImportService {
             cardCategory: t.cardCategory,
             cardHolder: t.cardHolder,
             batchId: t.batchId,
+            receiptGroupKey,
             // Prescreening metadata
             prescreenProjectId: t.prescreenProjectId,
             prescreenConfidence: t.prescreenConfidence,

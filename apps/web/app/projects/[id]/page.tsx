@@ -1717,6 +1717,9 @@ export default function ProjectDetailPage({
   const [billsMessage, setBillsMessage] = useState<string | null>(null);
   const [billsCollapsed, setBillsCollapsed] = useState(false);
 
+  // Expanded receipt groups in the prescreened TENTATIVE bills section
+  const [expandedReceiptGroups, setExpandedReceiptGroups] = useState<Set<string>>(new Set());
+
   // Bills table sort
   type BillsSortField = "vendor" | "date" | "amount" | "billable";
   const [billsSortField, setBillsSortField] = useState<BillsSortField>("date");
@@ -18115,13 +18118,36 @@ ${htmlBody}
                   </div>
                 )}
 
-                {/* Pending Prescreened Transactions — TENTATIVE bills from smart prescreen */}
+                {/* Pending Prescreened Transactions — TENTATIVE bills grouped by receipt */}
                 {!projectBillsLoading && projectBills && (() => {
                   const tentativeBills = projectBills.filter(
                     (b: any) => b?.status === "TENTATIVE"
                   );
                   if (tentativeBills.length === 0) return null;
                   const highConfCount = tentativeBills.filter((b: any) => (b?.prescreenConfidence ?? 0) >= 0.7).length;
+
+                  // Group tentative bills by receipt: date + vendor + source
+                  const receiptGroupMap = new Map<string, any[]>();
+                  for (const b of tentativeBills) {
+                    const dateKey = b?.billDate ? String(b.billDate).slice(0, 10) : "no-date";
+                    const vendor = (b?.vendorName ?? "Unknown").toLowerCase();
+                    const src = b?.sourceTransactionSource ?? "UNKNOWN";
+                    const groupKey = `${dateKey}|${vendor}|${src}`;
+                    if (!receiptGroupMap.has(groupKey)) receiptGroupMap.set(groupKey, []);
+                    receiptGroupMap.get(groupKey)!.push(b);
+                  }
+
+                  // Sort groups by date desc, then vendor
+                  const sortedGroups = [...receiptGroupMap.entries()].sort((a, b) => {
+                    const [ka] = a;
+                    const [kb] = b;
+                    return kb.localeCompare(ka); // date desc since date is first in key
+                  });
+
+                  const srcLabel: Record<string, string> = {
+                    HD_PRO_XTRA: "HD", CHASE_BANK: "Chase", APPLE_CARD: "Apple", PLAID: "Bank",
+                  };
+
                   return (
                     <div
                       style={{
@@ -18134,7 +18160,7 @@ ${htmlBody}
                     >
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: "#1d4ed8" }}>
-                          🔍 Pending Prescreened Transactions ({tentativeBills.length})
+                          🔍 Pending Prescreened Transactions ({tentativeBills.length} items in {sortedGroups.length} receipt{sortedGroups.length !== 1 ? "s" : ""})
                         </div>
                         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                           {highConfCount > 0 && (
@@ -18166,117 +18192,222 @@ ${htmlBody}
                           </span>
                         </div>
                       </div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        {[...tentativeBills].sort((a: any, b: any) => {
-                          const va = (a?.vendorName ?? "").toLowerCase();
-                          const vb = (b?.vendorName ?? "").toLowerCase();
-                          if (va !== vb) return va.localeCompare(vb);
-                          return (Number(a?.totalAmount) || 0) - (Number(b?.totalAmount) || 0);
-                        }).map((b: any) => {
-                          const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
-                          const conf = typeof b?.prescreenConfidence === "number" ? b.prescreenConfidence : 0;
-                          const pct = Math.round(conf * 100);
-                          const chipStyle = conf >= 0.7
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        {sortedGroups.map(([groupKey, bills]) => {
+                          const isExpanded = expandedReceiptGroups.has(groupKey);
+                          const first = bills[0];
+                          const dateDisplay = first?.billDate ? new Date(String(first.billDate).slice(0, 10) + "T12:00:00").toLocaleDateString() : "Unknown date";
+                          const vendor = first?.vendorName ?? "Unknown Vendor";
+                          const src = first?.sourceTransactionSource ?? "";
+                          const groupTotal = bills.reduce((sum: number, b: any) => sum + (Number(b?.totalAmount) || 0), 0);
+                          const groupAvgConf = bills.reduce((sum: number, b: any) => sum + (Number(b?.prescreenConfidence) || 0), 0) / bills.length;
+                          const groupConfPct = Math.round(groupAvgConf * 100);
+                          const confStyle = groupAvgConf >= 0.7
                             ? { bg: "#dcfce7", color: "#166534", border: "#86efac" }
-                            : conf >= 0.5
+                            : groupAvgConf >= 0.5
                               ? { bg: "#fef9c3", color: "#854d0e", border: "#fde047" }
                               : { bg: "#ffedd5", color: "#9a3412", border: "#fdba74" };
-                          const srcLabel: Record<string, string> = {
-                            HD_PRO_XTRA: "HD", CHASE_BANK: "Chase", APPLE_CARD: "Apple", PLAID: "Bank",
-                          };
+
+                          // Sort line items by description for stable line numbers
+                          const sortedBills = [...bills].sort((a: any, b: any) =>
+                            (a?.lineItems?.[0]?.description ?? "").localeCompare(b?.lineItems?.[0]?.description ?? "")
+                          );
+
                           return (
-                            <div
-                              key={String(b?.id ?? Math.random())}
-                              style={{
-                                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
-                                padding: "6px 8px", borderRadius: 4, background: "#ffffff",
-                                border: "1px solid #e5e7eb",
-                              }}
-                            >
-                              {/* Confidence chip */}
-                              <span
-                                style={{ padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: chipStyle.bg, color: chipStyle.color, border: `1px solid ${chipStyle.border}`, whiteSpace: "nowrap" }}
-                                title={`Prescreened at ${pct}% confidence`}
+                            <div key={groupKey}>
+                              {/* Receipt group header */}
+                              <div
+                                onClick={() => {
+                                  setExpandedReceiptGroups(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(groupKey)) next.delete(groupKey); else next.add(groupKey);
+                                    return next;
+                                  });
+                                }}
+                                style={{
+                                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                                  padding: "7px 10px", borderRadius: 5, cursor: "pointer",
+                                  background: isExpanded ? "#dbeafe" : "#ffffff",
+                                  border: `1px solid ${isExpanded ? "#93c5fd" : "#e5e7eb"}`,
+                                  userSelect: "none",
+                                }}
                               >
-                                {pct}%
-                              </span>
-                              {/* Source badge */}
-                              {b?.sourceTransactionSource && (
-                                <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: "#f3f4f6", color: "#6b7280" }}>
-                                  {srcLabel[b.sourceTransactionSource] ?? b.sourceTransactionSource}
-                                </span>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <span style={{ fontSize: 11, color: "#6b7280", width: 14, textAlign: "center" }}>
+                                    {isExpanded ? "▼" : "▶"}
+                                  </span>
+                                  <span style={{ padding: "2px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600, background: confStyle.bg, color: confStyle.color, border: `1px solid ${confStyle.border}` }}>
+                                    ~{groupConfPct}%
+                                  </span>
+                                  {src && (
+                                    <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: "#f3f4f6", color: "#6b7280" }}>
+                                      {srcLabel[src] ?? src}
+                                    </span>
+                                  )}
+                                  <span style={{ fontWeight: 600, fontSize: 12 }}>{vendor}</span>
+                                  <span style={{ fontSize: 11, color: "#6b7280" }}>{dateDisplay}</span>
+                                  <span style={{ fontSize: 11, color: "#6b7280" }}>
+                                    · {bills.length} line{bills.length !== 1 ? "s" : ""}
+                                  </span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <span style={{ fontWeight: 600, fontSize: 13, color: "#1d4ed8" }}>
+                                    {formatMoney(groupTotal)}
+                                  </span>
+                                  {/* Group-level confirm all */}
+                                  <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      const token = localStorage.getItem("accessToken");
+                                      if (!token) return;
+                                      for (const b of bills) {
+                                        if (!b?.sourceTransactionId) continue;
+                                        try {
+                                          await fetch(`${API_BASE}/banking/transactions/${b.sourceTransactionId}/prescreen-accept`, {
+                                            method: "PATCH",
+                                            headers: { Authorization: `Bearer ${token}` },
+                                          });
+                                        } catch {}
+                                      }
+                                      setProjectBills(null);
+                                      setFinancialSummary(null);
+                                    }}
+                                    style={{
+                                      padding: "3px 8px", borderRadius: 4, border: "1px solid #16a34a",
+                                      background: "#dcfce7", color: "#166534", cursor: "pointer", fontSize: 10, fontWeight: 600,
+                                    }}
+                                    title="Confirm entire receipt"
+                                  >
+                                    ✓ Confirm Receipt
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      const token = localStorage.getItem("accessToken");
+                                      if (!token) return;
+                                      for (const b of bills) {
+                                        if (!b?.sourceTransactionId) continue;
+                                        try {
+                                          await fetch(`${API_BASE}/banking/transactions/${b.sourceTransactionId}/prescreen-reject`, {
+                                            method: "PATCH",
+                                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                                            body: JSON.stringify({ reason: "Rejected receipt group from project bills" }),
+                                          });
+                                        } catch {}
+                                      }
+                                      setProjectBills(null);
+                                      setFinancialSummary(null);
+                                    }}
+                                    style={{
+                                      padding: "3px 8px", borderRadius: 4, border: "1px solid #dc2626",
+                                      background: "#fef2f2", color: "#b91c1c", cursor: "pointer", fontSize: 10, fontWeight: 600,
+                                    }}
+                                    title="Reject entire receipt"
+                                  >
+                                    ✕ Reject Receipt
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Expanded line items */}
+                              {isExpanded && (
+                                <div style={{ marginLeft: 22, display: "flex", flexDirection: "column", gap: 3, marginTop: 3, marginBottom: 4 }}>
+                                  {sortedBills.map((b: any, lineIdx: number) => {
+                                    const li = Array.isArray(b?.lineItems) ? b.lineItems[0] : null;
+                                    const conf = typeof b?.prescreenConfidence === "number" ? b.prescreenConfidence : 0;
+                                    const pct = Math.round(conf * 100);
+                                    const chipStyle = conf >= 0.7
+                                      ? { bg: "#dcfce7", color: "#166534", border: "#86efac" }
+                                      : conf >= 0.5
+                                        ? { bg: "#fef9c3", color: "#854d0e", border: "#fde047" }
+                                        : { bg: "#ffedd5", color: "#9a3412", border: "#fdba74" };
+                                    return (
+                                      <div
+                                        key={String(b?.id ?? Math.random())}
+                                        style={{
+                                          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6,
+                                          padding: "4px 8px", borderRadius: 4, background: "#ffffff",
+                                          border: "1px solid #f3f4f6", fontSize: 11,
+                                        }}
+                                      >
+                                        {/* Line number */}
+                                        <span style={{ fontSize: 10, fontWeight: 700, color: "#9ca3af", minWidth: 24, textAlign: "right" }}>
+                                          L{lineIdx + 1}
+                                        </span>
+                                        <span style={{ padding: "1px 5px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: chipStyle.bg, color: chipStyle.color, border: `1px solid ${chipStyle.border}` }}>
+                                          {pct}%
+                                        </span>
+                                        <div style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                          {li?.description ?? "—"}
+                                        </div>
+                                        <div style={{ fontWeight: 600, color: "#1d4ed8", whiteSpace: "nowrap" }}>
+                                          {formatMoney(b?.totalAmount)}
+                                        </div>
+                                        <div style={{ display: "flex", gap: 3 }}>
+                                          <button
+                                            type="button"
+                                            onClick={async () => {
+                                              const token = localStorage.getItem("accessToken");
+                                              if (!token || !b?.sourceTransactionId) return;
+                                              try {
+                                                await fetch(`${API_BASE}/banking/transactions/${b.sourceTransactionId}/prescreen-accept`, {
+                                                  method: "PATCH",
+                                                  headers: { Authorization: `Bearer ${token}` },
+                                                });
+                                                setProjectBills(null);
+                                                setFinancialSummary(null);
+                                              } catch {}
+                                            }}
+                                            style={{
+                                              padding: "2px 5px", borderRadius: 3, border: "1px solid #16a34a",
+                                              background: "#dcfce7", color: "#166534", cursor: "pointer", fontSize: 9,
+                                            }}
+                                            title="Confirm"
+                                          >
+                                            ✓
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={async () => {
+                                              const token = localStorage.getItem("accessToken");
+                                              if (!token || !b?.sourceTransactionId) return;
+                                              try {
+                                                await fetch(`${API_BASE}/banking/transactions/${b.sourceTransactionId}/prescreen-reject`, {
+                                                  method: "PATCH",
+                                                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                                                  body: JSON.stringify({ reason: "Rejected from project bills" }),
+                                                });
+                                                setProjectBills(null);
+                                                setFinancialSummary(null);
+                                              } catch {}
+                                            }}
+                                            style={{
+                                              padding: "2px 5px", borderRadius: 3, border: "1px solid #dc2626",
+                                              background: "#fef2f2", color: "#b91c1c", cursor: "pointer", fontSize: 9,
+                                            }}
+                                            title="Reject"
+                                          >
+                                            ✕
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => openEditBillModal(b)}
+                                            style={{
+                                              padding: "2px 5px", borderRadius: 3, border: "1px solid #d1d5db",
+                                              background: "#f9fafb", color: "#374151", cursor: "pointer", fontSize: 9,
+                                            }}
+                                            title="Edit"
+                                          >
+                                            Edit
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               )}
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontWeight: 600, fontSize: 12 }}>
-                                  {b?.vendorName ?? "Unknown Vendor"}
-                                </div>
-                                <div style={{ fontSize: 11, color: "#6b7280" }}>
-                                  {b?.billDate ? String(b.billDate).slice(0, 10) : "No date"}
-                                  {li?.description && ` · ${li.description}`}
-                                </div>
-                              </div>
-                              <div style={{ fontWeight: 600, fontSize: 13, color: "#1d4ed8" }}>
-                                {formatMoney(b?.totalAmount)}
-                              </div>
-                              {/* Actions */}
-                              <div style={{ display: "flex", gap: 4 }}>
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    const token = localStorage.getItem("accessToken");
-                                    if (!token || !b?.sourceTransactionId) return;
-                                    try {
-                                      await fetch(`${API_BASE}/banking/transactions/${b.sourceTransactionId}/prescreen-accept`, {
-                                        method: "PATCH",
-                                        headers: { Authorization: `Bearer ${token}` },
-                                      });
-                                      setProjectBills(null);
-                                      setFinancialSummary(null);
-                                    } catch {}
-                                  }}
-                                  style={{
-                                    padding: "3px 6px", borderRadius: 4, border: "1px solid #16a34a",
-                                    background: "#dcfce7", color: "#166534", cursor: "pointer", fontSize: 10, fontWeight: 500,
-                                  }}
-                                  title="Confirm this prescreen match"
-                                >
-                                  ✓ Confirm
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    const token = localStorage.getItem("accessToken");
-                                    if (!token || !b?.sourceTransactionId) return;
-                                    try {
-                                      await fetch(`${API_BASE}/banking/transactions/${b.sourceTransactionId}/prescreen-reject`, {
-                                        method: "PATCH",
-                                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                                        body: JSON.stringify({ reason: "Rejected from project bills" }),
-                                      });
-                                      setProjectBills(null);
-                                      setFinancialSummary(null);
-                                    } catch {}
-                                  }}
-                                  style={{
-                                    padding: "3px 6px", borderRadius: 4, border: "1px solid #dc2626",
-                                    background: "#fef2f2", color: "#b91c1c", cursor: "pointer", fontSize: 10, fontWeight: 500,
-                                  }}
-                                  title="Reject — remove from this project"
-                                >
-                                  ✕ Reject
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => openEditBillModal(b)}
-                                  style={{
-                                    padding: "3px 6px", borderRadius: 4, border: "1px solid #d1d5db",
-                                    background: "#f9fafb", color: "#374151", cursor: "pointer", fontSize: 10, fontWeight: 500,
-                                  }}
-                                  title="Open bill details"
-                                >
-                                  Edit
-                                </button>
-                              </div>
                             </div>
                           );
                         })}
@@ -18498,7 +18629,31 @@ ${htmlBody}
                   );
                 })()}
 
-                {!projectBillsLoading && !projectBillsError && projectBills && projectBills.length > 0 && (
+                {!projectBillsLoading && !projectBillsError && projectBills && projectBills.length > 0 && (() => {
+                  // Pre-compute receipt line references for all bills
+                  // Group non-TENTATIVE PRIMARY bills by date+vendor+source for line numbering
+                  const billRefMap = new Map<string, string>(); // billId → "L3"
+                  const billReceiptGroups = new Map<string, any[]>();
+                  for (const b of projectBills) {
+                    if (b?.status === "TENTATIVE") continue; // tentative has its own section
+                    const dateKey = b?.billDate ? String(b.billDate).slice(0, 10) : "no-date";
+                    const vendor = (b?.vendorName ?? "").toLowerCase();
+                    const src = b?.sourceTransactionSource ?? "manual";
+                    const gk = `${dateKey}|${vendor}|${src}`;
+                    if (!billReceiptGroups.has(gk)) billReceiptGroups.set(gk, []);
+                    billReceiptGroups.get(gk)!.push(b);
+                  }
+                  for (const [, group] of billReceiptGroups) {
+                    if (group.length < 2) continue; // no ref needed for single-item receipts
+                    const sorted = [...group].sort((a: any, b: any) =>
+                      (a?.lineItems?.[0]?.description ?? "").localeCompare(b?.lineItems?.[0]?.description ?? "")
+                    );
+                    sorted.forEach((b: any, idx: number) => {
+                      billRefMap.set(String(b.id), `L${idx + 1}`);
+                    });
+                  }
+
+                  return (
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse" }}>
                       <thead>
@@ -18517,6 +18672,7 @@ ${htmlBody}
                           </th>
                           <th style={{ padding: "6px 8px" }}>Status</th>
                           <th style={{ padding: "6px 8px" }}>Role</th>
+                          <th style={{ padding: "6px 8px" }} title="Receipt line reference / NexVERIFY cross-ref">Ref</th>
                           <th style={{ padding: "6px 8px" }}>Kind</th>
                           <th style={{ padding: "6px 8px" }}>Description</th>
                           <th
@@ -18600,6 +18756,23 @@ ${htmlBody}
                                     </span>
                                   )}
                                 </td>
+                                {/* Ref column — receipt line # or NexVERIFY cross-ref */}
+                                <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", fontSize: 10, fontWeight: 600, color: isVerification ? "#1d4ed8" : "#9ca3af", whiteSpace: "nowrap" }}>
+                                  {(() => {
+                                    if (isVerification && sibGroup?.primaryBillId) {
+                                      const primaryRef = billRefMap.get(sibGroup.primaryBillId);
+                                      const primaryBill = projectBills?.find((pb: any) => pb?.id === sibGroup.primaryBillId);
+                                      const primaryDesc = primaryBill?.lineItems?.[0]?.description;
+                                      return (
+                                        <span title={primaryDesc ? `Verifies: ${primaryDesc}` : `Verifies bill ${sibGroup.primaryBillId.slice(-6)}`}>
+                                          ↔ {primaryRef || `#${sibGroup.primaryBillId.slice(-6)}`}
+                                        </span>
+                                      );
+                                    }
+                                    const ref = billRefMap.get(String(b?.id));
+                                    return ref || "—";
+                                  })()}
+                                </td>
                                 <td style={{ padding: "6px 8px", borderTop: "1px solid #e5e7eb", color: "#4b5563" }}>
                                   {li?.kind ?? "—"}
                                 </td>
@@ -18671,7 +18844,8 @@ ${htmlBody}
                       </tbody>
                     </table>
                   </div>
-                )}
+                  );
+                })()}
               </div>
             )}
           </div>
