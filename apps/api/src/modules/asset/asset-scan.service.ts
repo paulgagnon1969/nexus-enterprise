@@ -101,7 +101,7 @@ export class AssetScanService {
     });
 
     try {
-      // Upload photos to GCS
+      // Upload photos to storage
       const photoUrls: string[] = [];
       for (let i = 0; i < photos.length; i++) {
         const photo = photos[i]!;
@@ -115,8 +115,15 @@ export class AssetScanService {
         photoUrls.push(this.gcs.getPublicUrlFromUri(gsUri));
       }
 
+      // Build base64 data URLs from the in-memory buffers so OpenAI doesn't
+      // need to reach our MinIO instance over the internet.
+      const base64DataUrls = photos.map((p) => {
+        const mime = p.mimetype || 'image/jpeg';
+        return `data:${mime};base64,${p.buffer.toString('base64')}`;
+      });
+
       // Call GPT-4o Vision
-      const { extraction, rawResponse } = await this.analyzeTagWithVision(photoUrls);
+      const { extraction, rawResponse } = await this.analyzeTagWithVision(base64DataUrls);
 
       // Update scan with results
       const updated = await this.prisma.assetScan.update({
@@ -172,7 +179,10 @@ export class AssetScanService {
     });
     const photoUrl = this.gcs.getPublicUrlFromUri(gsUri);
 
-    // Call GPT-4o with serial-only prompt
+    // Send image as base64 so OpenAI doesn't need to reach our MinIO
+    const mime = photo.mimetype || 'image/jpeg';
+    const base64DataUrl = `data:${mime};base64,${photo.buffer.toString('base64')}`;
+
     const client = this.getOpenAI();
     const response = await client.chat.completions.create({
       model: 'gpt-4o',
@@ -181,7 +191,7 @@ export class AssetScanService {
           role: 'user',
           content: [
             { type: 'text', text: SERIAL_READ_PROMPT },
-            { type: 'image_url', image_url: { url: photoUrl, detail: 'high' } },
+            { type: 'image_url', image_url: { url: base64DataUrl, detail: 'high' } },
           ],
         },
       ],

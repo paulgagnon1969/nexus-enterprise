@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsNumber, IsOptional, IsString } from "class-validator";
+import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsString } from "class-validator";
 
 export class CreateProjectDto {
   @IsString()
@@ -52,6 +52,10 @@ export class CreateProjectDto {
   @IsOptional()
   @IsString()
   tenantClientId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  inviteClient?: boolean;
 }
 
 export class AddProjectMemberDto {

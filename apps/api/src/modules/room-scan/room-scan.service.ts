@@ -132,7 +132,7 @@ export class RoomScanService {
       },
     });
 
-    // Upload photos to GCS (fire-and-forget the rest in background)
+    // Upload photos to storage (fire-and-forget the rest in background)
     try {
       const photoUrls: string[] = [];
 
@@ -155,8 +155,15 @@ export class RoomScanService {
         data: { photoUrls },
       });
 
+      // Build base64 data URLs from in-memory buffers so OpenAI doesn't
+      // need to reach our MinIO instance over the internet.
+      const base64DataUrls = photos.map((p) => {
+        const mime = p.mimetype || 'image/jpeg';
+        return `data:${mime};base64,${p.buffer.toString('base64')}`;
+      });
+
       // Call GPT-4o Vision
-      const assessment = await this.analyzeWithVision(photoUrls);
+      const assessment = await this.analyzeWithVision(base64DataUrls);
 
       // Update scan with results
       const updated = await this.prisma.roomScan.update({

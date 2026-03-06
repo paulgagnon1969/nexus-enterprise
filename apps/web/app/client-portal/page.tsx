@@ -118,6 +118,35 @@ export default function ClientPortalPage() {
         </div>
       </header>
 
+      {/* Tab Nav */}
+      <nav style={{
+        maxWidth: 1100, margin: "0 auto", padding: "0 32px",
+        borderBottom: "1px solid #1e293b",
+        display: "flex", gap: 0,
+      }}>
+        <button
+          style={{
+            padding: "12px 20px", fontSize: 13, fontWeight: 600,
+            color: "#f1f5f9", background: "transparent", border: "none",
+            borderBottom: "2px solid #3b82f6",
+            cursor: "pointer",
+          }}
+        >
+          Projects
+        </button>
+        <button
+          onClick={() => router.push("/client-portal/finance")}
+          style={{
+            padding: "12px 20px", fontSize: 13, fontWeight: 500,
+            color: "#64748b", background: "transparent", border: "none",
+            borderBottom: "2px solid transparent",
+            cursor: "pointer",
+          }}
+        >
+          Finance
+        </button>
+      </nav>
+
       {/* Content */}
       <main style={{ maxWidth: 1100, margin: "0 auto", padding: "40px 32px" }}>
         {loading ? (

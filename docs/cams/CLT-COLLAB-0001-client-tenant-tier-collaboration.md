@@ -3,11 +3,12 @@ cam_id: CLT-COLLAB-0001
 title: "Client Tenant Tier — Collaborator-to-Subscriber Acquisition Flywheel"
 mode: CLT
 category: COLLAB
-revision: "1.1"
+revision: "1.2"
 tags: [cam, client-relations, collaboration, tenant-tier, project-sharing, viral-growth, network-effect]
 status: draft
 created: 2026-03-05
 updated: 2026-03-06
+implementation_status: complete
 author: Warp
 scores:
   uniqueness: 7
@@ -181,9 +182,10 @@ Per 100 contractors:
 - No CLIENT-tier Company created. No CompanyMembership required for client users.
 
 ### Key Services
-- `CompanyService.inviteProjectClient()` — Creates/finds User + TenantClient, sends invite email
-- `ProjectService.createProject()` — Accepts `inviteClient` flag, triggers invite when client email present
-- `AuthService.login()` — Supports client-only users (no CompanyMembership) via sentinel companyId
+- `ProjectService.inviteProjectClient()` — Creates/finds User + TenantClient, links to project, stores 7-day Redis token, sends invite email
+- `ProjectService.createProject()` — Accepts `inviteClient` flag in `CreateProjectDto`, triggers invite when client email present
+- `AuthService.login()` — Supports CLIENT users (no CompanyMembership) — issues tokens with empty `companyId` and `userType: CLIENT`
+- `AuthService.completeClientRegistration()` — Sets password, returns `accessToken`/`refreshToken` for immediate auto-login
 - Portal query: TenantClient records by userId → linked Projects → grouped by contractor
 
 ### UI Components
@@ -200,3 +202,4 @@ For company-to-company collaboration (subs, GCs, consultants, inspectors), the e
 |-----|------|--------|
 | 1.0 | 2026-03-05 | Initial release — full system (Phases 1-4) |
 | 1.1 | 2026-03-06 | Simplified architecture: TenantClient+User model replaces CLIENT-tier Company for individual clients. Scores updated (Value 7→8, Demonstrable 8→9, Total 28→30). Demo script streamlined. Flywheel updated to reflect zero-friction activation. |
+| 1.2 | 2026-03-06 | Implementation complete. Updated Key Services to reflect actual code: `ProjectService.inviteProjectClient()` (not CompanyService), `completeClientRegistration()` returns tokens for auto-login, `AuthService.login()` handles CLIENT userType. Added `implementation_status: complete` to frontmatter. |

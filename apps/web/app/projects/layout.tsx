@@ -95,6 +95,10 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
   const [selectedClient, setSelectedClient] = useState<TenantClient | null>(null);
   const [searchingClients, setSearchingClients] = useState(false);
 
+  // Client invite state — defaults to true so the checkbox is pre-checked
+  // whenever a valid email is present in the contact section.
+  const [inviteClient, setInviteClient] = useState(true);
+
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
     if (!token) {
@@ -349,6 +353,7 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
   // Clear client link
   const handleClearClientLink = () => {
     setSelectedClient(null);
+    setInviteClient(true);
     setNewProject(prev => ({
       ...prev,
       primaryContactName: "",
@@ -406,7 +411,10 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(newProject),
+      body: JSON.stringify({
+          ...newProject,
+          inviteClient: newProject.primaryContactEmail ? inviteClient : false,
+        }),
       });
 
       if (!res.ok) {
@@ -422,6 +430,7 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
       setSelectedClient(null);
       setClientSearch("");
       setClientSearchResults([]);
+      setInviteClient(true);
 
       // Reload projects list
       setLoading(true);
@@ -1294,6 +1303,41 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
                   </>
                 )}
               </div>
+
+              {/* Invite checkbox — only shown when an email is present */}
+              {(newProject.primaryContactEmail || selectedClient?.email) && (
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 8,
+                    marginTop: 10,
+                    padding: "10px 12px",
+                    borderRadius: 6,
+                    background: inviteClient ? "rgba(59,130,246,0.06)" : "#f9fafb",
+                    border: inviteClient ? "1px solid rgba(59,130,246,0.25)" : "1px solid #e5e7eb",
+                    cursor: "pointer",
+                    transition: "background 0.15s, border-color 0.15s",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={inviteClient}
+                    onChange={e => setInviteClient(e.target.checked)}
+                    style={{ marginTop: 1, cursor: "pointer", flexShrink: 0 }}
+                  />
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: inviteClient ? "#1d4ed8" : "#374151" }}>
+                      Invite client to view this project on Nexus
+                    </div>
+                    <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2, lineHeight: 1.4 }}>
+                      {inviteClient
+                        ? `An email will be sent to ${newProject.primaryContactEmail || selectedClient?.email} with a link to set up their account.`
+                        : "Contact info will be saved but no invite will be sent."}
+                    </div>
+                  </div>
+                </label>
+              )}
 
               {newProjectError && (
                 <div style={{ color: "#b91c1c", fontSize: 12 }}>{newProjectError}</div>

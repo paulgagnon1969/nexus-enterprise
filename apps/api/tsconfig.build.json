@@ -1,6 +1,7 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    "rootDir": "src",
     "paths": {
       "@repo/database": ["../../packages/database/dist/index.d.ts"],
       "@repo/database/*": ["../../packages/database/dist/*"]

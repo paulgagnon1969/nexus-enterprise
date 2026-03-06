@@ -256,6 +256,19 @@ export class AuthService {
       await this.ensureSuperAdminMemberships(user.id);
     }
 
+    // CLIENT users have no CompanyMembership — issue tokens with empty companyId.
+    if (user.userType === UserType.CLIENT) {
+      const { accessToken, refreshToken } = await this.issueTokens(
+        user.id, '', Role.CLIENT, user.email, user.globalRole, 'CLIENT', UserType.CLIENT
+      );
+      return {
+        user: { id: user.id, email: user.email },
+        company: null,
+        accessToken,
+        refreshToken,
+      };
+    }
+
     const activeMemberships = ((user as any).memberships || []).filter(
       (m: any) => m && m.isActive && !m.company?.deletedAt,
     );
@@ -322,12 +335,15 @@ export class AuthService {
     }
 
     let payload: {
-      userId: string;
+      // New tokens store `userId` explicitly; old tokens stored it as `sub`.
+      userId?: string;
+      sub?: string;
       companyId: string;
       role: Role;
       email: string;
       globalRole: GlobalRole;
       profileCode?: string | null;
+      userType?: UserType | null;
     };
 
     try {
@@ -337,8 +353,12 @@ export class AuthService {
       throw new UnauthorizedException("Invalid refresh token");
     }
 
+    // Support both old (sub) and new (userId) Redis payload key names.
+    const resolvedUserId = payload.userId || payload.sub;
+    const isClientPortal = payload.userType === UserType.CLIENT;
+
     // Validate required fields so we never mint tokens from malformed payloads.
-    if (!payload.userId || !payload.companyId || !payload.role || !payload.email) {
+    if (!resolvedUserId || (!isClientPortal && !payload.companyId) || !payload.role || !payload.email) {
       await redisClient.del(key);
       throw new UnauthorizedException("Invalid refresh token");
     }
@@ -348,11 +368,12 @@ export class AuthService {
     let role: Role = payload.role;
     let profileCode: string | null | undefined = payload.profileCode;
 
-    if (payload.globalRole !== GlobalRole.SUPER_ADMIN) {
+    // Skip membership check for SUPER_ADMIN and CLIENT portal users.
+    if (payload.globalRole !== GlobalRole.SUPER_ADMIN && !isClientPortal) {
       const membership = await this.prisma.companyMembership.findUnique({
         where: {
           userId_companyId: {
-            userId: payload.userId,
+            userId: resolvedUserId,
             companyId: payload.companyId,
           },
         },
@@ -379,12 +400,13 @@ export class AuthService {
     await redisClient.del(key);
 
     const { accessToken, refreshToken: newRefresh } = await this.issueTokens(
-      payload.userId,
-      payload.companyId,
+      resolvedUserId,
+      payload.companyId || '',
       role,
       payload.email,
       payload.globalRole,
-      profileCode ?? this.getDefaultProfileCodeForRole(role)
+      profileCode ?? this.getDefaultProfileCodeForRole(role),
+      payload.userType,
     );
 
     return {
@@ -1032,6 +1054,7 @@ export class AuthService {
       firstName: string;
       lastName: string;
       companyName: string;
+      projectName?: string;
     };
     try {
       payload = JSON.parse(raw);
@@ -1044,6 +1067,7 @@ export class AuthService {
       firstName: payload.firstName,
       lastName: payload.lastName,
       companyName: payload.companyName,
+      projectName: payload.projectName ?? null,
     };
   }
 
@@ -1080,11 +1104,12 @@ export class AuthService {
 
     const passwordHash = await argon2.hash(password);
 
-    // Update user with password and name if not already set
+    // Update user with password, name, and ensure userType is CLIENT
     const user = await this.prisma.user.update({
       where: { id: payload.userId },
       data: {
         passwordHash,
+        userType: UserType.CLIENT,
         firstName: payload.firstName || undefined,
         lastName: payload.lastName || undefined,
       },
@@ -1093,11 +1118,24 @@ export class AuthService {
     // Delete the token
     await redisClient.del(`clientinvite:${token}`);
 
-    // Return success - client will be redirected to login
+    // Issue tokens for immediate auto-login
+    const { accessToken, refreshToken } = await this.issueTokens(
+      user.id,
+      '',
+      Role.CLIENT,
+      user.email,
+      user.globalRole,
+      'CLIENT',
+      UserType.CLIENT,
+    );
+
     return {
       ok: true,
       email: user.email,
-      message: "Account activated! You can now sign in.",
+      accessToken,
+      refreshToken,
+      userType: UserType.CLIENT,
+      message: "Account activated! Welcome to your project portal.",
     };
   }
 
@@ -1456,22 +1494,26 @@ export class AuthService {
     role: Role,
     email: string,
     globalRole: GlobalRole,
-    profileCode?: string | null
+    profileCode?: string | null,
+    userType?: UserType | null,
   ) {
-    const payload = { sub: userId, companyId, role, email, globalRole, profileCode };
+    const jwtPayload = { sub: userId, companyId, role, email, globalRole, profileCode, userType };
 
     // 86400s = 24 hours. Must match the default in auth.module.ts.
-    const accessToken = await this.jwt.signAsync(payload, {
+    const accessToken = await this.jwt.signAsync(jwtPayload, {
       secret: process.env.JWT_ACCESS_SECRET || "change-me-access",
       expiresIn: Number(process.env.JWT_ACCESS_TTL) || 86400
     });
 
     const refreshToken = randomUUID();
     const redisClient = this.redis.getClient();
+    // Store userId explicitly (alongside sub) so refresh() can resolve it
+    // regardless of which key name is present in legacy vs. new tokens.
+    const redisPayload = { ...jwtPayload, userId };
     await redisClient.setex(
       `refresh:${refreshToken}`,
       REFRESH_TTL_SECONDS,
-      JSON.stringify(payload)
+      JSON.stringify(redisPayload)
     );
 
     return { accessToken, refreshToken };

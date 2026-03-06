@@ -132,6 +132,17 @@ export class AdminController {
     return this.admin.getAnalyticsGamingSummary(actor);
   }
 
+  @Get("global-search/people")
+  globalSearchPeople(
+    @Req() req: any,
+    @Query("q") q?: string,
+    @Query("limit") limitRaw?: string,
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    const limit = limitRaw ? parseInt(limitRaw, 10) || 25 : 25;
+    return this.admin.globalSearchPeople(actor, q ?? "", limit);
+  }
+
   @Get("audit-logs")
   listAuditLogs() {
     return this.admin.listAuditLogs(100);

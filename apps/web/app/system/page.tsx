@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { PageCard } from "../ui-shell";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -62,6 +62,160 @@ function timeAgo(dateStr: string): string {
 }
 
 /* ── Tile wrapper ── */
+/* ── Source badge colors ── */
+const SOURCE_BADGE: Record<string, { bg: string; fg: string; label: string }> = {
+  USER: { bg: "#dbeafe", fg: "#1e40af", label: "User" },
+  CANDIDATE: { bg: "#fef3c7", fg: "#92400e", label: "Candidate" },
+  CLIENT: { bg: "#d1fae5", fg: "#065f46", label: "Client" },
+};
+
+const TIER_BADGE: Record<string, { bg: string; fg: string; label: string }> = {
+  exact: { bg: "#dcfce7", fg: "#166534", label: "Exact" },
+  contains: { bg: "#e0e7ff", fg: "#3730a3", label: "Contains" },
+  fuzzy: { bg: "#fef9c3", fg: "#854d0e", label: "Fuzzy" },
+};
+
+interface PeopleResult {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+  phone: string | null;
+  source: string;
+  tenantNames: string | null;
+  globalRole: string | null;
+  matchTier: string;
+  score: number;
+}
+
+function GlobalPeopleSearch() {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<PeopleResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const doSearch = useCallback((q: string) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
+    if (!token || q.trim().length < 2) {
+      setResults([]);
+      setSearched(q.trim().length >= 2);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    fetch(`${API_BASE}/admin/global-search/people?q=${encodeURIComponent(q.trim())}&limit=25`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(d => { setResults(d.results ?? []); setSearched(true); })
+      .catch(() => { setResults([]); setSearched(true); })
+      .finally(() => setSearching(false));
+  }, []);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (query.trim().length < 2) { setResults([]); setSearched(false); return; }
+    debounceRef.current = setTimeout(() => doSearch(query), 300);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [query, doSearch]);
+
+  return (
+    <div
+      style={{
+        borderRadius: 10,
+        border: "1px solid #e5e7eb",
+        background: "#ffffff",
+        overflow: "hidden",
+        marginBottom: 14,
+      }}
+    >
+      <div style={{ padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>Global People Search</span>
+          <span style={{ fontSize: 10, color: "#9ca3af", background: "#f3f4f6", padding: "1px 6px", borderRadius: 4 }}>SUPER_ADMIN</span>
+        </div>
+        <input
+          type="text"
+          placeholder="Search by name, email, or phone across all tenants and marketplace…"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          style={{
+            width: "100%",
+            marginTop: 8,
+            padding: "8px 12px",
+            fontSize: 13,
+            border: "1px solid #d1d5db",
+            borderRadius: 6,
+            outline: "none",
+            background: "#fafafa",
+          }}
+        />
+      </div>
+
+      {/* Results */}
+      {searching && (
+        <div style={{ padding: "12px 16px", fontSize: 12, color: "#6b7280" }}>Searching…</div>
+      )}
+
+      {!searching && searched && results.length === 0 && (
+        <div style={{ padding: "12px 16px", fontSize: 12, color: "#9ca3af" }}>No people found.</div>
+      )}
+
+      {!searching && results.length > 0 && (
+        <div style={{ maxHeight: 360, overflowY: "auto" }}>
+          {results.map((r, i) => {
+            const name = [r.firstName, r.lastName].filter(Boolean).join(" ") || r.email || "(unnamed)";
+            const src = SOURCE_BADGE[r.source] ?? SOURCE_BADGE.USER;
+            const tier = TIER_BADGE[r.matchTier] ?? TIER_BADGE.fuzzy;
+            return (
+              <div
+                key={`${r.source}-${r.id}-${i}`}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "8px 16px",
+                  borderBottom: i < results.length - 1 ? "1px solid #f9fafb" : "none",
+                  fontSize: 12,
+                }}
+              >
+                {/* Name + email + phone */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {name}
+                  </div>
+                  <div style={{ fontSize: 11, color: "#6b7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {[r.email, r.phone].filter(Boolean).join(" · ")}
+                  </div>
+                  {r.tenantNames && (
+                    <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 1 }}>
+                      {r.tenantNames}
+                    </div>
+                  )}
+                </div>
+
+                {/* Badges */}
+                <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 4, background: src.bg, color: src.fg }}>
+                  {src.label}
+                </span>
+                <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 500, padding: "2px 6px", borderRadius: 4, background: tier.bg, color: tier.fg }}>
+                  {tier.label}
+                </span>
+                {r.globalRole && r.globalRole !== "NONE" && (
+                  <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 4, background: "#fce7f3", color: "#9d174d" }}>
+                    {r.globalRole}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Tile({
   title,
   accent,
@@ -169,6 +323,9 @@ export default function NexusSystemOverviewPage() {
             TUCKS
           </span>
         </div>
+
+        {/* Global People Search */}
+        <GlobalPeopleSearch />
 
         {/* Period selector + subtitle */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>

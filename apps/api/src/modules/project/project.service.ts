@@ -4,9 +4,13 @@ import { AuditService } from "../../common/audit.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import type { Prisma } from "@prisma/client";
 import { parse } from "csv-parse/sync";
+import { randomUUID } from "crypto";
+import { RedisService } from "../../infra/redis/redis.service";
+import { EmailService } from "../../common/email.service";
 import {
   GlobalRole,
   Role,
+  UserType,
   ProjectParticleType,
   ProjectParticipantScope,
   ProjectVisibilityLevel,
@@ -194,6 +198,8 @@ export class ProjectService {
     private readonly nexfind: NexfindService,
     private readonly entitlements: EntitlementService,
     private readonly storage: ObjectStorageService,
+    private readonly redis: RedisService,
+    private readonly email: EmailService,
   ) {}
 
   /**
@@ -253,6 +259,161 @@ export class ProjectService {
 
     this.logger.log(
       `Auto-synced client membership: project=${projectId}, client=${tenantClientId}, user=${tenantClient.userId}`
+    );
+  }
+
+  /**
+   * Invite a client contact to view their project(s) via the client portal.
+   *
+   * Responsibilities:
+   * - Find or create a User account (userType: CLIENT) for the email
+   * - Find or create a TenantClient record for this contractor + email
+   * - Link the TenantClient to the project if not already linked
+   * - Sync the ProjectMembership so the client can see the project
+   * - Store a Redis invite token (7-day TTL) for the registration link
+   * - Send a portal invite email (registration link for new users,
+   *   "project added" notification for existing users)
+   */
+  private async inviteProjectClient(params: {
+    email: string;
+    projectId: string;
+    projectName: string;
+    companyId: string;
+    primaryContactName?: string;
+    tenantClientId?: string;
+  }): Promise<void> {
+    const normalizedEmail = params.email.trim().toLowerCase();
+
+    // Resolve contractor name for the invite email
+    const company = await this.prisma.company.findUnique({
+      where: { id: params.companyId },
+      select: { name: true },
+    });
+    const contractorName = company?.name || 'Your Contractor';
+
+    // Find or create User account for this email
+    let user = await this.prisma.user.findFirst({
+      where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
+    });
+
+    // True if the user has a real argon2 or bcrypt password hash already set
+    const hasRealPassword = !!(user?.passwordHash && (
+      user.passwordHash.startsWith('$argon2') ||
+      user.passwordHash.startsWith('$2')
+    ));
+
+    if (!user) {
+      // Placeholder user: password will be set via the registration link
+      user = await this.prisma.user.create({
+        data: {
+          email: normalizedEmail,
+          passwordHash: '$INVITE_PENDING$',
+          userType: UserType.CLIENT,
+        },
+      });
+    }
+
+    // Find or create TenantClient record
+    let tenantClient: { id: string; firstName: string; lastName: string; displayName: string | null; userId: string | null };
+
+    if (params.tenantClientId) {
+      // Project was already linked to a TenantClient — just ensure user is wired up
+      const existing = await this.prisma.tenantClient.findUnique({
+        where: { id: params.tenantClientId },
+        select: { id: true, firstName: true, lastName: true, displayName: true, userId: true },
+      });
+      if (!existing) {
+        throw new Error(`TenantClient ${params.tenantClientId} not found`);
+      }
+      tenantClient = existing;
+      if (!tenantClient.userId) {
+        await this.prisma.tenantClient.update({
+          where: { id: params.tenantClientId },
+          data: { userId: user.id },
+        });
+        tenantClient = { ...tenantClient, userId: user.id };
+      }
+    } else {
+      // Find by email within this company, or create a new contact record
+      const existing = await this.prisma.tenantClient.findFirst({
+        where: { companyId: params.companyId, email: { equals: normalizedEmail, mode: 'insensitive' } },
+        select: { id: true, firstName: true, lastName: true, displayName: true, userId: true },
+      });
+
+      if (existing) {
+        tenantClient = existing;
+        if (!tenantClient.userId) {
+          await this.prisma.tenantClient.update({
+            where: { id: existing.id },
+            data: { userId: user.id },
+          });
+          tenantClient = { ...tenantClient, userId: user.id };
+        }
+      } else {
+        const nameParts = (params.primaryContactName || '').trim().split(/\s+/).filter(Boolean);
+        const firstName = nameParts[0] || 'Client';
+        const lastName = nameParts.slice(1).join(' ') || '';
+        const created = await this.prisma.tenantClient.create({
+          data: {
+            companyId: params.companyId,
+            firstName,
+            lastName,
+            displayName: params.primaryContactName?.trim() || normalizedEmail,
+            email: normalizedEmail,
+            userId: user.id,
+          },
+          select: { id: true, firstName: true, lastName: true, displayName: true, userId: true },
+        });
+        tenantClient = created;
+      }
+
+      // Link the project to this TenantClient
+      await this.prisma.project.update({
+        where: { id: params.projectId },
+        data: { tenantClientId: tenantClient.id },
+      });
+    }
+
+    // Sync ProjectMembership so the client user can see this project
+    await this.syncClientMembershipForProject(params.projectId, params.companyId, tenantClient.id);
+
+    // Generate a 7-day invite token and store in Redis
+    const inviteToken = randomUUID();
+    const redisClient = this.redis.getClient();
+    await redisClient.setex(
+      `clientinvite:${inviteToken}`,
+      60 * 60 * 24 * 7,
+      JSON.stringify({
+        userId: user.id,
+        email: normalizedEmail,
+        firstName: tenantClient.firstName || '',
+        lastName: tenantClient.lastName || '',
+        companyName: contractorName,
+        projectName: params.projectName,
+        projectId: params.projectId,
+        companyId: params.companyId,
+      }),
+    );
+
+    const webBase = process.env.WEB_BASE_URL || 'https://staging-ncc.nfsgrp.com';
+    const registerUrl = `${webBase.replace(/\/$/, '')}/register/client?token=${encodeURIComponent(inviteToken)}`;
+    const portalUrl = `${webBase.replace(/\/$/, '')}/client-portal`;
+
+    // Send invite email (fire-and-forget — project creation must not fail if email fails)
+    void this.email.sendClientPortalInvite({
+      toEmail: normalizedEmail,
+      clientName: tenantClient.displayName || tenantClient.firstName || 'Client',
+      companyName: contractorName,
+      projects: [{ name: params.projectName }],
+      portalUrl,
+      isNewUser: !hasRealPassword,
+      passwordResetUrl: hasRealPassword ? undefined : registerUrl,
+    }).catch((err: any) => {
+      this.logger.warn(`Client portal invite email failed (non-fatal): ${err?.message}`);
+    });
+
+    this.logger.log(
+      `Client invite queued: email=${normalizedEmail}, project=${params.projectId}, isNewUser=${!hasRealPassword}`
     );
   }
 
@@ -403,6 +564,22 @@ export class ProjectService {
       await this.syncClientMembershipForProject(project.id, companyId, dto.tenantClientId);
     } catch (err: any) {
       this.logger.warn(`Client membership sync failed (non-fatal): ${err.message}`);
+    }
+
+    // Send client invite if requested
+    if (dto.inviteClient && dto.primaryContactEmail) {
+      try {
+        await this.inviteProjectClient({
+          email: dto.primaryContactEmail,
+          projectId: project.id,
+          projectName: project.name,
+          companyId,
+          primaryContactName: dto.primaryContactName,
+          tenantClientId: dto.tenantClientId,
+        });
+      } catch (err: any) {
+        this.logger.warn(`Client invite failed (non-fatal): ${err.message}`);
+      }
     }
 
     // Auto-register project zipcode with BigBox for localized supplier pricing
@@ -980,7 +1157,507 @@ export class ProjectService {
       response.hasFullAccess = true;
     }
 
+    // Invoices: visible at LIMITED and FULL (issued invoices only — no drafts or voided)
+    if (visibility !== ProjectVisibilityLevel.READ_ONLY) {
+      try {
+        const invoices = await this.prisma.projectInvoice.findMany({
+          where: {
+            projectId,
+            companyId: project.companyId,
+            status: { notIn: [ProjectInvoiceStatus.DRAFT, ProjectInvoiceStatus.VOID] },
+          },
+          orderBy: [{ issuedAt: "desc" }, { createdAt: "desc" }],
+          select: {
+            id: true,
+            invoiceNo: true,
+            status: true,
+            totalAmount: true,
+            issuedAt: true,
+            dueAt: true,
+            memo: true,
+            billToName: true,
+          },
+        });
+
+        // Compute paid amounts
+        const invoiceIds = invoices.map((i) => i.id);
+        const paymentTotals = invoiceIds.length
+          ? await this.prisma.projectPayment.groupBy({
+              by: ["invoiceId"],
+              where: {
+                projectId,
+                companyId: project.companyId,
+                status: ProjectPaymentStatus.RECORDED,
+                invoiceId: { in: invoiceIds },
+              },
+              _sum: { amount: true },
+            })
+          : [];
+
+        const paidByInvoiceId = new Map<string, number>();
+        for (const row of paymentTotals) {
+          if (row.invoiceId) paidByInvoiceId.set(row.invoiceId, row._sum.amount ?? 0);
+        }
+
+        // Include payment application totals if available
+        if (invoiceIds.length && this.paymentApplicationModelsAvailable()) {
+          try {
+            const p: any = this.prisma as any;
+            const appTotals = await p.projectPaymentApplication.groupBy({
+              by: ["invoiceId"],
+              where: {
+                projectId,
+                companyId: project.companyId,
+                invoiceId: { in: invoiceIds },
+              },
+              _sum: { amount: true },
+            });
+            for (const row of appTotals) {
+              if (!row?.invoiceId) continue;
+              const prev = paidByInvoiceId.get(row.invoiceId) ?? 0;
+              paidByInvoiceId.set(row.invoiceId, prev + (row?._sum?.amount ?? 0));
+            }
+          } catch {
+            // Payment application table may not exist yet
+          }
+        }
+
+        response.invoices = invoices.map((inv) => {
+          const paidAmount = paidByInvoiceId.get(inv.id) ?? 0;
+          const balanceDue = Math.max(0, (inv.totalAmount ?? 0) - paidAmount);
+          return { ...inv, paidAmount, balanceDue };
+        });
+      } catch {
+        // Billing tables may not be migrated yet
+        response.invoices = [];
+      }
+    }
+
+    // Shared files: visible at all visibility levels
+    try {
+      const files = await this.prisma.projectFile.findMany({
+        where: { projectId, companyId: project.companyId },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+        select: {
+          id: true,
+          fileName: true,
+          mimeType: true,
+          sizeBytes: true,
+          storageUrl: true,
+          createdAt: true,
+        },
+      });
+      response.files = files.map((f) => ({
+        ...f,
+        storageUrl: this.toPublicFileUrl(f.storageUrl),
+      }));
+    } catch {
+      response.files = [];
+    }
+
     return response;
+  }
+
+  /**
+   * Get invoice detail for a client portal user.
+   * Returns a clean invoice with line items, attachments, and payment summary.
+   * Excludes internal fields (PETL lines, billing tags, cost book IDs, adjustments).
+   */
+  async getPortalInvoiceDetail(projectId: string, invoiceId: string, userId: string) {
+    // Reuse the same access check as getProjectForClientPortal
+    const membership = await this.prisma.projectMembership.findUnique({
+      where: { userId_projectId: { userId, projectId } },
+    });
+
+    if (!membership) {
+      const userCompanyIds = await this.prisma.companyMembership.findMany({
+        where: { userId, isActive: true },
+        select: { companyId: true },
+      });
+      const collab = userCompanyIds.length
+        ? await this.prisma.projectCollaboration.findFirst({
+            where: {
+              projectId,
+              companyId: { in: userCompanyIds.map((m) => m.companyId) },
+              active: true,
+              acceptedAt: { not: null },
+            },
+          })
+        : null;
+
+      if (!collab) {
+        throw new ForbiddenException("You do not have access to this project");
+      }
+
+      // READ_ONLY visibility cannot view invoices
+      if (collab.visibility === ProjectVisibilityLevel.READ_ONLY) {
+        throw new ForbiddenException("Invoice access is not available with your access level");
+      }
+    } else if (membership.visibility === ProjectVisibilityLevel.READ_ONLY) {
+      throw new ForbiddenException("Invoice access is not available with your access level");
+    }
+
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      include: {
+        company: { select: { id: true, name: true } },
+      },
+    });
+
+    if (!project) {
+      throw new NotFoundException("Project not found");
+    }
+
+    const invoice = await this.prisma.projectInvoice.findFirst({
+      where: {
+        id: invoiceId,
+        projectId,
+        companyId: project.companyId,
+        status: { notIn: [ProjectInvoiceStatus.DRAFT, ProjectInvoiceStatus.VOID] },
+      },
+      include: {
+        lineItems: {
+          orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+          select: {
+            id: true,
+            description: true,
+            qty: true,
+            unitPrice: true,
+            amount: true,
+            unitCode: true,
+            sortOrder: true,
+          },
+        },
+      },
+    });
+
+    if (!invoice) {
+      throw new NotFoundException("Invoice not found");
+    }
+
+    // Compute paid amount
+    let paidAmount = 0;
+    const directPayments = await this.prisma.projectPayment.aggregate({
+      where: {
+        invoiceId: invoice.id,
+        status: ProjectPaymentStatus.RECORDED,
+      },
+      _sum: { amount: true },
+    });
+    paidAmount += directPayments._sum.amount ?? 0;
+
+    if (this.paymentApplicationModelsAvailable()) {
+      try {
+        const p: any = this.prisma as any;
+        const appTotal = await p.projectPaymentApplication.aggregate({
+          where: { invoiceId: invoice.id },
+          _sum: { amount: true },
+        });
+        paidAmount += appTotal?._sum?.amount ?? 0;
+      } catch {
+        // Payment application table may not exist
+      }
+    }
+
+    const balanceDue = Math.max(0, (invoice.totalAmount ?? 0) - paidAmount);
+
+    // Load attachments (best effort)
+    let attachments: any[] = [];
+    try {
+      const rawAttachments = await (this.prisma as any).projectInvoiceAttachment.findMany({
+        where: { invoiceId: invoice.id },
+        orderBy: [{ createdAt: "asc" }],
+      });
+      attachments = rawAttachments.map((a: any) => ({
+        id: a.id,
+        fileName: a.fileName,
+        fileUrl: this.toPublicFileUrl(a.fileUrl),
+        mimeType: a.mimeType,
+        sizeBytes: a.sizeBytes,
+      }));
+    } catch {
+      // Attachment table may not exist yet
+    }
+
+    // Payment history (amounts and dates only, no internal refs)
+    const payments = await this.prisma.projectPayment.findMany({
+      where: {
+        invoiceId: invoice.id,
+        status: ProjectPaymentStatus.RECORDED,
+      },
+      orderBy: [{ paidAt: "desc" }],
+      select: {
+        id: true,
+        amount: true,
+        method: true,
+        paidAt: true,
+      },
+    });
+
+    return {
+      id: invoice.id,
+      invoiceNo: invoice.invoiceNo,
+      status: invoice.status,
+      totalAmount: invoice.totalAmount,
+      paidAmount,
+      balanceDue,
+      issuedAt: invoice.issuedAt,
+      dueAt: invoice.dueAt,
+      memo: invoice.memo,
+      billToName: invoice.billToName,
+      billToEmail: invoice.billToEmail,
+      billToPhone: invoice.billToPhone,
+      billToAddress: invoice.billToAddress,
+      billToCity: invoice.billToCity,
+      billToState: invoice.billToState,
+      billToZip: invoice.billToZip,
+      project: {
+        id: project.id,
+        name: project.name,
+        addressLine1: project.addressLine1,
+        city: project.city,
+        state: project.state,
+        postalCode: project.postalCode,
+      },
+      company: project.company,
+      lineItems: invoice.lineItems,
+      attachments,
+      payments,
+    };
+  }
+
+  /**
+   * Aggregated finance summary for a client portal user.
+   * Returns all invoices across every project the user can access,
+   * plus summary totals and recent payment activity.
+   */
+  async getPortalFinanceSummary(userId: string) {
+    // 1. Resolve all accessible project IDs (same paths as listProjectsForClientPortal)
+    const memberships = await this.prisma.projectMembership.findMany({
+      where: { userId, scope: ProjectParticipantScope.EXTERNAL_CONTACT },
+      select: {
+        projectId: true,
+        visibility: true,
+        project: {
+          select: {
+            id: true,
+            name: true,
+            companyId: true,
+            company: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+
+    const userCompanyIds = await this.prisma.companyMembership.findMany({
+      where: { userId, isActive: true },
+      select: { companyId: true },
+    });
+    const companyIds = userCompanyIds.map((m) => m.companyId);
+
+    const collaborations = companyIds.length
+      ? await this.prisma.projectCollaboration.findMany({
+          where: {
+            companyId: { in: companyIds },
+            active: true,
+            acceptedAt: { not: null },
+          },
+          select: {
+            projectId: true,
+            visibility: true,
+            project: {
+              select: {
+                id: true,
+                name: true,
+                companyId: true,
+                company: { select: { id: true, name: true } },
+              },
+            },
+          },
+        })
+      : [];
+
+    // Build a map of projectId → { project info, visibility }
+    const projectMap = new Map<string, {
+      id: string; name: string; companyId: string;
+      companyName: string; visibility: ProjectVisibilityLevel;
+    }>();
+
+    for (const m of memberships) {
+      if (m.visibility === ProjectVisibilityLevel.READ_ONLY) continue; // no invoices for READ_ONLY
+      projectMap.set(m.projectId, {
+        id: m.project.id,
+        name: m.project.name,
+        companyId: m.project.companyId,
+        companyName: m.project.company.name,
+        visibility: m.visibility,
+      });
+    }
+    for (const c of collaborations) {
+      if (projectMap.has(c.projectId)) continue;
+      if (c.visibility === ProjectVisibilityLevel.READ_ONLY) continue;
+      projectMap.set(c.projectId, {
+        id: c.project.id,
+        name: c.project.name,
+        companyId: c.project.companyId,
+        companyName: c.project.company.name,
+        visibility: c.visibility,
+      });
+    }
+
+    const projectIds = Array.from(projectMap.keys());
+    if (!projectIds.length) {
+      return {
+        summary: { totalInvoiced: 0, totalPaid: 0, totalOutstanding: 0, overdueCount: 0 },
+        invoices: [],
+        recentPayments: [],
+      };
+    }
+
+    // 2. Fetch all non-draft, non-void invoices across those projects
+    const invoices = await this.prisma.projectInvoice.findMany({
+      where: {
+        projectId: { in: projectIds },
+        status: { notIn: [ProjectInvoiceStatus.DRAFT, ProjectInvoiceStatus.VOID] },
+      },
+      orderBy: [{ issuedAt: "desc" }, { createdAt: "desc" }],
+      select: {
+        id: true,
+        projectId: true,
+        companyId: true,
+        invoiceNo: true,
+        status: true,
+        totalAmount: true,
+        issuedAt: true,
+        dueAt: true,
+        memo: true,
+        billToName: true,
+      },
+    });
+
+    // 3. Compute paid amounts per invoice
+    const invoiceIds = invoices.map((i) => i.id);
+    const paidByInvoiceId = new Map<string, number>();
+
+    if (invoiceIds.length) {
+      const paymentTotals = await this.prisma.projectPayment.groupBy({
+        by: ["invoiceId"],
+        where: {
+          status: ProjectPaymentStatus.RECORDED,
+          invoiceId: { in: invoiceIds },
+        },
+        _sum: { amount: true },
+      });
+      for (const row of paymentTotals) {
+        if (row.invoiceId) paidByInvoiceId.set(row.invoiceId, row._sum.amount ?? 0);
+      }
+
+      // Include payment application totals if available
+      if (this.paymentApplicationModelsAvailable()) {
+        try {
+          const p: any = this.prisma as any;
+          const appTotals = await p.projectPaymentApplication.groupBy({
+            by: ["invoiceId"],
+            where: { invoiceId: { in: invoiceIds } },
+            _sum: { amount: true },
+          });
+          for (const row of appTotals) {
+            if (!row?.invoiceId) continue;
+            const prev = paidByInvoiceId.get(row.invoiceId) ?? 0;
+            paidByInvoiceId.set(row.invoiceId, prev + (row?._sum?.amount ?? 0));
+          }
+        } catch {
+          // Payment application table may not exist yet
+        }
+      }
+    }
+
+    // 4. Build invoice list with project/company context and payment info
+    const now = new Date();
+    let totalInvoiced = 0;
+    let totalPaid = 0;
+    let totalOutstanding = 0;
+    let overdueCount = 0;
+
+    const enrichedInvoices = invoices.map((inv) => {
+      const paidAmount = paidByInvoiceId.get(inv.id) ?? 0;
+      const total = inv.totalAmount ?? 0;
+      const balanceDue = Math.max(0, total - paidAmount);
+      const isOverdue = balanceDue > 0 && inv.dueAt && new Date(inv.dueAt) < now;
+
+      totalInvoiced += total;
+      totalPaid += paidAmount;
+      totalOutstanding += balanceDue;
+      if (isOverdue) overdueCount++;
+
+      const proj = projectMap.get(inv.projectId);
+      return {
+        id: inv.id,
+        invoiceNo: inv.invoiceNo,
+        status: inv.status,
+        totalAmount: total,
+        paidAmount,
+        balanceDue,
+        isOverdue: !!isOverdue,
+        issuedAt: inv.issuedAt,
+        dueAt: inv.dueAt,
+        memo: inv.memo,
+        billToName: inv.billToName,
+        projectId: inv.projectId,
+        projectName: proj?.name ?? "Unknown",
+        companyName: proj?.companyName ?? "Unknown",
+      };
+    });
+
+    // 5. Recent payments (last 20)
+    let recentPayments: any[] = [];
+    if (invoiceIds.length) {
+      const payments = await this.prisma.projectPayment.findMany({
+        where: {
+          invoiceId: { in: invoiceIds },
+          status: ProjectPaymentStatus.RECORDED,
+        },
+        orderBy: [{ paidAt: "desc" }],
+        take: 20,
+        select: {
+          id: true,
+          amount: true,
+          method: true,
+          paidAt: true,
+          invoiceId: true,
+          invoice: {
+            select: {
+              invoiceNo: true,
+              projectId: true,
+            },
+          },
+        },
+      });
+
+      recentPayments = payments.map((pay) => {
+        const proj = pay.invoice?.projectId ? projectMap.get(pay.invoice.projectId) : null;
+        return {
+          id: pay.id,
+          amount: pay.amount,
+          method: pay.method,
+          paidAt: pay.paidAt,
+          invoiceNo: pay.invoice?.invoiceNo ?? null,
+          projectName: proj?.name ?? "Unknown",
+        };
+      });
+    }
+
+    return {
+      summary: {
+        totalInvoiced,
+        totalPaid,
+        totalOutstanding,
+        overdueCount,
+      },
+      invoices: enrichedInvoices,
+      recentPayments,
+    };
   }
 
   // ── Project Favorites ───────────────────────────────────────────────

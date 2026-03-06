@@ -87,6 +87,19 @@ export class ProjectController {
   }
 
   /**
+   * GET /projects/portal/finance
+   * 
+   * Client portal: Aggregated finance summary across all projects.
+   * Returns summary totals, all invoices, and recent payments.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get("portal/finance")
+  getPortalFinanceSummary(@Req() req: any) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.getPortalFinanceSummary(user.userId);
+  }
+
+  /**
    * GET /projects/portal/:id
    * 
    * Client portal: Get project details with visibility-based filtering.
@@ -99,6 +112,24 @@ export class ProjectController {
   getProjectForPortal(@Req() req: any, @Param("id") projectId: string) {
     const user = req.user as AuthenticatedUser;
     return this.projects.getProjectForClientPortal(projectId, user.userId);
+  }
+
+  /**
+   * GET /projects/portal/:id/invoices/:invoiceId
+   * 
+   * Client portal: Get invoice detail with line items, attachments, payments.
+   * Only returns issued invoices (no drafts or voided).
+   * Excludes internal fields (PETL lines, billing tags, cost book IDs).
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get("portal/:id/invoices/:invoiceId")
+  getPortalInvoiceDetail(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("invoiceId") invoiceId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.getPortalInvoiceDetail(projectId, invoiceId, user.userId);
   }
 
   // ── Project Favorites ──────────────────────────────────────────────

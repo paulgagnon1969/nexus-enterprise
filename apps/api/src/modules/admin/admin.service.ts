@@ -1267,6 +1267,130 @@ export class AdminService {
     };
   }
 
+  // ── Global People Search ──────────────────────────────────────────
+
+  async globalSearchPeople(actor: AuthenticatedUser, query: string, limit: number = 25) {
+    await this.audit(actor, "ADMIN_GLOBAL_SEARCH_PEOPLE");
+
+    const q = (query ?? "").trim();
+    if (!q || q.length < 2) return { query: q, results: [] };
+
+    const cap = Math.min(Math.max(limit, 1), 100);
+
+    // Tiered search: exact prefix → ILIKE contains → trigram similarity.
+    // Single pass via UNION ALL with a tier column so exact matches always
+    // appear first, fuzzy matches last.
+    const rows = await this.prisma.$queryRaw<{
+      id: string;
+      firstName: string | null;
+      lastName: string | null;
+      email: string | null;
+      phone: string | null;
+      source: string;
+      tenantNames: string | null;
+      globalRole: string | null;
+      tier: number;
+      score: number;
+    }[]>`
+      WITH people AS (
+        -- Users (with tenant names aggregated)
+        SELECT
+          u.id,
+          u."firstName",
+          u."lastName",
+          u.email,
+          NULL::text AS phone,
+          'USER' AS source,
+          u."globalRole"::text AS "globalRole",
+          (
+            SELECT string_agg(c.name, ', ' ORDER BY c.name)
+            FROM "CompanyMembership" cm
+            JOIN "Company" c ON c.id = cm."companyId"
+            WHERE cm."userId" = u.id AND cm."isActive" = true
+          ) AS "tenantNames",
+          COALESCE(u."firstName", '') || ' ' || COALESCE(u."lastName", '') AS full_name
+        FROM "User" u
+
+        UNION ALL
+
+        -- NexNet Candidates (marketplace)
+        SELECT
+          n.id,
+          n."firstName",
+          n."lastName",
+          n.email,
+          n.phone,
+          'CANDIDATE' AS source,
+          NULL AS "globalRole",
+          NULL AS "tenantNames",
+          COALESCE(n."firstName", '') || ' ' || COALESCE(n."lastName", '') AS full_name
+        FROM "NexNetCandidate" n
+        WHERE n."isDeletedSoft" = false
+
+        UNION ALL
+
+        -- Tenant Clients
+        SELECT
+          tc.id,
+          tc."firstName",
+          tc."lastName",
+          tc.email,
+          tc.phone,
+          'CLIENT' AS source,
+          NULL AS "globalRole",
+          c.name AS "tenantNames",
+          COALESCE(tc."firstName", '') || ' ' || COALESCE(tc."lastName", '') AS full_name
+        FROM "TenantClient" tc
+        JOIN "Company" c ON c.id = tc."companyId"
+        WHERE tc.active = true
+      ),
+      scored AS (
+        SELECT
+          p.*,
+          CASE
+            WHEN lower(trim(p.full_name)) = lower(${q}) THEN 0
+            WHEN lower(trim(p.full_name)) LIKE lower(${q}) || '%' THEN 1
+            WHEN lower(trim(p.full_name)) LIKE '%' || lower(${q}) || '%' THEN 2
+            WHEN lower(COALESCE(p.email, '')) LIKE '%' || lower(${q}) || '%' THEN 2
+            ELSE 3
+          END AS tier,
+          GREATEST(
+            similarity(trim(p.full_name), ${q}),
+            similarity(COALESCE(p.email, ''), ${q})
+          ) AS score
+        FROM people p
+        WHERE
+          lower(trim(p.full_name)) LIKE '%' || lower(${q}) || '%'
+          OR lower(COALESCE(p.email, '')) LIKE '%' || lower(${q}) || '%'
+          OR lower(COALESCE(p.phone, '')) LIKE '%' || replace(${q}, ' ', '') || '%'
+          OR similarity(trim(p.full_name), ${q}) > 0.15
+          OR similarity(COALESCE(p.email, ''), ${q}) > 0.15
+      )
+      SELECT
+        id, "firstName", "lastName", email, phone, source,
+        "tenantNames", "globalRole", tier, score::float
+      FROM scored
+      ORDER BY tier ASC, score DESC, "lastName" ASC, "firstName" ASC
+      LIMIT ${cap}
+    `;
+
+    return {
+      query: q,
+      results: rows.map(r => ({
+        id: r.id,
+        firstName: r.firstName,
+        lastName: r.lastName,
+        email: r.email,
+        phone: r.phone,
+        source: r.source,
+        tenantNames: r.tenantNames,
+        globalRole: r.globalRole,
+        matchTier: r.tier === 0 ? "exact" : r.tier <= 2 ? "contains" : "fuzzy",
+        score: Math.round(r.score * 100) / 100,
+      })),
+    };
+  }
+
   async createUserWithPassword(
     actor: AuthenticatedUser,
     params: { email: string; password: string; companyId: string; role: string; userType?: string }
