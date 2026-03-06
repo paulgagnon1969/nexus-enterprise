@@ -4274,6 +4274,8 @@ ${htmlBody}
   const [ilmDesc, setIlmDesc] = useState("");
   const [ilmQty, setIlmQty] = useState("");
   const [ilmUnitCode, setIlmUnitCode] = useState("");
+  const [ilmOriginalUnitPrice, setIlmOriginalUnitPrice] = useState("");
+  const [ilmEditedUnitPrice, setIlmEditedUnitPrice] = useState("");
   const [ilmUnitPrice, setIlmUnitPrice] = useState("");
   const [ilmAmount, setIlmAmount] = useState("");
   const [ilmMarkupPct, setIlmMarkupPct] = useState("");
@@ -4281,15 +4283,45 @@ ${htmlBody}
 
   const openInvoiceLineModal = (editLine?: any) => {
     if (editLine) {
+      const incomingQty = editLine.qty != null ? String(editLine.qty) : "";
+      const incomingFinalUnit =
+        editLine.unitPrice != null && Number.isFinite(Number(editLine.unitPrice))
+          ? Number(editLine.unitPrice)
+          : NaN;
+      const incomingOrigUnit =
+        editLine.costBookUnitPrice != null && Number.isFinite(Number(editLine.costBookUnitPrice))
+          ? Number(editLine.costBookUnitPrice)
+          : incomingFinalUnit;
+      const incomingMarkup =
+        editLine.markupPercent != null && Number.isFinite(Number(editLine.markupPercent))
+          ? Number(editLine.markupPercent)
+          : 0;
+      const factor = 1 + incomingMarkup / 100;
+      const incomingEditedUnit =
+        editLine.adjustedUnitPrice != null && Number.isFinite(Number(editLine.adjustedUnitPrice))
+          ? Number(editLine.adjustedUnitPrice)
+          : (Number.isFinite(incomingFinalUnit) && factor > 0 ? incomingFinalUnit / factor : incomingFinalUnit);
       setIlmEditId(String(editLine.id));
       setIlmKind(String(editLine.kind ?? "MANUAL"));
       setIlmBillingTag(String(editLine.billingTag ?? "NONE"));
       setIlmDesc(String(editLine.description ?? ""));
-      setIlmQty(editLine.qty != null ? String(editLine.qty) : "");
+      setIlmQty(incomingQty);
       setIlmUnitCode(String(editLine.unitCode ?? ""));
-      setIlmUnitPrice(editLine.unitPrice != null ? String(editLine.unitPrice) : "");
-      setIlmAmount(editLine.amount != null ? String(editLine.amount) : "");
-      setIlmMarkupPct(editLine.discountPercent != null ? String(editLine.discountPercent) : "");
+      setIlmOriginalUnitPrice(Number.isFinite(incomingOrigUnit) ? String(incomingOrigUnit) : "");
+      setIlmEditedUnitPrice(Number.isFinite(incomingEditedUnit) ? String(incomingEditedUnit) : "");
+      setIlmMarkupPct(Number.isFinite(incomingMarkup) ? String(incomingMarkup) : "0");
+      setIlmUnitPrice(Number.isFinite(incomingFinalUnit) ? String(incomingFinalUnit) : "");
+      if (editLine.amount != null) {
+        setIlmAmount(String(editLine.amount));
+      } else if (
+        Number.isFinite(incomingFinalUnit) &&
+        incomingQty.trim() !== "" &&
+        Number.isFinite(Number(incomingQty))
+      ) {
+        setIlmAmount((incomingFinalUnit * Number(incomingQty)).toFixed(2));
+      } else {
+        setIlmAmount("");
+      }
     } else {
       setIlmEditId(null);
       setIlmKind("MANUAL");
@@ -4297,22 +4329,109 @@ ${htmlBody}
       setIlmDesc("");
       setIlmQty("");
       setIlmUnitCode("");
+      setIlmOriginalUnitPrice("");
+      setIlmEditedUnitPrice("");
       setIlmUnitPrice("");
       setIlmAmount("");
-      setIlmMarkupPct("");
+      setIlmMarkupPct("0");
     }
     setIlmMessage(null);
     setIlmSaving(false);
     setIlmOpen(true);
   };
 
-  const ilmAutoCalcAmount = (q: string, u: string) => {
-    const qty = Number(q);
-    const unit = Number(u);
-    if (Number.isFinite(qty) && Number.isFinite(unit) && q.trim() !== "" && u.trim() !== "") {
-      setIlmAmount((qty * unit).toFixed(2));
+  const ilmRecalcFromEditedAndMarkup = (
+    nextEditedRaw: string,
+    nextMarkupRaw: string,
+    nextQtyRaw: string = ilmQty,
+  ) => {
+    const edited = Number(nextEditedRaw);
+    const markup = Number(nextMarkupRaw);
+    const qty = Number(nextQtyRaw);
+    if (!Number.isFinite(edited) || !Number.isFinite(markup)) return;
+    const finalUnit = edited * (1 + markup / 100);
+    setIlmUnitPrice(finalUnit.toFixed(2));
+    if (Number.isFinite(qty) && nextQtyRaw.trim() !== "") {
+      setIlmAmount((finalUnit * qty).toFixed(2));
     }
   };
+
+  const ilmRecalcFromFinalAndMarkup = (
+    nextFinalRaw: string,
+    nextMarkupRaw: string,
+    nextQtyRaw: string = ilmQty,
+  ) => {
+    const finalUnit = Number(nextFinalRaw);
+    const markup = Number(nextMarkupRaw);
+    const qty = Number(nextQtyRaw);
+    const factor = 1 + markup / 100;
+    if (!Number.isFinite(finalUnit) || !Number.isFinite(markup) || factor <= 0) return;
+    const edited = finalUnit / factor;
+    setIlmEditedUnitPrice(edited.toFixed(2));
+    if (Number.isFinite(qty) && nextQtyRaw.trim() !== "") {
+      setIlmAmount((finalUnit * qty).toFixed(2));
+    }
+  };
+
+  const ilmRecalcFromDiscountPerUnit = (discountRaw: string) => {
+    const orig = Number(ilmOriginalUnitPrice);
+    const discount = Number(discountRaw);
+    if (!Number.isFinite(orig) || !Number.isFinite(discount)) return;
+    const finalUnit = orig - discount;
+    setIlmUnitPrice(finalUnit.toFixed(2));
+    ilmRecalcFromFinalAndMarkup(String(finalUnit), ilmMarkupPct);
+  };
+
+  const ilmRecalcFromDiscountPercent = (discountPctRaw: string) => {
+    const orig = Number(ilmOriginalUnitPrice);
+    const pct = Number(discountPctRaw);
+    if (!Number.isFinite(orig) || !Number.isFinite(pct)) return;
+    const finalUnit = orig * (1 - pct / 100);
+    setIlmUnitPrice(finalUnit.toFixed(2));
+    ilmRecalcFromFinalAndMarkup(String(finalUnit), ilmMarkupPct);
+  };
+
+  const ilmDerived = useMemo(() => {
+    const qty = Number(ilmQty);
+    const orig = Number(ilmOriginalUnitPrice);
+    const edited = Number(ilmEditedUnitPrice);
+    const finalUnit = Number(ilmUnitPrice);
+    const markupPct = Number(ilmMarkupPct);
+
+    const hasQty = Number.isFinite(qty) && ilmQty.trim() !== "";
+    const hasOrig = Number.isFinite(orig) && ilmOriginalUnitPrice.trim() !== "";
+    const hasEdited = Number.isFinite(edited) && ilmEditedUnitPrice.trim() !== "";
+    const hasFinal = Number.isFinite(finalUnit) && ilmUnitPrice.trim() !== "";
+    const hasMarkupPct = Number.isFinite(markupPct) && ilmMarkupPct.trim() !== "";
+
+    const muPerUnit =
+      hasEdited && hasFinal
+        ? finalUnit - edited
+        : hasEdited && hasMarkupPct
+          ? edited * (markupPct / 100)
+          : NaN;
+    const discountPerUnit = hasOrig && hasFinal ? orig - finalUnit : NaN;
+    const discountPct =
+      hasOrig && hasFinal && orig !== 0 ? ((orig - finalUnit) / orig) * 100 : NaN;
+    const computedAmount = hasQty && hasFinal ? finalUnit * qty : NaN;
+
+    return {
+      qty,
+      orig,
+      edited,
+      finalUnit,
+      markupPct,
+      muPerUnit,
+      discountPerUnit,
+      discountPct,
+      computedAmount,
+      hasQty,
+      hasOrig,
+      hasEdited,
+      hasFinal,
+      hasMarkupPct,
+    };
+  }, [ilmQty, ilmOriginalUnitPrice, ilmEditedUnitPrice, ilmUnitPrice, ilmMarkupPct]);
 
   const saveInvoiceLine = async () => {
     if (!project || !activeInvoice?.id) return;
@@ -4323,14 +4442,30 @@ ${htmlBody}
     if (!desc) { setIlmMessage("Description is required."); return; }
 
     const qty = ilmQty.trim() === "" ? undefined : Number(ilmQty);
-    const unitPrice = ilmUnitPrice.trim() === "" ? undefined : Number(ilmUnitPrice);
+    let unitPrice = ilmUnitPrice.trim() === "" ? undefined : Number(ilmUnitPrice);
+    const originalUnitPrice =
+      ilmOriginalUnitPrice.trim() === "" ? undefined : Number(ilmOriginalUnitPrice);
+    const editedUnitPrice =
+      ilmEditedUnitPrice.trim() === "" ? undefined : Number(ilmEditedUnitPrice);
+    const markupPct = ilmMarkupPct.trim() === "" ? undefined : Number(ilmMarkupPct);
     let amount = ilmAmount.trim() === "" ? undefined : Number(ilmAmount);
 
     if (
       (qty !== undefined && !Number.isFinite(qty)) ||
       (unitPrice !== undefined && !Number.isFinite(unitPrice)) ||
+      (originalUnitPrice !== undefined && !Number.isFinite(originalUnitPrice)) ||
+      (editedUnitPrice !== undefined && !Number.isFinite(editedUnitPrice)) ||
+      (markupPct !== undefined && !Number.isFinite(markupPct)) ||
       (amount !== undefined && !Number.isFinite(amount))
     ) { setIlmMessage("Qty / Unit $ / Amount must be valid numbers."); return; }
+
+    if (
+      unitPrice === undefined &&
+      editedUnitPrice !== undefined &&
+      markupPct !== undefined
+    ) {
+      unitPrice = editedUnitPrice * (1 + markupPct / 100);
+    }
 
     if (amount === undefined && qty !== undefined && unitPrice !== undefined) {
       amount = qty * unitPrice;
@@ -4352,6 +4487,20 @@ ${htmlBody}
         unitPrice,
         amount,
       };
+
+      if (originalUnitPrice !== undefined) {
+        payload.costBookUnitPrice = originalUnitPrice;
+      }
+      if (editedUnitPrice !== undefined) {
+        payload.adjustedUnitPrice = editedUnitPrice;
+      }
+      if (
+        originalUnitPrice !== undefined &&
+        unitPrice !== undefined &&
+        originalUnitPrice > 0
+      ) {
+        payload.discountPercent = ((originalUnitPrice - unitPrice) / originalUnitPrice) * 100;
+      }
 
       const isEdit = !!ilmEditId;
       const url = isEdit
@@ -17168,14 +17317,25 @@ ${htmlBody}
                     />
                   </div>
 
-                  {/* Row 3: Qty, Unit Code, Unit $ */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                  {/* Row 3: Qty, Unit Code, Original $/unit, Edited $/unit */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
                     <div>
                       <label style={{ fontSize: 11, color: "#6b7280", marginBottom: 2, display: "block" }}>Qty</label>
                       <input
                         type="number"
                         value={ilmQty}
-                        onChange={(e) => { setIlmQty(e.target.value); ilmAutoCalcAmount(e.target.value, ilmUnitPrice); }}
+                        onChange={(e) => {
+                          const nextQty = e.target.value;
+                          setIlmQty(nextQty);
+                          if (
+                            ilmUnitPrice.trim() !== "" &&
+                            Number.isFinite(Number(ilmUnitPrice)) &&
+                            nextQty.trim() !== "" &&
+                            Number.isFinite(Number(nextQty))
+                          ) {
+                            setIlmAmount((Number(ilmUnitPrice) * Number(nextQty)).toFixed(2));
+                          }
+                        }}
                         placeholder="1"
                         style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
                       />
@@ -17199,28 +17359,70 @@ ${htmlBody}
                       </select>
                     </div>
                     <div>
-                      <label style={{ fontSize: 11, color: "#6b7280", marginBottom: 2, display: "block" }}>Unit $</label>
+                      <label style={{ fontSize: 11, color: "#6b7280", marginBottom: 2, display: "block" }}>Original $/unit</label>
                       <input
                         type="number"
                         step="0.01"
-                        value={ilmUnitPrice}
-                        onChange={(e) => { setIlmUnitPrice(e.target.value); ilmAutoCalcAmount(ilmQty, e.target.value); }}
+                        value={ilmOriginalUnitPrice}
+                        onChange={(e) => setIlmOriginalUnitPrice(e.target.value)}
+                        placeholder="0.00"
+                        style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: "#6b7280", marginBottom: 2, display: "block" }}>Edited $/unit</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={ilmEditedUnitPrice}
+                        onChange={(e) => {
+                          const nextEdited = e.target.value;
+                          setIlmEditedUnitPrice(nextEdited);
+                          ilmRecalcFromEditedAndMarkup(nextEdited, ilmMarkupPct, ilmQty);
+                        }}
                         placeholder="0.00"
                         style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
                       />
                     </div>
                   </div>
-
-                  {/* Row 4: Markup %, Amount */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  {/* Row 4: Markup %, MU $/unit, Final Bill $/unit, Amount */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
                     <div>
                       <label style={{ fontSize: 11, color: "#6b7280", marginBottom: 2, display: "block" }}>Markup %</label>
                       <input
                         type="number"
                         step="0.1"
                         value={ilmMarkupPct}
-                        onChange={(e) => setIlmMarkupPct(e.target.value)}
+                        onChange={(e) => {
+                          const nextMarkup = e.target.value;
+                          setIlmMarkupPct(nextMarkup);
+                          ilmRecalcFromEditedAndMarkup(ilmEditedUnitPrice, nextMarkup, ilmQty);
+                        }}
                         placeholder="e.g. 25"
+                        style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: "#6b7280", marginBottom: 2, display: "block" }}>MU $/unit</label>
+                      <input
+                        type="text"
+                        readOnly
+                        value={Number.isFinite(ilmDerived.muPerUnit) ? ilmDerived.muPerUnit.toFixed(2) : ""}
+                        style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12, background: "#f9fafb", color: "#374151" }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: "#6b7280", marginBottom: 2, display: "block" }}>Final Bill $/unit</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={ilmUnitPrice}
+                        onChange={(e) => {
+                          const nextFinal = e.target.value;
+                          setIlmUnitPrice(nextFinal);
+                          ilmRecalcFromFinalAndMarkup(nextFinal, ilmMarkupPct, ilmQty);
+                        }}
+                        placeholder="0.00"
                         style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
                       />
                     </div>
@@ -17244,21 +17446,56 @@ ${htmlBody}
                     </div>
                   </div>
 
-                  {/* Markup summary */}
-                  {(() => {
-                    const mu = Number(ilmMarkupPct);
-                    const amt = Number(ilmAmount);
-                    if (Number.isFinite(mu) && mu > 0 && Number.isFinite(amt) && amt > 0) {
-                      const markupDollar = amt * (mu / 100);
-                      const clientPrice = amt + markupDollar;
-                      return (
-                        <div style={{ fontSize: 11, color: "#4b5563", background: "#f0fdf4", borderRadius: 4, padding: "6px 8px" }}>
-                          Base: ${amt.toFixed(2)} · Markup: +${markupDollar.toFixed(2)} ({mu}%) · <strong>Client price: ${clientPrice.toFixed(2)}</strong>
-                        </div>
-                      );
-                    }
-                    return null;
-                  })()}
+                  {/* Row 5: Discount controls */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <div>
+                      <label style={{ fontSize: 11, color: "#6b7280", marginBottom: 2, display: "block" }}>
+                        Discount $/unit (Original − Final)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={Number.isFinite(ilmDerived.discountPerUnit) ? ilmDerived.discountPerUnit.toFixed(2) : ""}
+                        onChange={(e) => ilmRecalcFromDiscountPerUnit(e.target.value)}
+                        placeholder="0.00"
+                        style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: "#6b7280", marginBottom: 2, display: "block" }}>Discount %</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={Number.isFinite(ilmDerived.discountPct) ? ilmDerived.discountPct.toFixed(2) : ""}
+                        onChange={(e) => ilmRecalcFromDiscountPercent(e.target.value)}
+                        placeholder="0"
+                        style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Pricing summary */}
+                  {(ilmDerived.hasOrig || ilmDerived.hasEdited || ilmDerived.hasFinal) && (
+                    <div style={{ fontSize: 11, color: "#4b5563", background: "#f0fdf4", borderRadius: 4, padding: "6px 8px" }}>
+                      {ilmDerived.hasEdited && <span>Edited: ${ilmDerived.edited.toFixed(2)}</span>}
+                      {Number.isFinite(ilmDerived.muPerUnit) && (
+                        <span>
+                          {`${ilmDerived.hasEdited ? " * " : ""}(1 + ${
+                            Number.isFinite(ilmDerived.markupPct)
+                              ? ilmDerived.markupPct.toFixed(2)
+                              : "0.00"
+                          }%) = `}
+                        </span>
+                      )}
+                      {ilmDerived.hasFinal && <span><strong>${ilmDerived.finalUnit.toFixed(2)}</strong></span>}
+                      {ilmDerived.hasOrig && ilmDerived.hasFinal && (
+                        <span>
+                          {" · "}
+                          {ilmDerived.orig.toFixed(2)} - {ilmDerived.finalUnit.toFixed(2)} = <strong>{Math.abs(ilmDerived.discountPerUnit).toFixed(2)} discount</strong>
+                        </span>
+                      )}
+                    </div>
+                  )}
 
                   {ilmMessage && (
                     <div style={{ fontSize: 12, color: "#b91c1c", marginTop: 2 }}>{ilmMessage}</div>
