@@ -1,4 +1,4 @@
-import { Global, Module } from "@nestjs/common";
+import { Global, Module, forwardRef } from "@nestjs/common";
 import { APP_GUARD, Reflector } from "@nestjs/core";
 import { StripeProvider } from "./stripe.provider";
 import { PlaidProvider } from "./plaid.provider";
@@ -10,9 +10,11 @@ import { GlobalJwtAuthGuard } from "./global-jwt-auth.guard";
 import { BillingController } from "./billing.controller";
 import { MembershipController } from "./membership.controller";
 import { StripeWebhookController } from "./stripe-webhook.controller";
+import { ProjectModule } from "../project/project.module";
 
 @Global()
 @Module({
+  imports: [forwardRef(() => ProjectModule)],
   providers: [
     StripeProvider,
     PlaidProvider,

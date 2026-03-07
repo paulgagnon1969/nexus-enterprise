@@ -1535,11 +1535,17 @@ export class ProjectService {
         : null;
 
       if (!collab) {
-        throw new ForbiddenException("You do not have access to this project");
-      }
-
-      // READ_ONLY visibility cannot view invoices
-      if (collab.visibility === ProjectVisibilityLevel.READ_ONLY) {
+        // Allow internal company members (the project's own company) to preview the portal
+        const proj = await this.prisma.project.findUnique({
+          where: { id: projectId },
+          select: { companyId: true },
+        });
+        const isInternalMember = proj && userCompanyIds.some((m) => m.companyId === proj.companyId);
+        if (!isInternalMember) {
+          throw new ForbiddenException("You do not have access to this project");
+        }
+        // Internal members get FULL visibility — no READ_ONLY restriction
+      } else if (collab.visibility === ProjectVisibilityLevel.READ_ONLY) {
         throw new ForbiddenException("Invoice access is not available with your access level");
       }
     } else if (membership.visibility === ProjectVisibilityLevel.READ_ONLY) {
