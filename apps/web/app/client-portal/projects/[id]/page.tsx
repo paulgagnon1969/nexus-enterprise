@@ -2,8 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { loadStripe, type Stripe as StripeJS } from "@stripe/stripe-js";
+import { Elements, CardElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import { usePlaidLink } from "react-plaid-link";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+  ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
+  : null;
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -267,6 +274,152 @@ const TAB_INACTIVE: React.CSSProperties = {
   cursor: "pointer",
 };
 
+// ── Payment Sub-components ─────────────────────────────────────────
+
+function CardPaymentForm({
+  invoiceId,
+  projectId,
+  amount,
+  onSuccess,
+}: {
+  invoiceId: string;
+  projectId: string;
+  amount: string;
+  onSuccess: (msg: string) => void;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+
+  useEffect(() => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") || "" : "";
+    fetch(`${API_BASE}/projects/portal/${projectId}/invoices/${invoiceId}/pay`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    })
+      .then((r) => r.json())
+      .then((d) => setClientSecret(d.clientSecret))
+      .catch(() => setError("Failed to initialize payment"));
+  }, [invoiceId, projectId]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stripe || !elements || !clientSecret) return;
+    setLoading(true);
+    setError(null);
+    const card = elements.getElement(CardElement);
+    if (!card) { setLoading(false); return; }
+    const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
+      payment_method: { card },
+    });
+    if (stripeError) {
+      setError(stripeError.message || "Payment failed");
+      setLoading(false);
+    } else if (paymentIntent?.status === "succeeded") {
+      onSuccess("Payment successful! Your invoice will be updated shortly.");
+    } else {
+      onSuccess("Payment is being processed. Your invoice will be updated once confirmed.");
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <div style={{ padding: "12px", border: "1px solid #d1d5db", borderRadius: 8, background: "#fff", marginBottom: 16 }}>
+        <CardElement options={{ style: { base: { fontSize: "16px", color: "#0f172a" } } }} />
+      </div>
+      {error && <div style={{ color: "#dc2626", fontSize: 13, marginBottom: 12 }}>{error}</div>}
+      <button
+        type="submit"
+        disabled={!stripe || !clientSecret || loading}
+        style={{
+          width: "100%", padding: "12px", borderRadius: 8, border: "none",
+          background: loading ? "#9ca3af" : "#16a34a", color: "#fff",
+          fontSize: 15, fontWeight: 600, cursor: loading ? "default" : "pointer",
+        }}
+      >
+        {loading ? "Processing\u2026" : `Pay ${amount}`}
+      </button>
+    </form>
+  );
+}
+
+function PlaidPaymentButton({
+  invoiceId,
+  projectId,
+  amount,
+  onSuccess,
+}: {
+  invoiceId: string;
+  projectId: string;
+  amount: string;
+  onSuccess: (msg: string) => void;
+}) {
+  const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") || "" : "";
+    fetch(`${API_BASE}/projects/portal/${projectId}/invoices/${invoiceId}/pay/plaid-link`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    })
+      .then((r) => r.json())
+      .then((d) => setLinkToken(d.linkToken))
+      .catch(() => setError("Failed to initialize bank connection"));
+  }, [invoiceId, projectId]);
+
+  const { open, ready } = usePlaidLink({
+    token: linkToken,
+    onSuccess: async (publicToken, metadata) => {
+      setLoading(true);
+      setStatus("Connecting your bank account\u2026");
+      const authToken = typeof window !== "undefined" ? localStorage.getItem("accessToken") || "" : "";
+      try {
+        const res = await fetch(
+          `${API_BASE}/projects/portal/${projectId}/invoices/${invoiceId}/pay/plaid-exchange`,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${authToken}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ publicToken, accountId: metadata.accounts[0]?.id }),
+          },
+        );
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || "Payment failed");
+        onSuccess(data.message || "ACH payment initiated successfully!");
+      } catch (err: any) {
+        setError(err.message || "Payment failed");
+        setLoading(false);
+      }
+    },
+    onExit: () => { /* User closed Plaid Link */ },
+  });
+
+  return (
+    <div>
+      <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 16, margin: 0, marginTop: 0 }}>
+        Connect your bank account to pay via ACH transfer. Funds typically settle in 1\u20133 business days.
+      </p>
+      {error && <div style={{ color: "#dc2626", fontSize: 13, marginBottom: 12, marginTop: 8 }}>{error}</div>}
+      {status && <p style={{ fontSize: 13, color: "#2563eb", marginBottom: 12, marginTop: 8 }}>{status}</p>}
+      <button
+        onClick={() => open()}
+        disabled={!ready || !linkToken || loading}
+        style={{
+          width: "100%", padding: "12px", borderRadius: 8, border: "none", marginTop: 16,
+          background: (!ready || !linkToken || loading) ? "#9ca3af" : "#2563eb", color: "#fff",
+          fontSize: 15, fontWeight: 600, cursor: (!ready || !linkToken || loading) ? "default" : "pointer",
+        }}
+      >
+        {loading ? "Processing\u2026" : `Pay ${amount} via Bank Transfer`}
+      </button>
+    </div>
+  );
+}
+
 // ── Component ──────────────────────────────────────────────────────
 
 export default function ClientPortalProjectPage() {
@@ -288,6 +441,11 @@ export default function ClientPortalProjectPage() {
   // Invoice detail
   const [activeInvoice, setActiveInvoice] = useState<InvoiceDetail | null>(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
+
+  // Payment modal
+  const [showPayModal, setShowPayModal] = useState(false);
+  const [payTab, setPayTab] = useState<"card" | "ach">("card");
+  const [paymentSuccess, setPaymentSuccess] = useState<string | null>(null);
 
   // Document selection & preview
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());

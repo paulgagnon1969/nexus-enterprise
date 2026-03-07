@@ -170,7 +170,6 @@ export class ProjectController {
     const user = req.user as AuthenticatedUser;
     return this.invoicePayment.createCardPaymentIntent(invoiceId, {
       payerEmail: user.email,
-      payerName: user.firstName ? `${user.firstName} ${user.lastName ?? ""}`.trim() : undefined,
     });
   }
 
@@ -198,7 +197,6 @@ export class ProjectController {
     const user = req.user as AuthenticatedUser;
     return this.invoicePayment.exchangePlaidAndPay(invoiceId, body.publicToken, body.accountId, {
       payerEmail: user.email,
-      payerName: user.firstName ? `${user.firstName} ${user.lastName ?? ""}`.trim() : undefined,
     });
   }
 
