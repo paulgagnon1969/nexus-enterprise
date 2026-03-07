@@ -43,6 +43,15 @@ export abstract class ObjectStorageService {
   }): Promise<string>;
 
   /**
+   * Return a readable stream for an object in storage.
+   * Used by the file proxy to stream files to clients without writing to disk.
+   */
+  abstract getObjectStream(options: {
+    bucket?: string;
+    key: string;
+  }): Promise<NodeJS.ReadableStream>;
+
+  /**
    * Delete a file from storage. Best-effort — does not throw if the file
    * doesn't exist.
    */

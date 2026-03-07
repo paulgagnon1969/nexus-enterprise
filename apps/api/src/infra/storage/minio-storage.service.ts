@@ -126,6 +126,14 @@ export class MinioStorageService extends ObjectStorageService {
     );
   }
 
+  async getObjectStream(options: {
+    bucket?: string;
+    key: string;
+  }): Promise<NodeJS.ReadableStream> {
+    const bucketName = this.resolveBucket(options.bucket);
+    return this.client.getObject(bucketName, options.key);
+  }
+
   async deleteFile(options: { bucket?: string; key: string }): Promise<void> {
     const { key } = options;
     const bucketName =
