@@ -221,7 +221,10 @@ export default function BillingPage() {
 
   const company = membership?.company;
   const modules = membership?.modules ?? [];
-  const monthlyModules = modules.filter((m) => m.pricingModel === "MONTHLY");
+  const monthlyModules = modules.filter((m) => m.pricingModel === "MONTHLY" && !m.code.startsWith("NEXBRIDGE"));
+  const nexbridgeModules = modules.filter((m) => m.code.startsWith("NEXBRIDGE"));
+  const nexbridgeBase = nexbridgeModules.find((m) => m.code === "NEXBRIDGE");
+  const nexbridgeAddons = nexbridgeModules.filter((m) => m.code !== "NEXBRIDGE");
   const projectModules = modules.filter((m) => m.pricingModel === "PER_PROJECT");
   const enabledMonthly = monthlyModules.filter(
     (m) => m.enabled && !m.isCore,
@@ -367,6 +370,168 @@ export default function BillingPage() {
               />
             ))}
           </div>
+
+          {/* ── NexBRIDGE Connect Section ──────────────────────── */}
+          {nexbridgeModules.length > 0 && (
+            <>
+              <div
+                style={{
+                  margin: "32px 0 16px",
+                  background: "linear-gradient(135deg, #1e293b 0%, #334155 100%)",
+                  borderRadius: 12,
+                  padding: "24px 28px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 20,
+                }}
+              >
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                    <div
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 10,
+                        background: "#3b82f6",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontWeight: 800,
+                        fontSize: 16,
+                        color: "#ffffff",
+                      }}
+                    >
+                      N
+                    </div>
+                    <div>
+                      <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#ffffff" }}>
+                        NexBRIDGE Connect
+                      </h2>
+                      <p style={{ margin: 0, fontSize: 11, color: "#94a3b8" }}>
+                        Desktop companion app
+                      </p>
+                    </div>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 13, color: "#cbd5e1", lineHeight: 1.5, maxWidth: 480 }}>
+                    Local-compute superpowers for your team — video AI assessment, document
+                    scanning, asset management, and AI-assisted material selections. Runs natively
+                    on macOS and Windows.
+                  </p>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                  <a
+                    href="/downloads"
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "10px 22px",
+                      borderRadius: 8,
+                      background: "#3b82f6",
+                      color: "#ffffff",
+                      fontSize: 14,
+                      fontWeight: 600,
+                      textDecoration: "none",
+                      transition: "background 0.15s",
+                    }}
+                    onMouseOver={(e) => (e.currentTarget.style.background = "#2563eb")}
+                    onMouseOut={(e) => (e.currentTarget.style.background = "#3b82f6")}
+                  >
+                    <span style={{ fontSize: 18 }}>&#8615;</span>
+                    Download NexBRIDGE
+                  </a>
+                  <span style={{ fontSize: 10, color: "#64748b" }}>v1.0.0 · macOS &amp; Windows</span>
+                </div>
+              </div>
+
+              {/* NexBRIDGE Base Module */}
+              {nexbridgeBase && (
+                <div style={{ marginBottom: 8 }}>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: "#6b7280",
+                      textTransform: "uppercase" as const,
+                      letterSpacing: "0.05em",
+                      marginBottom: 8,
+                    }}
+                  >
+                    Base Platform
+                  </div>
+                  <ModuleCard
+                    mod={nexbridgeBase}
+                    toggling={togglingCode === nexbridgeBase.code}
+                    onToggle={() => toggleModule(nexbridgeBase)}
+                    onLearnMore={nexbridgeBase.camDocumentId ? () => openCam(nexbridgeBase) : undefined}
+                    camLoading={camLoading}
+                    allUnlocked={
+                      company?.isInternal ||
+                      (company?.isTrial && trialDays !== null && trialDays > 0)
+                    }
+                  />
+                </div>
+              )}
+
+              {/* NexBRIDGE Add-ons */}
+              {nexbridgeAddons.length > 0 && (
+                <div>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: "#6b7280",
+                      textTransform: "uppercase" as const,
+                      letterSpacing: "0.05em",
+                      marginBottom: 8,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    Add-on Modules
+                    {nexbridgeBase && !nexbridgeBase.enabled && (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 500,
+                          color: "#f59e0b",
+                          textTransform: "none" as const,
+                          letterSpacing: "normal",
+                        }}
+                      >
+                        (requires NexBRIDGE Connect base)
+                      </span>
+                    )}
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+                      gap: 12,
+                      opacity: nexbridgeBase?.enabled ? 1 : 0.5,
+                    }}
+                  >
+                    {nexbridgeAddons.map((mod) => (
+                      <ModuleCard
+                        key={mod.code}
+                        mod={mod}
+                        toggling={togglingCode === mod.code}
+                        onToggle={() => toggleModule(mod)}
+                        onLearnMore={mod.camDocumentId ? () => openCam(mod) : undefined}
+                        camLoading={camLoading}
+                        allUnlocked={
+                          company?.isInternal ||
+                          (company?.isTrial && trialDays !== null && trialDays > 0)
+                        }
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
 
           {projectModules.length > 0 && (
             <>

@@ -441,6 +441,7 @@ export default function ClientPortalProjectPage() {
   // Invoice detail
   const [activeInvoice, setActiveInvoice] = useState<InvoiceDetail | null>(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
+  const [invoiceError, setInvoiceError] = useState<string | null>(null);
 
   // Payment modal
   const [showPayModal, setShowPayModal] = useState(false);
@@ -543,6 +544,7 @@ export default function ClientPortalProjectPage() {
     const token = getToken();
     if (!token) return;
     setInvoiceLoading(true);
+    setInvoiceError(null);
     try {
       const res = await fetch(`${API_BASE}/projects/portal/${projectId}/invoices/${invoiceId}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -550,9 +552,12 @@ export default function ClientPortalProjectPage() {
       if (res.ok) {
         const data = await res.json();
         setActiveInvoice(data);
+      } else {
+        const errData = await res.json().catch(() => null);
+        setInvoiceError(errData?.message || `Failed to load invoice (${res.status})`);
       }
-    } catch {
-      // ignore
+    } catch (err: any) {
+      setInvoiceError(err.message || "Network error loading invoice");
     } finally {
       setInvoiceLoading(false);
     }
@@ -1225,6 +1230,11 @@ export default function ClientPortalProjectPage() {
                   {invoiceLoading && (
                     <p style={{ textAlign: "center", color: "#6b7280", fontSize: 12, marginTop: 12 }}>
                       Loading invoice…
+                    </p>
+                  )}
+                  {invoiceError && (
+                    <p style={{ textAlign: "center", color: "#dc2626", fontSize: 12, marginTop: 12, padding: "8px 12px", background: "rgba(239,68,68,0.08)", borderRadius: 6 }}>
+                      {invoiceError}
                     </p>
                   )}
                 </div>

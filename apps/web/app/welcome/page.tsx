@@ -60,6 +60,12 @@ export default function WelcomePage() {
             Security
           </Link>
           <Link
+            href="/downloads"
+            style={{ color: "#cbd5e1", textDecoration: "none", fontSize: 14 }}
+          >
+            Desktop App
+          </Link>
+          <Link
             href="/login"
             style={{
               background: "#3b82f6",
@@ -204,87 +210,217 @@ export default function WelcomePage() {
         }}
       >
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-          <h2
-            style={{
-              fontSize: 32,
-              fontWeight: 700,
-              textAlign: "center",
-              marginBottom: 16,
-            }}
-          >
-            Everything You Need
-          </h2>
-          <p
-            style={{
-              textAlign: "center",
-              color: "#94a3b8",
-              marginBottom: 56,
-              fontSize: 16,
-            }}
-          >
-            Powerful tools designed for modern construction management
-          </p>
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-              gap: 24,
+              gridTemplateColumns: "1fr 340px",
+              gap: 32,
+              alignItems: "end",
             }}
           >
-            {[
-              {
-                icon: "📋",
-                title: "Project Management",
-                desc: "Track projects from bid to completion with real-time status updates, scheduling, and milestone tracking.",
-              },
-              {
-                icon: "👥",
-                title: "Workforce Management",
-                desc: "Manage your team, track certifications, handle onboarding, and coordinate across multiple job sites.",
-              },
-              {
-                icon: "📄",
-                title: "Document Control",
-                desc: "Centralized document storage with version control, digital signatures, and secure sharing.",
-              },
-              {
-                icon: "💰",
-                title: "Financial Tracking",
-                desc: "Budgeting, invoicing, expense tracking, and comprehensive financial reporting.",
-              },
-              {
-                icon: "📊",
-                title: "Reports & Analytics",
-                desc: "Real-time dashboards and customizable reports to make data-driven decisions.",
-              },
-              {
-                icon: "🔔",
-                title: "Messaging & Alerts",
-                desc: "Keep your team connected with integrated messaging and automated notifications.",
-              },
-            ].map((feature) => (
-              <div
-                key={feature.title}
+            {/* Left: NCC Web App — heading + 3x2 grid */}
+            <div>
+              <h2
                 style={{
-                  background: "rgba(30, 41, 59, 0.5)",
-                  border: "1px solid #334155",
-                  borderRadius: 12,
-                  padding: 28,
+                  fontSize: 32,
+                  fontWeight: 700,
+                  marginBottom: 8,
                 }}
               >
-                <div style={{ fontSize: 32, marginBottom: 16 }}>
-                  {feature.icon}
-                </div>
-                <h3
-                  style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}
+                Everything You Need
+              </h2>
+              <p
+                style={{
+                  color: "#94a3b8",
+                  marginBottom: 32,
+                  fontSize: 16,
+                }}
+              >
+                Powerful tools designed for modern construction management
+              </p>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(3, 1fr)",
+                  gap: 20,
+                }}
+              >
+              {[
+                {
+                  icon: "📋",
+                  title: "Project Management",
+                  desc: "Track projects from bid to completion with real-time status updates, scheduling, and milestone tracking.",
+                },
+                {
+                  icon: "👥",
+                  title: "Workforce Management",
+                  desc: "Manage your team, track certifications, handle onboarding, and coordinate across multiple job sites.",
+                },
+                {
+                  icon: "📄",
+                  title: "Document Control",
+                  desc: "Centralized document storage with version control, digital signatures, and secure sharing.",
+                },
+                {
+                  icon: "💰",
+                  title: "Financial Tracking",
+                  desc: "Budgeting, invoicing, expense tracking, and comprehensive financial reporting.",
+                },
+                {
+                  icon: "📊",
+                  title: "Reports & Analytics",
+                  desc: "Real-time dashboards and customizable reports to make data-driven decisions.",
+                },
+                {
+                  icon: "🔔",
+                  title: "Messaging & Alerts",
+                  desc: "Keep your team connected with integrated messaging and automated notifications.",
+                },
+              ].map((feature) => (
+                <div
+                  key={feature.title}
+                  style={{
+                    background: "rgba(30, 41, 59, 0.5)",
+                    border: "1px solid #334155",
+                    borderRadius: 12,
+                    padding: 24,
+                  }}
                 >
-                  {feature.title}
+                  <div style={{ fontSize: 28, marginBottom: 12 }}>
+                    {feature.icon}
+                  </div>
+                  <h3
+                    style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}
+                  >
+                    {feature.title}
+                  </h3>
+                  <p style={{ color: "#94a3b8", fontSize: 13, lineHeight: 1.6, margin: 0 }}>
+                    {feature.desc}
+                  </p>
+                </div>
+              ))}
+              </div>
+            </div>
+
+            {/* Right: NexBRIDGE Desktop Companion */}
+            <div>
+              <div style={{ marginBottom: 16 }}>
+                <h3 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700, color: "#f8fafc" }}>
+                  Nexus Power Add Companion
                 </h3>
-                <p style={{ color: "#94a3b8", fontSize: 14, lineHeight: 1.6, margin: 0 }}>
-                  {feature.desc}
+                <p style={{ margin: 0, fontSize: 13, color: "#64748b" }}>
+                  Desktop computing leveraged for your business
                 </p>
               </div>
-            ))}
+
+              <Link
+                href="/downloads"
+                style={{
+                  background: "linear-gradient(135deg, #1e3a5f 0%, #1e293b 100%)",
+                  border: "1px solid #3b82f6",
+                  borderRadius: 12,
+                  padding: 24,
+                  textDecoration: "none",
+                  color: "inherit",
+                  display: "flex",
+                  flexDirection: "column",
+                  transition: "border-color 0.15s, transform 0.15s",
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.borderColor = "#60a5fa";
+                  e.currentTarget.style.transform = "translateY(-2px)";
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.borderColor = "#3b82f6";
+                  e.currentTarget.style.transform = "translateY(0)";
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                  <div
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 11,
+                      background: "#3b82f6",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontWeight: 800,
+                      fontSize: 18,
+                      color: "#ffffff",
+                      flexShrink: 0,
+                    }}
+                  >
+                    N
+                  </div>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      padding: "3px 8px",
+                      borderRadius: 999,
+                      background: "rgba(59, 130, 246, 0.2)",
+                      color: "#60a5fa",
+                      textTransform: "uppercase" as const,
+                      letterSpacing: "0.05em",
+                    }}
+                  >
+                    Desktop App
+                  </span>
+                </div>
+                <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 10, color: "#f8fafc" }}>
+                  NexBRIDGE Connect
+                </h3>
+                <p style={{ color: "#94a3b8", fontSize: 13, lineHeight: 1.6, margin: "0 0 20px" }}>
+                  Local AI processing, video assessment, document scanning, and
+                  material selections — running natively on macOS &amp; Windows.
+                </p>
+
+                {/* Feature mini-list */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+                  {[
+                    { icon: "📹", label: "Video AI Assessment", price: "$29/mo" },
+                    { icon: "📐", label: "NexPLAN Selections", price: "$39/mo" },
+                    { icon: "🧠", label: "AI Features Pack", price: "$19/mo" },
+                    { icon: "📄", label: "Document Scanning", price: "Included" },
+                    { icon: "👥", label: "Contact Sync", price: "Included" },
+                    { icon: "🏗️", label: "Asset Management", price: "Included" },
+                  ].map((f) => (
+                    <div
+                      key={f.label}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        fontSize: 12,
+                      }}
+                    >
+                      <span style={{ color: "#cbd5e1" }}>
+                        <span style={{ marginRight: 6 }}>{f.icon}</span>
+                        {f.label}
+                      </span>
+                      <span
+                        style={{
+                          color: f.price === "Included" ? "#4ade80" : "#60a5fa",
+                          fontWeight: 500,
+                        }}
+                      >
+                        {f.price}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ borderTop: "1px solid rgba(59, 130, 246, 0.2)", paddingTop: 16, textAlign: "center" }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#60a5fa", marginBottom: 4 }}>
+                    ↓ Learn more &amp; download
+                  </div>
+                  <div style={{ fontSize: 11, color: "#475569" }}>
+                    Base starts at $29/mo · macOS &amp; Windows
+                  </div>
+                </div>
+              </Link>
+            </div>
           </div>
         </div>
       </section>
