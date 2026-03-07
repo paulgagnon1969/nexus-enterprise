@@ -1,11 +1,11 @@
 ---
 title: "Client Portal SOP"
 module: client-portal
-revision: "1.0"
+revision: "2.0"
 tags: [sop, client-portal, client-access, project-management, onboarding, pm, admin]
 status: draft
 created: 2026-03-06
-updated: 2026-03-06
+updated: 2026-03-07
 author: Warp
 visibility:
   public: false
@@ -13,157 +13,165 @@ visibility:
   roles: [admin, pm, exec]
 ---
 
-> 🚧 **PRE-IMPLEMENTATION — Feature Not Yet Built**
-> The Client Portal is part of the simplified client invite model planned in the 2026-03-06 session.
-> This SOP documents the intended design. See [Client Invite from Project Creation SOP](./client-invite-from-project-creation-sop.md) for the full implementation checklist.
-
 # Client Portal
 
 ## Purpose
-The Client Portal is the entry point for clients (homeowners, insurance adjusters, property managers) after they accept an invite to view their project on Nexus. It provides a scoped, read-focused view of their project(s) with no access to internal contractor tooling. A single client account can see projects from multiple contractors in one unified view.
+The Client Portal gives clients (homeowners, insurance adjusters, property managers) a secure, read-only view of their projects on Nexus. Clients can view project details, invoices, daily logs, documents, and schedules — without access to internal contractor tooling. A single client account can see projects from multiple contractors in one unified view.
 
 ## Who Uses This
 - **Clients** — Individuals invited to one or more projects by a contractor
-- **Dual-Role Users** — Users who are both a client on some projects and an active contractor on others
+- **Project Managers / Admins** — Send invitations and manage client portal access
+- **Dual-Role Users** — Users who are both a client on some projects and a contractor on others
+
+## Portal Pages
+
+### 1. Projects List (`/client-portal`)
+The landing page after login. Shows all projects the client has access to, grouped by contractor company.
+
+- Each project card shows: name, address, status badge, company name
+- Click a project → project detail page
+- Tab navigation: **Projects** | **Finance**
+
+### 2. Project Detail (`/client-portal/projects/[id]`)
+Scoped view of a single project with collapsible sections:
+
+- **Daily Logs** — Shared daily logs (only those marked `effectiveShareClient: true`). Shows log title, date, author, weather, work performed text, and downloadable attachments.
+- **Invoices** — All non-draft, non-void invoices. Shows invoice number, date, total, balance due, status badge. Click for full invoice detail view.
+- **Schedule** — Project tasks with start/end dates and duration.
+- **Documents** — Project files excluding internal-only records (PETL archives, OCR results, reconciliation attachments). All downloads are proxied through the API (MinIO is not publicly accessible).
+- **Messages** — Recent message threads with preview of last message.
+
+### 3. Invoice Detail View
+Accessed by clicking an invoice from the project detail page. Full invoice layout with:
+
+- Status banner (Issued / Partially Paid / Paid / Overdue)
+- Company and project info
+- Bill-to details
+- Line items table (description, qty, unit price, amount)
+- Totals with paid/balance breakdown
+- Supporting document attachments (downloadable)
+- Payment history
+- **Print button** — Opens browser print dialog with clean print stylesheet (white background, proper borders, status-colored banners)
+
+### 4. Finance Summary (`/client-portal/finance`)
+Aggregated financial view across all projects:
+
+- Total invoiced, total paid, outstanding balance
+- All invoices across all projects
+- Recent payments
 
 ## Workflow
 
-### First-Time Access (After Invite)
+### Inviting a Client
+
+1. PM/Admin opens a project in NCC
+2. Sends invite via **Invite Client** action (provides client email and optional name)
+3. System finds or creates a `User` record (`userType: CLIENT`)
+4. System finds or creates a `TenantClient` record linking the user to the contractor company
+5. `ProjectMembership` is created with `EXTERNAL_CONTACT` scope and `LIMITED` visibility
+6. Invite email sent with registration link (7-day token TTL)
+
+### First-Time Client Access
 
 1. Client receives invite email: "{Contractor Name} has invited you to view your project on Nexus"
-2. Client clicks **Set Up Your Account** → lands on `/register/client?token=...`
-3. Page displays the project name and contractor name (token-resolved context)
+2. Client clicks **Set Up Your Account** → `/register/client?token=...`
+3. Page shows project name and contractor name (resolved from token)
 4. Client sets a password (minimum 8 characters) and submits
-5. On success, client is authenticated and redirected to `/client-portal`
+5. Authenticated and redirected to `/client-portal`
 
 ### Returning Client Login
 
 1. Client visits `/login`
 2. Enters email and password
-3. On login, system detects `userType: CLIENT` (no active `CompanyMembership`)
-4. Redirected to `/client-portal` (not the standard NCC dashboard)
+3. System detects `userType: CLIENT` with no active `CompanyMembership`
+4. Redirected to `/client-portal`
 
-### Navigating the Client Portal
+### Downloading Documents
 
-1. Client lands on `/client-portal` — sees all projects they have been invited to
-2. Projects are **grouped by contractor company**
-3. Each project card shows: name, address, status badge
-4. Client clicks a project → scoped project detail view
-
-### Scoped Project Detail View
-
-Clients see a limited subset of the project detail page. Access is controlled via Field Security Policies (`secKey` + CLIENT visibility toggle).
-
-**Visible to clients:**
-- Project overview (name, address, status, dates)
-- Updates / daily log summaries
-- Financials (scoped — amounts relevant to the client, not internal cost breakdowns)
-- Document uploads shared with the client
-
-**NOT visible to clients:**
-- Estimating tools (PETL, cost books, BOM pricing)
-- Scheduling / Gantt charts
-- Invoicing and billing workflows
-- Crew management / time tracking
-- Internal notes and admin settings
-
-> Exact module scoping is enforced via Field Security Policies (Admin → Security). See [Field Security & Client Access SOP](./field-security-client-access-sop.md) for how to adjust visibility per field.
+1. Client clicks a document or attachment download link
+2. Frontend sends authenticated request to `GET /projects/portal/:id/files/:fileId/download`
+3. API validates portal access, fetches file from MinIO, streams to client
+4. Browser triggers file download with correct filename and content type
 
 ### Flowchart
 
 ```mermaid
 flowchart TD
-    A[Client receives invite email] --> B[Clicks Set Up Account link]
-    B --> C[/register/client?token=...]
-    C --> D[Sets password]
-    D --> E[Authenticated → /client-portal]
+    A[PM sends invite from project] --> B[System creates User + TenantClient + ProjectMembership]
+    B --> C[Invite email sent with registration link]
+    C --> D[Client clicks link → /register/client]
+    D --> E[Sets password → authenticated]
+    E --> F[/client-portal — Projects List]
 
-    E --> F[Sees all projects grouped by contractor]
     F --> G[Clicks a project]
-    G --> H[Scoped project detail view]
-    H --> I[Views updates, financials, documents]
+    G --> H[Project Detail — Daily Logs, Invoices, Schedule, Docs, Messages]
+    H --> I[Clicks invoice → Invoice Detail with print option]
+    H --> J[Clicks document → API-proxied download]
+
+    F --> K[Finance tab]
+    K --> L[Aggregated finance across all projects]
 
     subgraph Returning Client
-        R1[Visits /login] --> R2[Email + password]
-        R2 --> R3{userType CLIENT?}
-        R3 -->|Yes| E
+        R1[/login] --> R2[Email + password]
+        R2 --> R3{CLIENT user type?}
+        R3 -->|Yes| F
         R3 -->|No| R4[Standard NCC dashboard]
     end
 ```
 
-## Dual-Role Users (Client + Contractor)
+## API Endpoints
 
-A user who is both invited as a client on some projects AND has their own contractor company will see both contexts.
+All portal endpoints require JWT authentication and validate portal access per request.
 
-### How It Works
+- `GET /projects/portal/my-projects` — List all projects for the client
+- `GET /projects/portal/:id` — Project detail (info, invoices, files, schedule, messages, daily logs)
+- `GET /projects/portal/:id/invoices/:invoiceId` — Invoice detail with line items, attachments, payments
+- `GET /projects/portal/:id/files/:fileId/download` — Proxy file download from MinIO
+- `GET /projects/portal/finance` — Aggregated finance summary
 
-- On login, the system checks both `CompanyMembership` (contractor role) and `TenantClient` (client role)
-- If the user has an active `CompanyMembership`, they land on the standard NCC dashboard (contractor view)
-- Their client projects appear in the project sidebar with a **"Client" badge** to distinguish them from own projects
-- Clicking a client-badged project opens the scoped client view (not the full internal view)
+### Access Management (Admin/PM endpoints)
+- `POST /projects/:id/invite-client` — Invite a client to view a project
+- `GET /projects/:id/portal-viewers` — List portal viewers for a project
+- `DELETE /projects/:id/portal-viewers/:userId` — Revoke portal access
 
-### Sidebar Badge Behavior
+## Visibility Levels
 
-| Project Type | Badge | Access Level |
-|---|---|---|
-| Own project (contractor) | None (default) | Full internal access |
-| Client project | `CLIENT` badge (e.g. orange pill) | Scoped client view |
+Each `ProjectMembership` has a `visibility` field controlling what the client sees:
 
-### Access Resolution Per Project
-
-```
-User logs in
-  ├─ Has CompanyMembership?
-  │    ├─ Yes → NCC Dashboard (contractor)
-  │    │         └─ Sidebar: own projects + client-badged projects
-  │    └─ No  → /client-portal (client only)
-  │
-  On project open:
-  ├─ Project.tenantClientId links to TenantClient.userId = me?
-  │    └─ Yes → Scoped client view (limited modules)
-  └─ Project belongs to my company?
-       └─ Yes → Full internal view
-```
-
-## Data Model
-
-### How Client Portal Projects Are Resolved
-
-```
-TenantClient
-  └─ userId → User (the logged-in client)
-
-Project
-  └─ tenantClientId → TenantClient
-
-Access query:
-  1. Find all TenantClient records where userId = current user
-  2. Find all Projects where tenantClientId IN (those TenantClient IDs)
-  3. Group by TenantClient.companyId (= the contractor's company) for display
-```
+- **FULL** — All project data (same as internal users)
+- **LIMITED** — Basic info, messages, files, schedule, invoices, daily logs; excludes PETL/cost book internals
+- **READ_ONLY** — Same as LIMITED but explicitly no invoice access
 
 ## Key Features
 
 ### Single Account, Multiple Contractors
-A client with projects from three different contractors sees all of them on one screen, grouped by contractor. No need for separate logins per contractor.
+A client with projects from three different contractors sees all of them on one screen, grouped by contractor. No separate logins per contractor.
 
 ### No Organization Setup Required
-Clients are individual users — no company registration, no org onboarding, no billing setup. Just name, email, and a password.
+Clients are individual users — no company registration, no org onboarding. Just email and password.
 
 ### Existing User Detection
-If the invite email matches an existing Nexus user (e.g., a contractor who is also someone's client), no duplicate account is created. The new project is added to their existing account.
+If the invite email matches an existing Nexus user, no duplicate account is created. The new project is added to their existing account.
 
-### Scoped by Design
-Field Security Policies control what clients see per-field, not per-page. This means contractors can fine-tune visibility (e.g., show gross total but not line-item cost) without code changes.
+### Secure File Downloads
+MinIO storage is not publicly accessible. All file downloads are proxied through the authenticated API, ensuring clients can only download files from their own projects.
+
+### Light Theme
+The portal uses a clean light theme (white cards, light gray backgrounds, blue accents) distinct from the main NCC dark-themed interface, signaling to clients that they are in a scoped, read-only environment.
+
+### Print-Ready Invoices
+Invoice detail view includes a print button and optimized print stylesheet with white backgrounds, proper borders, and status-colored banners.
 
 ## Related Modules
-- [Client Invite from Project Creation](./client-invite-from-project-creation-sop.md) (how clients are added)
-- [Client Contact Linking](./client-contact-linking-sop.md) (managing contact info on projects)
-- [Field Security & Client Access](./field-security-client-access-sop.md) (controlling what clients see)
-- [Client Collaboration & Tenant Tier System](./client-collaboration-tenant-tier-sop.md) (company-to-company collaboration, separate flow)
-- Authentication (client login, `@ClientAllowed` guard)
+- Authentication — Client login, JWT auth, `@ClientAllowed` guard
+- Nexus Documents — Shared document storage and file management
+- Invoicing — Invoice creation and payment tracking (admin-side)
+- Daily Logs — Field log creation and client sharing controls
+- Project Management — Project creation, status, scheduling
 
 ## Revision History
+
 | Rev | Date | Changes |
 |-----|------|---------|
-| 1.0 | 2026-03-06 | Initial draft — client portal design from 2026-03-06 session |
+| 1.0 | 2026-03-06 | Initial draft — pre-implementation design |
+| 2.0 | 2026-03-07 | Full rewrite reflecting actual implementation: project list, detail, finance, invoice detail, file download proxy, daily logs, light theme, print layout |
