@@ -299,6 +299,12 @@ model Company {
   // Room Scanner & Assessment
   roomScans RoomScan[]
 
+  // NexPLAN — Selections & Planning
+  planningRooms   PlanningRoom[]
+  selections      Selection[]
+  selectionSheets SelectionSheet[]
+  vendorCatalogs  VendorCatalog[]
+
   // Asset Scanner (3D Object Capture + AI Tag Read)
   assetScans AssetScan[]
 
@@ -741,6 +747,12 @@ model User {
   // Room Scanner & Assessment
   roomScansCreated RoomScan[] @relation("RoomScanCreatedBy")
 
+  // NexPLAN — Selections & Planning
+  planningRoomsCreated    PlanningRoom[]    @relation("PlanningRoomCreatedBy")
+  planningMessagesCreated PlanningMessage[] @relation("PlanningMessageCreatedBy")
+  selectionsCreated       Selection[]       @relation("SelectionCreatedBy")
+  selectionSheetsCreated  SelectionSheet[]  @relation("SelectionSheetCreatedBy")
+
   // Asset Scanner (3D Object Capture + AI Tag Read)
   assetScansCreated AssetScan[] @relation("AssetScanCreatedBy")
 
@@ -810,6 +822,9 @@ model User {
 
   // Cost Book Search History
   costBookSearchHistory CostBookSearchHistory[] @relation("CostBookSearchHistoryUser")
+
+  // NexPLAN — Vendor Product Additions
+  vendorProductsCreated VendorProduct[] @relation("VendorProductCreatedBy")
 }
 
 /// Notification delivered to a single user
@@ -1489,6 +1504,11 @@ model Project {
 
   // Room Scanner & Assessment
   roomScans RoomScan[]
+
+  // NexPLAN — Selections & Planning
+  planningRooms   PlanningRoom[]
+  selections      Selection[]
+  selectionSheets SelectionSheet[]
 
   // BOM Pricing snapshots
   bomPricingSnapshots BomPricingSnapshot[]
@@ -10115,4 +10135,217 @@ model CostBookSearchHistory {
 
   @@unique([companyId, userId, field, term], name: "CostBookSearchHistory_company_user_field_term_key")
   @@index([companyId, userId, field, hitCount], map: "CostBookSearchHistory_lookup_idx")
+}
+
+// =============================================================================
+// NexPLAN — Selections & Planning (Distributed Pipeline)
+// =============================================================================
+
+enum PlanningRoomStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum PlanningRoomSourceType {
+  MANUAL
+  ROOM_SCAN
+  PLAN_SHEET
+  PHOTO
+}
+
+enum PlanningMessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum PlanningDeviceOrigin {
+  WEB
+  MOBILE
+  DESKTOP
+}
+
+enum VendorProductCategory {
+  BASE
+  WALL
+  CORNER
+  VANITY
+  ACCESSORY
+  TRIM
+  APPLIANCE
+  TALL
+  SPECIALTY
+}
+
+enum SelectionStatus {
+  PROPOSED
+  APPROVED
+  ORDERED
+  DELIVERED
+  INSTALLED
+  REJECTED
+}
+
+/// A named planning context within a project (e.g., "Kitchen", "Master Bath").
+/// Tracks the full distributed pipeline from capture → extraction → layout → review → output.
+model PlanningRoom {
+  id          String               @id @default(cuid())
+  companyId   String
+  projectId   String
+  name        String               /// e.g., "Kitchen", "Master Bath"
+  description String?              @db.Text
+  floorPlanUrl String?             /// URL to uploaded/captured floor plan image
+  status      PlanningRoomStatus   @default(ACTIVE)
+
+  /// Origin tracking — where was this room created from?
+  sourceType PlanningRoomSourceType @default(MANUAL)
+  sourceId   String?               /// FK to RoomScan.id, PlanSheetUpload.id, etc.
+
+  /// Distributed pipeline status — tracks progress across surfaces
+  /// { capture: { status, deviceOrigin, capturedAt }, dimensionExtraction: { status }, ... }
+  pipelineStatus Json?
+
+  /// AI review results — populated by ai-review.service after validation
+  /// { score: 87, grade: 'B+', checks: [...], reviewedAt: ISO }
+  aiReview Json?
+
+  /// Extracted dimensions from AI analysis (cached for quick access)
+  /// { lengthFt, widthFt, heightFt, sqFt, wallSegments: [...] }
+  extractedDimensions Json?
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company   Company          @relation(fields: [companyId], references: [id])
+  project   Project          @relation(fields: [projectId], references: [id])
+  createdBy User             @relation("PlanningRoomCreatedBy", fields: [createdById], references: [id])
+  messages  PlanningMessage[]
+  selections Selection[]
+  selectionSheets SelectionSheet[]
+
+  @@index([companyId, projectId], map: "PlanningRoom_company_project_idx")
+  @@index([projectId, status], map: "PlanningRoom_project_status_idx")
+  @@index([sourceType, sourceId], map: "PlanningRoom_source_idx")
+}
+
+/// A single message in the Planning Room conversation.
+/// Messages can come from any surface (web, mobile, desktop) and include
+/// optional artifacts (SVG floor plans, HTML eDocs, CSV exports).
+model PlanningMessage {
+  id           String               @id @default(cuid())
+  roomId       String
+  role         PlanningMessageRole
+  content      String               @db.Text
+  /// JSON array of artifact references: [{ type: 'svg'|'html'|'csv', url, label }]
+  artifacts    Json?
+  deviceOrigin PlanningDeviceOrigin @default(WEB)
+  createdById  String?
+  createdAt    DateTime             @default(now())
+
+  room      PlanningRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  createdBy User?        @relation("PlanningMessageCreatedBy", fields: [createdById], references: [id])
+
+  @@index([roomId, createdAt], map: "PlanningMessage_room_created_idx")
+}
+
+/// A vendor product line (e.g., "BWC Dorian Gray Shaker", "HD Hampton Bay").
+model VendorCatalog {
+  id          String   @id @default(cuid())
+  companyId   String?  /// null = system-level catalog, set = tenant-custom catalog
+  vendorName  String   /// e.g., "BuilderWholesale.com"
+  productLine String   /// e.g., "Dorian Gray Shaker"
+  vendorUrl   String?  /// Link to vendor's website/catalog page
+  logoUrl     String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company  Company?        @relation(fields: [companyId], references: [id])
+  products VendorProduct[]
+
+  @@index([companyId, isActive], map: "VendorCatalog_company_active_idx")
+}
+
+/// A single SKU from a vendor catalog with real dimensions for spatial validation.
+model VendorProduct {
+  id         String               @id @default(cuid())
+  catalogId  String
+  sku        String               /// Vendor SKU (e.g., "DGS-B36")
+  name       String               /// Display name (e.g., "Base Cabinet 36\" Double Door")
+  category   VendorProductCategory
+  /// Dimensions in inches (used for spatial fit validation)
+  width      Float?               /// Width in inches
+  height     Float?               /// Height in inches
+  depth      Float?               /// Depth in inches
+  imageUrl   String?              /// Product image URL (300×300 recommended)
+  productPageUrl String?          /// Link to vendor product page
+  price      Float?               /// List price in dollars
+  priceDiscounted Float?          /// Sale/contractor price if different
+  /// Flexible metadata: door style, finish, features, material, color, etc.
+  metadata   Json?
+  isActive   Boolean              @default(true)
+  sortOrder  Int                  @default(0)
+  createdById String?
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+
+  catalog    VendorCatalog @relation(fields: [catalogId], references: [id], onDelete: Cascade)
+  createdBy  User?         @relation("VendorProductCreatedBy", fields: [createdById], references: [id])
+  selections Selection[]
+
+  @@unique([catalogId, sku], name: "VendorProduct_catalog_sku_key")
+  @@index([catalogId, category], map: "VendorProduct_catalog_category_idx")
+  @@index([catalogId, isActive], map: "VendorProduct_catalog_active_idx")
+}
+
+/// A product placement within a planning room — one selection per position.
+model Selection {
+  id              String          @id @default(cuid())
+  companyId       String
+  projectId       String
+  roomId          String
+  vendorProductId String?
+  position        Int             /// 1-based position in the layout
+  quantity        Int             @default(1)
+  status          SelectionStatus @default(PROPOSED)
+  notes           String?         @db.Text
+  /// Custom overrides: color, handle, hinge, etc.
+  customizations  Json?
+  createdById     String
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  company       Company        @relation(fields: [companyId], references: [id])
+  project       Project        @relation(fields: [projectId], references: [id])
+  room          PlanningRoom   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  vendorProduct VendorProduct? @relation(fields: [vendorProductId], references: [id])
+  createdBy     User           @relation("SelectionCreatedBy", fields: [createdById], references: [id])
+
+  @@index([companyId, projectId], map: "Selection_company_project_idx")
+  @@index([roomId, position], map: "Selection_room_position_idx")
+  @@index([projectId, status], map: "Selection_project_status_idx")
+}
+
+/// A generated output document — HTML eDoc + CSV vendor quote.
+/// Auto-imports into Nexus Documents via documentId FK.
+model SelectionSheet {
+  id          String   @id @default(cuid())
+  companyId   String
+  projectId   String
+  roomId      String
+  version     Int      @default(1)
+  htmlContent String   @db.Text /// Self-contained HTML eDoc (SVG + gallery + pricing)
+  csvContent  String?  @db.Text /// Vendor-formatted CSV quote sheet
+  documentId  String?  /// FK to Nexus Document for eDoc integration
+  generatedById String
+  generatedAt DateTime @default(now())
+
+  company   Company      @relation(fields: [companyId], references: [id])
+  project   Project      @relation(fields: [projectId], references: [id])
+  room      PlanningRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  generatedBy User       @relation("SelectionSheetCreatedBy", fields: [generatedById], references: [id])
+
+  @@index([companyId, projectId], map: "SelectionSheet_company_project_idx")
+  @@index([roomId, version], map: "SelectionSheet_room_version_idx")
 }

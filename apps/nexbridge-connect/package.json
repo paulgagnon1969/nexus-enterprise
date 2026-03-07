@@ -25,7 +25,8 @@
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.13.1",
     "expo": "~55.0.2",
-    "react-native": "0.83.2"
+    "react-native": "0.83.2",
+    "@repo/support-client": "0.0.1"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",

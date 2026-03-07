@@ -77,6 +77,7 @@ import { AgreementsModule } from "./modules/agreements/agreements.module";
 import { NexCheckModule } from "./modules/nexcheck/nexcheck.module";
 import { ExportModule } from "./modules/export/export.module";
 import { SupportSessionModule } from "./modules/support-session/support-session.module";
+import { SelectionsModule } from "./modules/selections/selections.module";
 
 @Module({
   imports: [
@@ -159,6 +160,7 @@ import { SupportSessionModule } from "./modules/support-session/support-session.
     NexCheckModule,
     ExportModule,
     SupportSessionModule,
+    SelectionsModule,
   ],
   controllers: [DevController],
   providers: [

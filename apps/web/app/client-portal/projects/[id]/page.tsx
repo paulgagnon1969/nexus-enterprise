@@ -840,6 +840,36 @@ export default function ClientPortalProjectPage() {
               </div>
             </div>
 
+            {/* Pay Now */}
+            {activeInvoice.balanceDue > 0 && activeInvoice.status !== "PAID" && activeInvoice.status !== "VOID" && activeInvoice.status !== "DRAFT" && !paymentSuccess && (
+              <div className="no-print" style={{ marginTop: 24, textAlign: "center" }}>
+                <button
+                  onClick={() => { setShowPayModal(true); setPayTab("card"); setPaymentSuccess(null); }}
+                  style={{
+                    padding: "14px 48px", borderRadius: 10, border: "none",
+                    background: "linear-gradient(135deg, #16a34a 0%, #15803d 100%)",
+                    color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer",
+                    boxShadow: "0 2px 8px rgba(22,163,74,0.3)",
+                  }}
+                >
+                  Pay Now — {formatMoney(activeInvoice.balanceDue)}
+                </button>
+              </div>
+            )}
+
+            {/* Payment success message */}
+            {paymentSuccess && (
+              <div style={{
+                marginTop: 24, padding: "16px 20px", borderRadius: 10,
+                background: "rgba(34,197,94,0.1)", border: "1px solid #22c55e",
+                textAlign: "center",
+              }}>
+                <div style={{ fontSize: 20, marginBottom: 6 }}>✅</div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: "#15803d", marginBottom: 4 }}>{paymentSuccess}</div>
+                <div style={{ fontSize: 13, color: "#6b7280" }}>You can close this page or check back later for an updated invoice.</div>
+              </div>
+            )}
+
             {/* Memo */}
             {activeInvoice.memo && (
               <div style={{ marginTop: 20, padding: "12px 16px", background: "#f1f5f9", borderRadius: 8, fontSize: 13, color: "#6b7280" }}>
@@ -887,11 +917,115 @@ export default function ClientPortalProjectPage() {
             )}
           </div>
         </div>
+
+        {/* Payment Modal */}
+        {showPayModal && activeInvoice.balanceDue > 0 && (
+        <div
+          style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 24,
+          }}
+          onClick={() => setShowPayModal(false)}
+        >
+          <div
+            style={{
+              background: "#fff", borderRadius: 16, maxWidth: 480, width: "100%",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.2)", overflow: "hidden",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal header */}
+            <div style={{
+              padding: "20px 24px", borderBottom: "1px solid #e5e7eb",
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+            }}>
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a" }}>Pay Invoice</div>
+                <div style={{ fontSize: 13, color: "#6b7280" }}>
+                  {activeInvoice.invoiceNo ?? "Invoice"} — {formatMoney(activeInvoice.balanceDue)}
+                </div>
+              </div>
+              <button
+                onClick={() => setShowPayModal(false)}
+                style={{ background: "none", border: "none", fontSize: 22, color: "#9ca3af", cursor: "pointer", padding: 4 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Payment method tabs */}
+            <div style={{ display: "flex", borderBottom: "1px solid #e5e7eb" }}>
+              <button
+                onClick={() => setPayTab("card")}
+                style={{
+                  flex: 1, padding: "12px", border: "none", cursor: "pointer",
+                  fontSize: 14, fontWeight: 600, background: "transparent",
+                  color: payTab === "card" ? "#16a34a" : "#6b7280",
+                  borderBottom: payTab === "card" ? "2px solid #16a34a" : "2px solid transparent",
+                }}
+              >
+                💳 Credit / Debit Card
+              </button>
+              <button
+                onClick={() => setPayTab("ach")}
+                style={{
+                  flex: 1, padding: "12px", border: "none", cursor: "pointer",
+                  fontSize: 14, fontWeight: 600, background: "transparent",
+                  color: payTab === "ach" ? "#2563eb" : "#6b7280",
+                  borderBottom: payTab === "ach" ? "2px solid #2563eb" : "2px solid transparent",
+                }}
+              >
+                🏦 Bank Transfer (ACH)
+              </button>
+            </div>
+
+            {/* Payment form */}
+            <div style={{ padding: 24 }}>
+              {payTab === "card" && stripePromise && (
+                <Elements stripe={stripePromise}>
+                  <CardPaymentForm
+                    invoiceId={activeInvoice.id}
+                    projectId={projectId}
+                    amount={formatMoney(activeInvoice.balanceDue)}
+                    onSuccess={(msg) => {
+                      setShowPayModal(false);
+                      setPaymentSuccess(msg);
+                    }}
+                  />
+                </Elements>
+              )}
+              {payTab === "card" && !stripePromise && (
+                <div style={{ color: "#dc2626", fontSize: 13 }}>Card payments are not configured. Please contact support.</div>
+              )}
+              {payTab === "ach" && (
+                <PlaidPaymentButton
+                  invoiceId={activeInvoice.id}
+                  projectId={projectId}
+                  amount={formatMoney(activeInvoice.balanceDue)}
+                  onSuccess={(msg) => {
+                    setShowPayModal(false);
+                    setPaymentSuccess(msg);
+                  }}
+                />
+              )}
+            </div>
+
+            {/* Security note */}
+            <div style={{
+              padding: "12px 24px 20px", borderTop: "1px solid #f1f5f9",
+              fontSize: 11, color: "#9ca3af", textAlign: "center",
+            }}>
+              🔒 Payments are processed securely by Stripe. Your card details are never stored on our servers.
+            </div>
+          </div>
+        </div>
+        )}
       </div>
     );
   }
 
-  // ── Main Project View ────────────────────────────────────────────
+  // ── Main Project View ────────────────────────────────────────
 
   return (
     <div style={PAGE}>
