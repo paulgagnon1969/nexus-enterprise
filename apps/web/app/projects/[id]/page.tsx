@@ -15558,8 +15558,8 @@ ${htmlBody}
             </div>
           </div>
 
-          {/* === Client Portal Preview === */}
-          <div style={{ marginBottom: 12 }}>
+          {/* === Client Portal Preview (PM+ only) === */}
+          {isPmOrAbove && <div style={{ marginBottom: 12 }}>
             <div
               style={{
                 borderRadius: 8,
@@ -15600,7 +15600,7 @@ ${htmlBody}
                 Open Portal →
               </button>
             </div>
-          </div>
+          </div>}
 
           {/* === ROW 3: Schedule / Gantt === */}
           <ScheduleSection
