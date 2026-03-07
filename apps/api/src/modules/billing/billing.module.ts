@@ -33,6 +33,6 @@ import { StripeWebhookController } from "./stripe-webhook.controller";
     MembershipController,
     StripeWebhookController,
   ],
-  exports: [BillingService, EntitlementService, ModuleGuard, ProjectFeatureGuard, PlaidProvider],
+  exports: [BillingService, EntitlementService, ModuleGuard, ProjectFeatureGuard, StripeProvider, PlaidProvider],
 })
 export class BillingModule {}

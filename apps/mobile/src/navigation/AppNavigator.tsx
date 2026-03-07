@@ -36,6 +36,9 @@ import { ObjectCaptureScreen } from "../screens/ObjectCaptureScreen";
 import { NexiEnrollScreen } from "../screens/NexiEnrollScreen";
 import { NexiCatalogScreen } from "../screens/NexiCatalogScreen";
 import { PlacardScanScreen } from "../screens/PlacardScanScreen";
+import { SelectionsScreen } from "../screens/SelectionsScreen";
+import { SelectionDetailScreen } from "../screens/SelectionDetailScreen";
+import { ProductPickerScreen } from "../screens/ProductPickerScreen";
 import { ScrollableTabBar } from "../components/ScrollableTabBar";
 import { fetchAllTasks } from "../api/tasks";
 import { apiJson } from "../api/client";
@@ -78,6 +81,9 @@ export type ProjectsStackParamList = {
   };
   RoomScan: { project: ProjectListItem };
   ReceiptCapture: { project: ProjectListItem };
+  Selections: { project: ProjectListItem };
+  SelectionDetail: { project: ProjectListItem; roomId: string };
+  ProductPicker: { project: ProjectListItem; roomId: string };
 };
 
 export type ScannerStackParamList = {
@@ -173,6 +179,7 @@ function DailyLogsWrapper() {
       onOpenPlanSheets={() => navigation.navigate("PlanSheets", { project })}
       onOpenRoomScan={() => navigation.navigate("RoomScan", { project })}
       onOpenReceiptCapture={() => navigation.navigate("ReceiptCapture", { project })}
+      onOpenSelections={() => navigation.navigate("Selections", { project })}
       onStartCall={async () => {
         try {
           const res = await apiJson<{ room: any; token: string; livekitUrl: string }>(
@@ -256,6 +263,47 @@ function ReceiptCaptureWrapper() {
     <ReceiptCaptureScreen
       project={route.params.project}
       onBack={() => navigation.goBack()}
+    />
+  );
+}
+
+function SelectionsWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
+  const route = useRoute<RouteProp<ProjectsStackParamList, "Selections">>();
+  const project = route.params.project;
+  return (
+    <SelectionsScreen
+      project={project}
+      onBack={() => navigation.goBack()}
+      onOpenRoom={(roomId) => navigation.navigate("SelectionDetail", { project, roomId })}
+    />
+  );
+}
+
+function SelectionDetailWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
+  const route = useRoute<RouteProp<ProjectsStackParamList, "SelectionDetail">>();
+  const { project, roomId } = route.params;
+  return (
+    <SelectionDetailScreen
+      project={project}
+      roomId={roomId}
+      onBack={() => navigation.goBack()}
+      onOpenProductPicker={() => navigation.navigate("ProductPicker", { project, roomId })}
+    />
+  );
+}
+
+function ProductPickerWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
+  const route = useRoute<RouteProp<ProjectsStackParamList, "ProductPicker">>();
+  const { project, roomId } = route.params;
+  return (
+    <ProductPickerScreen
+      projectId={project.id}
+      roomId={roomId}
+      onBack={() => navigation.goBack()}
+      onProductAdded={() => navigation.goBack()}
     />
   );
 }
@@ -344,6 +392,9 @@ function ProjectsStackNavigator() {
       <ProjectsStack.Screen name="PlanSheetViewer" component={PlanSheetViewerWrapper} />
       <ProjectsStack.Screen name="RoomScan" component={RoomScanWrapper} />
       <ProjectsStack.Screen name="ReceiptCapture" component={ReceiptCaptureWrapper} />
+      <ProjectsStack.Screen name="Selections" component={SelectionsWrapper} />
+      <ProjectsStack.Screen name="SelectionDetail" component={SelectionDetailWrapper} />
+      <ProjectsStack.Screen name="ProductPicker" component={ProductPickerWrapper} />
     </ProjectsStack.Navigator>
   );
 }
