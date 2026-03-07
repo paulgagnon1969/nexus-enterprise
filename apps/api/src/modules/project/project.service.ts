@@ -1154,7 +1154,7 @@ export class ProjectService {
     } else {
       const userCompanyIds = await this.prisma.companyMembership.findMany({
         where: { userId, isActive: true },
-        select: { companyId: true },
+        select: { companyId: true, role: true },
       });
       const collab = userCompanyIds.length
         ? await this.prisma.projectCollaboration.findFirst({
@@ -1167,10 +1167,20 @@ export class ProjectService {
           })
         : null;
 
-      if (!collab) {
-        throw new ForbiddenException("You do not have access to this project");
+      if (collab) {
+        visibility = collab.visibility;
+      } else {
+        // Allow internal company members (the project's own company) to preview the portal
+        const project = await this.prisma.project.findUnique({
+          where: { id: projectId },
+          select: { companyId: true },
+        });
+        const isInternalMember = project && userCompanyIds.some((m) => m.companyId === project.companyId);
+        if (!isInternalMember) {
+          throw new ForbiddenException("You do not have access to this project");
+        }
+        visibility = ProjectVisibilityLevel.FULL;
       }
-      visibility = collab.visibility;
     }
 
     // Fetch project with all potential includes, then filter based on visibility
