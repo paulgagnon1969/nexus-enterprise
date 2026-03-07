@@ -12,12 +12,22 @@ import Support from "./pages/Support";
 import { exportMyData } from "./lib/api";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
+import { UpsellCard, MODULE_INFO } from "./components/UpsellCard";
 
-const NAV_ITEMS = [
-  { to: "/", label: "Assessments", icon: "\uD83C\uDFAF" },
+interface NavItem {
+  to: string;
+  label: string;
+  icon: string;
+  /** If set, the nav item is only visible when this module code is enabled. */
+  requiresModule?: string;
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { to: "/", label: "Assessments", icon: "\uD83C\uDFAF", requiresModule: "NEXBRIDGE_ASSESS" },
   { to: "/contacts", label: "Contacts", icon: "\uD83D\uDC65" },
   { to: "/documents", label: "Documents", icon: "\uD83D\uDCC4" },
   { to: "/assets", label: "Assets", icon: "\uD83D\uDDC2\uFE0F" },
+  { to: "/nexplan", label: "NexPLAN", icon: "\uD83D\uDCD0", requiresModule: "NEXBRIDGE_NEXPLAN" },
   { to: "/support", label: "Support", icon: "\uD83D\uDEE0\uFE0F" },
   { to: "/settings", label: "Settings", icon: "\u2699\uFE0F" },
 ];
@@ -246,23 +256,29 @@ export default function App() {
 
             {/* Nav links */}
             <nav className="flex-1 space-y-1 px-2 py-2">
-              {NAV_ITEMS.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.to === "/"}
-                  className={({ isActive }) =>
-                    `flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                      isActive
-                        ? "bg-nexus-50 text-nexus-700"
-                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                    }`
-                  }
-                >
-                  <span>{item.icon}</span>
-                  <span>{item.label}</span>
-                </NavLink>
-              ))}
+              {NAV_ITEMS.map((item) => {
+                // Hide nav items for modules the user doesn't have
+                if (item.requiresModule && !auth.hasFeature(item.requiresModule)) {
+                  return null;
+                }
+                return (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.to === "/"}
+                    className={({ isActive }) =>
+                      `flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                        isActive
+                          ? "bg-nexus-50 text-nexus-700"
+                          : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                      }`
+                    }
+                  >
+                    <span>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </NavLink>
+                );
+              })}
             </nav>
 
             {/* User footer */}
@@ -296,11 +312,35 @@ export default function App() {
             </div>
           )}
           <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/assess" element={<VideoAssessment />} />
+            <Route path="/" element={
+              auth.features.assess ? <Dashboard /> : (
+                <div className="p-4 h-full">
+                  <UpsellCard moduleCode="NEXBRIDGE_ASSESS" {...MODULE_INFO.NEXBRIDGE_ASSESS} />
+                </div>
+              )
+            } />
+            <Route path="/assess" element={
+              auth.features.assess ? <VideoAssessment /> : (
+                <div className="p-4 h-full">
+                  <UpsellCard moduleCode="NEXBRIDGE_ASSESS" {...MODULE_INFO.NEXBRIDGE_ASSESS} />
+                </div>
+              )
+            } />
             <Route path="/contacts" element={<div className="p-4 h-full"><ContactList /></div>} />
             <Route path="/documents" element={<div className="p-4 h-full"><DocumentsTab /></div>} />
             <Route path="/assets" element={<div className="p-4 h-full"><AssetsTab /></div>} />
+            <Route path="/nexplan" element={
+              auth.features.nexplan ? (
+                <div className="p-4 h-full">
+                  <h2 className="text-lg font-semibold text-slate-800 mb-4">NexPLAN Selections</h2>
+                  <p className="text-sm text-slate-500">Coming soon — vendor catalog, floor plan analysis, selection sheets.</p>
+                </div>
+              ) : (
+                <div className="p-4 h-full">
+                  <UpsellCard moduleCode="NEXBRIDGE_NEXPLAN" {...MODULE_INFO.NEXBRIDGE_NEXPLAN} />
+                </div>
+              )
+            } />
             <Route path="/support" element={<div className="p-4 h-full"><Support /></div>} />
             <Route path="/settings" element={<div className="p-4"><Settings /></div>} />
             <Route path="*" element={<Navigate to="/" replace />} />

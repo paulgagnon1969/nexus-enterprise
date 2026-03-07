@@ -540,16 +540,40 @@ export async function revokeDevice(deviceRecordId: string): Promise<void> {
 // ---------------------------------------------------------------------------
 // Entitlements
 // ---------------------------------------------------------------------------
+export interface NexBridgeFeatures {
+  nexbridge: boolean;
+  assess: boolean;
+  nexplan: boolean;
+  ai: boolean;
+}
+
 export interface EntitlementInfo {
   modules: string[];
+  features: NexBridgeFeatures;
   hasNexBridge: boolean;
 }
 
+const DEFAULT_FEATURES: NexBridgeFeatures = {
+  nexbridge: false,
+  assess: false,
+  nexplan: false,
+  ai: false,
+};
+
 export async function checkEntitlements(): Promise<EntitlementInfo> {
-  const data = await request<{ modules: string[] }>("/billing/entitlements");
+  const data = await request<{ modules: string[]; features?: NexBridgeFeatures }>("/billing/entitlements");
+  const modules = data.modules || [];
+  const features = data.features || {
+    ...DEFAULT_FEATURES,
+    nexbridge: modules.includes("NEXBRIDGE"),
+    assess: modules.includes("NEXBRIDGE_ASSESS"),
+    nexplan: modules.includes("NEXBRIDGE_NEXPLAN"),
+    ai: modules.includes("NEXBRIDGE_AI"),
+  };
   return {
-    modules: data.modules || [],
-    hasNexBridge: (data.modules || []).includes("NEXBRIDGE"),
+    modules,
+    features,
+    hasNexBridge: features.nexbridge,
   };
 }
 

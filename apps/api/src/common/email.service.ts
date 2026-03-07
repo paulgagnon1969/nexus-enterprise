@@ -469,6 +469,123 @@ export class EmailService {
     return this.sendMail({ to: params.toEmail, subject, html, text });
   }
   /**
+   * Send invoice email with payment link.
+   */
+  async sendInvoiceEmail(params: {
+    toEmail: string;
+    clientName?: string;
+    companyName: string;
+    projectName: string;
+    projectAddress?: string;
+    invoiceNo: string;
+    issuedAt: string;
+    dueAt?: string;
+    lineItems: Array<{ description: string; qty?: number; unitPrice?: number; amount: number }>;
+    totalAmount: number;
+    paidAmount: number;
+    balanceDue: number;
+    payUrl: string;
+    portalUrl?: string;
+  }) {
+    const name = params.clientName || "there";
+    const dueDateStr = params.dueAt
+      ? new Date(params.dueAt).toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })
+      : null;
+
+    const issuedStr = new Date(params.issuedAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+
+    const formatMoney = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+
+    // Show up to 5 line items in email
+    const visibleItems = params.lineItems.slice(0, 5);
+    const lineItemsHtml = visibleItems.map(li =>
+      `<tr>
+        <td style="padding: 8px 12px; border-bottom: 1px solid #e5e7eb; color: #374151; font-size: 13px;">${escapeHtml(li.description)}</td>
+        <td style="padding: 8px 12px; border-bottom: 1px solid #e5e7eb; color: #0f172a; font-weight: 600; font-size: 13px; text-align: right;">${formatMoney(li.amount)}</td>
+      </tr>`
+    ).join("");
+    const moreItemsNote = params.lineItems.length > 5
+      ? `<tr><td colspan="2" style="padding: 8px 12px; color: #6b7280; font-size: 12px;">...and ${params.lineItems.length - 5} more item(s)</td></tr>`
+      : "";
+
+    const subject = `Invoice ${params.invoiceNo} from ${params.companyName}${params.balanceDue > 0 ? " — Payment Due" : ""}`;
+
+    const html = `
+      <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height: 1.5; max-width: 600px;">
+        <div style="background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%); color: #fff; padding: 24px; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 20px;">Invoice ${escapeHtml(params.invoiceNo)}</h1>
+          <p style="margin: 8px 0 0; opacity: 0.9; font-size: 14px;">from ${escapeHtml(params.companyName)}</p>
+        </div>
+        <div style="background: #fff; border: 1px solid #e5e7eb; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+          <p style="margin: 0 0 16px;">Hello ${escapeHtml(name)},</p>
+          <p style="margin: 0 0 16px;">You have a new invoice from <strong>${escapeHtml(params.companyName)}</strong> for project <strong>${escapeHtml(params.projectName)}</strong>.</p>
+
+          <div style="background: #f9fafb; border-radius: 8px; padding: 16px; margin: 0 0 20px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+              <span style="color: #6b7280; font-size: 12px;">Invoice</span>
+              <span style="font-weight: 600; font-size: 14px;">${escapeHtml(params.invoiceNo)}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+              <span style="color: #6b7280; font-size: 12px;">Issued</span>
+              <span style="font-size: 13px;">${issuedStr}</span>
+            </div>
+            ${dueDateStr ? `<div style="display: flex; justify-content: space-between; margin-bottom: 8px;"><span style="color: #6b7280; font-size: 12px;">Due</span><span style="font-size: 13px; color: #dc2626; font-weight: 600;">${dueDateStr}</span></div>` : ""}
+            ${params.projectAddress ? `<div style="display: flex; justify-content: space-between;"><span style="color: #6b7280; font-size: 12px;">Project</span><span style="font-size: 13px;">${escapeHtml(params.projectAddress)}</span></div>` : ""}
+          </div>
+
+          <table style="width: 100%; border-collapse: collapse; margin: 0 0 16px;">
+            <thead>
+              <tr style="border-bottom: 2px solid #334155;">
+                <th style="text-align: left; padding: 8px 12px; color: #6b7280; font-size: 11px; text-transform: uppercase;">Description</th>
+                <th style="text-align: right; padding: 8px 12px; color: #6b7280; font-size: 11px; text-transform: uppercase;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${lineItemsHtml}
+              ${moreItemsNote}
+            </tbody>
+          </table>
+
+          <div style="border-top: 2px solid #d1d5db; padding-top: 12px; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 4px;">
+              <span style="color: #6b7280;">Total</span>
+              <span style="font-weight: 700;">${formatMoney(params.totalAmount)}</span>
+            </div>
+            ${params.paidAmount > 0 ? `<div style="display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 4px;"><span style="color: #16a34a;">Paid</span><span style="color: #16a34a; font-weight: 600;">-${formatMoney(params.paidAmount)}</span></div>` : ""}
+            ${params.balanceDue > 0 ? `<div style="display: flex; justify-content: space-between; font-size: 16px; margin-top: 8px;"><span style="font-weight: 700;">Balance Due</span><span style="font-weight: 700;">${formatMoney(params.balanceDue)}</span></div>` : ""}
+          </div>
+
+          ${params.balanceDue > 0 ? `
+            <p style="margin: 0 0 24px; text-align: center;">
+              <a href="${params.payUrl}" style="display: inline-block; background: linear-gradient(135deg, #059669 0%, #10b981 100%); color: #fff; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">
+                Pay Now — ${formatMoney(params.balanceDue)}
+              </a>
+            </p>
+            <p style="margin: 0 0 8px; color: #6b7280; font-size: 12px; text-align: center;">Pay securely with credit card or bank transfer (ACH)</p>
+          ` : `
+            <div style="background: rgba(34,197,94,0.1); border: 1px solid #22c55e; border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 20px;">
+              <span style="color: #16a34a; font-weight: 600;">✅ This invoice has been paid in full</span>
+            </div>
+          `}
+
+          ${params.portalUrl ? `
+            <p style="margin: 16px 0 0; text-align: center;">
+              <a href="${params.portalUrl}" style="color: #2563eb; font-size: 13px;">View in Client Portal</a>
+            </p>
+          ` : ""}
+
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">This invoice was sent by NEXUS on behalf of ${escapeHtml(params.companyName)}. If you believe this was sent in error, please contact ${escapeHtml(params.companyName)} directly.</p>
+        </div>
+      </div>
+    `.trim();
+
+    const text = `Invoice ${params.invoiceNo} from ${params.companyName}\n\nHello ${name},\n\nTotal: ${formatMoney(params.totalAmount)}\nBalance Due: ${formatMoney(params.balanceDue)}\n\nPay online: ${params.payUrl}\n`;
+
+    return this.sendMail({ to: params.toEmail, subject, html, text });
+  }
+
+  /**
    * Send a video call invitation email with a "Join Call" button.
    */
   async sendCallInvite(params: {

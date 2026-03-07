@@ -55,6 +55,32 @@ export class BillingController {
     );
   }
 
+  // --- Entitlements ---
+
+  /**
+   * GET /billing/entitlements
+   * Returns the list of enabled module codes for the authenticated user's
+   * company. Used by NexBRIDGE to gate features client-side.
+   */
+  @Get("entitlements")
+  async getEntitlements(@Req() req: any) {
+    const user = req.user as AuthenticatedUser;
+    const entitlements = await this.entitlement.getEntitlements(user.companyId);
+    const enabledModules = entitlements
+      .filter(e => e.enabled)
+      .map(e => e.moduleCode);
+
+    return {
+      modules: enabledModules,
+      features: {
+        nexbridge: enabledModules.includes("NEXBRIDGE"),
+        assess: enabledModules.includes("NEXBRIDGE_ASSESS"),
+        nexplan: enabledModules.includes("NEXBRIDGE_NEXPLAN"),
+        ai: enabledModules.includes("NEXBRIDGE_AI"),
+      },
+    };
+  }
+
   // --- Module Catalog & Entitlements ---
 
   /**

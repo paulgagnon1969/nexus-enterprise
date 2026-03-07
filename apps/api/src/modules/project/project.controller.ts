@@ -16,6 +16,7 @@ import {
 import type { FastifyRequest } from "fastify";
 import { readSingleFileFromMultipart } from "../../infra/uploads/multipart";
 import { ProjectService } from "./project.service";
+import { InvoicePaymentService } from "./invoice-payment.service";
 import { JwtAuthGuard, CombinedAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateProjectDto, AddProjectMemberDto, ImportXactDto, ImportXactComponentsDto, UpdateProjectDto } from "./dto/project.dto";
@@ -64,6 +65,7 @@ function normalizeQueryStringArray(value?: string | string[]): string[] | undefi
 export class ProjectController {
   constructor(
     private readonly projects: ProjectService,
+    private readonly invoicePayment: InvoicePaymentService,
     private readonly importJobs: ImportJobsService,
     private readonly gcs: ObjectStorageService,
     private readonly taxJurisdictions: TaxJurisdictionService,
@@ -153,6 +155,67 @@ export class ProjectController {
       .header("Content-Type", file.mimeType)
       .header("Content-Disposition", `attachment; filename="${file.fileName.replace(/"/g, "'")}"`)
       .send(file.buffer);
+  }
+
+  // ── Portal Invoice Payment ──────────────────────────────────────────
+
+  /** POST /projects/portal/:id/invoices/:invoiceId/pay — Create card PaymentIntent */
+  @UseGuards(JwtAuthGuard)
+  @Post("portal/:id/invoices/:invoiceId/pay")
+  portalCreatePaymentIntent(
+    @Req() req: any,
+    @Param("id") _projectId: string,
+    @Param("invoiceId") invoiceId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.invoicePayment.createCardPaymentIntent(invoiceId, {
+      payerEmail: user.email,
+      payerName: user.firstName ? `${user.firstName} ${user.lastName ?? ""}`.trim() : undefined,
+    });
+  }
+
+  /** POST /projects/portal/:id/invoices/:invoiceId/pay/plaid-link — Plaid Link token for ACH */
+  @UseGuards(JwtAuthGuard)
+  @Post("portal/:id/invoices/:invoiceId/pay/plaid-link")
+  portalPlaidLink(
+    @Req() req: any,
+    @Param("id") _projectId: string,
+    @Param("invoiceId") invoiceId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.invoicePayment.createPlaidLinkTokenForInvoice(invoiceId, user.userId);
+  }
+
+  /** POST /projects/portal/:id/invoices/:invoiceId/pay/plaid-exchange — Exchange Plaid + pay ACH */
+  @UseGuards(JwtAuthGuard)
+  @Post("portal/:id/invoices/:invoiceId/pay/plaid-exchange")
+  portalPlaidExchange(
+    @Req() req: any,
+    @Param("id") _projectId: string,
+    @Param("invoiceId") invoiceId: string,
+    @Body() body: { publicToken: string; accountId: string },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.invoicePayment.exchangePlaidAndPay(invoiceId, body.publicToken, body.accountId, {
+      payerEmail: user.email,
+      payerName: user.firstName ? `${user.firstName} ${user.lastName ?? ""}`.trim() : undefined,
+    });
+  }
+
+  // ── Send Invoice Email ─────────────────────────────────────────────
+
+  /** POST /projects/:id/invoices/:invoiceId/send — (Re)send invoice email */
+  @UseGuards(JwtAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
+  @Post(":id/invoices/:invoiceId/send")
+  sendInvoiceEmail(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("invoiceId") invoiceId: string,
+    @Body() body: { email?: string },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.sendInvoiceEmail(projectId, invoiceId, user, body.email);
   }
 
   // ── Portal Viewer Management ────────────────────────────────────────

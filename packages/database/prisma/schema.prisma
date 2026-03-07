@@ -356,6 +356,9 @@ model Company {
 
   // Cost Book Search History
   costBookSearchHistory CostBookSearchHistory[]
+
+  // Client invoice payment intents (Stripe)
+  invoicePaymentIntents InvoicePaymentIntent[]
 }
 
 model OrganizationTemplate {
@@ -1545,6 +1548,9 @@ model Project {
   pmReviewItems                 PmReviewItem[]
   billSiblingGroups             BillSiblingGroup[]
 
+  // Client invoice payment intents (Stripe)
+  invoicePaymentIntents InvoicePaymentIntent[]
+
   // Cross-tenant project collaborations (orgs collaborating on this project)
   collaborations ProjectCollaboration[] @relation("CollaborationProject")
 
@@ -2056,6 +2062,8 @@ enum ProjectPaymentMethod {
   WIRE
   ACH
   CHECK
+  CARD
+  STRIPE_ACH
   OTHER
 }
 
@@ -2233,6 +2241,10 @@ model ProjectInvoice {
   /// JSON array of unlock history entries: [{unlockedAt, unlockedByUserId, unlockedByName, reason}]
   unlockHistory Json?
 
+  /// Secure token for unauthenticated payment links (emailed to clients).
+  paymentToken          String?   @unique
+  paymentTokenExpiresAt DateTime?
+
   createdByUserId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -2249,9 +2261,40 @@ model ProjectInvoice {
   invoiceApplicationsAsSource ProjectInvoiceApplication[] @relation("InvoiceApplicationsSource")
   invoiceApplicationsAsTarget ProjectInvoiceApplication[] @relation("InvoiceApplicationsTarget")
   billsTargeting              ProjectBill[]               @relation("BillTargetInvoice")
+  invoicePaymentIntents       InvoicePaymentIntent[]
 
   @@unique([companyId, invoiceSequenceNo], name: "ProjectInvoice_company_invoice_seq_key")
   @@index([companyId, projectId, status], map: "ProjectInvoice_company_project_status_idx")
+}
+
+/// Tracks Stripe PaymentIntents created for client invoice payments.
+/// One intent per payment attempt; webhooks update status on completion.
+model InvoicePaymentIntent {
+  id                     String   @id @default(cuid())
+  invoiceId              String
+  companyId              String
+  projectId              String
+  stripePaymentIntentId  String   @unique
+  amount                 Int      // cents
+  status                 String   @default("PENDING") // PENDING | SUCCEEDED | FAILED
+  paymentMethod          String   // CARD | STRIPE_ACH
+  payerEmail             String?
+  payerName              String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  invoice ProjectInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId], map: "InvoicePaymentIntent_invoice_idx")
+  @@index([companyId], map: "InvoicePaymentIntent_company_idx")
+}
+
+enum InvoicePaymentIntentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
 }
 
 /// Admin-managed lookup table for client rate adjustment reasons.

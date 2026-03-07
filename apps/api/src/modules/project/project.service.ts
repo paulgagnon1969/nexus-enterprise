@@ -64,6 +64,8 @@ import { GeocodingService } from "../geocoding/geocoding.service";
 import { NexfindService } from "../nexfind/nexfind.service";
 import { EntitlementService } from "../billing/entitlement.service";
 import { ObjectStorageService } from "../../infra/storage/object-storage.service";
+import { InvoicePaymentService } from "./invoice-payment.service";
+import { ConfigService } from "@nestjs/config";
 
 type PetlArchiveBundleV1 = {
   schemaVersion: 1;
@@ -200,6 +202,8 @@ export class ProjectService {
     private readonly storage: ObjectStorageService,
     private readonly redis: RedisService,
     private readonly email: EmailService,
+    private readonly invoicePayment: InvoicePaymentService,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -13476,13 +13480,96 @@ export class ProjectService {
         });
       });
 
-      return this.getProjectInvoice(projectId, invoice.id, actor);
+      // Auto-send invoice email if billToEmail is set
+      const issued = await this.getProjectInvoice(projectId, invoice.id, actor);
+      const recipientEmail = dto.billToEmail ?? invoice.billToEmail;
+      if (recipientEmail) {
+        try {
+          await this.sendInvoiceEmailInternal(issued, recipientEmail);
+        } catch (err: any) {
+          this.logger.warn(`Failed to auto-send invoice email: ${err.message}`);
+        }
+      }
+
+      return issued;
     } catch (err: any) {
       if (this.isBillingTableMissingError(err)) {
         this.throwBillingTablesNotMigrated();
       }
       throw err;
     }
+  }
+
+  /**
+   * (Re)send an invoice email. Generates a fresh payment token.
+   */
+  async sendInvoiceEmail(
+    projectId: string,
+    invoiceId: string,
+    actor: AuthenticatedUser,
+    emailOverride?: string,
+  ) {
+    const invoice = await this.getProjectInvoice(projectId, invoiceId, actor);
+    const recipientEmail = emailOverride || invoice.billToEmail;
+    if (!recipientEmail) {
+      throw new BadRequestException("No recipient email. Set billToEmail on the invoice or provide an email.");
+    }
+    if (invoice.status === "DRAFT") {
+      throw new BadRequestException("Cannot send a draft invoice. Issue it first.");
+    }
+    return this.sendInvoiceEmailInternal(invoice, recipientEmail);
+  }
+
+  /**
+   * Internal helper to send an invoice email with a payment link.
+   */
+  private async sendInvoiceEmailInternal(invoice: any, recipientEmail: string) {
+    // Generate payment token
+    const token = await this.invoicePayment.generatePaymentToken(invoice.id);
+
+    // Build URLs
+    const webBaseUrl = this.configService.get<string>("NEXT_PUBLIC_WEB_BASE_URL") || "https://staging-ncc.nfsgrp.com";
+    const payUrl = `${webBaseUrl}/pay/${token}`;
+    const portalUrl = `${webBaseUrl}/client-portal/projects/${invoice.projectId}`;
+
+    // Compute paid amount and balance
+    const totalAmount = invoice.totalAmount ?? 0;
+    let paidAmount = 0;
+    if (invoice.payments) {
+      paidAmount = invoice.payments.reduce((sum: number, p: any) => sum + (p.amount ?? 0), 0);
+    }
+    const balanceDue = Math.max(0, totalAmount - paidAmount);
+
+    // Get line items for email
+    const lineItems = (invoice.lineItems || []).map((li: any) => ({
+      description: li.description || "",
+      qty: li.qty,
+      unitPrice: li.unitPrice,
+      amount: li.amount ?? 0,
+    }));
+
+    // Build address
+    const project = invoice.project || {};
+    const addr = [project.addressLine1, project.city, project.state].filter(Boolean).join(", ");
+
+    await this.email.sendInvoiceEmail({
+      toEmail: recipientEmail,
+      clientName: invoice.billToName || undefined,
+      companyName: invoice.company?.name || "Your Contractor",
+      projectName: project.name || "Project",
+      projectAddress: addr || undefined,
+      invoiceNo: invoice.invoiceNo || `INV-${invoice.id.slice(0, 8)}`,
+      issuedAt: invoice.issuedAt?.toISOString?.() || invoice.issuedAt || new Date().toISOString(),
+      dueAt: invoice.dueAt?.toISOString?.() || invoice.dueAt || undefined,
+      lineItems,
+      totalAmount,
+      paidAmount,
+      balanceDue,
+      payUrl,
+      portalUrl,
+    });
+
+    return { ok: true, sentTo: recipientEmail };
   }
 
   async recordInvoicePayment(

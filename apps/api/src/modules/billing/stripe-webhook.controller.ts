@@ -6,6 +6,7 @@ import { STRIPE_CLIENT } from "./stripe.provider";
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { EntitlementService } from "./entitlement.service";
 import { BillingService } from "./billing.service";
+import { InvoicePaymentService } from "../project/invoice-payment.service";
 import { Public } from "../auth/auth.guards";
 
 /**
@@ -26,6 +27,7 @@ export class StripeWebhookController {
     private readonly prisma: PrismaService,
     private readonly entitlements: EntitlementService,
     private readonly billing: BillingService,
+    private readonly invoicePayment: InvoicePaymentService,
     private readonly config: ConfigService,
   ) {
     this.webhookSecret = this.config.get<string>("STRIPE_WEBHOOK_SECRET") || "";
@@ -77,9 +79,22 @@ export class StripeWebhookController {
     });
 
     switch (event.type) {
-      case "payment_intent.succeeded":
-        await this.handlePaymentIntentSucceeded(event.data.object as Stripe.PaymentIntent);
+      case "payment_intent.succeeded": {
+        const pi = event.data.object as Stripe.PaymentIntent;
+        if (pi.metadata?.type === "invoice_payment") {
+          await this.invoicePayment.handleInvoicePaymentSucceeded(pi);
+        } else {
+          await this.handlePaymentIntentSucceeded(pi);
+        }
         break;
+      }
+      case "payment_intent.payment_failed": {
+        const failedPi = event.data.object as Stripe.PaymentIntent;
+        if (failedPi.metadata?.type === "invoice_payment") {
+          await this.invoicePayment.handleInvoicePaymentFailed(failedPi.id);
+        }
+        break;
+      }
       case "customer.subscription.updated":
         await this.handleSubscriptionUpdated(event.data.object as Stripe.Subscription);
         break;

@@ -36,6 +36,7 @@ interface ModuleDef {
   pricingModel: "MONTHLY" | "PER_PROJECT" | "PER_USE";
   billingInterval?: "month" | "year"; // Stripe recurring interval; defaults to "month"
   projectUnlockPrice?: number; // cents — PER_PROJECT only
+  prerequisites?: string[]; // module codes that must be enabled first
   isCore: boolean;
   sortOrder: number;
 }
@@ -165,6 +166,51 @@ const MODULES: ModuleDef[] = [
     sortOrder: 12,
   },
 
+  // ── NexBRIDGE desktop companion ─────────────────────────────────
+  {
+    code: "NEXBRIDGE",
+    label: "NexBRIDGE Connect",
+    description:
+      "Desktop companion app: contacts sync, document scanning & upload, asset management.",
+    monthlyPrice: 2900,
+    pricingModel: "MONTHLY",
+    isCore: false,
+    sortOrder: 30,
+  },
+  {
+    code: "NEXBRIDGE_ASSESS",
+    label: "NexBRIDGE — Video Assessment",
+    description:
+      "AI-powered video assessment: FFmpeg frame extraction, Gemini analysis, Zoom & Teach. Add-on to NexBRIDGE Connect.",
+    monthlyPrice: 2900,
+    pricingModel: "MONTHLY",
+    prerequisites: ["NEXBRIDGE"],
+    isCore: false,
+    sortOrder: 31,
+  },
+  {
+    code: "NEXBRIDGE_NEXPLAN",
+    label: "NexBRIDGE — NexPLAN Selections",
+    description:
+      "AI-assisted material selections: vendor catalog, floor plan analysis, selection sheet generation. Add-on to NexBRIDGE Connect.",
+    monthlyPrice: 3900,
+    pricingModel: "MONTHLY",
+    prerequisites: ["NEXBRIDGE"],
+    isCore: false,
+    sortOrder: 32,
+  },
+  {
+    code: "NEXBRIDGE_AI",
+    label: "NexBRIDGE — AI Features Pack",
+    description:
+      "Local AI inference, enhanced OpenAI Vision analysis, offline dimension extraction. Add-on to NexBRIDGE Connect.",
+    monthlyPrice: 1900,
+    pricingModel: "MONTHLY",
+    prerequisites: ["NEXBRIDGE"],
+    isCore: false,
+    sortOrder: 33,
+  },
+
   // ── Per-project unlock features ───────────────────────────────────
   {
     code: "XACT_IMPORT",
@@ -280,6 +326,7 @@ async function main() {
         monthlyPrice: mod.monthlyPrice,
         pricingModel: mod.pricingModel,
         projectUnlockPrice: mod.projectUnlockPrice ?? null,
+        prerequisites: mod.prerequisites ?? [],
         isCore: mod.isCore,
         sortOrder: mod.sortOrder,
         active: true,
@@ -293,6 +340,7 @@ async function main() {
         monthlyPrice: mod.monthlyPrice,
         pricingModel: mod.pricingModel,
         projectUnlockPrice: mod.projectUnlockPrice ?? null,
+        prerequisites: mod.prerequisites ?? [],
         isCore: mod.isCore,
         sortOrder: mod.sortOrder,
         active: true,

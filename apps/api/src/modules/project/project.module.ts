@@ -1,5 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ProjectService } from "./project.service";
+import { InvoicePaymentService } from "./invoice-payment.service";
+import { InvoicePaymentController } from "./invoice-payment.controller";
 import { ProjectController } from "./project.controller";
 import { ImportJobsService } from "../import-jobs/import-jobs.service";
 import { TaxJurisdictionService } from "./tax-jurisdiction.service";
@@ -16,8 +18,8 @@ import { NexfindModule } from "../nexfind/nexfind.module";
 
 @Module({
   imports: [SupplierCatalogModule, GeocodingModule, NexfindModule],
-  providers: [ProjectService, ImportJobsService, TaxJurisdictionService, TenantClientService, OrgTemplateService, ProjectCollaborationService, NotificationsService],
-  controllers: [ProjectController, TenantClientController, OrgTemplateController, ProjectCollaborationController, CollaborationPortalController],
-  exports: [ProjectCollaborationService],
+  providers: [ProjectService, InvoicePaymentService, ImportJobsService, TaxJurisdictionService, TenantClientService, OrgTemplateService, ProjectCollaborationService, NotificationsService],
+  controllers: [ProjectController, InvoicePaymentController, TenantClientController, OrgTemplateController, ProjectCollaborationController, CollaborationPortalController],
+  exports: [ProjectCollaborationService, InvoicePaymentService],
 })
 export class ProjectModule {}

@@ -12,9 +12,11 @@ import {
 } from '@nestjs/common';
 import { CombinedAuthGuard, Roles, Role } from '../auth/auth.guards';
 import { AuthenticatedUser } from '../auth/jwt.strategy';
+import { RequiresModule } from '../billing/module.guard';
 import { VideoAssessmentService } from './video-assessment.service';
 import type { AssessmentType } from './prompts';
 
+@RequiresModule('NEXBRIDGE_ASSESS')
 @Controller('video-assessment')
 export class VideoAssessmentController {
   constructor(private readonly service: VideoAssessmentService) {}

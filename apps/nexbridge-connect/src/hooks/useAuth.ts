@@ -13,6 +13,7 @@ import {
   checkEntitlements,
   type LoginResponse,
   type UserDeviceRecord,
+  type NexBridgeFeatures,
 } from "../lib/api";
 import { getOrCreateDeviceId, getDeviceName, getDevicePlatform } from "../lib/device";
 import { getVersion } from "@tauri-apps/api/app";
@@ -26,6 +27,9 @@ interface AuthState {
   licenseStatus: string; // ACTIVE | GRACE_PERIOD | EXPORT_ONLY | LOCKED
   graceEndsAt: string | null;
   entitlementBlocked: boolean;
+  // Per-feature entitlements (NexBRIDGE modules)
+  enabledModules: string[];
+  features: NexBridgeFeatures;
   // Device limit
   deviceLimitReached: boolean;
   existingDevices: UserDeviceRecord[];
@@ -35,6 +39,13 @@ interface AuthState {
   updateDownloadUrl: string | null;
 }
 
+const DEFAULT_FEATURES: NexBridgeFeatures = {
+  nexbridge: false,
+  assess: false,
+  nexplan: false,
+  ai: false,
+};
+
 const INITIAL: AuthState = {
   loading: true,
   authenticated: false,
@@ -43,6 +54,8 @@ const INITIAL: AuthState = {
   licenseStatus: "ACTIVE",
   graceEndsAt: null,
   entitlementBlocked: false,
+  enabledModules: [],
+  features: DEFAULT_FEATURES,
   deviceLimitReached: false,
   existingDevices: [],
   updateRequired: false,
@@ -111,6 +124,12 @@ export function useAuth() {
       const ent = await checkEntitlements();
       if (!ent.hasNexBridge) {
         setState((s) => ({ ...s, entitlementBlocked: true }));
+      } else {
+        setState((s) => ({
+          ...s,
+          enabledModules: ent.modules,
+          features: ent.features,
+        }));
       }
     } catch (err: any) {
       if (err?.code === "UPDATE_REQUIRED") {
@@ -199,5 +218,10 @@ export function useAuth() {
     setState((s) => ({ ...s, deviceLimitReached: false, existingDevices: [] }));
   }, []);
 
-  return { ...state, login, logout, revokeDeviceAndRetry };
+  const hasFeature = useCallback(
+    (code: string): boolean => state.enabledModules.includes(code),
+    [state.enabledModules],
+  );
+
+  return { ...state, login, logout, revokeDeviceAndRetry, hasFeature };
 }

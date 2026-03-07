@@ -136,6 +136,19 @@ interface InvoicePayment {
   paidAt?: string;
 }
 
+/** Unified file entry used across all document groups. */
+interface DocGroupFile {
+  key: string;        // unique React key
+  fileId: string;     // projectFileId — used for download / preview
+  fileName: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  createdAt: string;
+  context?: string;   // e.g. "Daily Log: Mar 5 — Drywall Install"
+}
+
+type DocGroupId = "daily-logs" | "photos" | "docs-plans";
+
 // ── Helpers ────────────────────────────────────────────────────────
 
 const formatMoney = (n: number) =>
@@ -276,6 +289,12 @@ export default function ClientPortalProjectPage() {
   const [activeInvoice, setActiveInvoice] = useState<InvoiceDetail | null>(null);
   const [invoiceLoading, setInvoiceLoading] = useState(false);
 
+  // Document selection & preview
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [previewFile, setPreviewFile] = useState<{ fileId: string; fileName: string; mimeType?: string; url: string } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [activeDocGroup, setActiveDocGroup] = useState<DocGroupId | null>(null);
+
   const getToken = () =>
     typeof window !== "undefined" ? localStorage.getItem("accessToken") || "" : "";
 
@@ -301,6 +320,66 @@ export default function ClientPortalProjectPage() {
   }, [projectId, router]);
 
   useEffect(() => { fetchProject(); }, [fetchProject]);
+
+  // ── Document helpers ──────────────────────────────────────────────
+
+  const toggleFileSelection = (key: string) => {
+    setSelectedFiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleSelectAllGroupFiles = (groupFiles: DocGroupFile[]) => {
+    const keys = groupFiles.map((f) => f.key);
+    setSelectedFiles((prev) => {
+      const allSelected = keys.every((k) => prev.has(k));
+      const next = new Set(prev);
+      if (allSelected) keys.forEach((k) => next.delete(k));
+      else keys.forEach((k) => next.add(k));
+      return next;
+    });
+  };
+
+  const downloadSelectedGroupFiles = (groupFiles: DocGroupFile[]) => {
+    groupFiles
+      .filter((f) => selectedFiles.has(f.key))
+      .forEach((f) => downloadPortalFile(projectId, f.fileId, f.fileName));
+  };
+
+  const openDocPreview = async (file: DocGroupFile) => {
+    const token = getToken();
+    if (!token) return;
+    setPreviewLoading(true);
+    try {
+      const res = await fetch(
+        `${API_BASE}/projects/portal/${projectId}/files/${file.fileId}/download`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) return;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      setPreviewFile({ fileId: file.fileId, fileName: file.fileName, mimeType: file.mimeType, url });
+    } catch {
+      // silent
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const closePreview = () => {
+    if (previewFile) {
+      URL.revokeObjectURL(previewFile.url);
+      setPreviewFile(null);
+    }
+  };
+
+  const toggleDocGroup = (group: DocGroupId) => {
+    setActiveDocGroup((prev) => (prev === group ? null : group));
+    setSelectedFiles(new Set()); // reset selection when switching groups
+  };
 
   const loadInvoiceDetail = async (invoiceId: string) => {
     const token = getToken();
@@ -358,6 +437,51 @@ export default function ClientPortalProjectPage() {
   const messages = project.recentMessages ?? [];
   const dailyLogs = project.dailyLogs ?? [];
   const pStatus = projectStatusBadge(project.status);
+
+  // ── Document groups ─────────────────────────────────────────────
+  const dailyLogFiles: DocGroupFile[] = dailyLogs.flatMap((log) =>
+    log.attachments.map((a) => ({
+      key: `dl-${a.id}`,
+      fileId: a.fileId,
+      fileName: a.fileName,
+      mimeType: a.mimeType,
+      sizeBytes: a.sizeBytes,
+      createdAt: log.logDate || log.createdAt,
+      context: `${log.title || "Daily Log"} — ${formatDate(log.logDate)}`,
+    })),
+  );
+
+  const photoFiles: DocGroupFile[] = files
+    .filter((f) => f.mimeType?.startsWith("image/"))
+    .map((f) => ({
+      key: `pf-${f.id}`,
+      fileId: f.id,
+      fileName: f.fileName,
+      mimeType: f.mimeType,
+      sizeBytes: f.sizeBytes,
+      createdAt: f.createdAt,
+    }));
+
+  const docPlanFiles: DocGroupFile[] = files
+    .filter((f) => !f.mimeType?.startsWith("image/"))
+    .map((f) => ({
+      key: `dp-${f.id}`,
+      fileId: f.id,
+      fileName: f.fileName,
+      mimeType: f.mimeType,
+      sizeBytes: f.sizeBytes,
+      createdAt: f.createdAt,
+    }));
+
+  const totalDocCount = dailyLogFiles.length + photoFiles.length + docPlanFiles.length;
+
+  const docGroups: { id: DocGroupId; label: string; icon: string; accent: string; files: DocGroupFile[] }[] = [
+    { id: "daily-logs", label: "Daily Logs", icon: "📋", accent: "#2563eb", files: dailyLogFiles },
+    { id: "photos", label: "Photos", icon: "🖼️", accent: "#16a34a", files: photoFiles },
+    { id: "docs-plans", label: "Documents & Plans", icon: "📄", accent: "#7c3aed", files: docPlanFiles },
+  ];
+
+  const activeGroupFiles = activeDocGroup ? docGroups.find((g) => g.id === activeDocGroup)?.files ?? [] : [];
 
   // ── Invoice Detail View ──────────────────────────────────────────
 
@@ -851,47 +975,138 @@ export default function ClientPortalProjectPage() {
             </div>
           )}
 
-          {/* ── Documents ────────────────────────────────────────── */}
-          {files.length > 0 && (
+          {/* ── Documents (grouped tiles) ─────────────────────────── */}
+          {totalDocCount > 0 && (
             <div style={CARD}>
               <div style={CARD_HEADER} onClick={() => setDocsOpen(!docsOpen)}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ fontSize: 15, fontWeight: 600, color: "#0f172a" }}>Documents</span>
-                  <span style={{ fontSize: 12, color: "#6b7280" }}>· {files.length} files</span>
+                  <span style={{ fontSize: 12, color: "#6b7280" }}>· {totalDocCount} files</span>
                 </div>
                 <span style={{ color: "#9ca3af", fontSize: 14 }}>{docsOpen ? "▾" : "▸"}</span>
               </div>
               {docsOpen && (
                 <div style={CARD_BODY}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {files.map((f) => (
-                      <button
-                        key={f.id}
-                        onClick={() => downloadPortalFile(projectId, f.id, f.fileName)}
-                        style={{
-                          display: "flex", justifyContent: "space-between", alignItems: "center",
-                          padding: "10px 14px", borderRadius: 6, background: "#f1f5f9",
-                          color: "inherit", width: "100%", textAlign: "left",
-                          border: "1px solid transparent", cursor: "pointer",
-                          transition: "border-color 0.15s",
-                        }}
-                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "#d1d5db"; }}
-                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "transparent"; }}
-                      >
-                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          <span style={{ fontSize: 18 }}>{fileIcon(f.mimeType)}</span>
-                          <div>
-                            <div style={{ fontSize: 13, fontWeight: 500, color: "#374151" }}>{f.fileName}</div>
-                            <div style={{ fontSize: 11, color: "#6b7280" }}>
-                              {formatDate(f.createdAt)}
-                              {f.sizeBytes ? ` · ${formatBytes(f.sizeBytes)}` : ""}
-                            </div>
-                          </div>
-                        </div>
-                        <span style={{ color: "#3b82f6", fontSize: 12 }}>Download</span>
-                      </button>
-                    ))}
+                  {/* ── Group Tiles ── */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: activeDocGroup ? 16 : 0 }}>
+                    {docGroups.map((g) => {
+                      const isActive = activeDocGroup === g.id;
+                      const isEmpty = g.files.length === 0;
+                      return (
+                        <button
+                          key={g.id}
+                          onClick={() => !isEmpty && toggleDocGroup(g.id)}
+                          style={{
+                            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                            gap: 6, padding: "20px 12px", borderRadius: 10,
+                            border: isActive ? `2px solid ${g.accent}` : "1px solid #e5e7eb",
+                            background: isActive ? `${g.accent}0D` : isEmpty ? "#f9fafb" : "#fff",
+                            cursor: isEmpty ? "default" : "pointer",
+                            opacity: isEmpty ? 0.45 : 1,
+                            transition: "all 0.15s",
+                          }}
+                        >
+                          <span style={{ fontSize: 28 }}>{g.icon}</span>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: isActive ? g.accent : "#374151" }}>
+                            {g.label}
+                          </span>
+                          <span style={{
+                            fontSize: 11, fontWeight: 600, color: isActive ? g.accent : "#6b7280",
+                            background: isActive ? `${g.accent}1A` : "#f1f5f9",
+                            padding: "2px 10px", borderRadius: 10,
+                          }}>
+                            {g.files.length} file{g.files.length !== 1 ? "s" : ""}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
+
+                  {/* ── Expanded file list for active group ── */}
+                  {activeDocGroup && activeGroupFiles.length > 0 && (
+                    <>
+                      {/* Toolbar */}
+                      <div style={{
+                        display: "flex", justifyContent: "space-between", alignItems: "center",
+                        marginBottom: 10, padding: "0 2px",
+                      }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12, color: "#6b7280" }}>
+                          <input
+                            type="checkbox"
+                            checked={activeGroupFiles.length > 0 && activeGroupFiles.every((f) => selectedFiles.has(f.key))}
+                            onChange={() => toggleSelectAllGroupFiles(activeGroupFiles)}
+                            style={{ width: 15, height: 15, cursor: "pointer", accentColor: "#3b82f6" }}
+                          />
+                          Select all
+                        </label>
+                        {selectedFiles.size > 0 && (
+                          <button
+                            onClick={() => downloadSelectedGroupFiles(activeGroupFiles)}
+                            style={{
+                              padding: "6px 14px", borderRadius: 6, border: "none",
+                              background: "#3b82f6", color: "#fff", fontSize: 12, fontWeight: 600,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Download {activeGroupFiles.filter((f) => selectedFiles.has(f.key)).length} file{activeGroupFiles.filter((f) => selectedFiles.has(f.key)).length !== 1 ? "s" : ""}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* File rows */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {activeGroupFiles.map((f) => (
+                          <div
+                            key={f.key}
+                            style={{
+                              display: "flex", alignItems: "center", gap: 10,
+                              padding: "10px 14px", borderRadius: 6, background: "#f1f5f9",
+                              border: selectedFiles.has(f.key) ? "1px solid #3b82f6" : "1px solid transparent",
+                              transition: "border-color 0.15s",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedFiles.has(f.key)}
+                              onChange={() => toggleFileSelection(f.key)}
+                              style={{ width: 15, height: 15, cursor: "pointer", flexShrink: 0, accentColor: "#3b82f6" }}
+                            />
+                            <div
+                              onClick={() => openDocPreview(f)}
+                              style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, cursor: "pointer", minWidth: 0 }}
+                            >
+                              <span style={{ fontSize: 18, flexShrink: 0 }}>{fileIcon(f.mimeType)}</span>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{
+                                  fontSize: 13, fontWeight: 500, color: "#374151",
+                                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                                }}>
+                                  {f.fileName}
+                                </div>
+                                <div style={{ fontSize: 11, color: "#6b7280" }}>
+                                  {f.context ? `${f.context} · ` : ""}
+                                  {formatDate(f.createdAt)}
+                                  {f.sizeBytes ? ` · ${formatBytes(f.sizeBytes)}` : ""}
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); downloadPortalFile(projectId, f.fileId, f.fileName); }}
+                              style={{ background: "none", border: "none", color: "#3b82f6", fontSize: 12, cursor: "pointer", flexShrink: 0, padding: "4px 0" }}
+                            >
+                              Download
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      {previewLoading && (
+                        <p style={{ textAlign: "center", color: "#6b7280", fontSize: 12, marginTop: 12 }}>
+                          Loading preview…
+                        </p>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -957,6 +1172,103 @@ export default function ClientPortalProjectPage() {
           © {new Date().getFullYear()} Nexus Contractor Connect
         </p>
       </footer>
+
+      {/* ── Document Preview Modal ───────────────────────────────── */}
+      {previewFile && (
+        <div
+          onClick={closePreview}
+          style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 24,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#fff", borderRadius: 12, width: "100%", maxWidth: 900,
+              maxHeight: "90vh", display: "flex", flexDirection: "column",
+              overflow: "hidden", boxShadow: "0 25px 50px rgba(0,0,0,0.25)",
+            }}
+          >
+            {/* Modal header */}
+            <div style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              padding: "14px 20px", borderBottom: "1px solid #e5e7eb", flexShrink: 0,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                <span style={{ fontSize: 18 }}>{fileIcon(previewFile.mimeType)}</span>
+                <span style={{
+                  fontSize: 14, fontWeight: 600, color: "#0f172a",
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                }}>
+                  {previewFile.fileName}
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                <button
+                  onClick={() => downloadPortalFile(projectId, previewFile.fileId, previewFile.fileName)}
+                  style={{
+                    padding: "6px 14px", borderRadius: 6, border: "1px solid #d1d5db",
+                    background: "#fff", color: "#374151", fontSize: 12, fontWeight: 500,
+                    cursor: "pointer",
+                  }}
+                >
+                  Download
+                </button>
+                <button
+                  onClick={closePreview}
+                  style={{
+                    width: 32, height: 32, borderRadius: 6, border: "none",
+                    background: "#f1f5f9", color: "#6b7280", fontSize: 18,
+                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            {/* Modal body */}
+            <div style={{ flex: 1, overflow: "auto", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, minHeight: 200 }}>
+              {previewFile.mimeType?.startsWith("image/") ? (
+                <img
+                  src={previewFile.url}
+                  alt={previewFile.fileName}
+                  style={{ maxWidth: "100%", maxHeight: "75vh", objectFit: "contain", borderRadius: 4 }}
+                />
+              ) : previewFile.mimeType === "application/pdf" ? (
+                <iframe
+                  src={previewFile.url}
+                  title={previewFile.fileName}
+                  style={{ width: "100%", height: "75vh", border: "none", borderRadius: 4 }}
+                />
+              ) : (
+                <div style={{ textAlign: "center", padding: "40px 20px" }}>
+                  <div style={{ fontSize: 48, marginBottom: 16 }}>{fileIcon(previewFile.mimeType)}</div>
+                  <div style={{ fontSize: 16, fontWeight: 600, color: "#0f172a", marginBottom: 8 }}>
+                    {previewFile.fileName}
+                  </div>
+                  <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 20 }}>
+                    Preview is not available for this file type.
+                  </div>
+                  <button
+                    onClick={() => downloadPortalFile(projectId, previewFile.fileId, previewFile.fileName)}
+                    style={{
+                      padding: "10px 24px", borderRadius: 8, border: "none",
+                      background: "#3b82f6", color: "#fff", fontSize: 14, fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Download File
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
