@@ -60,6 +60,7 @@ export class UpdatesService {
     target: string,
     arch: string,
     currentVersion: string,
+    publicBaseUrl: string,
   ): Promise<{
     version: string;
     notes: string;
@@ -89,13 +90,30 @@ export class UpdatesService {
       return null;
     }
 
+    // Rewrite the download URL to go through the API proxy instead of
+    // direct MinIO (which is not publicly reachable).
+    const minioKey = this.extractMinioKey(platform.url);
+    const proxyUrl = minioKey
+      ? `${publicBaseUrl}/updates/download/${encodeURIComponent(minioKey)}`
+      : platform.url;
+
     return {
       version: manifest.version,
       notes: manifest.notes,
       pub_date: manifest.pub_date,
-      url: platform.url,
+      url: proxyUrl,
       signature: platform.signature,
     };
+  }
+
+  /**
+   * Stream a file from the updates bucket. Used by the download proxy.
+   */
+  async getUpdateFileStream(key: string): Promise<NodeJS.ReadableStream> {
+    return this.storage.getObjectStream({
+      bucket: UPDATES_BUCKET,
+      key,
+    });
   }
 
   /**
@@ -113,6 +131,25 @@ export class UpdatesService {
   }
 
   // ── Private ───────────────────────────────────────────────────────
+
+  /**
+   * Extract the MinIO object key from a full MinIO URL.
+   * e.g. "http://localhost:9000/nexbridge-updates/v1.1.0/foo.tar.gz"
+   *   -> "v1.1.0/foo.tar.gz"
+   */
+  private extractMinioKey(url: string): string | null {
+    try {
+      const u = new URL(url);
+      // Path format: /nexbridge-updates/v1.1.0/filename.tar.gz
+      const parts = u.pathname.split("/").filter(Boolean);
+      if (parts.length >= 2 && parts[0] === UPDATES_BUCKET) {
+        return parts.slice(1).join("/");
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
 
   private isNewer(latest: string, current: string): boolean {
     const l = latest.split(".").map(Number);

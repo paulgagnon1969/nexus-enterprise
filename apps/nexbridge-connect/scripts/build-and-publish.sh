@@ -69,9 +69,27 @@ if [[ "${1:-}" != "--skip-build" ]]; then
 fi
 
 # ── Locate build artifacts ────────────────────────────────────────────────
-AARCH64_BUNDLE="$TAURI_DIR/target/aarch64-apple-darwin/release/bundle"
-X86_64_BUNDLE="$TAURI_DIR/target/x86_64-apple-darwin/release/bundle"
-UNIVERSAL_BUNDLE="$TAURI_DIR/target/universal-apple-darwin/release/bundle"
+# Tauri may use an external CARGO_TARGET_DIR (build cache on fast storage).
+# Check both the default target dir and the external cache.
+EXTERNAL_CACHE="/Volumes/4T Data/nexus-build-cache/nexbridge-connect-apps-target"
+
+if [[ -d "$EXTERNAL_CACHE/aarch64-apple-darwin/release/bundle" ]]; then
+  AARCH64_BUNDLE="$EXTERNAL_CACHE/aarch64-apple-darwin/release/bundle"
+else
+  AARCH64_BUNDLE="$TAURI_DIR/target/aarch64-apple-darwin/release/bundle"
+fi
+
+if [[ -d "$EXTERNAL_CACHE/x86_64-apple-darwin/release/bundle" ]]; then
+  X86_64_BUNDLE="$EXTERNAL_CACHE/x86_64-apple-darwin/release/bundle"
+else
+  X86_64_BUNDLE="$TAURI_DIR/target/x86_64-apple-darwin/release/bundle"
+fi
+
+if [[ -d "$EXTERNAL_CACHE/universal-apple-darwin/release/bundle" ]]; then
+  UNIVERSAL_BUNDLE="$EXTERNAL_CACHE/universal-apple-darwin/release/bundle"
+else
+  UNIVERSAL_BUNDLE="$TAURI_DIR/target/universal-apple-darwin/release/bundle"
+fi
 
 # Tauri v2 produces .app.tar.gz and .app.tar.gz.sig in the macos folder
 AARCH64_TARGZ=$(ls "$AARCH64_BUNDLE/macos/"*.app.tar.gz 2>/dev/null | head -1)

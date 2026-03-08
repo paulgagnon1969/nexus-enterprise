@@ -4,13 +4,15 @@ import {
   Post,
   Param,
   Body,
+  Req,
   Res,
   HttpCode,
   UseGuards,
+  NotFoundException,
 } from "@nestjs/common";
-import { FastifyReply } from "fastify";
+import { FastifyRequest, FastifyReply } from "fastify";
 import { UpdatesService, UpdateManifest } from "./updates.service";
-import { JwtAuthGuard, GlobalRoles, GlobalRole, GlobalRolesGuard } from "../auth/auth.guards";
+import { JwtAuthGuard, GlobalRoles, GlobalRole, GlobalRolesGuard, Public } from "../auth/auth.guards";
 
 /**
  * Tauri updater endpoint.
@@ -30,17 +32,26 @@ export class UpdatesController {
    * tauri.conf.json endpoint template:
    *   https://staging-api.nfsgrp.com/updates/check/{{target}}/{{arch}}/{{current_version}}
    */
+  @Public()
   @Get("check/:target/:arch/:currentVersion")
   async checkForUpdate(
     @Param("target") target: string,
     @Param("arch") arch: string,
     @Param("currentVersion") currentVersion: string,
+    @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
   ) {
+    // Derive the public base URL from the incoming request so download
+    // URLs point back through this API (not direct MinIO).
+    const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol;
+    const host = (req.headers["x-forwarded-host"] as string) || req.hostname;
+    const publicBaseUrl = `${proto}://${host}`;
+
     const update = await this.updatesService.checkForUpdate(
       target,
       arch,
       currentVersion,
+      publicBaseUrl,
     );
 
     if (!update) {
@@ -49,6 +60,32 @@ export class UpdatesController {
     }
 
     return reply.status(200).send(update);
+  }
+
+  /**
+   * Stream an update bundle from MinIO to the client.
+   * This proxies the download so clients don't need direct MinIO access.
+   */
+  @Public()
+  @Get("download/:key")
+  async downloadUpdate(
+    @Param("key") key: string,
+    @Res() reply: FastifyReply,
+  ) {
+    const decodedKey = decodeURIComponent(key);
+    try {
+      const stream = await this.updatesService.getUpdateFileStream(decodedKey);
+      return reply
+        .status(200)
+        .header("content-type", "application/gzip")
+        .header(
+          "content-disposition",
+          `attachment; filename="${decodedKey.split("/").pop()}"`,
+        )
+        .send(stream);
+    } catch {
+      throw new NotFoundException("Update bundle not found");
+    }
   }
 
   /**

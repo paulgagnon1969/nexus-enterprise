@@ -33,6 +33,7 @@
     "store:allow-save",
     "store:allow-load",
     "store:allow-delete",
-    "notification:default"
+    "notification:default",
+    "updater:default"
   ]
 }
