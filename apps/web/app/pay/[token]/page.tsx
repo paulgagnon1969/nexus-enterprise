@@ -153,6 +153,7 @@ function PlaidButton({
   onSuccess: (msg: string) => void;
 }) {
   const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [linkLoading, setLinkLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -160,16 +161,30 @@ function PlaidButton({
   const achFee = Math.round(balanceDue * 0.01 * 100) / 100;
   const achTotal = balanceDue + achFee;
 
-  useEffect(() => {
+  const fetchLinkToken = () => {
+    setLinkLoading(true);
+    setError(null);
     fetch(`${API_BASE}/invoices/pay/${token}/plaid-link`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
     })
-      .then((r) => r.json())
-      .then((d) => setLinkToken(d.linkToken))
-      .catch(() => setError("Failed to initialize bank connection"));
-  }, [token]);
+      .then((r) => {
+        if (!r.ok) throw new Error(`Server error (${r.status})`);
+        return r.json();
+      })
+      .then((d) => {
+        if (d.linkToken) {
+          setLinkToken(d.linkToken);
+        } else {
+          setError(d.message || "Bank connection is not available right now.");
+        }
+      })
+      .catch((err) => setError(err.message || "Failed to initialize bank connection. Please try again."))
+      .finally(() => setLinkLoading(false));
+  };
+
+  useEffect(() => { fetchLinkToken(); }, [token]);
 
   const { open, ready } = usePlaidLink({
     token: linkToken,
@@ -193,14 +208,31 @@ function PlaidButton({
     onExit: () => { /* User closed Plaid Link */ },
   });
 
+  const canOpen = ready && !!linkToken && !loading;
+
   return (
     <div>
-      <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 16, margin: 0 }}>
-        Connect your bank account to pay via ACH transfer. Funds typically settle in 1{"\u2013"}3 business days.
-      </p>
+      {/* How it works */}
+      <div style={{ marginBottom: 16, padding: "14px 16px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", marginBottom: 8 }}>How ACH bank transfer works</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, color: "#4b5563" }}>
+            <span style={{ background: "#2563eb", color: "#fff", borderRadius: "50%", minWidth: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>1</span>
+            <span>Click the button below to securely link your bank account via Plaid</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, color: "#4b5563" }}>
+            <span style={{ background: "#2563eb", color: "#fff", borderRadius: "50%", minWidth: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>2</span>
+            <span>Select your bank and sign in (your credentials are never shared with us)</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12, color: "#4b5563" }}>
+            <span style={{ background: "#2563eb", color: "#fff", borderRadius: "50%", minWidth: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>3</span>
+            <span>Payment is initiated automatically {"\u2014"} funds settle in 1{"\u2013"}3 business days</span>
+          </div>
+        </div>
+      </div>
 
       {/* Fee breakdown */}
-      <div style={{ margin: "12px 0 16px", padding: "12px 16px", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, fontSize: 13 }}>
+      <div style={{ margin: "0 0 16px", padding: "12px 16px", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, fontSize: 13 }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
           <span style={{ color: "#6b7280" }}>Invoice amount</span>
           <span style={{ color: "#0f172a" }}>{amount}</span>
@@ -215,19 +247,46 @@ function PlaidButton({
         </div>
       </div>
 
-      {error && <div style={{ color: "#dc2626", fontSize: 13, marginBottom: 12, marginTop: 8 }}>{error}</div>}
-      {status && <p style={{ fontSize: 13, color: "#2563eb", marginBottom: 12, marginTop: 8 }}>{status}</p>}
+      {error && (
+        <div style={{ marginBottom: 12, padding: "10px 14px", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, fontSize: 13 }}>
+          <div style={{ color: "#dc2626", marginBottom: 6 }}>{error}</div>
+          <button
+            onClick={fetchLinkToken}
+            style={{
+              padding: "6px 14px", borderRadius: 6, border: "1px solid #dc2626",
+              background: "transparent", color: "#dc2626", fontSize: 12, fontWeight: 600, cursor: "pointer",
+            }}
+          >
+            Try Again
+          </button>
+        </div>
+      )}
+      {status && <p style={{ fontSize: 13, color: "#2563eb", marginBottom: 12 }}>{status}</p>}
+
       <button
-        onClick={() => open()}
-        disabled={!ready || !linkToken || loading}
+        onClick={() => canOpen ? open() : fetchLinkToken()}
+        disabled={loading || linkLoading}
         style={{
-          width: "100%", padding: "14px", borderRadius: 8, border: "none", marginTop: 8,
-          background: (!ready || !linkToken || loading) ? "#9ca3af" : "#2563eb", color: "#fff",
-          fontSize: 16, fontWeight: 700, cursor: (!ready || !linkToken || loading) ? "default" : "pointer",
+          width: "100%", padding: "14px", borderRadius: 8, border: "none",
+          background: (loading || linkLoading) ? "#9ca3af" : "#2563eb", color: "#fff",
+          fontSize: 16, fontWeight: 700, cursor: (loading || linkLoading) ? "default" : "pointer",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
         }}
       >
-        {loading ? "Processing\u2026" : `Pay ${formatMoney(achTotal)} via Bank Transfer`}
+        {linkLoading ? "Preparing bank connection\u2026" : loading ? "Processing\u2026" : (
+          <>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <path d="M3 9h18" /><path d="M9 21V9" />
+            </svg>
+            {canOpen ? `Link Bank & Pay ${formatMoney(achTotal)}` : "Link Bank Account & Pay"}
+          </>
+        )}
       </button>
+
+      <div style={{ marginTop: 8, fontSize: 11, color: "#9ca3af", textAlign: "center" }}>
+        Powered by Plaid {"\u00b7"} 256-bit encryption {"\u00b7"} Your bank credentials are never stored
+      </div>
     </div>
   );
 }
