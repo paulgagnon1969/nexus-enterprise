@@ -54,26 +54,28 @@ public class NexusObjectCaptureModule: Module {
     /// Launch Precision Capture: captures high-density images for Mac Studio
     /// reconstruction via NexMESH. Does NOT run on-device photogrammetry.
     /// Returns: { imagePaths: string[], imageCount: number }
-    AsyncFunction("startPrecisionCapture") { (promise: Promise) in
+    AsyncFunction("startPrecisionCapture") { () async throws -> [String: Any] in
       #if canImport(RealityKit)
       if #available(iOS 17.0, *) {
         let supported = await MainActor.run { ObjectCaptureSession.isSupported }
         guard supported else {
-          promise.reject("UNSUPPORTED", "Device does not support Object Capture (requires LiDAR + iOS 17)")
-          return
+          throw NSError(domain: "NexusPrecision", code: 1,
+                       userInfo: [NSLocalizedDescriptionKey: "Device does not support Object Capture (requires LiDAR + iOS 17)"])
         }
 
-        DispatchQueue.main.async { [weak self] in
-          let coordinator = PrecisionCaptureCoordinator(promise: promise) { [weak self] in
-            self?.activeCoordinator = nil
+        return try await withCheckedThrowingContinuation { continuation in
+          DispatchQueue.main.async { [weak self] in
+            let coordinator = PrecisionCaptureCoordinator(continuation: continuation) { [weak self] in
+              self?.activeCoordinator = nil
+            }
+            self?.activeCoordinator = coordinator
+            coordinator.start()
           }
-          self?.activeCoordinator = coordinator
-          coordinator.start()
         }
-        return
       }
       #endif
-      promise.reject("UNSUPPORTED", "Precision Capture requires iOS 17+ with LiDAR")
+      throw NSError(domain: "NexusPrecision", code: 2,
+                   userInfo: [NSLocalizedDescriptionKey: "Precision Capture requires iOS 17+ with LiDAR"])
     }
 
     /// Lightweight check that returns device capabilities without starting capture
@@ -407,17 +409,35 @@ class ObjectCaptureCoordinator: NSObject {
 @available(iOS 17.0, *)
 @MainActor
 class PrecisionCaptureCoordinator: NSObject {
-  private let promise: Promise
+  private let continuation: CheckedContinuation<[String: Any], Error>
   private let onCleanup: () -> Void
   private var session: ObjectCaptureSession?
   private var hostingController: UIViewController?
   private var imagesDirectory: URL?
   private var persistentImagesDir: URL?
+  private var hasResumed = false
 
-  init(promise: Promise, onCleanup: @escaping () -> Void) {
-    self.promise = promise
+  init(continuation: CheckedContinuation<[String: Any], Error>, onCleanup: @escaping () -> Void) {
+    self.continuation = continuation
     self.onCleanup = onCleanup
     super.init()
+  }
+
+  /// Resume continuation with a successful result. Safe to call multiple times — only the first fires.
+  private func resumeSuccess(_ result: [String: Any]) {
+    guard !hasResumed else { return }
+    hasResumed = true
+    continuation.resume(returning: result)
+    onCleanup()
+  }
+
+  /// Resume continuation with an error. Safe to call multiple times — only the first fires.
+  private func resumeError(_ message: String) {
+    guard !hasResumed else { return }
+    hasResumed = true
+    continuation.resume(throwing: NSError(domain: "NexusPrecision", code: 0,
+                                          userInfo: [NSLocalizedDescriptionKey: message]))
+    onCleanup()
   }
 
   func start() {
@@ -428,7 +448,7 @@ class PrecisionCaptureCoordinator: NSObject {
     do {
       try FileManager.default.createDirectory(at: imagesDir, withIntermediateDirectories: true)
     } catch {
-      promise.reject("DIR_ERROR", "Failed to create capture directories: \(error.localizedDescription)")
+      resumeError("Failed to create capture directories: \(error.localizedDescription)")
       return
     }
 
@@ -464,7 +484,7 @@ class PrecisionCaptureCoordinator: NSObject {
     self.hostingController = vc
 
     guard let rootVC = findPresentingViewController() else {
-      promise.reject("PRESENTATION_ERROR", "Could not find root view controller")
+      resumeError("Could not find root view controller")
       return
     }
 
@@ -489,8 +509,7 @@ class PrecisionCaptureCoordinator: NSObject {
     case .failed(let error):
       print("[NexusPrecision] Capture failed: \(error)")
       dismiss {
-        self.promise.reject("CAPTURE_FAILED", error.localizedDescription)
-        self.onCleanup()
+        self.resumeError(error.localizedDescription)
       }
     @unknown default:
       break
@@ -504,8 +523,7 @@ class PrecisionCaptureCoordinator: NSObject {
   private func cancel() {
     session?.cancel()
     dismiss {
-      self.promise.reject("CANCELLED", "User cancelled precision capture")
-      self.onCleanup()
+      self.resumeError("User cancelled precision capture")
     }
   }
 
@@ -513,16 +531,14 @@ class PrecisionCaptureCoordinator: NSObject {
   /// Returns image paths to JS without running photogrammetry.
   private func collectImagesAndReturn() {
     guard let imagesDir = imagesDirectory else {
-      promise.reject("INTERNAL_ERROR", "Missing images directory")
-      onCleanup()
+      resumeError("Missing images directory")
       return
     }
 
     let fm = FileManager.default
     guard let allFiles = try? fm.contentsOfDirectory(at: imagesDir, includingPropertiesForKeys: [.fileSizeKey]) else {
       dismiss {
-        self.promise.reject("READ_ERROR", "Could not read captured images")
-        self.onCleanup()
+        self.resumeError("Could not read captured images")
       }
       return
     }
@@ -534,8 +550,7 @@ class PrecisionCaptureCoordinator: NSObject {
 
     guard !imageFiles.isEmpty else {
       dismiss {
-        self.promise.reject("NO_IMAGES", "No images were captured")
-        self.onCleanup()
+        self.resumeError("No images were captured")
       }
       return
     }
@@ -573,8 +588,7 @@ class PrecisionCaptureCoordinator: NSObject {
     ]
 
     dismiss {
-      self.promise.resolve(result)
-      self.onCleanup()
+      self.resumeSuccess(result)
     }
   }
 

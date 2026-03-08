@@ -107,11 +107,20 @@ function ViewerInner() {
     [controlMode],
   );
 
-  const sendKeyEvent = useCallback(
-    (type: "keydown" | "keyup", e: React.KeyboardEvent) => {
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
       if (controlMode !== "active") return;
       e.preventDefault();
-      rtcRef.current?.sendInputEvent({ type, key: e.key });
+      rtcRef.current?.sendInputEvent({ type: "keydown", key: e.key });
+    },
+    [controlMode],
+  );
+
+  const handleKeyUp = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (controlMode !== "active") return;
+      e.preventDefault();
+      rtcRef.current?.sendInputEvent({ type: "keyup", key: e.key });
     },
     [controlMode],
   );
@@ -208,8 +217,8 @@ function ViewerInner() {
           onMouseMove={(e) => sendMouseEvent("mousemove", e)}
           onMouseDown={(e) => sendMouseEvent("mousedown", e, ["left", "middle", "right"][e.button] ?? "left")}
           onMouseUp={(e) => sendMouseEvent("mouseup", e, ["left", "middle", "right"][e.button] ?? "left")}
-          onKeyDown={sendKeyEvent}
-          onKeyUp={sendKeyEvent}
+          onKeyDown={handleKeyDown}
+          onKeyUp={handleKeyUp}
           tabIndex={controlMode === "active" ? 0 : -1}
           // Prevent context menu during remote control
           onContextMenu={(e) => { if (controlMode === "active") e.preventDefault(); }}
