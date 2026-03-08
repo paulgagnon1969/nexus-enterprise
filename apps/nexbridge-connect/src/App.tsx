@@ -15,6 +15,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { UpsellCard, MODULE_INFO } from "./components/UpsellCard";
 import { NexPlanTab } from "./components/nexplan/NexPlanTab";
+import type { MeshStatus } from "./lib/mesh-client";
 
 interface NavItem {
   to: string;
@@ -33,6 +34,27 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/support", label: "Support", icon: "\uD83D\uDEE0\uFE0F" },
   { to: "/settings", label: "Settings", icon: "\u2699\uFE0F" },
 ];
+
+// ---------------------------------------------------------------------------
+// Mesh status indicator
+// ---------------------------------------------------------------------------
+
+const MESH_COLORS: Record<MeshStatus, { dot: string; label: string }> = {
+  connected: { dot: "bg-emerald-400", label: "Mesh: Connected" },
+  connecting: { dot: "bg-amber-400 animate-pulse", label: "Mesh: Connecting\u2026" },
+  disconnected: { dot: "bg-slate-300", label: "Mesh: Offline" },
+  error: { dot: "bg-red-400", label: "Mesh: Error" },
+};
+
+function MeshStatusBadge({ status }: { status: MeshStatus }) {
+  const { dot, label } = MESH_COLORS[status];
+  return (
+    <div className="flex items-center gap-1" title={label}>
+      <span className={`inline-block h-1.5 w-1.5 rounded-full ${dot}`} />
+      <span className="text-[10px] text-slate-400">{label}</span>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Gating screens (rendered before the main app shell)
@@ -246,8 +268,9 @@ export default function App() {
       {showGraceBanner && <GracePeriodBanner endsAt={auth.graceEndsAt!} />}
       {showExportOnlyBanner && <ExportOnlyBanner onExport={handleExport} />}
 
-      {/* Top bar with version */}
-      <div className="flex items-center justify-end border-b border-slate-200 bg-white px-4 py-1">
+      {/* Top bar with version + mesh status */}
+      <div className="flex items-center justify-end gap-3 border-b border-slate-200 bg-white px-4 py-1">
+        <MeshStatusBadge status={auth.meshStatus} />
         <span className="text-[10px] font-mono text-slate-400">v{appVersion} (build {__BUILD_NUMBER__})</span>
       </div>
 

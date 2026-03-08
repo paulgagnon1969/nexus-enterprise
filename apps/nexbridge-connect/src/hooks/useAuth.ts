@@ -17,12 +17,17 @@ import {
 } from "../lib/api";
 import { getOrCreateDeviceId, getDeviceName, getDevicePlatform } from "../lib/device";
 import { getVersion } from "@tauri-apps/api/app";
+import { meshClient, type MeshStatus } from "../lib/mesh-client";
+import { meshJobRunner } from "../lib/mesh-job-runner";
+import { receiptOcrProcessor } from "../lib/processors/receipt-ocr";
 
 interface AuthState {
   loading: boolean;
   authenticated: boolean;
   userEmail: string | null;
   companyName: string | null;
+  userId: string | null;
+  companyId: string | null;
   // License & entitlement gating
   licenseStatus: string; // ACTIVE | GRACE_PERIOD | EXPORT_ONLY | LOCKED
   graceEndsAt: string | null;
@@ -37,6 +42,8 @@ interface AuthState {
   updateRequired: boolean;
   updateMinVersion: string | null;
   updateDownloadUrl: string | null;
+  // Mesh status
+  meshStatus: MeshStatus;
 }
 
 const DEFAULT_FEATURES: NexBridgeFeatures = {
@@ -51,6 +58,8 @@ const INITIAL: AuthState = {
   authenticated: false,
   userEmail: null,
   companyName: null,
+  userId: null,
+  companyId: null,
   licenseStatus: "ACTIVE",
   graceEndsAt: null,
   entitlementBlocked: false,
@@ -61,7 +70,16 @@ const INITIAL: AuthState = {
   updateRequired: false,
   updateMinVersion: null,
   updateDownloadUrl: null,
+  meshStatus: "disconnected",
 };
+
+// Register processors once
+let processorsRegistered = false;
+function ensureProcessors() {
+  if (processorsRegistered) return;
+  meshJobRunner.register(receiptOcrProcessor);
+  processorsRegistered = true;
+}
 
 export function useAuth() {
   const [state, setState] = useState<AuthState>(INITIAL);
@@ -72,6 +90,14 @@ export function useAuth() {
     getVersion()
       .then((v) => setAppVersion(v))
       .catch(() => {});
+  }, []);
+
+  // Subscribe to mesh status changes
+  useEffect(() => {
+    const unsub = meshClient.onStatusChange((meshStatus) => {
+      setState((s) => ({ ...s, meshStatus }));
+    });
+    return unsub;
   }, []);
 
   // Poll license status from api module headers every 30s when authenticated
@@ -94,8 +120,8 @@ export function useAuth() {
     };
   }, [state.authenticated]);
 
-  /** Post-login: register device, check entitlements. */
-  const postLoginSetup = useCallback(async (appVer: string) => {
+  /** Post-login: register device, check entitlements, connect mesh. */
+  const postLoginSetup = useCallback(async (appVer: string, opts?: { userId?: string; companyId?: string; apiUrl?: string }) => {
     // --- Device registration ---
     try {
       const devId = await getOrCreateDeviceId();
@@ -143,6 +169,22 @@ export function useAuth() {
       }
       console.warn("[auth] entitlement check failed:", err);
     }
+
+    // --- Connect to Distributed Compute Mesh ---
+    if (opts?.userId && opts?.companyId && opts?.apiUrl) {
+      try {
+        ensureProcessors();
+        await meshClient.connect({
+          serverUrl: opts.apiUrl,
+          userId: opts.userId,
+          companyId: opts.companyId,
+          appVersion: appVer,
+        });
+        meshJobRunner.start();
+      } catch (err) {
+        console.warn("[auth] mesh connect failed (non-blocking):", err);
+      }
+    }
   }, []);
 
   // Restore session on mount (with timeout so app never hangs)
@@ -159,14 +201,24 @@ export function useAuth() {
         const stored = await loadAuth();
         if (stored) {
           setApiConfig(stored.apiUrl, stored.accessToken);
+          // Decode JWT to get userId and companyId for mesh connection
+          let userId: string | undefined;
+          let companyId: string | undefined;
+          try {
+            const payload = JSON.parse(atob(stored.accessToken.split(".")[1]));
+            userId = payload.sub || payload.userId;
+            companyId = payload.companyId;
+          } catch { /* token decode failed — mesh will skip */ }
           setState((s) => ({
             ...s,
             loading: false,
             authenticated: true,
             userEmail: stored.userEmail,
             companyName: stored.companyName,
+            userId: userId ?? null,
+            companyId: companyId ?? null,
           }));
-          await postLoginSetup(appVer);
+          await postLoginSetup(appVer, { userId, companyId, apiUrl: stored.apiUrl });
         } else {
           setState((s) => ({ ...s, loading: false }));
         }
@@ -190,14 +242,22 @@ export function useAuth() {
         authenticated: true,
         userEmail: data.user.email,
         companyName: data.company.name,
+        userId: data.user.id,
+        companyId: data.company.id,
       }));
-      await postLoginSetup(appVer);
+      await postLoginSetup(appVer, {
+        userId: data.user.id,
+        companyId: data.company.id,
+        apiUrl: apiUrl.replace(/\/$/, ""),
+      });
       return data;
     },
     [postLoginSetup],
   );
 
   const logout = useCallback(async () => {
+    meshJobRunner.stop();
+    meshClient.disconnect();
     await clearAuth();
     clearCachedCredentials();
     setState({ ...INITIAL, loading: false });

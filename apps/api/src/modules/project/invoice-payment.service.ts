@@ -176,16 +176,30 @@ export class InvoicePaymentService {
 
     const redirectUri = this.config.get<string>("PLAID_REDIRECT_URI");
 
-    const response = await this.plaid.linkTokenCreate({
-      user: { client_user_id: userId || `invoice-${invoiceId}` },
-      client_name: "Nexus Connect",
-      products: [Products.Auth],
-      country_codes: [CountryCode.Us],
-      language: "en",
-      ...(redirectUri ? { redirect_uri: redirectUri } : {}),
-    });
+    try {
+      const response = await this.plaid.linkTokenCreate({
+        user: { client_user_id: userId || `invoice-${invoiceId}` },
+        client_name: "Nexus Connect",
+        products: [Products.Auth],
+        country_codes: [CountryCode.Us],
+        language: "en",
+        ...(redirectUri ? { redirect_uri: redirectUri } : {}),
+      });
 
-    return { linkToken: response.data.link_token };
+      return { linkToken: response.data.link_token };
+    } catch (err: any) {
+      const plaidError = err?.response?.data;
+      console.error("[invoice-payment] Plaid linkTokenCreate failed:", {
+        status: err?.response?.status,
+        error_type: plaidError?.error_type,
+        error_code: plaidError?.error_code,
+        error_message: plaidError?.error_message,
+        display_message: plaidError?.display_message,
+      });
+      throw new BadRequestException(
+        plaidError?.display_message || plaidError?.error_message || "Failed to initialize bank connection. Please try again.",
+      );
+    }
   }
 
   /**

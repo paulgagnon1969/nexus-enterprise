@@ -169,9 +169,10 @@ function PlaidButton({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
     })
-      .then((r) => {
-        if (!r.ok) throw new Error(`Server error (${r.status})`);
-        return r.json();
+      .then(async (r) => {
+        const d = await r.json().catch(() => null);
+        if (!r.ok) throw new Error(d?.message || `Server error (${r.status})`);
+        return d;
       })
       .then((d) => {
         if (d.linkToken) {
