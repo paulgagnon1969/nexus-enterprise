@@ -3,6 +3,7 @@ mod contact_groups;
 mod converter;
 mod documents;
 mod index;
+mod precision_scan;
 mod system_info;
 mod tray;
 mod uploader;
@@ -576,6 +577,15 @@ pub fn run() {
             video::get_video_metadata,
             video::extract_frames,
             video::cleanup_frames,
+            // NexCAD precision scan commands
+            precision_scan::download_scan_images,
+            precision_scan::run_photogrammetry,
+            precision_scan::convert_model,
+            precision_scan::generate_sketchup,
+            precision_scan::analyze_mesh,
+            precision_scan::upload_scan_results,
+            precision_scan::cleanup_scan,
+            precision_scan::list_local_scans,
             // System info (DCM)
             system_info::get_system_info
         ])

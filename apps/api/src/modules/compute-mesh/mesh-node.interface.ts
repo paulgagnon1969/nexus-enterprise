@@ -43,6 +43,8 @@ export interface NodeRegistration {
   resources: NodeResources;
   network: NodeNetwork;
   power: NodePower;
+  /** True if this node detected the API server on localhost (same machine) */
+  isServerHost: boolean;
 }
 
 /** Heartbeat payload (subset — only changing values) */

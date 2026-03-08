@@ -174,7 +174,10 @@ export class InvoicePaymentService {
       throw new BadRequestException("This invoice has no balance due");
     }
 
+    // redirect_uri is only needed for OAuth redirect flows and must be HTTPS.
+    // Plaid Link in modal mode doesn't need it.
     const redirectUri = this.config.get<string>("PLAID_REDIRECT_URI");
+    const useRedirect = redirectUri?.startsWith("https://") ? redirectUri : undefined;
 
     try {
       const response = await this.plaid.linkTokenCreate({
@@ -183,7 +186,7 @@ export class InvoicePaymentService {
         products: [Products.Auth],
         country_codes: [CountryCode.Us],
         language: "en",
-        ...(redirectUri ? { redirect_uri: redirectUri } : {}),
+        ...(useRedirect ? { redirect_uri: useRedirect } : {}),
       });
 
       return { linkToken: response.data.link_token };

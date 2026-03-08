@@ -20,6 +20,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { meshClient, type MeshStatus } from "../lib/mesh-client";
 import { meshJobRunner } from "../lib/mesh-job-runner";
 import { receiptOcrProcessor } from "../lib/processors/receipt-ocr";
+import { precisionScanProcessor } from "../lib/processors/precision-scan";
 
 interface AuthState {
   loading: boolean;
@@ -78,6 +79,7 @@ let processorsRegistered = false;
 function ensureProcessors() {
   if (processorsRegistered) return;
   meshJobRunner.register(receiptOcrProcessor);
+  meshJobRunner.register(precisionScanProcessor);
   processorsRegistered = true;
 }
 

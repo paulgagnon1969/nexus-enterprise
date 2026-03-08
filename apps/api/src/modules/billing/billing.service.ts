@@ -136,6 +136,7 @@ export class BillingService {
     this.ensureBillingPermission(actor);
 
     const redirectUri = this.config.get<string>("PLAID_REDIRECT_URI");
+    const useRedirect = redirectUri?.startsWith("https://") ? redirectUri : undefined;
 
     const response = await this.plaid.linkTokenCreate({
       user: { client_user_id: actor.userId },
@@ -143,7 +144,7 @@ export class BillingService {
       products: [Products.Auth],
       country_codes: [CountryCode.Us],
       language: "en",
-      ...(redirectUri ? { redirect_uri: redirectUri } : {}),
+      ...(useRedirect ? { redirect_uri: useRedirect } : {}),
     });
 
     return { linkToken: response.data.link_token };

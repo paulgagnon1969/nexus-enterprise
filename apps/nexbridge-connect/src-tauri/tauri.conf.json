@@ -29,10 +29,13 @@
     "active": true,
     "targets": "all",
     "externalBin": [
-      "contacts_helper"
+      "contacts_helper",
+      "photogrammetry_helper"
     ],
     "resources": [
-      "src/contacts_windows.ps1"
+      "src/contacts_windows.ps1",
+      "scripts/analyze_mesh.py",
+      "scripts/sketchup_import.rb"
     ],
     "icon": [
       "icons/32x32.png",

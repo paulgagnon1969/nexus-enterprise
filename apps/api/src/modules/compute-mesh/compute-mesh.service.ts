@@ -155,28 +155,38 @@ export class ComputeMeshService {
   /**
    * Compute a 0-100 capability score for a node.
    *
-   * Weights:
-   *   - Bandwidth (upload):  40%
-   *   - Available CPU:       30%
-   *   - Power stability:     20%
-   *   - Latency:             10%
+   * Weights (rebalanced for LAN-heavy deployments):
+   *   - Bandwidth (upload):        25%  (less dominant when nodes share a LAN)
+   *   - Available CPU:             35%  (primary differentiator)
+   *   - Power stability:           15%
+   *   - Latency:                    5%
+   *   - Idle bonus:           up to 10   (genuinely idle nodes get priority)
+   *   - Server-colocation penalty: -15   (don't pile work onto the API host)
+   *   - Active-job penalty:   -5 per job
    */
   private computeScore(
     reg: NodeRegistration | MeshNode,
     cpuLoadPct: number,
     activeJobs: number,
   ): number {
-    const bw = Math.min(reg.network.uploadMbps / 100, 1) * 40;
-    const cpu = Math.max(0, (100 - cpuLoadPct) / 100) * 30;
+    const bw = Math.min(reg.network.uploadMbps / 100, 1) * 25;
+    const cpu = Math.max(0, (100 - cpuLoadPct) / 100) * 35;
     const power = reg.power.onAc
-      ? 20
-      : Math.min((reg.power.batteryPct ?? 0) / 100, 1) * 10;
-    const latency = Math.max(0, (500 - reg.network.apiLatencyMs) / 500) * 10;
+      ? 15
+      : Math.min((reg.power.batteryPct ?? 0) / 100, 1) * 8;
+    const latency = Math.max(0, (500 - reg.network.apiLatencyMs) / 500) * 5;
+
+    // Idle bonus — genuinely idle nodes should be preferred
+    const idleBonus = (cpuLoadPct < 20 && activeJobs === 0) ? 10 : 0;
+
+    // Server-colocation penalty — don't compete with the API for resources
+    const serverPenalty = reg.isServerHost ? 15 : 0;
 
     // Penalize nodes already running jobs
     const jobPenalty = activeJobs * 5;
 
-    return Math.max(0, Math.round(bw + cpu + power + latency - jobPenalty));
+    const raw = bw + cpu + power + latency + idleBonus - serverPenalty - jobPenalty;
+    return Math.max(0, Math.round(raw));
   }
 
   // ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@ export interface NodeCapabilities {
   canCsvParse: boolean;
   canRoomScan: boolean;
   canBomExtract: boolean;
+  canPrecisionScan: boolean;
 }
 
 export interface NodeResources {
@@ -312,6 +313,7 @@ class MeshClient {
       canCsvParse: true,      // trivial
       canRoomScan: platform === "MACOS" || platform === "WINDOWS",
       canBomExtract: true,
+      canPrecisionScan: platform === "MACOS",  // NexCAD — requires macOS for PhotogrammetrySession
     };
   }
 
