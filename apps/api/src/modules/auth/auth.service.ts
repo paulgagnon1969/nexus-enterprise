@@ -9,6 +9,7 @@ import { Role, GlobalRole, UserType, CompanyTrialStatus, OrgInviteStatus, Referr
 import { randomUUID } from "crypto";
 import { AuthenticatedUser } from "./jwt.strategy";
 import { EmailService } from "../../common/email.service";
+import { FeaturesService } from "../features/features.service";
 
 const REFRESH_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 const PASSWORD_RESET_TTL_SECONDS = 60 * 15; // 15 minutes
@@ -19,7 +20,8 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly jwt: JwtService,
-    private readonly email: EmailService
+    private readonly email: EmailService,
+    private readonly features: FeaturesService,
   ) {}
 
   private normalizeEmail(email: string): string {
@@ -312,6 +314,12 @@ export class AuthService {
     // Get company's workerInviteToken for DeviceSync
     const companyToken = membership.company.workerInviteToken;
 
+    // Check for unseen feature announcements (Admin+ only).
+    const featureInfo = await this.features.getLoginRedirectInfo(
+      user.id,
+      membership.role,
+    );
+
     return {
       user: { id: user.id, email: user.email },
       company: { id: membership.company.id, name: membership.company.name },
@@ -322,6 +330,9 @@ export class AuthService {
         userToken: userSyncToken,
         companyToken,
       } : undefined,
+      // Feature discovery redirect hint (Admin+ only)
+      unseenFeatures: featureInfo.unseenFeatures,
+      featureRedirect: featureInfo.featureRedirect,
     };
   }
 

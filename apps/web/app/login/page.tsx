@@ -149,6 +149,10 @@ export default function LoginPage() {
           router.push("/settings/profile");
         } else if (me?.userType === "CLIENT") {
           router.push("/client-portal");
+        } else if (data.featureRedirect) {
+          // Admin+ with unseen feature announcements — redirect to What's New
+          sessionStorage.setItem("featureRedirect", "1");
+          router.push("/whats-new");
         } else {
           router.push("/projects");
         }

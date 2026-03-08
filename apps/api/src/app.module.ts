@@ -78,6 +78,7 @@ import { NexCheckModule } from "./modules/nexcheck/nexcheck.module";
 import { ExportModule } from "./modules/export/export.module";
 import { SupportSessionModule } from "./modules/support-session/support-session.module";
 import { SelectionsModule } from "./modules/selections/selections.module";
+import { FeaturesModule } from "./modules/features/features.module";
 
 @Module({
   imports: [
@@ -161,6 +162,7 @@ import { SelectionsModule } from "./modules/selections/selections.module";
     ExportModule,
     SupportSessionModule,
     SelectionsModule,
+    FeaturesModule,
   ],
   controllers: [DevController],
   providers: [

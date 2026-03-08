@@ -7,9 +7,11 @@ import { DeviceSyncStrategy } from "./device-sync.strategy";
 import { RolesGuard, GlobalRolesGuard } from "./auth.guards";
 import { LicenseService } from "./license.service";
 import { Reflector } from "@nestjs/core";
+import { FeaturesModule } from "../features/features.module";
 
 @Module({
   imports: [
+    FeaturesModule,
     JwtModule.register({
       secret: process.env.JWT_ACCESS_SECRET || "change-me-access",
       // Use a fixed default TTL in seconds to satisfy strict typing

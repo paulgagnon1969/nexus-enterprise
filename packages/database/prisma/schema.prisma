@@ -825,6 +825,9 @@ model User {
 
   // NexPLAN — Vendor Product Additions
   vendorProductsCreated VendorProduct[] @relation("VendorProductCreatedBy")
+
+  // Feature Discovery — announcements viewed/acknowledged by this user
+  featureViews UserFeatureView[]
 }
 
 /// Notification delivered to a single user
@@ -8432,6 +8435,50 @@ model ProjectFeatureUnlock {
   @@unique([companyId, projectId, featureCode], name: "ProjectFeatureUnlock_company_project_feature_key")
   @@index([companyId], map: "ProjectFeatureUnlock_company_idx")
   @@index([projectId], map: "ProjectFeatureUnlock_project_idx")
+}
+
+// ===================================================================
+// Feature Discovery — Admin-Targeted Launch Awareness
+// ===================================================================
+
+/// A feature/module announcement shown to admins on login. Links to a
+/// ModuleCatalog entry and/or a CAM document for content.
+model FeatureAnnouncement {
+  id             String   @id @default(cuid())
+  moduleCode     String?  // Optional link to ModuleCatalog.code
+  camId          String?  // Optional link to a CAM SystemDocument
+  title          String
+  description    String
+  ctaLabel       String?  // e.g. "Enable Module", "Download NexBRIDGE"
+  ctaUrl         String?  // e.g. "/settings/billing", "/downloads"
+  launchedAt     DateTime @default(now())
+  highlightUntil DateTime? // Stop highlighting after this date (null = indefinite)
+  targetRoles    String[] @default(["OWNER", "ADMIN"]) // Company roles that see this
+  active         Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  views UserFeatureView[]
+
+  @@index([active, launchedAt], map: "FeatureAnnouncement_active_launched_idx")
+}
+
+/// Per-user tracking of feature announcement views and acknowledgments.
+/// Used to control login redirects and highlight state.
+model UserFeatureView {
+  id             String    @id @default(cuid())
+  userId         String
+  announcementId String
+  firstSeenAt    DateTime  @default(now())
+  acknowledgedAt DateTime? // Set when user clicks "Got it"
+  redirectCount  Int       @default(0) // Incremented each login redirect
+  enabledModule  Boolean   @default(false) // True if user enabled the module after seeing it
+
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  announcement FeatureAnnouncement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, announcementId], name: "UserFeatureView_user_announcement_key")
+  @@index([userId], map: "UserFeatureView_user_idx")
 }
 
 // ===================================================================
