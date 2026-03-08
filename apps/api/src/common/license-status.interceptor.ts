@@ -50,7 +50,7 @@ export class LicenseStatusInterceptor implements NestInterceptor {
 
     // Skip enforcement for SUPER_ADMIN / SUPPORT
     if (user.globalRole === "SUPER_ADMIN" || user.globalRole === "SUPPORT") {
-      response.setHeader("X-License-Status", "ACTIVE");
+      response.header("X-License-Status", "ACTIVE");
       return next.handle();
     }
 
@@ -88,7 +88,7 @@ export class LicenseStatusInterceptor implements NestInterceptor {
 
         if (now < graceEnd) {
           status = "GRACE_PERIOD";
-          response.setHeader("X-Grace-Ends-At", graceEnd.toISOString());
+          response.header("X-Grace-Ends-At", graceEnd.toISOString());
         } else if (now < exportEnd) {
           status = "EXPORT_ONLY";
         } else {
@@ -104,7 +104,7 @@ export class LicenseStatusInterceptor implements NestInterceptor {
           data: { graceEndsAt },
         });
         status = "GRACE_PERIOD";
-        response.setHeader("X-Grace-Ends-At", graceEndsAt.toISOString());
+        response.header("X-Grace-Ends-At", graceEndsAt.toISOString());
       } else {
         // No device registered + module disabled → block immediately
         status = "LOCKED";
@@ -119,7 +119,7 @@ export class LicenseStatusInterceptor implements NestInterceptor {
       });
     }
 
-    response.setHeader("X-License-Status", status);
+    response.header("X-License-Status", status);
 
     // Block requests when past grace
     if (status === "EXPORT_ONLY") {

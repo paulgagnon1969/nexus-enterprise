@@ -1,5 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Routes, Route, NavLink, Navigate, useLocation } from "react-router-dom";
+import { getVersion } from "@tauri-apps/api/app";
 import { useAuth } from "./hooks/useAuth";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -160,6 +161,11 @@ export default function App() {
   const auth = useAuth();
   const location = useLocation();
   const [revoking, setRevoking] = useState(false);
+  const [appVersion, setAppVersion] = useState("1.0.0");
+
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => {});
+  }, []);
 
   const handleExport = useCallback(async () => {
     try {
@@ -240,6 +246,11 @@ export default function App() {
       {showGraceBanner && <GracePeriodBanner endsAt={auth.graceEndsAt!} />}
       {showExportOnlyBanner && <ExportOnlyBanner onExport={handleExport} />}
 
+      {/* Top bar with version */}
+      <div className="flex items-center justify-end border-b border-slate-200 bg-white px-4 py-1">
+        <span className="text-[10px] font-mono text-slate-400">v{appVersion} (build {__BUILD_NUMBER__})</span>
+      </div>
+
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
         {!isAssessRoute && (
@@ -251,7 +262,7 @@ export default function App() {
               </div>
               <div>
                 <h1 className="text-sm font-semibold text-slate-900">NexBRIDGE Connect</h1>
-                <span className="text-[10px] text-slate-400">v1.0.0</span>
+              <span className="text-[10px] text-slate-400">v{appVersion}</span>
               </div>
             </div>
 

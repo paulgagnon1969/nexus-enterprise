@@ -8,6 +8,10 @@ import { PrismaService } from "../../infra/prisma/prisma.service";
 import { ProjectInvoiceStatus, ProjectPaymentMethod, ProjectPaymentStatus } from "@prisma/client";
 import crypto from "node:crypto";
 
+// ── Payment Processing Fee Rates ──────────────────────────────────
+const CC_FEE_RATE = 0.035; // 3.5% credit card surcharge
+const ACH_FEE_RATE = 0.01; // 1% ACH fee
+
 @Injectable()
 export class InvoicePaymentService {
   constructor(
@@ -99,11 +103,15 @@ export class InvoicePaymentService {
    */
   async createCardPaymentIntent(invoiceId: string, opts?: { payerEmail?: string; payerName?: string }) {
     const invoice = await this.loadInvoiceForPayment(invoiceId);
-    const balanceDue = await this.getBalanceDueCents(invoice);
+    const balanceDueCents = await this.getBalanceDueCents(invoice);
 
-    if (balanceDue <= 0) {
+    if (balanceDueCents <= 0) {
       throw new BadRequestException("This invoice has no balance due");
     }
+
+    // Apply CC surcharge
+    const feeCents = Math.round(balanceDueCents * CC_FEE_RATE);
+    const totalCents = balanceDueCents + feeCents;
 
     const stripe = this.requireStripe();
 
@@ -111,16 +119,18 @@ export class InvoicePaymentService {
     const customerId = invoice.company.stripeCustomerId;
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: balanceDue,
+      amount: totalCents,
       currency: "usd",
       ...(customerId ? { customer: customerId } : {}),
-      description: `Invoice ${invoice.invoiceNo ?? invoice.id} — ${invoice.project.name}`,
+      description: `Invoice ${invoice.invoiceNo ?? invoice.id} — ${invoice.project.name} (incl. 3.5% CC surcharge)`,
       metadata: {
         type: "invoice_payment",
         invoiceId: invoice.id,
         companyId: invoice.companyId,
         projectId: invoice.projectId,
         paymentMethod: "CARD",
+        invoiceAmountCents: String(balanceDueCents),
+        feeAmountCents: String(feeCents),
       },
       automatic_payment_methods: { enabled: true },
     });
@@ -132,7 +142,7 @@ export class InvoicePaymentService {
         companyId: invoice.companyId,
         projectId: invoice.projectId,
         stripePaymentIntentId: paymentIntent.id,
-        amount: balanceDue,
+        amount: totalCents,
         paymentMethod: "CARD",
         payerEmail: opts?.payerEmail ?? null,
         payerName: opts?.payerName ?? null,
@@ -141,8 +151,13 @@ export class InvoicePaymentService {
 
     return {
       clientSecret: paymentIntent.client_secret,
-      amount: balanceDue,
-      formattedAmount: `$${(balanceDue / 100).toFixed(2)}`,
+      amount: totalCents,
+      invoiceAmount: balanceDueCents,
+      feeAmount: feeCents,
+      feeRate: CC_FEE_RATE,
+      formattedAmount: `$${(totalCents / 100).toFixed(2)}`,
+      formattedInvoiceAmount: `$${(balanceDueCents / 100).toFixed(2)}`,
+      formattedFee: `$${(feeCents / 100).toFixed(2)}`,
     };
   }
 
@@ -201,6 +216,10 @@ export class InvoicePaymentService {
     });
     const bankAccountToken = processorResponse.data.stripe_bank_account_token;
 
+    // Apply ACH fee
+    const feeCents = Math.round(balanceDue * ACH_FEE_RATE);
+    const totalCents = balanceDue + feeCents;
+
     // 3. Create Stripe PaymentIntent with bank account source
     const stripe = this.requireStripe();
     const customerId = invoice.company.stripeCustomerId;
@@ -214,17 +233,19 @@ export class InvoicePaymentService {
     }
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: balanceDue,
+      amount: totalCents,
       currency: "usd",
       ...(customerId ? { customer: customerId } : {}),
       payment_method_types: ["us_bank_account"],
-      description: `ACH Payment — Invoice ${invoice.invoiceNo ?? invoice.id} — ${invoice.project.name}`,
+      description: `ACH Payment — Invoice ${invoice.invoiceNo ?? invoice.id} — ${invoice.project.name} (incl. 1% ACH fee)`,
       metadata: {
         type: "invoice_payment",
         invoiceId: invoice.id,
         companyId: invoice.companyId,
         projectId: invoice.projectId,
         paymentMethod: "STRIPE_ACH",
+        invoiceAmountCents: String(balanceDue),
+        feeAmountCents: String(feeCents),
       },
       ...(source ? { source: source.id } : {}),
       confirm: true,
@@ -237,7 +258,7 @@ export class InvoicePaymentService {
         companyId: invoice.companyId,
         projectId: invoice.projectId,
         stripePaymentIntentId: paymentIntent.id,
-        amount: balanceDue,
+        amount: totalCents,
         paymentMethod: "STRIPE_ACH",
         payerEmail: opts?.payerEmail ?? null,
         payerName: opts?.payerName ?? null,

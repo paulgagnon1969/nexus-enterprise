@@ -1,11 +1,11 @@
 ---
 title: "Production Deployment SOP (Local Mac Studio)"
 module: cicd-deployment
-revision: "1.1"
-tags: [sop, deployment, local-production, docker, docker-compose, cloudflare, devops, admin]
+revision: "1.2"
+tags: [sop, deployment, local-production, docker, docker-compose, cloudflare, devops, admin, prisma, migrations]
 status: draft
 created: 2026-02-27
-updated: 2026-03-03
+updated: 2026-03-08
 author: Warp
 visibility:
   public: false
@@ -54,77 +54,93 @@ The dev API/web run as local processes:
 - API dev server: `localhost:8001`
 - Web dev server: `localhost:3000`
 
-## CRITICAL: Always Use Compose Project Names
+## Compose Project Names
 
-Both compose files live in `infra/docker/`, so Docker will otherwise reuse the same default project name and cross-contaminate containers.
-
-Use:
-```bash
-# Production
-docker compose -p nexus-shadow -f infra/docker/docker-compose.shadow.yml --env-file .env.shadow up -d
-
-# Development
-docker compose -p nexus-dev -f infra/docker/docker-compose.yml up -d
-```
+Both compose files now have a top-level `name:` property (`nexus-shadow` / `nexus-dev`), so Docker always places containers on the correct project network regardless of how compose is invoked. The `-p` flag is no longer required.
 
 ## Deploy Procedure (Local Production)
 
-### Step 1: Pull Latest Code
+**Always use the deploy script** — it handles env loading, image builds, container restarts, Postgres readiness checks, migrations, and health verification in the correct order.
+
+### Standard Deploys
+
 ```bash
-git pull origin main
+# API + Worker (most common — after backend code changes):
+npm run deploy:shadow
+
+# Web only (after frontend changes):
+npm run deploy:shadow:web
+
+# Everything (rare — full rebuild):
+npm run deploy:shadow:all
 ```
 
-### Step 2: Rebuild and Restart Containers
-Rebuild only the services that changed.
+The script (`scripts/deploy-shadow.sh`) performs these steps automatically:
+1. Loads `.env.shadow` so secrets interpolate into compose `environment:` blocks
+2. Builds images with `--no-cache`
+3. Removes old containers and starts new ones (with `--no-deps` to avoid touching data stores)
+4. Waits for containers to become healthy (up to 60s)
+5. Waits for Postgres on `:5435` to accept connections via `pg_isready` (up to 60s)
+6. Runs `prisma migrate deploy` against the production database
+7. Verifies external health endpoints (`staging-api.nfsgrp.com`, `staging-ncc.nfsgrp.com`)
 
-API + Worker:
-```bash
-docker compose -p nexus-shadow \
-  -f infra/docker/docker-compose.shadow.yml \
-  --env-file .env.shadow \
-  up -d --build api worker
-```
+### Verify Health
 
-Web:
 ```bash
-docker compose -p nexus-shadow \
-  -f infra/docker/docker-compose.shadow.yml \
-  --env-file .env.shadow \
-  up -d --build web
-```
+# Container status
+docker ps --filter name=nexus-shadow --format 'table {{.Names}}\t{{.Status}}'
 
-If you changed `infra/cloudflared/config.yml`:
-```bash
-docker compose -p nexus-shadow \
-  -f infra/docker/docker-compose.shadow.yml \
-  --env-file .env.shadow \
-  up -d cloudflared
-```
-
-### Step 3: Verify Health
-Local health:
-```bash
+# API health (local)
 curl -s http://localhost:8000/health
+
+# API health (public, via tunnel)
+curl -s https://staging-api.nfsgrp.com/health
+
+# Worker health (internal only)
+curl -s http://localhost:8001/health
 ```
 
-Public health (via tunnel) depends on `infra/cloudflared/config.yml` hostnames.
-
-### Step 4: Check Logs (if needed)
+### Check Logs
 ```bash
-docker logs nexus-shadow-api --tail 200
+docker logs nexus-shadow-api --tail 200 -f
+docker logs nexus-shadow-worker --tail 50 -f
 ```
 
 ## Database Migrations (Local Production)
 
-Run Prisma migrations from `packages/database` (Prisma config lives there).
+### Automatic (Default)
 
-1. Ensure you have a correct `DATABASE_URL` for local prod.
-2. Run:
+Migrations run **automatically** as part of `npm run deploy:shadow` (step 6 above). The script:
+1. Waits for Postgres on `:5435` to be ready via `pg_isready` before attempting any migration
+2. Runs `prisma migrate deploy` with full output visible
+3. Prints a clear success/failure message
+4. Does **not** abort the deploy if migration fails — containers stay running so you can investigate
+
+### Manual (Fallback)
+
+If automatic migration failed or you need to run migrations independently:
 ```bash
-npm -w @repo/database exec -- npx prisma migrate deploy
+set -a; source .env.shadow; set +a
+DATABASE_URL="postgresql://${SHADOW_PG_USER:-nexus_user}:${SHADOW_PG_PASSWORD}@localhost:5435/NEXUSPRODv3" \
+  npx prisma migrate deploy --config packages/database/prisma.config.ts
 ```
 
-**Safety:** Never use destructive Prisma commands (reset/force) on production.
+After manual migration, redeploy to ensure API + Worker pick up the new schema:
+```bash
+npm run deploy:shadow
+```
+
+### Why Migrations Can Fail
+
+- **Postgres not ready** — If Postgres was restarted (by health monitor, Docker cycling, etc.) the connection may not be available when the migration runs. The deploy script now gates on `pg_isready` to prevent this.
+- **Connection storm** — Force-removing the old API container drops all its PG connections. The new API + Worker containers then open fresh connection pools simultaneously, which can briefly saturate Postgres right when the migration tries to connect.
+- **Schema drift** — If manual SQL or `db push` was applied outside the migration history, `migrate deploy` can fail with a drift error. Fix by creating a proper migration that brings history in sync.
+
+### Safety Rules
+
+- **Never** use `prisma db push --force-reset` or `prisma migrate reset` on production
+- **Never** use any command with `--force` or `reset` flags against the production database
+- Always prefer `prisma migrate deploy` (applies pending migrations only, no destructive actions)
 
 ## Troubleshooting
 
@@ -153,5 +169,6 @@ Prior to March 2026, production deployed to GCP Cloud Run and used Cloud SQL. Th
 ## Revision History
 | Rev | Date | Changes |
 |-----|------|---------|
+| 1.2 | 2026-03-08 | Added Postgres readiness gate before migrations, documented migration failure modes and manual recovery, updated deploy procedure to use deploy script instead of raw compose commands. |
 | 1.1 | 2026-03-03 | Updated SOP for local Mac Studio production deployment (Docker Compose + Cloudflare Tunnel). Removed deprecated GCP Cloud Run/Cloud SQL instructions. |
 | 1.0 | 2026-02-27 | Initial release — Cloud Run/Cloud SQL CI/CD workflow (now legacy). |

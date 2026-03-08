@@ -140,11 +140,37 @@ fi
 # Only run if API was deployed (schema changes accompany API deploys).
 
 if printf '%s\n' "${SERVICES[@]}" | grep -q "^api$"; then
-  log "Checking for pending Prisma migrations..."
   set -a; source "$ENV_FILE"; set +a
-  DATABASE_URL="postgresql://${SHADOW_PG_USER:-nexus_user}:${SHADOW_PG_PASSWORD}@localhost:5435/${SHADOW_PG_DB:-NEXUSPRODv3}" \
-    npx prisma migrate deploy --config "$REPO_ROOT/packages/database/prisma.config.ts" 2>&1 \
-    | grep -E "applied|already|migrations found" || true
+
+  # Wait for Postgres to accept connections before running migrations.
+  # The API container startup can cause a connection storm — give PG a moment.
+  log "Waiting for Postgres on :5435 to be ready..."
+  PG_READY=false
+  for i in $(seq 1 12); do
+    if PGPASSWORD="${SHADOW_PG_PASSWORD}" pg_isready -h localhost -p 5435 -U "${SHADOW_PG_USER:-nexus_user}" -d "${SHADOW_PG_DB:-NEXUSPRODv3}" &>/dev/null; then
+      PG_READY=true
+      break
+    fi
+    sleep 5
+  done
+
+  if ! $PG_READY; then
+    err "Postgres on :5435 not reachable after 60s — skipping migrations"
+    err "Run migrations manually: npm run deploy:shadow"
+  else
+    log "Postgres ready. Running pending Prisma migrations..."
+    MIGRATE_OUTPUT=$(
+      DATABASE_URL="postgresql://${SHADOW_PG_USER:-nexus_user}:${SHADOW_PG_PASSWORD}@localhost:5435/${SHADOW_PG_DB:-NEXUSPRODv3}" \
+        npx prisma migrate deploy --config "$REPO_ROOT/packages/database/prisma.config.ts" 2>&1
+    ) && MIGRATE_OK=true || MIGRATE_OK=false
+    echo "$MIGRATE_OUTPUT"
+    if $MIGRATE_OK; then
+      log "Migrations applied successfully ✅"
+    else
+      err "⚠️  Prisma migration FAILED — review output above"
+      err "Containers are running but the database may be out of sync."
+    fi
+  fi
   echo ""
 fi
 

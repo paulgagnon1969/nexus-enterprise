@@ -50,10 +50,12 @@ const formatDate = (iso?: string) => {
 function CardForm({
   token,
   amount,
+  balanceDue,
   onSuccess,
 }: {
   token: string;
   amount: string;
+  balanceDue: number;
   onSuccess: (msg: string) => void;
 }) {
   const stripe = useStripe();
@@ -61,6 +63,10 @@ function CardForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [feeInfo, setFeeInfo] = useState<{ formattedFee: string; formattedAmount: string } | null>(null);
+
+  const ccFee = Math.round(balanceDue * 0.035 * 100) / 100;
+  const ccTotal = balanceDue + ccFee;
 
   useEffect(() => {
     fetch(`${API_BASE}/invoices/pay/${token}/intent`, {
@@ -69,7 +75,10 @@ function CardForm({
       body: JSON.stringify({}),
     })
       .then((r) => r.json())
-      .then((d) => setClientSecret(d.clientSecret))
+      .then((d) => {
+        setClientSecret(d.clientSecret);
+        if (d.formattedFee) setFeeInfo({ formattedFee: d.formattedFee, formattedAmount: d.formattedAmount });
+      })
       .catch(() => setError("Failed to initialize payment"));
   }, [token]);
 
@@ -95,6 +104,22 @@ function CardForm({
 
   return (
     <form onSubmit={handleSubmit}>
+      {/* Fee breakdown */}
+      <div style={{ marginBottom: 16, padding: "12px 16px", background: "#fefce8", border: "1px solid #fde68a", borderRadius: 8, fontSize: 13 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+          <span style={{ color: "#6b7280" }}>Invoice amount</span>
+          <span style={{ color: "#0f172a" }}>{amount}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+          <span style={{ color: "#92400e" }}>Processing fee (3.5%)</span>
+          <span style={{ color: "#92400e" }}>{feeInfo?.formattedFee ?? formatMoney(ccFee)}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid #fde68a", paddingTop: 6, marginTop: 4 }}>
+          <span style={{ color: "#0f172a", fontWeight: 700 }}>Total charge</span>
+          <span style={{ color: "#0f172a", fontWeight: 700 }}>{feeInfo?.formattedAmount ?? formatMoney(ccTotal)}</span>
+        </div>
+      </div>
+
       <div style={{ padding: "12px", border: "1px solid #d1d5db", borderRadius: 8, background: "#fff", marginBottom: 16 }}>
         <CardElement options={{ style: { base: { fontSize: "16px", color: "#0f172a" } } }} />
       </div>
@@ -108,7 +133,7 @@ function CardForm({
           fontSize: 16, fontWeight: 700, cursor: loading ? "default" : "pointer",
         }}
       >
-        {loading ? "Processing\u2026" : `Pay ${amount}`}
+        {loading ? "Processing\u2026" : `Pay ${feeInfo?.formattedAmount ?? formatMoney(ccTotal)}`}
       </button>
     </form>
   );
@@ -119,16 +144,21 @@ function CardForm({
 function PlaidButton({
   token,
   amount,
+  balanceDue,
   onSuccess,
 }: {
   token: string;
   amount: string;
+  balanceDue: number;
   onSuccess: (msg: string) => void;
 }) {
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const achFee = Math.round(balanceDue * 0.01 * 100) / 100;
+  const achTotal = balanceDue + achFee;
 
   useEffect(() => {
     fetch(`${API_BASE}/invoices/pay/${token}/plaid-link`, {
@@ -168,18 +198,35 @@ function PlaidButton({
       <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 16, margin: 0 }}>
         Connect your bank account to pay via ACH transfer. Funds typically settle in 1{"\u2013"}3 business days.
       </p>
+
+      {/* Fee breakdown */}
+      <div style={{ margin: "12px 0 16px", padding: "12px 16px", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, fontSize: 13 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+          <span style={{ color: "#6b7280" }}>Invoice amount</span>
+          <span style={{ color: "#0f172a" }}>{amount}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+          <span style={{ color: "#1e40af" }}>ACH fee (1%)</span>
+          <span style={{ color: "#1e40af" }}>{formatMoney(achFee)}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid #bfdbfe", paddingTop: 6, marginTop: 4 }}>
+          <span style={{ color: "#0f172a", fontWeight: 700 }}>Total charge</span>
+          <span style={{ color: "#0f172a", fontWeight: 700 }}>{formatMoney(achTotal)}</span>
+        </div>
+      </div>
+
       {error && <div style={{ color: "#dc2626", fontSize: 13, marginBottom: 12, marginTop: 8 }}>{error}</div>}
       {status && <p style={{ fontSize: 13, color: "#2563eb", marginBottom: 12, marginTop: 8 }}>{status}</p>}
       <button
         onClick={() => open()}
         disabled={!ready || !linkToken || loading}
         style={{
-          width: "100%", padding: "14px", borderRadius: 8, border: "none", marginTop: 16,
+          width: "100%", padding: "14px", borderRadius: 8, border: "none", marginTop: 8,
           background: (!ready || !linkToken || loading) ? "#9ca3af" : "#2563eb", color: "#fff",
           fontSize: 16, fontWeight: 700, cursor: (!ready || !linkToken || loading) ? "default" : "pointer",
         }}
       >
-        {loading ? "Processing\u2026" : `Pay ${amount} via Bank Transfer`}
+        {loading ? "Processing\u2026" : `Pay ${formatMoney(achTotal)} via Bank Transfer`}
       </button>
     </div>
   );
@@ -362,6 +409,12 @@ export default function PublicPaymentPage() {
               )}
             </div>
 
+            {invoice.balanceDue > 0 && invoice.status !== "PAID" && invoice.status !== "VOID" && (
+              <div style={{ marginTop: 12, fontSize: 12, color: "#9ca3af", textAlign: "right" }}>
+                A 3.5% processing fee applies to card payments. ACH transfers incur a 1% fee.
+              </div>
+            )}
+
             {invoice.memo && (
               <div style={{ marginTop: 16, padding: "10px 14px", background: "#f1f5f9", borderRadius: 8, fontSize: 13, color: "#6b7280" }}>
                 <strong style={{ color: "#4b5563" }}>Memo:</strong> {invoice.memo}
@@ -433,6 +486,7 @@ export default function PublicPaymentPage() {
                   <CardForm
                     token={token}
                     amount={formatMoney(invoice.balanceDue)}
+                    balanceDue={invoice.balanceDue}
                     onSuccess={setPaymentSuccess}
                   />
                 </Elements>
@@ -444,6 +498,7 @@ export default function PublicPaymentPage() {
                 <PlaidButton
                   token={token}
                   amount={formatMoney(invoice.balanceDue)}
+                  balanceDue={invoice.balanceDue}
                   onSuccess={setPaymentSuccess}
                 />
               )}
