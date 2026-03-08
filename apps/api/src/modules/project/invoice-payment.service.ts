@@ -216,7 +216,7 @@ export class InvoicePaymentService {
     invoiceId: string,
     publicToken: string,
     accountId: string,
-    opts?: { payerEmail?: string; payerName?: string },
+    opts?: { payerEmail?: string; payerName?: string; ipAddress?: string; userAgent?: string },
   ) {
     const invoice = await this.loadInvoiceForPayment(invoiceId);
     const balanceDue = await this.getBalanceDueCents(invoice);
@@ -316,6 +316,11 @@ export class InvoicePaymentService {
       }
     }
 
+    const mandateIp =
+      opts?.ipAddress?.split(",")[0]?.trim() ||
+      "0.0.0.0";
+    const mandateUserAgent = opts?.userAgent?.trim() || "NexusConnect/ACH";
+
     // Create + confirm PaymentIntent (ACH Charges API is deprecated)
     const paymentIntent = await stripe.paymentIntents.create({
       amount: totalCents,
@@ -324,6 +329,15 @@ export class InvoicePaymentService {
       payment_method_types: ["us_bank_account"],
       payment_method: source.id,
       confirm: true,
+      mandate_data: {
+        customer_acceptance: {
+          type: "online",
+          online: {
+            ip_address: mandateIp,
+            user_agent: mandateUserAgent,
+          },
+        },
+      },
       description: `ACH Payment — Invoice ${invoice.invoiceNo ?? invoice.id} — ${invoice.project.name} (incl. 1% ACH fee)`,
       metadata: {
         type: "invoice_payment",

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, Body, BadRequestException } from "@nestjs/common";
+import { Controller, Get, Post, Param, Body, BadRequestException, Req } from "@nestjs/common";
 import { Public } from "../auth/auth.guards";
 import { InvoicePaymentService } from "./invoice-payment.service";
 
@@ -42,6 +42,7 @@ export class InvoicePaymentController {
   /** POST /invoices/pay/:token/plaid-exchange — Exchange Plaid token and pay via ACH */
   @Post(":token/plaid-exchange")
   async exchangePlaidAndPay(
+    @Req() req: any,
     @Param("token") token: string,
     @Body() body: { publicToken: string; accountId: string; payerEmail?: string; payerName?: string },
   ) {
@@ -52,6 +53,8 @@ export class InvoicePaymentController {
     return this.invoicePayment.exchangePlaidAndPay(invoice.id, body.publicToken, body.accountId, {
       payerEmail: body.payerEmail,
       payerName: body.payerName,
+      ipAddress: String(req?.headers?.["x-forwarded-for"] ?? req?.ip ?? ""),
+      userAgent: String(req?.headers?.["user-agent"] ?? ""),
     });
   }
 }

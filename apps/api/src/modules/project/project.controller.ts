@@ -199,6 +199,8 @@ export class ProjectController {
     const user = req.user as AuthenticatedUser;
     return this.invoicePayment.exchangePlaidAndPay(invoiceId, body.publicToken, body.accountId, {
       payerEmail: user.email,
+      ipAddress: String(req?.headers?.["x-forwarded-for"] ?? req?.ip ?? ""),
+      userAgent: String(req?.headers?.["user-agent"] ?? ""),
     });
   }
 
