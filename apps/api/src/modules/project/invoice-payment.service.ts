@@ -229,12 +229,47 @@ export class InvoicePaymentService {
     const exchangeResponse = await this.plaid.itemPublicTokenExchange({ public_token: publicToken });
     const accessToken = exchangeResponse.data.access_token;
 
-    // 2. Create Stripe processor token from Plaid
-    const processorResponse = await this.plaid.processorStripeBankAccountTokenCreate({
-      access_token: accessToken,
-      account_id: accountId,
-    });
-    const bankAccountToken = processorResponse.data.stripe_bank_account_token;
+    // 2. Get a Stripe-compatible bank token.
+    //    Try the Plaid→Stripe processor integration first (preferred).
+    //    If the account doesn't have it enabled, fall back to Plaid Auth
+    //    to get routing/account numbers and create a Stripe token directly.
+    let bankAccountToken: string;
+    try {
+      const processorResponse = await this.plaid.processorStripeBankAccountTokenCreate({
+        access_token: accessToken,
+        account_id: accountId,
+      });
+      bankAccountToken = processorResponse.data.stripe_bank_account_token;
+    } catch (processorErr: any) {
+      const errCode = processorErr?.response?.data?.error_code;
+      if (errCode !== "INVALID_PRODUCT") {
+        throw processorErr; // unexpected error — re-throw
+      }
+
+      // Fallback: use Plaid Auth to get account/routing numbers
+      console.log("[invoice-payment] Stripe processor not enabled, falling back to Plaid Auth");
+      const authResponse = await this.plaid.authGet({ access_token: accessToken });
+      const account = authResponse.data.accounts.find((a) => a.account_id === accountId);
+      const numbers = authResponse.data.numbers.ach.find((n) => n.account_id === accountId);
+
+      if (!numbers?.routing || !numbers?.account) {
+        throw new BadRequestException("Could not retrieve bank account details. Please try again.");
+      }
+
+      // Create a Stripe bank account token from the raw numbers
+      const stripe = this.requireStripe();
+      const token = await stripe.tokens.create({
+        bank_account: {
+          country: "US",
+          currency: "usd",
+          routing_number: numbers.routing,
+          account_number: numbers.account,
+          account_holder_name: opts?.payerName || account?.name || "Account Holder",
+          account_holder_type: "individual",
+        },
+      });
+      bankAccountToken = token.id;
+    }
 
     // Apply ACH fee
     const feeCents = Math.round(balanceDue * ACH_FEE_RATE);
