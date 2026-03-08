@@ -463,6 +463,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // Prevent macOS App Nap from throttling the mesh node
             keep_alive::disable_app_nap();

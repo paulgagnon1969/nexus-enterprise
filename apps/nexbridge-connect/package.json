@@ -1,6 +1,6 @@
 {
   "name": "nexbridge-connect",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -15,18 +15,20 @@
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
+    "@repo/support-client": "0.0.1",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-fs": "^2.4.5",
     "@tauri-apps/plugin-http": "^2.5.7",
+    "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-shell": "^2.0.0",
     "@tauri-apps/plugin-store": "^2.0.0",
+    "@tauri-apps/plugin-updater": "^2.10.0",
+    "expo": "~55.0.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.13.1",
-    "expo": "~55.0.2",
     "react-native": "0.83.2",
-    "@repo/support-client": "0.0.1",
+    "react-router-dom": "^7.13.1",
     "socket.io-client": "^4.8.0"
   },
   "devDependencies": {

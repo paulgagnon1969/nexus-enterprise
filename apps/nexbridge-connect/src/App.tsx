@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Routes, Route, NavLink, Navigate, useLocation } from "react-router-dom";
 import { getVersion } from "@tauri-apps/api/app";
 import { useAuth } from "./hooks/useAuth";
+import { startAutoUpdater, installAndRelaunch, type UpdateStatus } from "./lib/auto-updater";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import VideoAssessment from "./pages/VideoAssessment";
@@ -154,6 +155,32 @@ function LockedScreen({ onLogout, onExport }: { onLogout: () => void; onExport: 
   );
 }
 
+function UpdateBanner({ status }: { status: UpdateStatus }) {
+  if (status.state === "downloading") {
+    return (
+      <div className="flex items-center justify-center gap-2 bg-blue-50 px-4 py-1.5 text-xs font-medium text-blue-800">
+        <span className="h-3 w-3 animate-spin rounded-full border-2 border-blue-300 border-t-blue-600" />
+        <span>Downloading update… {status.progress}%</span>
+      </div>
+    );
+  }
+  if (status.state === "ready") {
+    return (
+      <div className="flex items-center justify-center gap-2 bg-emerald-50 px-4 py-1.5 text-xs font-medium text-emerald-800">
+        <span>✅</span>
+        <span>Version {status.version} is ready.</span>
+        <button
+          onClick={() => installAndRelaunch()}
+          className="ml-1 rounded bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-emerald-700"
+        >
+          Restart Now
+        </button>
+      </div>
+    );
+  }
+  return null;
+}
+
 function GracePeriodBanner({ endsAt }: { endsAt: string }) {
   const date = new Date(endsAt);
   const daysLeft = Math.max(0, Math.ceil((date.getTime() - Date.now()) / 86_400_000));
@@ -184,9 +211,15 @@ export default function App() {
   const location = useLocation();
   const [revoking, setRevoking] = useState(false);
   const [appVersion, setAppVersion] = useState("1.0.0");
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: "idle" });
 
   useEffect(() => {
     getVersion().then(setAppVersion).catch(() => {});
+  }, []);
+
+  // Start background auto-updater
+  useEffect(() => {
+    return startAutoUpdater(setUpdateStatus);
   }, []);
 
   const handleExport = useCallback(async () => {
@@ -264,6 +297,8 @@ export default function App() {
 
   return (
     <div className="flex h-screen flex-col bg-slate-50">
+      {/* Update banner (highest priority — shows above license banners) */}
+      <UpdateBanner status={updateStatus} />
       {/* License banners */}
       {showGraceBanner && <GracePeriodBanner endsAt={auth.graceEndsAt!} />}
       {showExportOnlyBanner && <ExportOnlyBanner onExport={handleExport} />}

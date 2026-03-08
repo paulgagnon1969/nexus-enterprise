@@ -81,6 +81,7 @@ import { SelectionsModule } from "./modules/selections/selections.module";
 import { FeaturesModule } from "./modules/features/features.module";
 import { ComputeMeshModule } from "./modules/compute-mesh/compute-mesh.module";
 import { PrecisionScanModule } from "./modules/precision-scan/precision-scan.module";
+import { UpdatesModule } from "./modules/updates/updates.module";
 
 @Module({
   imports: [
@@ -167,6 +168,7 @@ import { PrecisionScanModule } from "./modules/precision-scan/precision-scan.mod
     FeaturesModule,
     ComputeMeshModule,
     PrecisionScanModule,
+    UpdatesModule,
   ],
   controllers: [DevController],
   providers: [

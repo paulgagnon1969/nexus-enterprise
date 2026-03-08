@@ -1,6 +1,6 @@
 [package]
 name = "nexbridge-connect"
-version = "1.0.0"
+version = "1.1.0"
 description = "NexBRIDGE Connect — Unified desktop companion for NEXUS"
 authors = ["Nexus"]
 edition = "2021"
@@ -20,6 +20,7 @@ tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-http = "2"
+tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = "0.4"

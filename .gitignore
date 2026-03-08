@@ -63,6 +63,10 @@ promotion/
 # Tauri build artifacts (Rust target directory — huge, never commit)
 **/src-tauri/target/
 
+# Tauri updater signing key (NEVER commit private key)
+.tauri-updater-key
+.tauri-updater-key.pub
+
 # Build / tool caches (should never be committed)
 .cache/
 
