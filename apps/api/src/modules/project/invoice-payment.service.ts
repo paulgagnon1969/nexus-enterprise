@@ -275,23 +275,27 @@ export class InvoicePaymentService {
     const feeCents = Math.round(balanceDue * ACH_FEE_RATE);
     const totalCents = balanceDue + feeCents;
 
-    // 3. Create Stripe PaymentIntent with bank account source
+    // 3. Charge via Stripe.
+    //    Plaid bank tokens are legacy "source" objects, which are incompatible
+    //    with the new PaymentIntent `us_bank_account` method. Use charges API.
     const stripe = this.requireStripe();
     const customerId = invoice.company.stripeCustomerId;
 
-    // Attach bank account to customer (or create a one-off source)
-    let source: Stripe.BankAccount | undefined;
-    if (customerId) {
-      source = (await stripe.customers.createSource(customerId, {
-        source: bankAccountToken,
-      })) as Stripe.BankAccount;
+    if (!customerId) {
+      throw new BadRequestException("No Stripe customer on file for this company. Please contact support.");
     }
 
-    const paymentIntent = await stripe.paymentIntents.create({
+    // Attach bank account to customer
+    const source = (await stripe.customers.createSource(customerId, {
+      source: bankAccountToken,
+    })) as Stripe.BankAccount;
+
+    // Create the charge
+    const charge = await stripe.charges.create({
       amount: totalCents,
       currency: "usd",
-      ...(customerId ? { customer: customerId } : {}),
-      payment_method_types: ["us_bank_account"],
+      customer: customerId,
+      source: source.id,
       description: `ACH Payment — Invoice ${invoice.invoiceNo ?? invoice.id} — ${invoice.project.name} (incl. 1% ACH fee)`,
       metadata: {
         type: "invoice_payment",
@@ -302,8 +306,6 @@ export class InvoicePaymentService {
         invoiceAmountCents: String(balanceDue),
         feeAmountCents: String(feeCents),
       },
-      ...(source ? { source: source.id } : {}),
-      confirm: true,
     });
 
     // Track locally
@@ -312,23 +314,59 @@ export class InvoicePaymentService {
         invoiceId: invoice.id,
         companyId: invoice.companyId,
         projectId: invoice.projectId,
-        stripePaymentIntentId: paymentIntent.id,
+        stripePaymentIntentId: charge.id, // charge ID for reference
         amount: totalCents,
         paymentMethod: "STRIPE_ACH",
         payerEmail: opts?.payerEmail ?? null,
         payerName: opts?.payerName ?? null,
+        status: charge.status === "succeeded" ? "SUCCEEDED" : "PENDING",
       },
     });
 
-    // ACH may be pending (requires micro-deposit verification)
-    const isPending = paymentIntent.status === "processing" || paymentIntent.status === "requires_action";
+    // ACH charges are typically "pending" — funds settle in 1-3 business days
+    const isPending = charge.status === "pending";
+
+    // Record payment immediately (ACH pending means the bank accepted it)
+    if (charge.status === "succeeded" || charge.status === "pending") {
+      const amountDollars = totalCents / 100;
+      await this.prisma.projectPayment.create({
+        data: {
+          companyId: invoice.companyId,
+          projectId: invoice.projectId,
+          invoiceId: invoice.id,
+          status: ProjectPaymentStatus.RECORDED,
+          method: ProjectPaymentMethod.STRIPE_ACH,
+          paidAt: new Date(),
+          amount: amountDollars,
+          reference: charge.id,
+          note: `ACH bank transfer${isPending ? " (pending settlement)" : ""}`,
+        },
+      });
+
+      // Update invoice status
+      const totalPaid = await this.computePaidAmount(invoice.id);
+      let nextStatus: ProjectInvoiceStatus = invoice.status;
+      if (totalPaid >= (invoice.totalAmount ?? 0) && (invoice.totalAmount ?? 0) > 0) {
+        nextStatus = ProjectInvoiceStatus.PAID;
+      } else if (totalPaid > 0) {
+        nextStatus = ProjectInvoiceStatus.PARTIALLY_PAID;
+      }
+      if (nextStatus !== invoice.status) {
+        await this.prisma.projectInvoice.update({
+          where: { id: invoice.id },
+          data: { status: nextStatus },
+        });
+      }
+
+      console.log(`[invoice-payment] Recorded ACH payment of $${amountDollars.toFixed(2)} for invoice ${invoice.invoiceNo ?? invoice.id} (charge ${charge.id}, status: ${charge.status})`);
+    }
 
     return {
       ok: true,
-      status: paymentIntent.status,
+      status: charge.status,
       isPending,
       message: isPending
-        ? "ACH payment initiated. It may take 1-3 business days to process."
+        ? "ACH payment initiated! Funds typically settle in 1-3 business days."
         : "Payment confirmed.",
     };
   }
