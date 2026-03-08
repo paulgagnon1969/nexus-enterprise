@@ -492,7 +492,7 @@ export default function ClientPortalProjectPage() {
 
   // Payment modal
   const [showPayModal, setShowPayModal] = useState(false);
-  const [payTab, setPayTab] = useState<"card" | "ach">("card");
+  const [payTab, setPayTab] = useState<"card" | "ach">("ach");
   const [paymentSuccess, setPaymentSuccess] = useState<string | null>(null);
 
   // Document selection & preview
@@ -896,7 +896,7 @@ export default function ClientPortalProjectPage() {
             {activeInvoice.balanceDue > 0 && activeInvoice.status !== "PAID" && activeInvoice.status !== "VOID" && activeInvoice.status !== "DRAFT" && !paymentSuccess && (
               <div className="no-print" style={{ marginTop: 24, textAlign: "center" }}>
                 <button
-                  onClick={() => { setShowPayModal(true); setPayTab("card"); setPaymentSuccess(null); }}
+                  onClick={() => { setShowPayModal(true); setPayTab("ach"); setPaymentSuccess(null); }}
                   style={{
                     padding: "14px 48px", borderRadius: 10, border: "none",
                     background: "linear-gradient(135deg, #16a34a 0%, #15803d 100%)",

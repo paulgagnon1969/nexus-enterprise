@@ -3,6 +3,7 @@ mod contact_groups;
 mod converter;
 mod documents;
 mod index;
+mod system_info;
 mod tray;
 mod uploader;
 mod video;
@@ -574,7 +575,9 @@ pub fn run() {
             // Video assessment commands
             video::get_video_metadata,
             video::extract_frames,
-            video::cleanup_frames
+            video::cleanup_frames,
+            // System info (DCM)
+            system_info::get_system_info
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

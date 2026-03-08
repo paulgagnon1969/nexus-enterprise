@@ -241,7 +241,7 @@ export default function PublicPaymentPage() {
   const [invoice, setInvoice] = useState<TokenInvoice | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [payTab, setPayTab] = useState<"card" | "ach">("card");
+  const [payTab, setPayTab] = useState<"card" | "ach">("ach");
   const [paymentSuccess, setPaymentSuccess] = useState<string | null>(null);
 
   const fetchInvoice = useCallback(async () => {

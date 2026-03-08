@@ -79,6 +79,7 @@ import { ExportModule } from "./modules/export/export.module";
 import { SupportSessionModule } from "./modules/support-session/support-session.module";
 import { SelectionsModule } from "./modules/selections/selections.module";
 import { FeaturesModule } from "./modules/features/features.module";
+import { ComputeMeshModule } from "./modules/compute-mesh/compute-mesh.module";
 
 @Module({
   imports: [
@@ -163,6 +164,7 @@ import { FeaturesModule } from "./modules/features/features.module";
     SupportSessionModule,
     SelectionsModule,
     FeaturesModule,
+    ComputeMeshModule,
   ],
   controllers: [DevController],
   providers: [

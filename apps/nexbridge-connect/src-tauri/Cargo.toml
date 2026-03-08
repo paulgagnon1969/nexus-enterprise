@@ -42,6 +42,7 @@ image = { version = "0.24", default-features = false, features = ["jpeg", "png",
 reqwest = { version = "0.11", features = ["json", "multipart"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "fs"] }
 dirs-next = "2"
+sysinfo = "0.33"
 
 [profile.release]
 panic = "unwind"

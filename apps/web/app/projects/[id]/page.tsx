@@ -4327,7 +4327,7 @@ ${htmlBody}
       setIlmKind("MANUAL");
       setIlmBillingTag("NONE");
       setIlmDesc("");
-      setIlmQty("");
+      setIlmQty("1");
       setIlmUnitCode("");
       setIlmOriginalUnitPrice("");
       setIlmEditedUnitPrice("");
@@ -4472,6 +4472,11 @@ ${htmlBody}
     }
     if (ilmKind === "CREDIT" && amount !== undefined && amount > 0) {
       amount = -Math.abs(amount);
+    }
+
+    if (amount === undefined) {
+      setIlmMessage("Enter an Amount, or both Qty and Unit Price.");
+      return;
     }
 
     setIlmSaving(true);
@@ -17408,7 +17413,16 @@ ${htmlBody}
                         type="number"
                         step="0.01"
                         value={ilmOriginalUnitPrice}
-                        onChange={(e) => setIlmOriginalUnitPrice(e.target.value)}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          const prev = ilmOriginalUnitPrice;
+                          setIlmOriginalUnitPrice(next);
+                          // Auto-fill Edited $/unit if it's empty or still matches the old Original value
+                          if (ilmEditedUnitPrice.trim() === "" || ilmEditedUnitPrice === prev) {
+                            setIlmEditedUnitPrice(next);
+                            ilmRecalcFromEditedAndMarkup(next, ilmMarkupPct, ilmQty);
+                          }
+                        }}
                         placeholder="0.00"
                         style={{ width: "100%", padding: "6px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12 }}
                       />
