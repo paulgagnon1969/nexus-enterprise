@@ -555,7 +555,7 @@ export default function ClientPortalProjectPage() {
   // Payment modal
   const [showPayModal, setShowPayModal] = useState(false);
   const [payTab, setPayTab] = useState<"card" | "ach">("ach");
-  const [paymentSuccess, setPaymentSuccess] = useState<string | null>(null);
+  const [paymentSuccess, setPaymentSuccess] = useState<{ invoiceId: string; message: string } | null>(null);
 
   // Document selection & preview
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
@@ -955,7 +955,7 @@ export default function ClientPortalProjectPage() {
             </div>
 
             {/* Pay Now */}
-            {activeInvoice.balanceDue > 0 && activeInvoice.status !== "PAID" && activeInvoice.status !== "VOID" && activeInvoice.status !== "DRAFT" && !paymentSuccess && (
+            {activeInvoice.balanceDue > 0 && activeInvoice.status !== "PAID" && activeInvoice.status !== "VOID" && activeInvoice.status !== "DRAFT" && paymentSuccess?.invoiceId !== activeInvoice.id && (
               <div className="no-print" style={{ marginTop: 24, textAlign: "center" }}>
                 <button
                   onClick={() => { setShowPayModal(true); setPayTab("ach"); setPaymentSuccess(null); }}
@@ -976,14 +976,14 @@ export default function ClientPortalProjectPage() {
             )}
 
             {/* Payment success message */}
-            {paymentSuccess && (
+            {paymentSuccess?.invoiceId === activeInvoice.id && (
               <div style={{
                 marginTop: 24, padding: "16px 20px", borderRadius: 10,
                 background: "rgba(34,197,94,0.1)", border: "1px solid #22c55e",
                 textAlign: "center",
               }}>
                 <div style={{ fontSize: 20, marginBottom: 6 }}>✅</div>
-                <div style={{ fontSize: 15, fontWeight: 600, color: "#15803d", marginBottom: 4 }}>{paymentSuccess}</div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: "#15803d", marginBottom: 4 }}>{paymentSuccess.message}</div>
                 <div style={{ fontSize: 13, color: "#6b7280" }}>You can close this page or check back later for an updated invoice.</div>
               </div>
             )}
@@ -1109,7 +1109,8 @@ export default function ClientPortalProjectPage() {
                     balanceDue={activeInvoice.balanceDue}
                     onSuccess={(msg) => {
                       setShowPayModal(false);
-                      setPaymentSuccess(msg);
+                      setPaymentSuccess({ invoiceId: activeInvoice.id, message: msg });
+                      loadInvoiceDetail(activeInvoice.id);
                     }}
                   />
                 </Elements>
@@ -1125,7 +1126,8 @@ export default function ClientPortalProjectPage() {
                   balanceDue={activeInvoice.balanceDue}
                   onSuccess={(msg) => {
                     setShowPayModal(false);
-                    setPaymentSuccess(msg);
+                    setPaymentSuccess({ invoiceId: activeInvoice.id, message: msg });
+                    loadInvoiceDetail(activeInvoice.id);
                   }}
                 />
               )}
