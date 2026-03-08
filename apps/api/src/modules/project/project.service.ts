@@ -568,6 +568,13 @@ export class ProjectService {
     // Normalize optional fields - treat empty strings as undefined
     const tenantClientId = dto.tenantClientId?.trim() || undefined;
     
+    // Default the project team tree to the creator (PM, Super, Foreman)
+    const defaultTeamTree = {
+      PM: [userId],
+      SUPER: [userId],
+      FOREMAN: [userId],
+    };
+
     let project;
     try {
       project = await this.prisma.project.create({
@@ -587,10 +594,11 @@ export class ProjectService {
           primaryContactPhone: dto.primaryContactPhone?.trim() || undefined,
           primaryContactEmail: dto.primaryContactEmail?.trim() || undefined,
           tenantClientId,
-          createdByUserId: userId
+          createdByUserId: userId,
+          teamTreeJson: defaultTeamTree,
         }
       });
-      this.logger.log(`Project created: id=${project.id}`);
+      this.logger.log(`Project created: id=${project.id}, teamTree defaulted to creator`);
     } catch (err: any) {
       this.logger.error(`Failed to create project record: ${err.message}`, err.stack);
       throw err;
@@ -732,6 +740,31 @@ export class ProjectService {
       } catch (err: any) {
         this.logger.warn(`PM review task creation failed (non-fatal): ${err.message}`);
       }
+    }
+
+    // Auto-create "Acknowledge Project Team" task for the creator.
+    // The creator is defaulted into all three team roles (PM, Super, Foreman)
+    // and should review / reassign as appropriate.
+    try {
+      await this.prisma.task.create({
+        data: {
+          title: `Set Project Team: ${project.name}`,
+          description:
+            'You have been assigned as Project Manager, Superintendent, and Foreman by default. '
+            + 'Please review and update the Project Team assignments as needed.',
+          status: 'TODO',
+          priority: 'HIGH',
+          companyId,
+          projectId: project.id,
+          assigneeId: userId,
+          createdByUserId: userId,
+          relatedEntityType: 'PROJECT_TEAM_SETUP',
+          relatedEntityId: project.id,
+        },
+      });
+      this.logger.log(`Team acknowledgement task created for project=${project.id}`);
+    } catch (err: any) {
+      this.logger.warn(`Team acknowledgement task creation failed (non-fatal): ${err.message}`);
     }
 
     return project;
@@ -1936,6 +1969,165 @@ export class ProjectService {
       select: { projectId: true },
     });
     return rows.map((r: { projectId: string }) => r.projectId);
+  }
+
+  // ── Cross-Company Affiliated Projects ─────────────────────────────
+
+  /**
+   * List ALL projects a user is affiliated with across all companies.
+   * Used by portal-eligible users who need a unified view.
+   *
+   * Sources:
+   * 1. Direct ProjectMembership (any scope) — includes internal + external roles
+   * 2. ProjectCollaboration through user's CompanyMemberships
+   * 3. All projects in companies where user is OWNER/ADMIN
+   */
+  async listAllAffiliatedProjects(userId: string) {
+    const seenProjectIds = new Set<string>();
+    const results: Array<{
+      id: string;
+      name: string;
+      status: string;
+      companyId: string;
+      companyName: string;
+      role: string;
+      scope: string;
+    }> = [];
+
+    // 1. Direct project memberships (any scope)
+    const memberships = await this.prisma.projectMembership.findMany({
+      where: { userId },
+      include: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            companyId: true,
+            company: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+
+    for (const m of memberships) {
+      if (seenProjectIds.has(m.project.id)) continue;
+      seenProjectIds.add(m.project.id);
+      results.push({
+        id: m.project.id,
+        name: m.project.name,
+        status: m.project.status,
+        companyId: m.project.companyId,
+        companyName: m.project.company.name,
+        role: m.role,
+        scope: m.scope,
+      });
+    }
+
+    // 2. Cross-tenant collaborations
+    const userCompanyMemberships = await this.prisma.companyMembership.findMany({
+      where: { userId, isActive: true },
+      select: { companyId: true, role: true },
+    });
+    const companyIds = userCompanyMemberships.map((m) => m.companyId);
+
+    if (companyIds.length) {
+      const collaborations = await this.prisma.projectCollaboration.findMany({
+        where: {
+          companyId: { in: companyIds },
+          active: true,
+          acceptedAt: { not: null },
+        },
+        include: {
+          project: {
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              companyId: true,
+              company: { select: { id: true, name: true } },
+            },
+          },
+        },
+      });
+
+      for (const c of collaborations) {
+        if (seenProjectIds.has(c.project.id)) continue;
+        seenProjectIds.add(c.project.id);
+        results.push({
+          id: c.project.id,
+          name: c.project.name,
+          status: c.project.status,
+          companyId: c.project.companyId,
+          companyName: c.project.company.name,
+          role: c.role ?? "VIEWER",
+          scope: "COLLABORATION",
+        });
+      }
+
+      // 3. All projects in companies where user is OWNER or ADMIN
+      const adminCompanyIds = userCompanyMemberships
+        .filter((m) => m.role === "OWNER" || m.role === "ADMIN")
+        .map((m) => m.companyId);
+
+      if (adminCompanyIds.length) {
+        const adminProjects = await this.prisma.project.findMany({
+          where: { companyId: { in: adminCompanyIds } },
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            companyId: true,
+            company: { select: { id: true, name: true } },
+          },
+        });
+
+        for (const p of adminProjects) {
+          if (seenProjectIds.has(p.id)) continue;
+          seenProjectIds.add(p.id);
+          const membership = userCompanyMemberships.find((m) => m.companyId === p.companyId);
+          results.push({
+            id: p.id,
+            name: p.name,
+            status: p.status,
+            companyId: p.companyId,
+            companyName: p.company.name,
+            role: membership?.role ?? "MEMBER",
+            scope: "COMPANY_ADMIN",
+          });
+        }
+      }
+    }
+
+    // Group by company
+    const byCompany = new Map<string, {
+      companyId: string;
+      companyName: string;
+      projects: typeof results;
+    }>();
+
+    for (const r of results) {
+      if (!byCompany.has(r.companyId)) {
+        byCompany.set(r.companyId, {
+          companyId: r.companyId,
+          companyName: r.companyName,
+          projects: [],
+        });
+      }
+      byCompany.get(r.companyId)!.projects.push(r);
+    }
+
+    return Array.from(byCompany.values()).map((g) => ({
+      companyId: g.companyId,
+      companyName: g.companyName,
+      projects: g.projects.map((p) => ({
+        id: p.id,
+        name: p.name,
+        status: p.status,
+        role: p.role,
+        scope: p.scope,
+      })),
+    }));
   }
 
   // ── Project Listing ────────────────────────────────────────────────

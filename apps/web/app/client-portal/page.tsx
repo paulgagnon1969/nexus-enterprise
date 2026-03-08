@@ -104,7 +104,24 @@ export default function ClientPortalPage() {
           <img src="/nexconnect-logo.png" alt="Nexus" style={{ height: 32, width: "auto" }} />
           <span style={{ fontSize: 15, fontWeight: 600, color: "#0f172a" }}>Project Portal</span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button
+            onClick={() => router.push("/projects")}
+            style={{
+              padding: "7px 14px", borderRadius: 6,
+              border: "1px solid #2563eb", background: "rgba(37,99,235,0.08)",
+              color: "#2563eb", fontSize: 13, fontWeight: 600, cursor: "pointer",
+              display: "inline-flex", alignItems: "center", gap: 6,
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="7" />
+              <rect x="14" y="3" width="7" height="7" />
+              <rect x="3" y="14" width="7" height="7" />
+              <rect x="14" y="14" width="7" height="7" />
+            </svg>
+            Project Portal
+          </button>
           {userName && (
             <span style={{ fontSize: 13, color: "#6b7280" }}>{userName}</span>
           )}

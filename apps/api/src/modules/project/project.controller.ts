@@ -280,6 +280,20 @@ export class ProjectController {
 
   // ── Project Listing ───────────────────────────────────────────────
 
+  /**
+   * GET /projects/all-affiliated
+   *
+   * Cross-company view: all projects the user is affiliated with across
+   * every company (via membership, collaboration, or OWNER/ADMIN status).
+   * Used by portal-eligible users who need a unified project list.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get("all-affiliated")
+  listAllAffiliated(@Req() req: any) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.listAllAffiliatedProjects(user.userId);
+  }
+
   @UseGuards(CombinedAuthGuard)
   @Get()
   list(
@@ -422,11 +436,13 @@ export class ProjectController {
   async updateTeamTree(
     @Req() req: any,
     @Param("id") projectId: string,
-    @Body() body: { teamTree: Record<string, string[]> },
+    @Body() body: { teamTree?: Record<string, string[]>; teamTreeJson?: Record<string, string[]> },
   ) {
     const user = req.user as AuthenticatedUser;
     await this.projects.getProjectByIdForUser(projectId, user);
-    const updated = await this.projects.updateTeamTree(projectId, user.companyId, body.teamTree);
+    // Accept both property names — frontend sends `teamTreeJson`, prefer that
+    const tree = body.teamTreeJson ?? body.teamTree ?? {};
+    const updated = await this.projects.updateTeamTree(projectId, user.companyId, tree);
     return { teamTreeJson: updated.teamTreeJson };
   }
 

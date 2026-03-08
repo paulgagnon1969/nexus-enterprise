@@ -24,6 +24,7 @@ interface UserMeResponse {
   lastName?: string | null;
   globalRole?: string;
   userType?: string;
+  hasPortalAccess?: boolean;
   memberships: {
     companyId: string;
     role: string;
@@ -45,6 +46,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
   const [companyRole, setCompanyRole] = useState<string | null>(null); // OWNER, ADMIN, PM, MEMBER
   const [helpMode, setHelpMode] = useState(false);
+  const [hasPortalAccess, setHasPortalAccess] = useState(false);
 
   const path = pathname ?? "/";
   const isSystemRoute = path.startsWith("/system");
@@ -231,17 +233,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return pathname?.startsWith(href);
   };
 
-  // Bootstrap userType/globalRole/companyRole from localStorage as early as
-  // possible to avoid flicker of nav before /users/me returns.
+  // Bootstrap userType/globalRole/companyRole/hasPortalAccess from localStorage
+  // as early as possible to avoid flicker of nav before /users/me returns.
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
       const storedGlobalRole = window.localStorage.getItem("globalRole");
       const storedUserType = window.localStorage.getItem("userType");
       const storedCompanyRole = window.localStorage.getItem("companyRole");
+      const storedPortalAccess = window.localStorage.getItem("hasPortalAccess");
       if (storedGlobalRole) setGlobalRole(storedGlobalRole);
       if (storedUserType) setUserType(storedUserType);
       if (storedCompanyRole) setCompanyRole(storedCompanyRole);
+      setHasPortalAccess(storedPortalAccess === "1");
     } catch {
       // ignore
     }
@@ -292,6 +296,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             window.localStorage.setItem("companyRole", nextCompanyRole);
           } else {
             window.localStorage.removeItem("companyRole");
+          }
+          // Sync portal access flag
+          if (json.hasPortalAccess) {
+            window.localStorage.setItem("hasPortalAccess", "1");
+            setHasPortalAccess(true);
+          } else {
+            window.localStorage.removeItem("hasPortalAccess");
+            setHasPortalAccess(false);
           }
         } catch {
           // best-effort only; ignore storage errors
@@ -751,6 +763,36 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </span>
             )}
           </Link>
+
+          {/* Client Portal return button — visible when user has portal access and is on internal routes */}
+          {hasPortalAccess && !isPublicRoute && !isAuthRoute && (
+            <Link
+              href="/client-portal"
+              style={{
+                marginLeft: 8,
+                marginRight: 4,
+                padding: "5px 10px",
+                borderRadius: 999,
+                border: "1px solid #2563eb",
+                backgroundColor: "rgba(37,99,235,0.08)",
+                color: "#2563eb",
+                fontSize: 12,
+                fontWeight: 600,
+                textDecoration: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                whiteSpace: "nowrap",
+                cursor: "pointer",
+              }}
+              title="Return to Client Portal"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+              Client Portal
+            </Link>
+          )}
 
           {/* Global referral CTA */}
           <Link

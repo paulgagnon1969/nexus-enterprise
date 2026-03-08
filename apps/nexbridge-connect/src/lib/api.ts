@@ -612,3 +612,171 @@ export interface ExportPayload {
 export async function exportMyData(): Promise<ExportPayload> {
   return request("/export/my-data");
 }
+
+// ---------------------------------------------------------------------------
+// Projects (lightweight list for NexPLAN project picker)
+// ---------------------------------------------------------------------------
+export interface ProjectListItem {
+  id: string;
+  name: string;
+  addressLine1: string | null;
+  city: string | null;
+  state: string | null;
+  status: string;
+}
+
+export async function listProjects(): Promise<ProjectListItem[]> {
+  return request("/projects");
+}
+
+// ---------------------------------------------------------------------------
+// NexPLAN — Planning Rooms
+// ---------------------------------------------------------------------------
+export interface PlanningRoomItem {
+  id: string;
+  projectId: string;
+  name: string;
+  description: string | null;
+  floorPlanUrl: string | null;
+  status: string;
+  sourceType: string;
+  pipelineStatus: any;
+  aiReview: any;
+  createdAt: string;
+  _count: { selections: number; messages: number };
+  selections: Array<{
+    id: string;
+    status: string;
+    vendorProduct: { price: number | null } | null;
+  }>;
+}
+
+export interface PlanningRoomDetail extends PlanningRoomItem {
+  messages: Array<{ id: string; role: string; content: string; createdAt: string }>;
+  selections: SelectionItem[];
+  selectionSheets: Array<{ id: string; version: number; generatedAt: string }>;
+}
+
+export interface SelectionItem {
+  id: string;
+  roomId: string;
+  position: number;
+  quantity: number;
+  status: string;
+  notes: string | null;
+  vendorProduct: VendorProductItem | null;
+}
+
+export interface VendorCatalogItem {
+  id: string;
+  vendorName: string;
+  productLine: string;
+  vendorUrl: string | null;
+  logoUrl: string | null;
+  _count: { products: number };
+}
+
+export interface VendorProductItem {
+  id: string;
+  catalogId: string;
+  sku: string;
+  name: string;
+  category: string;
+  width: number | null;
+  height: number | null;
+  depth: number | null;
+  imageUrl: string | null;
+  price: number | null;
+  priceDiscounted: number | null;
+  metadata: any;
+}
+
+export async function listPlanningRooms(projectId: string): Promise<PlanningRoomItem[]> {
+  return request(`/projects/${encodeURIComponent(projectId)}/planning-rooms`);
+}
+
+export async function getPlanningRoom(projectId: string, roomId: string): Promise<PlanningRoomDetail> {
+  return request(`/projects/${encodeURIComponent(projectId)}/planning-rooms/${encodeURIComponent(roomId)}`);
+}
+
+export async function createPlanningRoom(
+  projectId: string,
+  data: { name: string; description?: string; sourceType?: string },
+): Promise<PlanningRoomItem> {
+  return request(`/projects/${encodeURIComponent(projectId)}/planning-rooms`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function archivePlanningRoom(projectId: string, roomId: string): Promise<void> {
+  return request(
+    `/projects/${encodeURIComponent(projectId)}/planning-rooms/${encodeURIComponent(roomId)}`,
+    { method: "DELETE" },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// NexPLAN — Selections
+// ---------------------------------------------------------------------------
+export async function addSelection(
+  projectId: string,
+  roomId: string,
+  data: { vendorProductId?: string; position: number; quantity?: number; notes?: string },
+): Promise<SelectionItem> {
+  return request(
+    `/projects/${encodeURIComponent(projectId)}/planning-rooms/${encodeURIComponent(roomId)}/selections`,
+    { method: "POST", body: JSON.stringify(data) },
+  );
+}
+
+export async function updateSelection(
+  projectId: string,
+  selectionId: string,
+  data: { status?: string; notes?: string; quantity?: number },
+): Promise<SelectionItem> {
+  return request(
+    `/projects/${encodeURIComponent(projectId)}/selections/${encodeURIComponent(selectionId)}`,
+    { method: "PATCH", body: JSON.stringify(data) },
+  );
+}
+
+export async function deleteSelection(projectId: string, selectionId: string): Promise<void> {
+  return request(
+    `/projects/${encodeURIComponent(projectId)}/selections/${encodeURIComponent(selectionId)}`,
+    { method: "DELETE" },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// NexPLAN — Vendor Catalog
+// ---------------------------------------------------------------------------
+export async function listVendorCatalogs(): Promise<VendorCatalogItem[]> {
+  return request("/vendor-catalogs");
+}
+
+export async function listVendorProducts(
+  catalogId: string,
+  category?: string,
+  search?: string,
+): Promise<VendorProductItem[]> {
+  const params = new URLSearchParams();
+  if (category) params.set("category", category);
+  if (search) params.set("search", search);
+  const qs = params.toString();
+  return request(`/vendor-catalogs/${encodeURIComponent(catalogId)}/products${qs ? `?${qs}` : ""}`);
+}
+
+// ---------------------------------------------------------------------------
+// NexPLAN — Selection Sheets
+// ---------------------------------------------------------------------------
+export async function generateSelectionSheet(
+  projectId: string,
+  roomId: string,
+  title?: string,
+): Promise<any> {
+  return request(
+    `/projects/${encodeURIComponent(projectId)}/planning-rooms/${encodeURIComponent(roomId)}/generate-sheet`,
+    { method: "POST", body: JSON.stringify({ title }) },
+  );
+}

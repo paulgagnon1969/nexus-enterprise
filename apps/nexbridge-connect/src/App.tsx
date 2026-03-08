@@ -13,6 +13,7 @@ import { exportMyData } from "./lib/api";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import { UpsellCard, MODULE_INFO } from "./components/UpsellCard";
+import { NexPlanTab } from "./components/nexplan/NexPlanTab";
 
 interface NavItem {
   to: string;
@@ -331,9 +332,8 @@ export default function App() {
             <Route path="/assets" element={<div className="p-4 h-full"><AssetsTab /></div>} />
             <Route path="/nexplan" element={
               auth.features.nexplan ? (
-                <div className="p-4 h-full">
-                  <h2 className="text-lg font-semibold text-slate-800 mb-4">NexPLAN Selections</h2>
-                  <p className="text-sm text-slate-500">Coming soon — vendor catalog, floor plan analysis, selection sheets.</p>
+                <div className="p-4 h-full overflow-auto">
+                  <NexPlanTab />
                 </div>
               ) : (
                 <div className="p-4 h-full">

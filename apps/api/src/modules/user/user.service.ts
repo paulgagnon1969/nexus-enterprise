@@ -2,7 +2,7 @@ import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/commo
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { GlobalRole, Role } from "../auth/auth.guards";
-import { UserType } from "@prisma/client";
+import { UserType, ProjectParticipantScope } from "@prisma/client";
 import {
   decryptPortfolioHrJson,
   encryptPortfolioHrJson,
@@ -114,7 +114,39 @@ export class UserService {
       throw new NotFoundException("User not found");
     }
 
-    return user;
+    // Compute hasPortalAccess: true if user has any portal-visible projects
+    // via individual EXTERNAL_CONTACT membership or cross-tenant collaboration.
+    let hasPortalAccess = false;
+
+    const externalMembership = await this.prisma.projectMembership.findFirst({
+      where: {
+        userId,
+        scope: ProjectParticipantScope.EXTERNAL_CONTACT,
+      },
+      select: { userId: true },
+    });
+
+    if (externalMembership) {
+      hasPortalAccess = true;
+    } else {
+      // Check for cross-tenant collaborations through user's company memberships
+      const userCompanyIds = user.memberships.map((m) => m.companyId);
+      if (userCompanyIds.length) {
+        const collab = await this.prisma.projectCollaboration.findFirst({
+          where: {
+            companyId: { in: userCompanyIds },
+            active: true,
+            acceptedAt: { not: null },
+          },
+          select: { id: true },
+        });
+        if (collab) {
+          hasPortalAccess = true;
+        }
+      }
+    }
+
+    return { ...user, hasPortalAccess };
   }
 
   private async updateUserNamesAndProfileCompletion(

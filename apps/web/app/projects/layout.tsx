@@ -71,6 +71,12 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Portal-eligible users get the cross-company affiliated projects view
+  const [isPortalUser, setIsPortalUser] = useState(false);
+  const [affiliatedGroups, setAffiliatedGroups] = useState<
+    { companyId: string; companyName: string; projects: { id: string; name: string; status: string; role: string; scope: string }[] }[]
+  >([]);
+
   const [jobStatuses, setJobStatuses] = useState<JobStatus[]>([]);
   const [projectTags, setProjectTags] = useState<ProjectTag[]>([]);
 
@@ -99,6 +105,14 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
   // whenever a valid email is present in the contact section.
   const [inviteClient, setInviteClient] = useState(true);
 
+  // Detect portal-eligible user on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const portalFlag = localStorage.getItem("hasPortalAccess");
+      setIsPortalUser(portalFlag === "1");
+    }
+  }, []);
+
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
     if (!token) {
@@ -109,24 +123,45 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
 
     async function load() {
       try {
-        const params = new URLSearchParams();
-        if (filters.status) params.set("status", filters.status);
+        if (isPortalUser) {
+          // Portal users: fetch cross-company affiliated projects
+          const res = await fetch(`${API_BASE}/projects/all-affiliated`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) {
+            throw new Error(`Failed to load projects (${res.status})`);
+          }
+          const groups = await res.json();
+          setAffiliatedGroups(Array.isArray(groups) ? groups : []);
+          // Flatten into projects array for sidebar compatibility
+          const flat: Project[] = [];
+          for (const g of groups) {
+            for (const p of g.projects) {
+              flat.push({ id: p.id, name: p.name, status: p.status });
+            }
+          }
+          setProjects(flat);
+        } else {
+          // Standard tenant-scoped fetch
+          const params = new URLSearchParams();
+          if (filters.status) params.set("status", filters.status);
 
-        // For now, the backend still takes a single tagIds filter; we use it
-        // only for non-state tags here. State buckets (ACTIVE / ARCHIVED /
-        // DELETED / WARRANTY) are applied client-side after fetching.
-        if (filters.groups.length) params.set("tagIds", filters.groups.join(","));
+          // For now, the backend still takes a single tagIds filter; we use it
+          // only for non-state tags here. State buckets (ACTIVE / ARCHIVED /
+          // DELETED / WARRANTY) are applied client-side after fetching.
+          if (filters.groups.length) params.set("tagIds", filters.groups.join(","));
 
-        const url = `${API_BASE}/projects${params.toString() ? `?${params.toString()}` : ""}`;
+          const url = `${API_BASE}/projects${params.toString() ? `?${params.toString()}` : ""}`;
 
-        const res = await fetch(url, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) {
-          throw new Error(`Failed to load projects (${res.status})`);
+          const res = await fetch(url, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) {
+            throw new Error(`Failed to load projects (${res.status})`);
+          }
+          const data = await res.json();
+          setProjects(Array.isArray(data) ? data : []);
         }
-        const data = await res.json();
-        setProjects(Array.isArray(data) ? data : []);
       } catch (err: any) {
         setError(err.message ?? "Failed to load projects");
       } finally {
@@ -135,7 +170,7 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
     }
 
     void load();
-  }, [filters.status, filters.groups]);
+  }, [filters.status, filters.groups, isPortalUser]);
 
   // Load favorites for this tenant
   useEffect(() => {
@@ -364,19 +399,35 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
   };
 
   const reloadProjects = async (token: string) => {
-    const params = new URLSearchParams();
-    if (filters.status) params.set("status", filters.status);
-    if (filters.groups.length) params.set("tagIds", filters.groups.join(","));
+    if (isPortalUser) {
+      const res = await fetch(`${API_BASE}/projects/all-affiliated`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`Failed to load projects (${res.status})`);
+      const groups = await res.json();
+      setAffiliatedGroups(Array.isArray(groups) ? groups : []);
+      const flat: Project[] = [];
+      for (const g of groups) {
+        for (const p of g.projects) {
+          flat.push({ id: p.id, name: p.name, status: p.status });
+        }
+      }
+      setProjects(flat);
+    } else {
+      const params = new URLSearchParams();
+      if (filters.status) params.set("status", filters.status);
+      if (filters.groups.length) params.set("tagIds", filters.groups.join(","));
 
-    const url = `${API_BASE}/projects${params.toString() ? `?${params.toString()}` : ""}`;
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) {
-      throw new Error(`Failed to load projects (${res.status})`);
+      const url = `${API_BASE}/projects${params.toString() ? `?${params.toString()}` : ""}`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        throw new Error(`Failed to load projects (${res.status})`);
+      }
+      const data = await res.json();
+      setProjects(Array.isArray(data) ? data : []);
     }
-    const data = await res.json();
-    setProjects(Array.isArray(data) ? data : []);
   };
 
   const handleCreateProject = async (e: FormEvent<HTMLFormElement>) => {
@@ -855,7 +906,7 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
             cursor: "pointer",
           }}
         >
-          Filtered Jobs: {sortedProjects.length}
+          {isPortalUser ? "All Projects" : "Filtered Jobs"}: {sortedProjects.length}
         </Link>
         {loading ? (
           <div style={{ fontSize: 12, color: "#9ca3af" }}>Loading…</div>
@@ -863,6 +914,111 @@ export default function ProjectsLayout({ children }: { children: React.ReactNode
           <div style={{ fontSize: 12, color: "#f97316" }}>{error}</div>
         ) : sortedProjects.length === 0 ? (
           <div style={{ fontSize: 12, color: "#9ca3af" }}>No projects yet.</div>
+        ) : isPortalUser && affiliatedGroups.length > 0 ? (
+          /* Portal user: show projects grouped by company */
+          <div
+            style={{
+              overflowY: "auto",
+              paddingRight: 0,
+              flex: 1,
+            }}
+          >
+            {affiliatedGroups.map((g) => {
+              // Filter group projects by search
+              const groupProjects = g.projects
+                .filter((p) => {
+                  if (!search.trim()) return true;
+                  return p.name.toLowerCase().includes(search.toLowerCase());
+                })
+                .sort((a, b) => a.name.localeCompare(b.name));
+              if (groupProjects.length === 0) return null;
+              return (
+                <div key={g.companyId}>
+                  <div
+                    style={{
+                      margin: "0 -8px",
+                      padding: "6px 12px 4px",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: "#6b7280",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.5px",
+                      borderBottom: "1px solid #f3f4f6",
+                    }}
+                  >
+                    {g.companyName} ({groupProjects.length})
+                  </div>
+                  <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                    {groupProjects.map((p) => {
+                      const active = isActiveProject(p.id);
+                      const highlighted = isOverview || active;
+                      const isFav = favoriteIds.has(p.id);
+                      return (
+                        <li key={p.id}>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              margin: "0 -8px 2px",
+                              backgroundColor: highlighted ? "#bfdbfe" : "transparent",
+                            }}
+                          >
+                            <Link
+                              href={`/projects/${p.id}`}
+                              style={{
+                                flex: 1,
+                                display: "block",
+                                padding: "5px 0 5px 12px",
+                                borderRadius: 0,
+                                textDecoration: "none",
+                                fontSize: 12,
+                                color: highlighted ? "#0f172a" : "#111827",
+                                fontWeight: highlighted ? 500 : 400,
+                                minWidth: 0,
+                              }}
+                            >
+                              <div
+                                style={{
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                }}
+                              >
+                                {p.name}
+                              </div>
+                              <div style={{ fontSize: 10, color: "#9ca3af" }}>
+                                {p.role}
+                              </div>
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleFavorite(p.id);
+                              }}
+                              title={isFav ? "Remove from favorites" : "Add to favorites"}
+                              style={{
+                                flexShrink: 0,
+                                border: "none",
+                                background: "transparent",
+                                cursor: "pointer",
+                                fontSize: 14,
+                                padding: "4px 8px",
+                                color: isFav ? "#eab308" : "#d1d5db",
+                                lineHeight: 1,
+                              }}
+                            >
+                              {isFav ? "★" : "☆"}
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
         ) : (
           <div
             style={{

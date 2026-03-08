@@ -91,7 +91,9 @@ export default function LoginPage() {
       const data = await res.json();
       localStorage.setItem("accessToken", data.accessToken);
       localStorage.setItem("refreshToken", data.refreshToken);
-      localStorage.setItem("companyId", data.company.id);
+      if (data.company?.id) {
+        localStorage.setItem("companyId", data.company.id);
+      }
 
       // Notify other components (e.g. UserMenu) that auth state changed.
       window.dispatchEvent(new Event("nexus-auth-change"));
@@ -143,12 +145,20 @@ export default function LoginPage() {
           }
         }
 
+        // Persist hasPortalAccess for nav UI bootstrap
+        if (me?.hasPortalAccess) {
+          localStorage.setItem("hasPortalAccess", "1");
+        } else {
+          localStorage.removeItem("hasPortalAccess");
+        }
+
         if (me?.globalRole === "SUPER_ADMIN") {
           router.push("/system");
+        } else if (me?.hasPortalAccess || me?.userType === "CLIENT") {
+          // Portal-eligible users (external projects or CLIENT type) → client portal first
+          router.push("/client-portal");
         } else if (me?.userType === "APPLICANT") {
           router.push("/settings/profile");
-        } else if (me?.userType === "CLIENT") {
-          router.push("/client-portal");
         } else if (data.featureRedirect) {
           // Admin+ with unseen feature announcements — redirect to What's New
           sessionStorage.setItem("featureRedirect", "1");
