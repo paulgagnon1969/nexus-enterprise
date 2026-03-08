@@ -560,6 +560,26 @@ export class VideoAssessmentService {
     });
   }
 
+  /**
+   * Upload a frame directly from base64 — bypasses presigned URLs.
+   * Used by NexBRIDGE desktop clients that can't reach MinIO directly.
+   */
+  async uploadFrameDirect(
+    companyId: string,
+    opts: { fileName: string; contentType: string; base64: string },
+  ) {
+    const key = `video-assessments/${companyId}/${Date.now()}-${opts.fileName}`;
+    const buffer = Buffer.from(opts.base64, "base64");
+
+    const fileUri = await this.gcs.uploadBuffer({
+      key,
+      buffer,
+      contentType: opts.contentType,
+    });
+
+    return { fileUri };
+  }
+
   // ── Private helpers ─────────────────────────────────────────────────
 
   /**

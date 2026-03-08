@@ -3,7 +3,7 @@ mod contact_groups;
 mod converter;
 mod documents;
 mod index;
-mod keep_alive;
+mod input;
 mod precision_scan;
 mod system_info;
 mod tray;
@@ -593,7 +593,11 @@ pub fn run() {
             precision_scan::cleanup_scan,
             precision_scan::list_local_scans,
             // System info (DCM)
-            system_info::get_system_info
+            system_info::get_system_info,
+            // Remote control input injection
+            input::inject_mouse_move,
+            input::inject_mouse_button,
+            input::inject_key
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

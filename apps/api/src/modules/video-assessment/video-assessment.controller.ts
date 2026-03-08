@@ -55,6 +55,23 @@ export class VideoAssessmentController {
   }
 
   /**
+   * POST /video-assessment/upload-frame
+   * Upload a frame directly (base64) — avoids presigned URL issues
+   * when the client can't reach MinIO directly.
+   */
+  @UseGuards(CombinedAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
+  @Post('upload-frame')
+  async uploadFrame(@Req() req: any, @Body() body: {
+    fileName: string;
+    contentType: string;
+    base64: string;
+  }) {
+    const user = req.user as AuthenticatedUser;
+    return this.service.uploadFrameDirect(user.companyId, body);
+  }
+
+  /**
    * POST /video-assessment/:id/teach
    * Zoom & Teach: user crops a frame area, provides a hint, and the AI
    * re-analyzes with Google Search grounding for reference materials.

@@ -44,6 +44,7 @@ reqwest = { version = "0.11", features = ["json", "multipart"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "fs"] }
 dirs-next = "2"
 sysinfo = "0.33"
+enigo = "0.2"
 
 # macOS-only: Objective-C FFI for App Nap prevention
 [target.'cfg(target_os = "macos")'.dependencies]

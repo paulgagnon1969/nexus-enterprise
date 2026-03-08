@@ -8,6 +8,12 @@ export interface SignalingEvents {
   signal: (data: { type: "offer" | "answer"; sdp: string; from: PeerRole }) => void;
   "ice-candidate": (data: { candidate: RTCIceCandidateInit; from: PeerRole }) => void;
   "session-ended": (data: { endedBy: PeerRole }) => void;
+  /** Agent → Client: agent is requesting remote control permission. */
+  "control:request": (data: { from: PeerRole }) => void;
+  /** Client → Agent: client granted remote control. */
+  "control:grant": (data: { from: PeerRole }) => void;
+  /** Either party: remote control revoked. */
+  "control:revoke": (data: { from: PeerRole }) => void;
 }
 
 export interface JoinResult {
@@ -49,6 +55,9 @@ export class SignalingClient {
         "signal",
         "ice-candidate",
         "session-ended",
+        "control:request",
+        "control:grant",
+        "control:revoke",
       ];
       for (const event of events) {
         this.socket.on(event, (data: any) => {
@@ -87,6 +96,21 @@ export class SignalingClient {
   /** Send heartbeat. */
   heartbeat() {
     this.socket?.emit("heartbeat");
+  }
+
+  /** Agent requests remote control from the client. */
+  sendControlRequest() {
+    this.socket?.emit("control:request");
+  }
+
+  /** Client grants remote control to the agent. */
+  sendControlGrant() {
+    this.socket?.emit("control:grant");
+  }
+
+  /** Either party revokes remote control. */
+  sendControlRevoke() {
+    this.socket?.emit("control:revoke");
   }
 
   /** Register a listener for signaling events. */

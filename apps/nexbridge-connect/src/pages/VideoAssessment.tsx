@@ -8,6 +8,7 @@ import {
   analyzeFrames,
   createAssessment,
   getPresignedUploadUrl,
+  uploadFrame,
   teachAssessment,
   confirmTeach,
   type AnalyzeFramesResponse,
@@ -182,25 +183,13 @@ export default function VideoAssessment() {
           `${ext.metadata.file_name || "video"}-frame_${String(idx).padStart(4, "0")}.jpg`
         );
 
-        const { uploadUrl, fileUri } = await getPresignedUploadUrl({
+        // Upload frame directly through the API (avoids unreachable
+        // presigned MinIO URLs from inside Docker).
+        const { fileUri } = await uploadFrame({
           fileName,
           contentType: frame.mime_type || "image/jpeg",
+          base64: frame.base64,
         });
-
-        // Decode the base64 frame data to binary and upload to GCS.
-        const bytes = base64ToBytes(frame.base64);
-        const putRes = await tauriFetch(uploadUrl, {
-          method: "PUT",
-          headers: {
-            "Content-Type": frame.mime_type || "image/jpeg",
-          },
-          body: bytes as unknown as BodyInit,
-        });
-
-        if (!putRes.ok) {
-          const errText = await putRes.text().catch(() => "");
-          throw new Error(`GCS upload failed (${putRes.status}): ${errText}`);
-        }
 
         results[idx] = {
           gcsUri: fileUri,

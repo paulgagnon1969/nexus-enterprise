@@ -2,12 +2,26 @@ import { SignalingClient, PeerRole } from "./signaling.js";
 
 export type ConnectionState = "new" | "connecting" | "connected" | "disconnected" | "failed" | "closed";
 
+export interface RemoteInputEvent {
+  type: "mousemove" | "mousedown" | "mouseup" | "keydown" | "keyup";
+  /** Normalized X coordinate (0–1) relative to stream dimensions. Only for mouse events. */
+  x?: number;
+  /** Normalized Y coordinate (0–1) relative to stream dimensions. Only for mouse events. */
+  y?: number;
+  /** Mouse button: "left" | "right" | "middle". Only for mousedown/mouseup. */
+  button?: string;
+  /** Key name (e.g. "a", "Enter", "Backspace"). Only for key events. */
+  key?: string;
+}
+
 export interface RTCConnectionOptions {
   signaling: SignalingClient;
   role: PeerRole;
   iceServers: RTCIceServer[];
   onRemoteStream?: (stream: MediaStream) => void;
   onStateChange?: (state: ConnectionState) => void;
+  /** Called on the client side when a remote input event arrives from the agent. */
+  onRemoteInput?: (event: RemoteInputEvent) => void;
 }
 
 /**
@@ -20,6 +34,8 @@ export class RTCConnection {
   private pc: RTCPeerConnection | null = null;
   private localStream: MediaStream | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  /** Data channel for remote input events (agent → client). */
+  private inputChannel: RTCDataChannel | null = null;
 
   constructor(private opts: RTCConnectionOptions) {
     this.setupSignalingListeners();
@@ -33,6 +49,17 @@ export class RTCConnection {
     });
 
     this.createPeerConnection();
+
+    // Create data channel for incoming remote-input events (client side receives)
+    this.inputChannel = this.pc!.createDataChannel("remote-input", { ordered: true });
+    this.inputChannel.onmessage = (ev) => {
+      try {
+        const event: RemoteInputEvent = JSON.parse(ev.data);
+        this.opts.onRemoteInput?.(event);
+      } catch {
+        // malformed event — ignore
+      }
+    };
 
     // Add tracks to the peer connection
     for (const track of this.localStream.getTracks()) {
@@ -54,12 +81,35 @@ export class RTCConnection {
   /** Prepare to receive a stream (agent side). */
   prepareToReceive() {
     this.createPeerConnection();
+
+    // Agent side: listen for the data channel opened by the client
+    this.pc!.ondatachannel = (ev) => {
+      if (ev.channel.label === "remote-input") {
+        this.inputChannel = ev.channel;
+      }
+    };
+
     this.startHeartbeat();
+  }
+
+  /**
+   * Send a remote input event to the client via the data channel.
+   * Only usable on the agent side after `prepareToReceive()` and once
+   * the data channel is open.
+   */
+  sendInputEvent(event: RemoteInputEvent): void {
+    if (!this.inputChannel || this.inputChannel.readyState !== "open") return;
+    this.inputChannel.send(JSON.stringify(event));
   }
 
   /** Clean up everything. */
   stop() {
     this.stopHeartbeat();
+
+    if (this.inputChannel) {
+      this.inputChannel.close();
+      this.inputChannel = null;
+    }
 
     if (this.localStream) {
       this.localStream.getTracks().forEach((t) => t.stop());

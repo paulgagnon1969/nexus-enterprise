@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 type Stage = "enter-code" | "connecting" | "waiting" | "viewing" | "ended" | "error";
+type ControlMode = "off" | "requesting" | "active";
 
 export default function ViewerPage() {
   return (
@@ -21,6 +22,7 @@ function ViewerInner() {
   const [code, setCode] = useState(initialCode);
   const [error, setError] = useState("");
   const [connectionState, setConnectionState] = useState("");
+  const [controlMode, setControlMode] = useState<ControlMode>("off");
   const videoRef = useRef<HTMLVideoElement>(null);
   const rtcRef = useRef<any>(null);
   const signalingRef = useRef<any>(null);
@@ -33,6 +35,7 @@ function ViewerInner() {
   const handleJoin = useCallback(async (sessionCode: string) => {
     setStage("connecting");
     setError("");
+    setControlMode("off");
 
     try {
       const { SignalingClient, RTCConnection, SupportApiClient } = await import(
@@ -44,27 +47,25 @@ function ViewerInner() {
         process.env.NEXT_PUBLIC_API_URL ||
         "http://localhost:8001";
 
-      const token = localStorage.getItem("token") || "";
+      const token = localStorage.getItem("accessToken") || localStorage.getItem("token") || "";
       const api = new SupportApiClient(apiBase, token);
       const { iceServers } = await api.getIceServers();
 
-      // Verify session
       await api.getSession(sessionCode);
       const userId = JSON.parse(atob(token.split(".")[1])).sub;
 
-      // Connect signaling
       const signaling = new SignalingClient(apiBase, token);
       signalingRef.current = signaling;
       await signaling.connect();
 
-      const joinResult = await signaling.joinSession(
-        sessionCode,
-        userId,
-        "agent"
-      );
+      const joinResult = await signaling.joinSession(sessionCode, userId, "agent");
       if (joinResult.error) throw new Error(joinResult.error);
 
-      // Set up WebRTC — agent receives stream
+      // Remote control signaling responses
+      signaling.on("control:grant", () => setControlMode("active"));
+      signaling.on("control:revoke", () => setControlMode("off"));
+      signaling.on("session-ended", () => setStage("ended"));
+
       const rtc = new RTCConnection({
         signaling,
         role: "agent",
@@ -77,24 +78,52 @@ function ViewerInner() {
         },
         onStateChange: (state: string) => {
           setConnectionState(state);
-          if (state === "failed" || state === "closed") {
-            setStage("ended");
-          }
+          if (state === "failed" || state === "closed") setStage("ended");
         },
       });
       rtcRef.current = rtc;
       rtc.prepareToReceive();
 
-      // Check if client is already connected
-      if (joinResult.peers?.includes("client")) {
-        setStage("waiting");
-      } else {
-        setStage("waiting");
-      }
+      setStage("waiting");
     } catch (err: any) {
       setError(err.message || "Failed to connect");
       setStage("error");
     }
+  }, []);
+
+  // ── Remote control input relay ─────────────────────────────────────────
+
+  const sendMouseEvent = useCallback(
+    (type: "mousemove" | "mousedown" | "mouseup", e: React.MouseEvent<HTMLVideoElement>, button?: string) => {
+      if (controlMode !== "active") return;
+      const video = videoRef.current;
+      if (!video) return;
+      const rect = video.getBoundingClientRect();
+      // Normalize to 0–1 using the video element display bounds
+      const x = (e.clientX - rect.left) / rect.width;
+      const y = (e.clientY - rect.top) / rect.height;
+      rtcRef.current?.sendInputEvent({ type, x, y, button });
+    },
+    [controlMode],
+  );
+
+  const sendKeyEvent = useCallback(
+    (type: "keydown" | "keyup", e: React.KeyboardEvent) => {
+      if (controlMode !== "active") return;
+      e.preventDefault();
+      rtcRef.current?.sendInputEvent({ type, key: e.key });
+    },
+    [controlMode],
+  );
+
+  const handleRequestControl = useCallback(() => {
+    signalingRef.current?.sendControlRequest();
+    setControlMode("requesting");
+  }, []);
+
+  const handleReleaseControl = useCallback(() => {
+    signalingRef.current?.sendControlRevoke();
+    setControlMode("off");
   }, []);
 
   const handleEnd = useCallback(() => {
@@ -102,6 +131,7 @@ function ViewerInner() {
     signalingRef.current?.endSession();
     signalingRef.current?.disconnect();
     setStage("ended");
+    setControlMode("off");
   }, []);
 
   // ── Render ──────────────────────────────────────────────────────────
@@ -159,20 +189,67 @@ function ViewerInner() {
   if (stage === "viewing") {
     return (
       <div style={styles.viewerContainer}>
+        {/* Video — intercept mouse/keyboard when control is active */}
+        {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
         <video
           ref={videoRef}
           autoPlay
           playsInline
-          style={styles.video}
+          style={{
+            ...styles.video,
+            cursor: controlMode === "active" ? "crosshair" : "default",
+            outline:
+              controlMode === "active"
+                ? "3px solid #f97316"
+                : controlMode === "requesting"
+                  ? "3px solid #fbbf24"
+                  : "none",
+          }}
+          onMouseMove={(e) => sendMouseEvent("mousemove", e)}
+          onMouseDown={(e) => sendMouseEvent("mousedown", e, ["left", "middle", "right"][e.button] ?? "left")}
+          onMouseUp={(e) => sendMouseEvent("mouseup", e, ["left", "middle", "right"][e.button] ?? "left")}
+          onKeyDown={sendKeyEvent}
+          onKeyUp={sendKeyEvent}
+          tabIndex={controlMode === "active" ? 0 : -1}
+          // Prevent context menu during remote control
+          onContextMenu={(e) => { if (controlMode === "active") e.preventDefault(); }}
         />
         <div style={styles.toolbar}>
           <span style={styles.toolbarText}>
-            <span style={styles.liveDotSmall} />
-            Viewing client screen
+            <span
+              style={{
+                ...styles.liveDotSmall,
+                background: controlMode === "active" ? "#f97316" : "#22c55e",
+                boxShadow: controlMode === "active"
+                  ? "0 0 6px #f97316"
+                  : "0 0 6px #22c55e",
+              }}
+            />
+            {controlMode === "active"
+              ? "Remote Control Active"
+              : controlMode === "requesting"
+                ? "Waiting for client…"
+                : "Viewing client screen"}
           </span>
           <span style={styles.toolbarText}>
             {connectionState || "connected"}
           </span>
+          {/* Remote control toggle */}
+          {controlMode === "off" && (
+            <button type="button" onClick={handleRequestControl} style={styles.controlBtn}>
+              Request Control
+            </button>
+          )}
+          {controlMode === "requesting" && (
+            <button type="button" disabled style={{ ...styles.controlBtn, opacity: 0.5 }}>
+              Waiting…
+            </button>
+          )}
+          {controlMode === "active" && (
+            <button type="button" onClick={handleReleaseControl} style={styles.releaseBtn}>
+              Release Control
+            </button>
+          )}
           <button type="button" onClick={handleEnd} style={styles.endBtn}>
             End Session
           </button>
@@ -318,6 +395,26 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 6,
     border: "none",
     background: "#dc2626",
+    color: "#fff",
+    cursor: "pointer",
+  },
+  controlBtn: {
+    padding: "8px 16px",
+    fontSize: 13,
+    fontWeight: 600,
+    borderRadius: 6,
+    border: "none",
+    background: "#3b82f6",
+    color: "#fff",
+    cursor: "pointer",
+  },
+  releaseBtn: {
+    padding: "8px 16px",
+    fontSize: 13,
+    fontWeight: 600,
+    borderRadius: 6,
+    border: "none",
+    background: "#f97316",
     color: "#fff",
     cursor: "pointer",
   },

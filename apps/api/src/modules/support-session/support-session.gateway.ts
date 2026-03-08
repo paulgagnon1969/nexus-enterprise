@@ -161,6 +161,43 @@ export class SupportSessionGateway implements OnGatewayConnection, OnGatewayDisc
     await this.supportService.heartbeat(info.sessionId);
   }
 
+  /**
+   * Remote control lifecycle events.
+   * Each is relayed to the other peer in the session room and the session mode
+   * is updated in the database on grant/revoke.
+   */
+
+  @SubscribeMessage("control:request")
+  handleControlRequest(@ConnectedSocket() client: Socket) {
+    const info = this.connections.get(client.id);
+    if (!info) return { error: "Not in a session" };
+    client.to(info.sessionId).emit("control:request", { from: info.role });
+  }
+
+  @SubscribeMessage("control:grant")
+  async handleControlGrant(@ConnectedSocket() client: Socket) {
+    const info = this.connections.get(client.id);
+    if (!info) return { error: "Not in a session" };
+    try {
+      await this.supportService.updateSessionMode(info.sessionId, "REMOTE_CONTROL", info.userId);
+    } catch {
+      // Non-fatal: relay the event even if DB update fails
+    }
+    client.to(info.sessionId).emit("control:grant", { from: info.role });
+  }
+
+  @SubscribeMessage("control:revoke")
+  async handleControlRevoke(@ConnectedSocket() client: Socket) {
+    const info = this.connections.get(client.id);
+    if (!info) return { error: "Not in a session" };
+    try {
+      await this.supportService.updateSessionMode(info.sessionId, "VIEW_ONLY", info.userId);
+    } catch {
+      // Non-fatal
+    }
+    client.to(info.sessionId).emit("control:revoke", { from: info.role });
+  }
+
   // ── Helpers ───────────────────────────────────────────────────────
 
   private getRoomPeers(sessionId: string, excludeSocketId: string): string[] {

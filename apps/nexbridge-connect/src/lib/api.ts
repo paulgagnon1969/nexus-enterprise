@@ -303,6 +303,21 @@ export async function getPresignedUploadUrl(opts: {
   });
 }
 
+/**
+ * Upload a frame directly through the API (bypasses presigned MinIO URLs).
+ * Accepts base64-encoded image data.
+ */
+export async function uploadFrame(opts: {
+  fileName: string;
+  contentType: string;
+  base64: string;
+}): Promise<{ fileUri: string }> {
+  return request("/video-assessment/upload-frame", {
+    method: "POST",
+    body: JSON.stringify(opts),
+  });
+}
+
 export interface CreateAssessmentPayload {
   projectId?: string;
   sourceType: "DRONE" | "HANDHELD" | "OTHER";
