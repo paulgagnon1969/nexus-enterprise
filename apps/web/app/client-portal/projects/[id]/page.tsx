@@ -177,13 +177,28 @@ const formatBytes = (bytes?: number) => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
-const statusBadge = (status: string): { label: string; bg: string; color: string } => {
+const statusBadge = (
+  status: string,
+  opts?: { totalAmount?: number; paidAmount?: number; balanceDue?: number },
+): { label: string; bg: string; color: string } => {
+  // Derive effective status from payment data when available
+  const total = opts?.totalAmount ?? 0;
+  const paid = opts?.paidAmount ?? 0;
+  const balance = opts?.balanceDue ?? total;
+
+  let effective = status;
+  if (total > 0 && balance <= 0) {
+    effective = "PAID";
+  } else if (paid > 0 && balance > 0) {
+    effective = "PARTIALLY_PAID";
+  }
+
   const map: Record<string, { label: string; bg: string; color: string }> = {
     ISSUED: { label: "Issued", bg: "rgba(59,130,246,0.15)", color: "#2563eb" },
     PARTIALLY_PAID: { label: "Partially Paid", bg: "rgba(234,179,8,0.15)", color: "#ca8a04" },
     PAID: { label: "Paid", bg: "rgba(34,197,94,0.15)", color: "#16a34a" },
   };
-  return map[status] ?? { label: status, bg: "rgba(100,116,139,0.15)", color: "#6b7280" };
+  return map[effective] ?? { label: effective, bg: "rgba(100,116,139,0.15)", color: "#6b7280" };
 };
 
 const projectStatusBadge = (status: string): { bg: string; color: string } => {
@@ -800,15 +815,18 @@ export default function ClientPortalProjectPage() {
           <div style={{ ...CARD, padding: 32 }}>
             {/* Status banner */}
             {(() => {
-              const badge = statusBadge(activeInvoice.status);
+              const invOpts = { totalAmount: activeInvoice.totalAmount, paidAmount: activeInvoice.paidAmount, balanceDue: activeInvoice.balanceDue };
+              const badge = statusBadge(activeInvoice.status, invOpts);
+              const isPaid = badge.label === "Paid";
+              const isPartial = badge.label === "Partially Paid";
               let bannerBg = "rgba(59,130,246,0.1)";
               let bannerBorder = "#3b82f6";
               let bannerText = `Invoice ${activeInvoice.invoiceNo ?? ""}`;
-              if (activeInvoice.status === "PAID") {
+              if (isPaid) {
                 bannerBg = "rgba(34,197,94,0.1)";
                 bannerBorder = "#22c55e";
                 bannerText = `PAID — ${activeInvoice.invoiceNo ?? "Invoice"}`;
-              } else if (activeInvoice.status === "PARTIALLY_PAID") {
+              } else if (isPartial) {
                 bannerBg = "rgba(234,179,8,0.1)";
                 bannerBorder = "#eab308";
                 bannerText = `Partially Paid (${formatMoney(activeInvoice.paidAmount)} of ${formatMoney(activeInvoice.totalAmount)})`;
@@ -825,7 +843,7 @@ export default function ClientPortalProjectPage() {
               }
               return (
                 <div
-                  className={activeInvoice.status === "PAID" ? "print-banner-paid" : "print-banner"}
+                  className={isPaid ? "print-banner-paid" : "print-banner"}
                   style={{
                     padding: "12px 16px", borderRadius: 8, marginBottom: 24,
                     background: bannerBg, border: `1px solid ${bannerBorder}`,
@@ -1299,7 +1317,7 @@ export default function ClientPortalProjectPage() {
                 <div style={CARD_BODY}>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {invoices.map((inv) => {
-                      const badge = statusBadge(inv.status);
+                      const badge = statusBadge(inv.status, { totalAmount: inv.totalAmount, paidAmount: inv.paidAmount, balanceDue: inv.balanceDue });
                       return (
                         <div
                           key={inv.id}
