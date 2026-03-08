@@ -77,8 +77,10 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules
 # Copy workspace package source for @repo/database so the workspace symlink resolves at runtime
 COPY --from=builder /app/packages/database ./packages/database
-# Copy docs/sops-staging for SOP sync capability in production
+# Copy docs directories for SOP sync and CAM manual in production
 COPY --from=builder /app/docs/sops-staging ./docs/sops-staging
+COPY --from=builder /app/docs/cams ./docs/cams
+COPY --from=builder /app/docs/policies ./docs/policies
 
 # Set working directory to the api app
 WORKDIR /app/apps/api
