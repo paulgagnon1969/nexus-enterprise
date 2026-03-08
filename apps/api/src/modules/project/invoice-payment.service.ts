@@ -275,9 +275,9 @@ export class InvoicePaymentService {
     const feeCents = Math.round(balanceDue * ACH_FEE_RATE);
     const totalCents = balanceDue + feeCents;
 
-    // 3. Charge via Stripe.
-    //    Plaid bank tokens are legacy "source" objects, which are incompatible
-    //    with the new PaymentIntent `us_bank_account` method. Use charges API.
+    // 3. Create + confirm ACH PaymentIntent via Stripe.
+    //    ACH Charges API is deprecated. Use PaymentIntents with the
+    //    attached bank account source as `payment_method`.
     const stripe = this.requireStripe();
     const customerId = invoice.company.stripeCustomerId;
 
@@ -294,20 +294,20 @@ export class InvoicePaymentService {
     } catch (sourceErr: any) {
       // Stripe throws when the same bank account is already on the customer
       if (
-        sourceErr?.type === 'StripeInvalidRequestError' &&
-        /already exists/i.test(sourceErr?.message ?? '')
+        sourceErr?.type === "StripeInvalidRequestError" &&
+        /already exists/i.test(sourceErr?.message ?? "")
       ) {
-        console.log('[invoice-payment] Bank account already on customer, finding existing source');
+        console.log("[invoice-payment] Bank account already on customer, finding existing source");
         const existing = await stripe.customers.listSources(customerId, {
-          object: 'bank_account',
+          object: "bank_account",
           limit: 10,
         });
         const match = (existing.data as Stripe.BankAccount[]).find(
-          (ba) => ba.status !== 'errored',
+          (ba) => ba.status !== "errored",
         );
         if (!match) {
           throw new BadRequestException(
-            'Your bank account is already linked but could not be located. Please contact support.',
+            "Your bank account is already linked but could not be located. Please contact support.",
           );
         }
         source = match;
@@ -316,12 +316,14 @@ export class InvoicePaymentService {
       }
     }
 
-    // Create the charge
-    const charge = await stripe.charges.create({
+    // Create + confirm PaymentIntent (ACH Charges API is deprecated)
+    const paymentIntent = await stripe.paymentIntents.create({
       amount: totalCents,
       currency: "usd",
       customer: customerId,
-      source: source.id,
+      payment_method_types: ["us_bank_account"],
+      payment_method: source.id,
+      confirm: true,
       description: `ACH Payment — Invoice ${invoice.invoiceNo ?? invoice.id} — ${invoice.project.name} (incl. 1% ACH fee)`,
       metadata: {
         type: "invoice_payment",
@@ -334,66 +336,51 @@ export class InvoicePaymentService {
       },
     });
 
+    const localStatus =
+      paymentIntent.status === "succeeded"
+        ? "SUCCEEDED"
+        : paymentIntent.status === "requires_payment_method" || paymentIntent.status === "canceled"
+          ? "FAILED"
+          : "PENDING";
+
     // Track locally
     await this.prisma.invoicePaymentIntent.create({
       data: {
         invoiceId: invoice.id,
         companyId: invoice.companyId,
         projectId: invoice.projectId,
-        stripePaymentIntentId: charge.id, // charge ID for reference
+        stripePaymentIntentId: paymentIntent.id,
         amount: totalCents,
         paymentMethod: "STRIPE_ACH",
         payerEmail: opts?.payerEmail ?? null,
         payerName: opts?.payerName ?? null,
-        status: charge.status === "succeeded" ? "SUCCEEDED" : "PENDING",
+        status: localStatus,
       },
     });
 
-    // ACH charges are typically "pending" — funds settle in 1-3 business days
-    const isPending = charge.status === "pending";
+    const isPending = paymentIntent.status === "processing";
 
-    // Record payment immediately (ACH pending means the bank accepted it)
-    if (charge.status === "succeeded" || charge.status === "pending") {
-      const amountDollars = totalCents / 100;
-      await this.prisma.projectPayment.create({
-        data: {
-          companyId: invoice.companyId,
-          projectId: invoice.projectId,
-          invoiceId: invoice.id,
-          status: ProjectPaymentStatus.RECORDED,
-          method: ProjectPaymentMethod.STRIPE_ACH,
-          paidAt: new Date(),
-          amount: amountDollars,
-          reference: charge.id,
-          note: `ACH bank transfer${isPending ? " (pending settlement)" : ""}`,
-        },
-      });
-
-      // Update invoice status
-      const totalPaid = await this.computePaidAmount(invoice.id);
-      let nextStatus: ProjectInvoiceStatus = invoice.status;
-      if (totalPaid >= (invoice.totalAmount ?? 0) && (invoice.totalAmount ?? 0) > 0) {
-        nextStatus = ProjectInvoiceStatus.PAID;
-      } else if (totalPaid > 0) {
-        nextStatus = ProjectInvoiceStatus.PARTIALLY_PAID;
-      }
-      if (nextStatus !== invoice.status) {
-        await this.prisma.projectInvoice.update({
-          where: { id: invoice.id },
-          data: { status: nextStatus },
-        });
-      }
-
-      console.log(`[invoice-payment] Recorded ACH payment of $${amountDollars.toFixed(2)} for invoice ${invoice.invoiceNo ?? invoice.id} (charge ${charge.id}, status: ${charge.status})`);
+    if (paymentIntent.status === "succeeded") {
+      await this.handleInvoicePaymentSucceeded(paymentIntent);
+      console.log(
+        `[invoice-payment] ACH PaymentIntent succeeded for invoice ${invoice.invoiceNo ?? invoice.id} (${paymentIntent.id})`,
+      );
+    } else if (localStatus === "FAILED") {
+      const errMessage =
+        paymentIntent.last_payment_error?.message ||
+        "ACH payment could not be completed. Please try again or use another payment method.";
+      throw new BadRequestException(errMessage);
     }
 
     return {
       ok: true,
-      status: charge.status,
+      status: paymentIntent.status,
       isPending,
       message: isPending
         ? "ACH payment initiated! Funds typically settle in 1-3 business days."
-        : "Payment confirmed.",
+        : paymentIntent.status === "succeeded"
+          ? "Payment confirmed."
+          : "Payment submitted.",
     };
   }
 
@@ -508,6 +495,12 @@ export class InvoicePaymentService {
 
     for (const pi of pending) {
       try {
+        if (!pi.stripePaymentIntentId.startsWith("pi_")) {
+          console.log(
+            `[invoice-payment] Skipping reconciliation for legacy non-PaymentIntent reference ${pi.stripePaymentIntentId}`,
+          );
+          continue;
+        }
         const stripePI = await this.stripe.paymentIntents.retrieve(pi.stripePaymentIntentId);
 
         if (stripePI.status === "succeeded") {
