@@ -304,6 +304,7 @@ function CardPaymentForm({
     fetch(`${API_BASE}/projects/portal/${projectId}/invoices/${invoiceId}/pay`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({}),
     })
       .then((r) => r.json())
       .then((d) => {
@@ -399,6 +400,7 @@ function PlaidPaymentButton({
     fetch(`${API_BASE}/projects/portal/${projectId}/invoices/${invoiceId}/pay/plaid-link`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({}),
     })
       .then(async (r) => {
         const d = await r.json().catch(() => null);

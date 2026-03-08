@@ -1,0 +1,245 @@
+{
+  "builtTestProducts" : [
+
+  ],
+  "copyCommands" : {
+
+  },
+  "explicitTargetDependencyImportCheckingMode" : {
+    "none" : {
+
+    }
+  },
+  "generatedSourceTargetSet" : [
+
+  ],
+  "pluginDescriptions" : [
+
+  ],
+  "swiftCommands" : {
+    "C.photogrammetry_helper-arm64-apple-macosx26.0-release.module" : {
+      "executable" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "fileList" : "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/photogrammetry_helper.build/sources",
+      "importPath" : "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/Sources/main.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/swift-version--58304C5D6DBC2206.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/photogrammetry_helper.build/sources"
+        }
+      ],
+      "isLibrary" : false,
+      "moduleName" : "photogrammetry_helper",
+      "moduleOutputPath" : "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/Modules/photogrammetry_helper.swiftmodule",
+      "objects" : [
+        "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/photogrammetry_helper.build/main.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx14.0",
+        "-whole-module-optimization",
+        "-num-threads",
+        "24",
+        "-serialize-diagnostics",
+        "-O",
+        "-j24",
+        "-DSWIFT_PACKAGE",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/ModuleCache",
+        "-parseable-output",
+        "-Xfrontend",
+        "-entry-point-function-name",
+        "-Xfrontend",
+        "photogrammetry_helper_main",
+        "-color-diagnostics",
+        "-swift-version",
+        "5",
+        "-plugin-path",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks",
+        "-I",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-L",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "photogrammetry_helper"
+      ],
+      "outputFileMapPath" : "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/photogrammetry_helper.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/photogrammetry_helper.build/main.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/Modules/photogrammetry_helper.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/Sources/main.swift"
+      ],
+      "tempsPath" : "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/photogrammetry_helper.build",
+      "wholeModuleOptimization" : true
+    }
+  },
+  "swiftFrontendCommands" : {
+
+  },
+  "swiftTargetScanArgs" : {
+    "photogrammetry_helper" : [
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "-module-name",
+      "photogrammetry_helper",
+      "-package-name",
+      "photogrammetry_helper",
+      "-c",
+      "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/Sources/main.swift",
+      "-I",
+      "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/Modules",
+      "-target",
+      "arm64-apple-macosx14.0",
+      "-whole-module-optimization",
+      "-num-threads",
+      "24",
+      "-serialize-diagnostics",
+      "-O",
+      "-j24",
+      "-DSWIFT_PACKAGE",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/ModuleCache",
+      "-parseable-output",
+      "-Xfrontend",
+      "-entry-point-function-name",
+      "-Xfrontend",
+      "photogrammetry_helper_main",
+      "-color-diagnostics",
+      "-swift-version",
+      "5",
+      "-plugin-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks",
+      "-I",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-L",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "photogrammetry_helper",
+      "-driver-use-frontend-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+    ]
+  },
+  "targetDependencyMap" : {
+    "photogrammetry_helper" : [
+
+    ]
+  },
+  "testDiscoveryCommands" : {
+
+  },
+  "testEntryPointCommands" : {
+
+  },
+  "traitConfiguration" : {
+    "default" : {
+
+    }
+  },
+  "writeCommands" : {
+    "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/photogrammetry_helper.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/Sources/main.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/photogrammetry_helper.build/sources"
+    },
+    "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/photogrammetry_helper.product/Objects.LinkFileList" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<link-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/photogrammetry_helper.build/main.swift.o"
+        }
+      ],
+      "outputFilePath" : "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/photogrammetry_helper.product/Objects.LinkFileList"
+    },
+    "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/swift-version--58304C5D6DBC2206.txt" : {
+      "alwaysOutOfDate" : true,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<swift-get-version>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+        }
+      ],
+      "outputFilePath" : "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/swift-version--58304C5D6DBC2206.txt"
+    }
+  }
+}

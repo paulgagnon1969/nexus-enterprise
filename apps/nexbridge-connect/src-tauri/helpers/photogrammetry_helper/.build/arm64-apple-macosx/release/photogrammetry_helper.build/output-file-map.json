@@ -1,0 +1,13 @@
+{
+  "": {
+    "dependencies": "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/photogrammetry_helper.build/photogrammetry_helper.d",
+    "object": "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/photogrammetry_helper.build/photogrammetry_helper.o",
+    "swift-dependencies": "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/photogrammetry_helper.build/master.swiftdeps"
+  },
+  "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/Sources/main.swift": {
+    "object": "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/photogrammetry_helper.build/main.swift.o",
+    "swiftmodule": "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/photogrammetry_helper.build/main~partial.swiftmodule",
+    "swift-dependencies": "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/photogrammetry_helper.build/main.swiftdeps",
+    "diagnostics": "/Users/pg/nexus-enterprise/apps/nexbridge-connect/src-tauri/helpers/photogrammetry_helper/.build/arm64-apple-macosx/release/photogrammetry_helper.build/main.dia"
+  }
+}
