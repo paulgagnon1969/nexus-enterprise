@@ -365,6 +365,9 @@ model Company {
 
   // Client invoice payment intents (Stripe)
   invoicePaymentIntents InvoicePaymentIntent[]
+
+  // NexCAD — Precision Object Scanning
+  precisionScans PrecisionScan[]
 }
 
 model OrganizationTemplate {
@@ -828,6 +831,9 @@ model User {
 
   // Feature Discovery — announcements viewed/acknowledged by this user
   featureViews UserFeatureView[]
+
+  // NexCAD — Precision Object Scanning
+  precisionScansCreated PrecisionScan[] @relation("PrecisionScanCreatedBy")
 }
 
 /// Notification delivered to a single user
@@ -1573,6 +1579,9 @@ model Project {
 
   // Client invoice payment intents (Stripe)
   invoicePaymentIntents InvoicePaymentIntent[]
+
+  // NexCAD — Precision Object Scanning
+  precisionScans PrecisionScan[]
 
   // Cross-tenant project collaborations (orgs collaborating on this project)
   collaborations ProjectCollaboration[] @relation("CollaborationProject")
@@ -9265,6 +9274,14 @@ model VideoAssessmentFinding {
   estimatedQuantity Float?
   estimatedUnit     String? /// e.g. "SQ", "LF", "SF", "EA"
 
+  /// NexCAD photogrammetry-backed measurements (Enhanced Video Assessment)
+  measuredQuantity    Float?   /// Photogrammetry-derived quantity (replaces AI estimate)
+  measuredUnit        String?  /// Unit for measured quantity ("SQ", "LF", "SF", "EA")
+  measurementMethod   String?  /// "photogrammetry" | "ai_estimate"
+  meshAnalysisJson    Json?    /// Raw trimesh analysis output for audit trail
+  measuredConfidence  Float?   /// Boosted confidence when measured
+  measurementMs       Int?     /// How long the enhancement pipeline took
+
   confidenceScore Float? /// 0.0–1.0 for this individual finding
   sortOrder       Int    @default(0)
 
@@ -10395,4 +10412,84 @@ model SelectionSheet {
 
   @@index([companyId, projectId], map: "SelectionSheet_company_project_idx")
   @@index([roomId, version], map: "SelectionSheet_room_version_idx")
+}
+
+// =============================================================================
+// NexCAD — Precision Object Scanning & CAD Export
+// =============================================================================
+
+enum PrecisionScanStatus {
+  PENDING
+  DOWNLOADING
+  RECONSTRUCTING
+  CONVERTING
+  ANALYZING
+  UPLOADING
+  COMPLETED
+  FAILED
+}
+
+/// A precision 3D scan job. Images are captured on iPhone, uploaded to the API,
+/// then processed on the Mac Studio via NexBridge Connect (NexMESH).
+model PrecisionScan {
+  id          String               @id @default(cuid())
+  companyId   String
+  projectId   String?
+  createdById String
+  name        String?              /// User-provided label (e.g. "Kitchen faucet")
+  status      PrecisionScanStatus  @default(PENDING)
+  meshJobId   String?              /// Redis mesh job ID (for progress tracking)
+
+  /// Number of source images uploaded
+  imageCount  Int                  @default(0)
+  /// Photogrammetry detail level: preview | reduced | medium | full | raw
+  detailLevel String               @default("full")
+
+  /// Paths/URLs to produced model files (populated after processing)
+  usdzUrl     String?
+  objUrl      String?
+  daeUrl      String?
+  stlUrl      String?
+  gltfUrl     String?
+  glbUrl      String?
+  stepUrl     String?
+  skpUrl      String?
+
+  /// Mesh analysis results (dimensions, edges, planes)
+  analysis    Json?
+
+  /// Error message if status = FAILED
+  error       String?              @db.Text
+
+  /// Processing duration in milliseconds
+  processingMs Int?
+
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  completedAt DateTime?
+
+  company     Company              @relation(fields: [companyId], references: [id])
+  project     Project?             @relation(fields: [projectId], references: [id])
+  createdBy   User                 @relation("PrecisionScanCreatedBy", fields: [createdById], references: [id])
+  images      PrecisionScanImage[]
+
+  @@index([companyId, status], map: "PrecisionScan_company_status_idx")
+  @@index([projectId], map: "PrecisionScan_project_idx")
+  @@index([createdById], map: "PrecisionScan_created_idx")
+}
+
+/// Source images uploaded from the iPhone for a precision scan.
+model PrecisionScanImage {
+  id        String   @id @default(cuid())
+  scanId    String
+  url       String   /// MinIO/S3 URL
+  fileName  String
+  sizeBytes Int
+  mimeType  String   @default("image/heic")
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  scan PrecisionScan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+
+  @@index([scanId], map: "PrecisionScanImage_scan_idx")
 }

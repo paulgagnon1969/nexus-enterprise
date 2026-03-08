@@ -80,6 +80,7 @@ import { SupportSessionModule } from "./modules/support-session/support-session.
 import { SelectionsModule } from "./modules/selections/selections.module";
 import { FeaturesModule } from "./modules/features/features.module";
 import { ComputeMeshModule } from "./modules/compute-mesh/compute-mesh.module";
+import { PrecisionScanModule } from "./modules/precision-scan/precision-scan.module";
 
 @Module({
   imports: [
@@ -165,6 +166,7 @@ import { ComputeMeshModule } from "./modules/compute-mesh/compute-mesh.module";
     SelectionsModule,
     FeaturesModule,
     ComputeMeshModule,
+    PrecisionScanModule,
   ],
   controllers: [DevController],
   providers: [

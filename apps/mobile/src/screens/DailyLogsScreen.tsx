@@ -71,6 +71,7 @@ export function DailyLogsScreen({
   onOpenPlanSheets,
   onOpenRoomScan,
   onOpenReceiptCapture,
+  onOpenSelections,
   onStartCall,
   onNavigateHome,
   petlChanges,
@@ -83,6 +84,7 @@ export function DailyLogsScreen({
   onOpenPlanSheets?: () => void;
   onOpenRoomScan?: () => void;
   onOpenReceiptCapture?: () => void;
+  onOpenSelections?: () => void;
   onStartCall?: () => void;
   onNavigateHome?: () => void;
   petlChanges?: PetlSessionChanges;

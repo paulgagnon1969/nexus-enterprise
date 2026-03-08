@@ -172,6 +172,31 @@ export class VideoAssessmentController {
   }
 
   /**
+   * POST /video-assessment/:id/findings/:findingId/enhance
+   * Store photogrammetry-backed measurements from NexCAD enhanced assessment.
+   * Called by NexBRIDGE after running the burst → photogrammetry → mesh pipeline.
+   */
+  @UseGuards(CombinedAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
+  @Post(':id/findings/:findingId/enhance')
+  async enhanceFinding(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Param('findingId') findingId: string,
+    @Body() body: {
+      measuredQuantity: number | null;
+      measuredUnit: string | null;
+      measurementMethod: string;
+      meshAnalysisJson?: any;
+      measuredConfidence?: number;
+      measurementMs?: number;
+    },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.service.enhanceFinding(id, findingId, user.companyId, body);
+  }
+
+  /**
    * POST /video-assessment/:id/findings/:findingId/override
    * Human override of an AI-generated finding.
    */

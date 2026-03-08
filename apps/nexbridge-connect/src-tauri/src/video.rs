@@ -329,6 +329,176 @@ pub async fn extract_frames(
     })
 }
 
+// ---------------------------------------------------------------------------
+// Burst extraction — full-resolution frames for photogrammetry
+// ---------------------------------------------------------------------------
+
+/// A single burst frame at full source resolution (no base64 — stays on disk).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BurstFrame {
+    pub index: usize,
+    pub timestamp_secs: f64,
+    pub path: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Result of a burst extraction around a specific timestamp.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BurstExtractionResult {
+    pub frames: Vec<BurstFrame>,
+    pub temp_dir: String,
+    pub source_width: u32,
+    pub source_height: u32,
+    pub center_timestamp: f64,
+    pub window_secs: f64,
+}
+
+/// Extract a burst of full-resolution frames around a given timestamp.
+///
+/// Unlike `extract_frames`, this does NOT downscale — frames are saved at
+/// the video's native resolution for photogrammetry reconstruction. Frames
+/// stay on disk (no base64) because full-res images can be 5-15 MB each.
+///
+/// Designed for the Enhanced Video Assessment pipeline:
+///   AI identifies damage at timestamp T → burst extract T±window at high fps
+///   → overlapping frames feed into NexCAD photogrammetry → real measurements.
+#[tauri::command]
+pub async fn extract_burst_frames(
+    app: tauri::AppHandle,
+    video_path: String,
+    center_timestamp_secs: f64,
+    window_secs: Option<f64>,
+    fps: Option<f64>,
+    max_frames: Option<usize>,
+) -> Result<BurstExtractionResult, String> {
+    let window = window_secs.unwrap_or(2.0);
+    let target_fps = fps.unwrap_or(4.0);
+    let max = max_frames.unwrap_or(32);
+
+    let metadata = get_video_metadata(video_path.clone()).await?;
+
+    // Clamp time window to video bounds
+    let start_ts = (center_timestamp_secs - window).max(0.0);
+    let end_ts = (center_timestamp_secs + window).min(metadata.duration_secs);
+    let duration = end_ts - start_ts;
+
+    if duration < 0.5 {
+        return Err("Burst window too small (video may be shorter than requested window)".to_string());
+    }
+
+    let temp_dir = std::env::temp_dir().join(format!("nexbridge-burst-{}", uuid_v4()));
+    tokio::fs::create_dir_all(&temp_dir)
+        .await
+        .map_err(|e| format!("Failed to create temp dir: {}", e))?;
+
+    let output_pattern = temp_dir.join("burst_%04d.jpg");
+
+    let _ = app.emit("extraction-progress", serde_json::json!({
+        "stage": "burst-extracting",
+        "message": format!(
+            "Extracting full-res burst: {:.1}s–{:.1}s at {} fps from {}",
+            start_ts, end_ts, target_fps, metadata.file_name
+        ),
+    }));
+
+    // Extract at full resolution — no scale filter, showinfo for accurate timestamps
+    let vf = format!("fps={target_fps},showinfo");
+
+    let output = Command::new(ffmpeg_path())
+        .args([
+            "-ss",
+            &format!("{:.3}", start_ts),
+            "-i",
+            &video_path,
+            "-t",
+            &format!("{:.3}", duration),
+            "-vf",
+            &vf,
+            "-fps_mode",
+            "vfr",
+            "-q:v",
+            "1",  // highest JPEG quality for photogrammetry
+            output_pattern.to_str().unwrap(),
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("FFmpeg burst extraction failed: {}", e))?;
+
+    // Parse actual timestamps from showinfo
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let mut showinfo_timestamps: Vec<f64> = Vec::new();
+    for line in stderr.lines() {
+        if line.contains("showinfo") {
+            if let Some(pts_pos) = line.find("pts_time:") {
+                let after = &line[pts_pos + 9..];
+                let ts_str: String = after.chars().take_while(|c| *c != ' ' && *c != '\n').collect();
+                if let Ok(ts) = ts_str.parse::<f64>() {
+                    // pts_time is relative to -ss, so add start_ts back
+                    showinfo_timestamps.push(start_ts + ts);
+                }
+            }
+        }
+    }
+
+    // Collect output frames
+    let mut frame_paths: Vec<PathBuf> = Vec::new();
+    let mut dir = tokio::fs::read_dir(&temp_dir)
+        .await
+        .map_err(|e| format!("Failed to read temp dir: {}", e))?;
+
+    while let Ok(Some(entry)) = dir.next_entry().await {
+        let path = entry.path();
+        if path.extension().map(|e| e == "jpg").unwrap_or(false) {
+            frame_paths.push(path);
+        }
+    }
+    frame_paths.sort();
+
+    // Cap at max_frames
+    if frame_paths.len() > max {
+        let step = frame_paths.len() as f64 / max as f64;
+        let sampled: Vec<PathBuf> = (0..max)
+            .map(|i| frame_paths[(i as f64 * step) as usize].clone())
+            .collect();
+        frame_paths = sampled;
+    }
+
+    let mut frames: Vec<BurstFrame> = Vec::new();
+    let interval_fallback = 1.0 / target_fps;
+
+    for (i, frame_path) in frame_paths.iter().enumerate() {
+        let timestamp = if i < showinfo_timestamps.len() {
+            showinfo_timestamps[i]
+        } else {
+            start_ts + (i as f64 * interval_fallback)
+        };
+
+        frames.push(BurstFrame {
+            index: i,
+            timestamp_secs: timestamp,
+            path: frame_path.to_string_lossy().to_string(),
+            width: metadata.width,
+            height: metadata.height,
+        });
+    }
+
+    let _ = app.emit("extraction-progress", serde_json::json!({
+        "stage": "burst-complete",
+        "message": format!("Extracted {} full-res frames ({:.1}s window)", frames.len(), duration),
+        "frameCount": frames.len(),
+    }));
+
+    Ok(BurstExtractionResult {
+        frames,
+        temp_dir: temp_dir.to_string_lossy().to_string(),
+        source_width: metadata.width,
+        source_height: metadata.height,
+        center_timestamp: center_timestamp_secs,
+        window_secs: window,
+    })
+}
+
 /// Clean up temporary frame files after processing.
 #[tauri::command]
 pub async fn cleanup_frames(temp_dir: String) -> Result<(), String> {

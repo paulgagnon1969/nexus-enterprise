@@ -399,17 +399,21 @@ pub async fn convert_model(
         return Err("model.obj not found — run photogrammetry first".to_string());
     }
 
-    // Map format names to assimp export format IDs and extensions
+    // Map format names to assimp export format IDs and extensions.
+    // Note: DXF is import-only in assimp — not available for export.
     let (assimp_format, ext) = match format.to_lowercase().as_str() {
         "dae" | "collada" => ("collada", "dae"),
-        "dxf" => ("dxf", "dxf"),
         "stl" => ("stl", "stl"),
+        "stlb" => ("stlb", "stl"),
         "gltf" | "gltf2" => ("gltf2", "gltf"),
         "glb" | "glb2" => ("glb2", "glb"),
         "fbx" => ("fbx", "fbx"),
         "3ds" => ("3ds", "3ds"),
         "ply" => ("ply", "ply"),
-        other => return Err(format!("Unsupported format: {}", other)),
+        "step" | "stp" => ("stp", "stp"),
+        "3mf" => ("3mf", "3mf"),
+        "x3d" => ("x3d", "x3d"),
+        other => return Err(format!("Unsupported export format: {}. Supported: dae, stl, gltf, glb, fbx, 3ds, ply, step, 3mf, x3d", other)),
     };
 
     let output_path = out_dir.join(format!("model.{}", ext));

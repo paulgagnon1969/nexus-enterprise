@@ -14,6 +14,12 @@ import {
   type AssessmentType,
   type TeachResponse,
 } from "../lib/api";
+import {
+  enhanceFinding,
+  canEnhance,
+  type EnhancedFinding,
+  type EnhancementProgress,
+} from "../lib/enhanced-assessment";
 
 type Stage =
   | "pick"
@@ -75,6 +81,11 @@ export default function VideoAssessment() {
   const [supplementalFindings, setSupplementalFindings] = useState<
     Array<{ finding: any; narrative: string; webSources: Array<{ url: string; title: string }>; teachId: string }>
   >([]);
+
+  // NexCAD measurement enhancement state
+  const [enhancingIndex, setEnhancingIndex] = useState<number | null>(null);
+  const [enhanceProgress, setEnhanceProgress] = useState<EnhancementProgress | null>(null);
+  const [enhancedFindings, setEnhancedFindings] = useState<Map<number, EnhancedFinding>>(new Map());
 
   // Listen for extraction progress events from Rust
   useEffect(() => {
@@ -425,6 +436,9 @@ export default function VideoAssessment() {
               const ts = extraction?.frames[f.frameIndex]?.timestamp_secs ?? null;
               const confidencePct = Math.round((f.confidence ?? 0) * 100);
 
+              const enhanced = enhancedFindings.get(i);
+              const isEnhancing = enhancingIndex === i;
+
               return (
                 <div
                   key={i}
@@ -448,16 +462,79 @@ export default function VideoAssessment() {
                       <span className="ml-2 text-xs text-gray-500">
                         {f.zone} · {f.category}
                       </span>
+                      {enhanced?.measurementMethod === "photogrammetry" && (
+                        <span className="ml-2 inline-block rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                          📐 Measured
+                        </span>
+                      )}
                     </div>
                     <span className="text-xs text-gray-400">
-                      {confidencePct}% confidence
+                      {enhanced ? Math.round(enhanced.measuredConfidence * 100) : confidencePct}% confidence
                     </span>
                   </div>
                   <p className="mt-1 text-sm text-gray-700">{f.description}</p>
-                  <p className="mt-1 text-xs text-gray-400">
-                    Causation: {f.causation} · Frame {f.frameIndex}
-                    {ts != null ? ` (${Math.round(ts)}s)` : ""}
-                  </p>
+
+                  {/* Measurement comparison — AI vs NexCAD */}
+                  {enhanced?.measurementMethod === "photogrammetry" && enhanced.measuredQuantity != null && (
+                    <div className="mt-2 flex items-center gap-3 rounded bg-blue-50 px-3 py-2">
+                      <div className="text-xs text-gray-500">
+                        <span className="line-through">AI: ~{f.estimatedQuantity ?? "?"} {f.estimatedUnit ?? ""}</span>
+                      </div>
+                      <div className="text-sm font-semibold text-blue-700">
+                        📐 NexCAD: {enhanced.measuredQuantity.toFixed(1)} {enhanced.measuredUnit}
+                      </div>
+                      <span className="text-[10px] text-gray-400">
+                        ({Math.round(enhanced.enhancementMs / 1000)}s)
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Enhancement progress */}
+                  {isEnhancing && enhanceProgress && (
+                    <div className="mt-2 rounded bg-blue-50 px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <div className="h-3 w-3 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
+                        <span className="text-xs text-blue-700">{enhanceProgress.message}</span>
+                      </div>
+                      <div className="mt-1 h-1.5 rounded-full bg-blue-200">
+                        <div
+                          className="h-1.5 rounded-full bg-blue-600 transition-all duration-300"
+                          style={{ width: `${enhanceProgress.pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-1 flex items-center justify-between">
+                    <p className="text-xs text-gray-400">
+                      Causation: {f.causation} · Frame {f.frameIndex}
+                      {ts != null ? ` (${Math.round(ts)}s)` : ""}
+                    </p>
+
+                    {/* Measure with NexCAD button */}
+                    {!enhanced && !isEnhancing && canEnhance(f) && videoPath && (
+                      <button
+                        onClick={async () => {
+                          if (!videoPath || !extraction) return;
+                          setEnhancingIndex(i);
+                          setEnhanceProgress(null);
+                          const frameTs = extraction.frames[f.frameIndex]?.timestamp_secs ?? 0;
+                          const result = await enhanceFinding(
+                            videoPath,
+                            f,
+                            frameTs,
+                            (p) => setEnhanceProgress(p),
+                          );
+                          setEnhancedFindings((prev) => new Map(prev).set(i, result));
+                          setEnhancingIndex(null);
+                          setEnhanceProgress(null);
+                        }}
+                        className="rounded border border-blue-300 bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-700 hover:bg-blue-100"
+                      >
+                        📐 Measure with NexCAD
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}

@@ -26,6 +26,7 @@ interface Props {
   onStartTagRead: () => void;
   onStartFleetOnboard: () => void;
   onStartObjectCapture: () => void;
+  onStartPrecisionScan: () => void;
   onStartNexiEnroll: () => void;
   onOpenNexiCatalog: () => void;
   onStartPlacardScan: () => void;
@@ -61,6 +62,13 @@ const MODE_CARDS = [
     color: "#7C3AED",
   },
   {
+    key: "precision-scan",
+    icon: "🔬",
+    title: "Precision Scan",
+    subtitle: "NexCAD — engineering-grade 3D model, export to SketchUp & CAD",
+    color: "#F97316",
+  },
+  {
     key: "nexi-enroll",
     icon: "🔍",
     title: "NEXI Capture",
@@ -76,7 +84,7 @@ const MODE_CARDS = [
   },
 ] as const;
 
-export function ScannerHomeScreen({ onStartTagRead, onStartFleetOnboard, onStartObjectCapture, onStartNexiEnroll, onOpenNexiCatalog, onStartPlacardScan }: Props) {
+export function ScannerHomeScreen({ onStartTagRead, onStartFleetOnboard, onStartObjectCapture, onStartPrecisionScan, onStartNexiEnroll, onOpenNexiCatalog, onStartPlacardScan }: Props) {
   const [recentScans, setRecentScans] = useState<ScanRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -115,6 +123,9 @@ export function ScannerHomeScreen({ onStartTagRead, onStartFleetOnboard, onStart
         break;
       case "object-capture":
         onStartObjectCapture();
+        break;
+      case "precision-scan":
+        onStartPrecisionScan();
         break;
       case "nexi-enroll":
         onStartNexiEnroll();

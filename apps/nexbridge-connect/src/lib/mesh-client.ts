@@ -47,6 +47,8 @@ export interface NodeRegistration {
   resources: NodeResources;
   network: NodeNetwork;
   power: NodePower;
+  /** True if this node detected the API server on localhost (same machine) */
+  isServerHost: boolean;
 }
 
 export interface HeartbeatPayload {
@@ -186,6 +188,10 @@ class MeshClient {
 
     // Build registration payload
     const sysInfo = await this.getSysInfo();
+    const isServerHost = await this.detectServerColocation();
+    if (isServerHost) {
+      console.log("[mesh] detected server colocation — this node is the API host");
+    }
     const registration: NodeRegistration = {
       nodeId: this.nodeId,
       userId: this.userId,
@@ -203,6 +209,7 @@ class MeshClient {
         batteryPct: sysInfo.battery_pct,
         onAc: sysInfo.on_ac,
       },
+      isServerHost,
     };
 
     this.socket?.emit("node:register", registration);
@@ -315,6 +322,34 @@ class MeshClient {
       canBomExtract: true,
       canPrecisionScan: platform === "MACOS",  // NexCAD — requires macOS for PhotogrammetrySession
     };
+  }
+
+  // -------------------------------------------------------------------------
+  // Server colocation detection
+  // -------------------------------------------------------------------------
+
+  /**
+   * Check if this machine is also hosting the API server.
+   * Probes localhost:8000/health (shadow API port). If it responds,
+   * this node is colocated with the server and should be deprioritized
+   * so we don't pile mesh work onto the API host.
+   */
+  private async detectServerColocation(): Promise<boolean> {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2000);
+      const res = await fetch("http://localhost:8000/health", {
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        return data?.ok === true;
+      }
+      return false;
+    } catch {
+      return false; // no local API server — this is a pure compute node
+    }
   }
 
   // -------------------------------------------------------------------------

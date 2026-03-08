@@ -51,6 +51,31 @@ public class NexusObjectCaptureModule: Module {
       promise.reject("UNSUPPORTED", "Object Capture requires iOS 17+ with LiDAR")
     }
 
+    /// Launch Precision Capture: captures high-density images for Mac Studio
+    /// reconstruction via NexMESH. Does NOT run on-device photogrammetry.
+    /// Returns: { imagePaths: string[], imageCount: number }
+    AsyncFunction("startPrecisionCapture") { (promise: Promise) in
+      #if canImport(RealityKit)
+      if #available(iOS 17.0, *) {
+        let supported = await MainActor.run { ObjectCaptureSession.isSupported }
+        guard supported else {
+          promise.reject("UNSUPPORTED", "Device does not support Object Capture (requires LiDAR + iOS 17)")
+          return
+        }
+
+        DispatchQueue.main.async { [weak self] in
+          let coordinator = PrecisionCaptureCoordinator(promise: promise) { [weak self] in
+            self?.activeCoordinator = nil
+          }
+          self?.activeCoordinator = coordinator
+          coordinator.start()
+        }
+        return
+      }
+      #endif
+      promise.reject("UNSUPPORTED", "Precision Capture requires iOS 17+ with LiDAR")
+    }
+
     /// Lightweight check that returns device capabilities without starting capture
     AsyncFunction("getDeviceCapabilities") { () -> [String: Any] in
       var caps: [String: Any] = [
@@ -377,7 +402,291 @@ class ObjectCaptureCoordinator: NSObject {
   }
 }
 
-// MARK: - SwiftUI Capture View
+// MARK: - Precision Capture Coordinator (images only, no on-device reconstruction)
+
+@available(iOS 17.0, *)
+@MainActor
+class PrecisionCaptureCoordinator: NSObject {
+  private let promise: Promise
+  private let onCleanup: () -> Void
+  private var session: ObjectCaptureSession?
+  private var hostingController: UIViewController?
+  private var imagesDirectory: URL?
+  private var persistentImagesDir: URL?
+
+  init(promise: Promise, onCleanup: @escaping () -> Void) {
+    self.promise = promise
+    self.onCleanup = onCleanup
+    super.init()
+  }
+
+  func start() {
+    let tempBase = FileManager.default.temporaryDirectory
+      .appendingPathComponent("nexus-precision-\(UUID().uuidString)")
+    let imagesDir = tempBase.appendingPathComponent("images")
+
+    do {
+      try FileManager.default.createDirectory(at: imagesDir, withIntermediateDirectories: true)
+    } catch {
+      promise.reject("DIR_ERROR", "Failed to create capture directories: \(error.localizedDescription)")
+      return
+    }
+
+    self.imagesDirectory = imagesDir
+
+    let session = ObjectCaptureSession()
+    self.session = session
+
+    var config = ObjectCaptureSession.Configuration()
+    config.checkpointDirectory = tempBase.appendingPathComponent("checkpoints")
+    config.isOverCaptureEnabled = true
+    try? FileManager.default.createDirectory(at: config.checkpointDirectory!, withIntermediateDirectories: true)
+
+    session.start(imagesDirectory: imagesDir, configuration: config)
+
+    // Observe state — but we only care about .completed (all images written)
+    Task { @MainActor [weak self] in
+      guard let self = self else { return }
+      for await state in session.stateUpdates {
+        self.handleState(state)
+      }
+    }
+
+    // Present the capture view with precision-specific guidance
+    let captureView = PrecisionCaptureContainerView(
+      session: session,
+      onDone: { [weak self] in self?.finishCapture() },
+      onCancel: { [weak self] in self?.cancel() }
+    )
+
+    let vc = UIHostingController(rootView: captureView)
+    vc.modalPresentationStyle = .fullScreen
+    self.hostingController = vc
+
+    guard let rootVC = findPresentingViewController() else {
+      promise.reject("PRESENTATION_ERROR", "Could not find root view controller")
+      return
+    }
+
+    rootVC.present(vc, animated: true)
+  }
+
+  private func handleState(_ state: ObjectCaptureSession.CaptureState) {
+    switch state {
+    case .initializing:
+      print("[NexusPrecision] Session initializing (overCapture enabled)")
+    case .ready:
+      print("[NexusPrecision] Session ready")
+    case .detecting:
+      print("[NexusPrecision] Detecting object...")
+    case .capturing:
+      print("[NexusPrecision] Capturing images (precision mode)...")
+    case .finishing:
+      print("[NexusPrecision] Finishing capture...")
+    case .completed:
+      print("[NexusPrecision] Capture complete — collecting images")
+      collectImagesAndReturn()
+    case .failed(let error):
+      print("[NexusPrecision] Capture failed: \(error)")
+      dismiss {
+        self.promise.reject("CAPTURE_FAILED", error.localizedDescription)
+        self.onCleanup()
+      }
+    @unknown default:
+      break
+    }
+  }
+
+  private func finishCapture() {
+    session?.finish()
+  }
+
+  private func cancel() {
+    session?.cancel()
+    dismiss {
+      self.promise.reject("CANCELLED", "User cancelled precision capture")
+      self.onCleanup()
+    }
+  }
+
+  /// Collect all captured images and copy them to a persistent directory.
+  /// Returns image paths to JS without running photogrammetry.
+  private func collectImagesAndReturn() {
+    guard let imagesDir = imagesDirectory else {
+      promise.reject("INTERNAL_ERROR", "Missing images directory")
+      onCleanup()
+      return
+    }
+
+    let fm = FileManager.default
+    guard let allFiles = try? fm.contentsOfDirectory(at: imagesDir, includingPropertiesForKeys: [.fileSizeKey]) else {
+      dismiss {
+        self.promise.reject("READ_ERROR", "Could not read captured images")
+        self.onCleanup()
+      }
+      return
+    }
+
+    let imageExts: Set<String> = ["heic", "jpg", "jpeg", "png"]
+    let imageFiles = allFiles
+      .filter { imageExts.contains($0.pathExtension.lowercased()) }
+      .sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+    guard !imageFiles.isEmpty else {
+      dismiss {
+        self.promise.reject("NO_IMAGES", "No images were captured")
+        self.onCleanup()
+      }
+      return
+    }
+
+    // Copy to persistent Documents directory (survives temp cleanup)
+    let docsDir = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
+    let persistDir = docsDir.appendingPathComponent("precision-capture-\(UUID().uuidString)")
+    try? fm.createDirectory(at: persistDir, withIntermediateDirectories: true)
+    self.persistentImagesDir = persistDir
+
+    var paths: [String] = []
+    var totalBytes: Int64 = 0
+
+    for (i, src) in imageFiles.enumerated() {
+      let dest = persistDir.appendingPathComponent("img_\(String(format: "%04d", i)).\(src.pathExtension)")
+      do {
+        try fm.copyItem(at: src, to: dest)
+        paths.append(dest.path)
+        if let attrs = try? fm.attributesOfItem(atPath: dest.path),
+           let size = attrs[.size] as? Int64 {
+          totalBytes += size
+        }
+      } catch {
+        print("[NexusPrecision] Failed to copy image \(i): \(error)")
+      }
+    }
+
+    print("[NexusPrecision] Collected \(paths.count) images (\(totalBytes / 1024 / 1024)MB)")
+
+    let result: [String: Any] = [
+      "imagePaths": paths,
+      "imageCount": paths.count,
+      "totalSizeBytes": totalBytes,
+      "persistentDir": persistDir.path,
+    ]
+
+    dismiss {
+      self.promise.resolve(result)
+      self.onCleanup()
+    }
+  }
+
+  private func dismiss(completion: @escaping () -> Void) {
+    DispatchQueue.main.async { [weak self] in
+      if let vc = self?.hostingController {
+        vc.dismiss(animated: true, completion: completion)
+      } else {
+        completion()
+      }
+    }
+  }
+
+  private func findPresentingViewController() -> UIViewController? {
+    return UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .flatMap { $0.windows }
+      .first(where: { $0.isKeyWindow })?
+      .rootViewController?.presentedViewController ?? UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .flatMap { $0.windows }
+      .first(where: { $0.isKeyWindow })?
+      .rootViewController
+  }
+}
+
+/// Precision capture UI — similar to standard but with image count guidance.
+@available(iOS 17.0, *)
+struct PrecisionCaptureContainerView: View {
+  let session: ObjectCaptureSession
+  let onDone: () -> Void
+  let onCancel: () -> Void
+
+  var body: some View {
+    ZStack {
+      ObjectCaptureView(session: session)
+        .edgesIgnoringSafeArea(.all)
+
+      VStack {
+        // Top bar
+        HStack {
+          Button(action: onCancel) {
+            HStack(spacing: 6) {
+              Image(systemName: "xmark")
+              Text("Cancel")
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(.ultraThinMaterial, in: Capsule())
+          }
+          Spacer()
+
+          // Precision mode badge
+          Text("PRECISION")
+            .font(.caption.weight(.heavy))
+            .foregroundColor(.orange)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: Capsule())
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+
+        Spacer()
+
+        // Done button
+        if session.canRequestImageCapture {
+          Button(action: onDone) {
+            Text("Done Scanning")
+              .font(.headline)
+              .foregroundColor(.white)
+              .frame(width: 200, height: 50)
+              .background(Color.orange)
+              .cornerRadius(12)
+          }
+          .padding(.bottom, 10)
+        }
+
+        // Guidance text
+        precisionStatusView
+          .padding(.bottom, 10)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var precisionStatusView: some View {
+    switch session.state {
+    case .ready:
+      Label("Precision Mode — capture from all angles", systemImage: "viewfinder")
+        .font(.subheadline).foregroundColor(.white)
+        .padding(8).background(.ultraThinMaterial, in: Capsule())
+    case .detecting:
+      Label("Move closer to the object...", systemImage: "magnifyingglass")
+        .font(.subheadline).foregroundColor(.white)
+        .padding(8).background(.ultraThinMaterial, in: Capsule())
+    case .capturing:
+      Label("Orbit slowly — capture all sides, top & bottom", systemImage: "arrow.triangle.2.circlepath.camera")
+        .font(.subheadline).foregroundColor(.orange)
+        .padding(8).background(.ultraThinMaterial, in: Capsule())
+    case .finishing:
+      Label("Saving images...", systemImage: "gearshape.2")
+        .font(.subheadline).foregroundColor(.yellow)
+        .padding(8).background(.ultraThinMaterial, in: Capsule())
+    default:
+      EmptyView()
+    }
+  }
+}
+
+// MARK: - SwiftUI Capture View (Standard Mode)
 
 @available(iOS 17.0, *)
 struct ObjectCaptureContainerView: View {

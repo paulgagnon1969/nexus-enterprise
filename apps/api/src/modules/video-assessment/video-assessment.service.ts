@@ -170,6 +170,41 @@ export class VideoAssessmentService {
   }
 
   /**
+   * Store NexCAD photogrammetry-backed measurements on a finding.
+   * Does NOT replace AI estimates — stores both for comparison.
+   */
+  async enhanceFinding(
+    assessmentId: string,
+    findingId: string,
+    companyId: string,
+    data: {
+      measuredQuantity: number | null;
+      measuredUnit: string | null;
+      measurementMethod: string;
+      meshAnalysisJson?: any;
+      measuredConfidence?: number;
+      measurementMs?: number;
+    },
+  ) {
+    const finding = await this.prisma.videoAssessmentFinding.findFirst({
+      where: { id: findingId, assessmentId, companyId },
+    });
+    if (!finding) throw new NotFoundException('Finding not found');
+
+    return this.prisma.videoAssessmentFinding.update({
+      where: { id: findingId },
+      data: {
+        measuredQuantity: data.measuredQuantity,
+        measuredUnit: data.measuredUnit,
+        measurementMethod: data.measurementMethod,
+        meshAnalysisJson: data.meshAnalysisJson ?? undefined,
+        measuredConfidence: data.measuredConfidence,
+        measurementMs: data.measurementMs,
+      },
+    });
+  }
+
+  /**
    * List assessments for a company, with filters.
    */
   async list(

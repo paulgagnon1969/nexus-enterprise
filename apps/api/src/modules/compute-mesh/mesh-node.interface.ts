@@ -10,6 +10,7 @@ export interface NodeCapabilities {
   canCsvParse: boolean;
   canRoomScan: boolean;
   canBomExtract: boolean;
+  canPrecisionScan?: boolean;
 }
 
 /** Hardware resources reported by the node */
@@ -81,7 +82,9 @@ export type MeshJobType =
   | "pdf-render"
   | "bom-extract"
   | "csv-parse"
-  | "selection-sheet";
+  | "selection-sheet"
+  | "precision_photogrammetry"
+  | "enhanced-video-assessment";
 
 export type MeshJobStatus =
   | "pending"

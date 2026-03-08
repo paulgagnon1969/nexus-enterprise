@@ -79,7 +79,7 @@ interface UploadScanResult {
 }
 
 /** All available export formats (excluding USDZ and OBJ which are always produced) */
-const DEFAULT_FORMATS = ["dae", "dxf", "stl", "gltf", "glb"];
+const DEFAULT_FORMATS = ["dae", "stl", "gltf", "glb", "step"];
 
 export const precisionScanProcessor: JobProcessor = {
   canHandle(type: string): boolean {

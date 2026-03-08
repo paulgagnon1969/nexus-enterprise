@@ -3,6 +3,7 @@ mod contact_groups;
 mod converter;
 mod documents;
 mod index;
+mod keep_alive;
 mod precision_scan;
 mod system_info;
 mod tray;
@@ -463,6 +464,9 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
         .setup(|app| {
+            // Prevent macOS App Nap from throttling the mesh node
+            keep_alive::disable_app_nap();
+
             // Initialize document index in app data directory
             let app_data_dir = app.path().app_data_dir()
                 .expect("Failed to get app data directory");
@@ -576,6 +580,7 @@ pub fn run() {
             // Video assessment commands
             video::get_video_metadata,
             video::extract_frames,
+            video::extract_burst_frames,
             video::cleanup_frames,
             // NexCAD precision scan commands
             precision_scan::download_scan_images,

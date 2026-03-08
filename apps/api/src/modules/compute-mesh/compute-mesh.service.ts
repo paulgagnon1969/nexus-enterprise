@@ -210,6 +210,10 @@ export class ComputeMeshService {
         return cap.canCsvParse;
       case "selection-sheet":
         return cap.canPdfRender;
+      case "precision_photogrammetry":
+        return !!cap.canPrecisionScan;
+      case "enhanced-video-assessment":
+        return cap.canVideoProcess && !!cap.canPrecisionScan;
       default:
         return false;
     }

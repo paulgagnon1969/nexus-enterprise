@@ -21,6 +21,7 @@ import { meshClient, type MeshStatus } from "../lib/mesh-client";
 import { meshJobRunner } from "../lib/mesh-job-runner";
 import { receiptOcrProcessor } from "../lib/processors/receipt-ocr";
 import { precisionScanProcessor } from "../lib/processors/precision-scan";
+import { enhancedVideoProcessor } from "../lib/processors/enhanced-video";
 
 interface AuthState {
   loading: boolean;
@@ -80,6 +81,7 @@ function ensureProcessors() {
   if (processorsRegistered) return;
   meshJobRunner.register(receiptOcrProcessor);
   meshJobRunner.register(precisionScanProcessor);
+  meshJobRunner.register(enhancedVideoProcessor);
   processorsRegistered = true;
 }
 

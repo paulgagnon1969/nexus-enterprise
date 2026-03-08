@@ -33,6 +33,7 @@ import { ScannerHomeScreen } from "../screens/ScannerHomeScreen";
 import { TagReadScreen } from "../screens/TagReadScreen";
 import { FleetOnboardScreen } from "../screens/FleetOnboardScreen";
 import { ObjectCaptureScreen } from "../screens/ObjectCaptureScreen";
+import { PrecisionScanScreen } from "../screens/PrecisionScanScreen";
 import { NexiEnrollScreen } from "../screens/NexiEnrollScreen";
 import { NexiCatalogScreen } from "../screens/NexiCatalogScreen";
 import { PlacardScanScreen } from "../screens/PlacardScanScreen";
@@ -92,6 +93,7 @@ export type ScannerStackParamList = {
   TagRead: undefined;
   FleetOnboard: undefined;
   ObjectCapture: undefined;
+  PrecisionScan: undefined;
   NexiEnroll: undefined;
   NexiCatalog: undefined;
 };
@@ -408,6 +410,7 @@ function ScannerStackNavigator() {
       <ScannerStack.Screen name="TagRead" component={TagReadWrapper} />
       <ScannerStack.Screen name="FleetOnboard" component={FleetOnboardWrapper} />
       <ScannerStack.Screen name="ObjectCapture" component={ObjectCaptureWrapper} />
+      <ScannerStack.Screen name="PrecisionScan" component={PrecisionScanWrapper} />
       <ScannerStack.Screen name="NexiEnroll" component={NexiEnrollWrapper} />
       <ScannerStack.Screen name="NexiCatalog" component={NexiCatalogWrapper} />
     </ScannerStack.Navigator>
@@ -422,6 +425,7 @@ function ScannerHomeWrapper() {
       onStartTagRead={() => navigation.navigate("TagRead")}
       onStartFleetOnboard={() => navigation.navigate("FleetOnboard")}
       onStartObjectCapture={() => navigation.navigate("ObjectCapture")}
+      onStartPrecisionScan={() => navigation.navigate("PrecisionScan")}
       onStartNexiEnroll={() => navigation.navigate("NexiEnroll")}
       onOpenNexiCatalog={() => navigation.navigate("NexiCatalog")}
     />
@@ -446,6 +450,11 @@ function FleetOnboardWrapper() {
 function ObjectCaptureWrapper() {
   const navigation = useNavigation<NativeStackNavigationProp<ScannerStackParamList>>();
   return <ObjectCaptureScreen onBack={() => navigation.goBack()} />;
+}
+
+function PrecisionScanWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ScannerStackParamList>>();
+  return <PrecisionScanScreen onBack={() => navigation.goBack()} />;
 }
 
 function NexiEnrollWrapper() {

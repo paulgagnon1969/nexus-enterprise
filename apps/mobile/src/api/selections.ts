@@ -55,6 +55,7 @@ export interface VendorCatalogItem {
   productLine: string;
   vendorUrl: string | null;
   logoUrl: string | null;
+  name?: string;
   _count: { products: number };
 }
 
@@ -64,6 +65,7 @@ export interface VendorProductItem {
   sku: string;
   name: string;
   category: string;
+  description?: string | null;
   width: number | null;
   height: number | null;
   depth: number | null;

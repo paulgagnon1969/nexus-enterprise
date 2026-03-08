@@ -88,10 +88,9 @@ export function ProductPickerScreen({
     async (product: VendorProductItem) => {
       setAdding(product.id);
       try {
-        await createSelection(projectId, {
-          roomId,
+        await createSelection(projectId, roomId, {
           vendorProductId: product.id,
-          position: "A",
+          position: 1,
           quantity: 1,
         });
         Alert.alert("Added", `${product.name} added to room.`);
