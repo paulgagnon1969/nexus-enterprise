@@ -285,10 +285,36 @@ export class InvoicePaymentService {
       throw new BadRequestException("No Stripe customer on file for this company. Please contact support.");
     }
 
-    // Attach bank account to customer
-    const source = (await stripe.customers.createSource(customerId, {
-      source: bankAccountToken,
-    })) as Stripe.BankAccount;
+    // Attach bank account to customer (or reuse if already attached from a prior attempt)
+    let source: Stripe.BankAccount;
+    try {
+      source = (await stripe.customers.createSource(customerId, {
+        source: bankAccountToken,
+      })) as Stripe.BankAccount;
+    } catch (sourceErr: any) {
+      // Stripe throws when the same bank account is already on the customer
+      if (
+        sourceErr?.type === 'StripeInvalidRequestError' &&
+        /already exists/i.test(sourceErr?.message ?? '')
+      ) {
+        console.log('[invoice-payment] Bank account already on customer, finding existing source');
+        const existing = await stripe.customers.listSources(customerId, {
+          object: 'bank_account',
+          limit: 10,
+        });
+        const match = (existing.data as Stripe.BankAccount[]).find(
+          (ba) => ba.status !== 'errored',
+        );
+        if (!match) {
+          throw new BadRequestException(
+            'Your bank account is already linked but could not be located. Please contact support.',
+          );
+        }
+        source = match;
+      } else {
+        throw sourceErr;
+      }
+    }
 
     // Create the charge
     const charge = await stripe.charges.create({
