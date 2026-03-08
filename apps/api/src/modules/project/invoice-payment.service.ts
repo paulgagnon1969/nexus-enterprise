@@ -71,6 +71,9 @@ export class InvoicePaymentService {
       throw new BadRequestException("This invoice is not available for payment");
     }
 
+    // Reconcile any pending Stripe payments before computing balance
+    await this.reconcilePendingPayments(invoice.id);
+
     // Compute balance
     const paidAmount = await this.computePaidAmount(invoice.id);
     const balanceDue = Math.max(0, (invoice.totalAmount ?? 0) - paidAmount);
@@ -384,6 +387,45 @@ export class InvoicePaymentService {
       where: { stripePaymentIntentId: paymentIntentId },
       data: { status: "FAILED" },
     });
+  }
+
+  // ───────────────────────────────────────────────
+  // Payment Reconciliation (webhook safety net)
+  // ───────────────────────────────────────────────
+
+  /**
+   * Check all PENDING InvoicePaymentIntents for a given invoice against Stripe.
+   * If any have succeeded, record the payment. Called when an invoice is viewed
+   * to catch payments that the webhook missed.
+   */
+  async reconcilePendingPayments(invoiceId: string): Promise<void> {
+    if (!this.stripe) return;
+
+    const pending = await this.prisma.invoicePaymentIntent.findMany({
+      where: { invoiceId, status: "PENDING" },
+    });
+
+    if (pending.length === 0) return;
+
+    for (const pi of pending) {
+      try {
+        const stripePI = await this.stripe.paymentIntents.retrieve(pi.stripePaymentIntentId);
+
+        if (stripePI.status === "succeeded") {
+          console.log(`[invoice-payment] Reconciling succeeded PI ${pi.stripePaymentIntentId}`);
+          await this.handleInvoicePaymentSucceeded(stripePI);
+        } else if (stripePI.status === "canceled" || stripePI.status === "requires_payment_method") {
+          // Mark as failed so we don't keep checking
+          await this.prisma.invoicePaymentIntent.update({
+            where: { id: pi.id },
+            data: { status: "FAILED" },
+          });
+        }
+        // "processing", "requires_action", "requires_confirmation" — leave as PENDING
+      } catch (err: any) {
+        console.error(`[invoice-payment] Reconciliation error for PI ${pi.stripePaymentIntentId}:`, err.message);
+      }
+    }
   }
 
   // ───────────────────────────────────────────────

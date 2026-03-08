@@ -125,12 +125,14 @@ export class ProjectController {
    */
   @UseGuards(JwtAuthGuard)
   @Get("portal/:id/invoices/:invoiceId")
-  getPortalInvoiceDetail(
+  async getPortalInvoiceDetail(
     @Req() req: any,
     @Param("id") projectId: string,
     @Param("invoiceId") invoiceId: string,
   ) {
     const user = req.user as AuthenticatedUser;
+    // Reconcile pending Stripe payments before returning invoice data
+    await this.invoicePayment.reconcilePendingPayments(invoiceId).catch(() => {});
     return this.projects.getPortalInvoiceDetail(projectId, invoiceId, user.userId);
   }
 
