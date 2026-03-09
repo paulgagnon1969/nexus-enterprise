@@ -9,6 +9,6 @@ import { MeshSpeedController } from "./mesh-speed.controller";
   imports: [RedisModule],
   controllers: [MeshSpeedController],
   providers: [ComputeMeshService, ComputeMeshGateway, MeshJobService],
-  exports: [ComputeMeshService, MeshJobService],
+  exports: [ComputeMeshService, ComputeMeshGateway, MeshJobService],
 })
 export class ComputeMeshModule {}

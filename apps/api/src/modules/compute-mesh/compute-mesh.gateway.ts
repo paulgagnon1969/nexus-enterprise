@@ -172,4 +172,21 @@ export class ComputeMeshGateway
       })),
     };
   }
+
+  // ---------------------------------------------------------------------------
+  // Real-time update push
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Broadcast an update:available event to ALL connected mesh nodes.
+   * Called by UpdatesController after a new manifest is published.
+   */
+  broadcastUpdateAvailable(version: string, notes?: string): void {
+    if (!this.server) return;
+    const connectedCount = this.socketToNode.size;
+    this.server.emit("update:available", { version, notes });
+    this.logger.log(
+      `Broadcast update:available v${version} to ${connectedCount} connected node(s)`,
+    );
+  }
 }

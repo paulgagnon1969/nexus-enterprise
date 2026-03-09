@@ -19,6 +19,11 @@ export type CostBookItem = {
   groupDescription?: string | null;
   divisionCode?: string | null;
   divisionName?: string | null;
+  workersWage?: number | null;
+  laborBurden?: number | null;
+  laborOverhead?: number | null;
+  materialCost?: number | null;
+  equipmentCost?: number | null;
 };
 
 export type CostBookSelection = {
@@ -45,7 +50,7 @@ type CostBookPickerModalProps = {
 // ---------------------------------------------------------------------------
 // Column sorting helpers
 // ---------------------------------------------------------------------------
-type SortKey = "cat" | "sel" | "activity" | "divisionCode" | "description" | "unit" | "unitPrice";
+type SortKey = "cat" | "sel" | "activity" | "divisionCode" | "description" | "unit" | "unitPrice" | "workersWage" | "laborBurden" | "laborOverhead" | "materialCost" | "equipmentCost";
 type SortDir = "asc" | "desc";
 
 function comparePrimitive(a: any, b: any, dir: SortDir): number {
@@ -558,7 +563,12 @@ export function CostBookPickerModal({
                     <th style={thStyle("left", 60)} onClick={() => toggleSort("divisionCode")}>Div{sortArrow("divisionCode")}</th>
                     <th style={thStyle("left")} onClick={() => toggleSort("description")}>Description{sortArrow("description")}</th>
                     <th style={thStyle("left", 70)} onClick={() => toggleSort("unit")}>Unit{sortArrow("unit")}</th>
-                    <th style={thStyle("right", 110)} onClick={() => toggleSort("unitPrice")}>Unit ${sortArrow("unitPrice")}</th>
+                    <th style={thStyle("right", 90)} onClick={() => toggleSort("unitPrice")}>Unit ${sortArrow("unitPrice")}</th>
+                    <th style={thStyle("right", 80)} onClick={() => toggleSort("workersWage")}>Worker&apos;s Wage{sortArrow("workersWage")}</th>
+                    <th style={thStyle("right", 80)} onClick={() => toggleSort("laborBurden")}>Labor Burden{sortArrow("laborBurden")}</th>
+                    <th style={thStyle("right", 80)} onClick={() => toggleSort("laborOverhead")}>Labor Overhead{sortArrow("laborOverhead")}</th>
+                    <th style={thStyle("right", 80)} onClick={() => toggleSort("materialCost")}>Material{sortArrow("materialCost")}</th>
+                    <th style={thStyle("right", 80)} onClick={() => toggleSort("equipmentCost")}>Equipment{sortArrow("equipmentCost")}</th>
                     <th style={{ textAlign: "right", padding: "8px 10px", width: 90 }}>Qty</th>
                   </tr>
                 </thead>
@@ -580,6 +590,21 @@ export function CostBookPickerModal({
                         <td style={{ padding: "6px 10px", borderTop: "1px solid #e5e7eb", color: "#6b7280" }}>{String(row.unit ?? "").trim()}</td>
                         <td style={{ padding: "6px 10px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
                           {unitPrice != null ? `$${unitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}
+                        </td>
+                        <td style={{ padding: "6px 10px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: (row.workersWage ?? 0) > 0 ? "#1d4ed8" : "#9ca3af" }}>
+                          {(row.workersWage ?? 0) > 0 ? Number(row.workersWage).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}
+                        </td>
+                        <td style={{ padding: "6px 10px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: (row.laborBurden ?? 0) > 0 ? "#7c3aed" : "#9ca3af" }}>
+                          {(row.laborBurden ?? 0) > 0 ? Number(row.laborBurden).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}
+                        </td>
+                        <td style={{ padding: "6px 10px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: (row.laborOverhead ?? 0) > 0 ? "#9333ea" : "#9ca3af" }}>
+                          {(row.laborOverhead ?? 0) > 0 ? Number(row.laborOverhead).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}
+                        </td>
+                        <td style={{ padding: "6px 10px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: (row.materialCost ?? 0) > 0 ? "#15803d" : "#9ca3af" }}>
+                          {(row.materialCost ?? 0) > 0 ? Number(row.materialCost).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}
+                        </td>
+                        <td style={{ padding: "6px 10px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: (row.equipmentCost ?? 0) > 0 ? "#b45309" : "#9ca3af" }}>
+                          {(row.equipmentCost ?? 0) > 0 ? Number(row.equipmentCost).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}
                         </td>
                         <td style={{ padding: "6px 10px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
                           {checked ? (

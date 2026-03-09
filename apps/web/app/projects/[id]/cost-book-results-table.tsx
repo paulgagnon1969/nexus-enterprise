@@ -16,7 +16,7 @@ function normalizeSelCode(raw: any) {
 }
 
 // Column sorting helpers
-type SortKey = "cat" | "sel" | "description" | "unit" | "unitPrice";
+type SortKey = "cat" | "sel" | "description" | "unit" | "unitPrice" | "workersWage" | "laborBurden" | "laborOverhead" | "materialCost" | "equipmentCost";
 type SortDir = "asc" | "desc";
 
 function comparePrimitive(a: any, b: any, dir: SortDir): number {
@@ -177,6 +177,11 @@ export const CostBookResultsTable = React.memo(function CostBookResultsTable(pro
             <th onClick={() => toggleSort("description")} style={{ textAlign: "left", padding: "8px 10px", position: "sticky", top: 0, zIndex: 1, background: "#f9fafb", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>Description{sortArrow("description")}</th>
             <th onClick={() => toggleSort("unit")} style={{ textAlign: "right", padding: "8px 10px", position: "sticky", top: 0, zIndex: 1, background: "#f9fafb", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>Unit{sortArrow("unit")}</th>
             <th onClick={() => toggleSort("unitPrice")} style={{ textAlign: "right", padding: "8px 10px", position: "sticky", top: 0, zIndex: 1, background: "#f9fafb", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>Unit Price{sortArrow("unitPrice")}</th>
+            <th onClick={() => toggleSort("workersWage")} style={{ textAlign: "right", padding: "8px 10px", position: "sticky", top: 0, zIndex: 1, background: "#f9fafb", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>Worker's Wage{sortArrow("workersWage")}</th>
+            <th onClick={() => toggleSort("laborBurden")} style={{ textAlign: "right", padding: "8px 10px", position: "sticky", top: 0, zIndex: 1, background: "#f9fafb", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>Labor Burden{sortArrow("laborBurden")}</th>
+            <th onClick={() => toggleSort("laborOverhead")} style={{ textAlign: "right", padding: "8px 10px", position: "sticky", top: 0, zIndex: 1, background: "#f9fafb", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>Labor Overhead{sortArrow("laborOverhead")}</th>
+            <th onClick={() => toggleSort("materialCost")} style={{ textAlign: "right", padding: "8px 10px", position: "sticky", top: 0, zIndex: 1, background: "#f9fafb", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>Material{sortArrow("materialCost")}</th>
+            <th onClick={() => toggleSort("equipmentCost")} style={{ textAlign: "right", padding: "8px 10px", position: "sticky", top: 0, zIndex: 1, background: "#f9fafb", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}>Equipment{sortArrow("equipmentCost")}</th>
             <th style={{ textAlign: "right", padding: "8px 10px", position: "sticky", top: 0, zIndex: 1, background: "#f9fafb" }}>Line Total</th>
             <th style={{ textAlign: "right", padding: "8px 10px", position: "sticky", top: 0, zIndex: 1, background: "#f9fafb" }} />
           </tr>
@@ -184,7 +189,7 @@ export const CostBookResultsTable = React.memo(function CostBookResultsTable(pro
         <tbody>
           {windowed.topPad > 0 && (
             <tr aria-hidden>
-              <td colSpan={7} style={{ height: windowed.topPad, padding: 0 }} />
+              <td colSpan={12} style={{ height: windowed.topPad, padding: 0 }} />
             </tr>
           )}
 
@@ -195,6 +200,11 @@ export const CostBookResultsTable = React.memo(function CostBookResultsTable(pro
               baselineCat && baselineSel && cat === baselineCat && sel === baselineSel;
 
             const unitPrice = Number(r?.unitPrice ?? 0);
+            const wage = Number(r?.workersWage) || 0;
+            const burden = Number(r?.laborBurden) || 0;
+            const overhead = Number(r?.laborOverhead) || 0;
+            const material = Number(r?.materialCost) || 0;
+            const equipment = Number(r?.equipmentCost) || 0;
             const lineTotal = !Number.isNaN(qty) ? qty * unitPrice : 0;
 
             return (
@@ -264,6 +274,61 @@ export const CostBookResultsTable = React.memo(function CostBookResultsTable(pro
                     borderTop: "1px solid #e5e7eb",
                     textAlign: "right",
                     whiteSpace: "nowrap",
+                    color: wage > 0 ? "#1d4ed8" : "#9ca3af",
+                  }}
+                >
+                  {wage > 0 ? wage.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}
+                </td>
+                <td
+                  style={{
+                    padding: "8px 10px",
+                    borderTop: "1px solid #e5e7eb",
+                    textAlign: "right",
+                    whiteSpace: "nowrap",
+                    color: burden > 0 ? "#7c3aed" : "#9ca3af",
+                  }}
+                >
+                  {burden > 0 ? burden.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}
+                </td>
+                <td
+                  style={{
+                    padding: "8px 10px",
+                    borderTop: "1px solid #e5e7eb",
+                    textAlign: "right",
+                    whiteSpace: "nowrap",
+                    color: overhead > 0 ? "#9333ea" : "#9ca3af",
+                  }}
+                >
+                  {overhead > 0 ? overhead.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}
+                </td>
+                <td
+                  style={{
+                    padding: "8px 10px",
+                    borderTop: "1px solid #e5e7eb",
+                    textAlign: "right",
+                    whiteSpace: "nowrap",
+                    color: material > 0 ? "#15803d" : "#9ca3af",
+                  }}
+                >
+                  {material > 0 ? material.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}
+                </td>
+                <td
+                  style={{
+                    padding: "8px 10px",
+                    borderTop: "1px solid #e5e7eb",
+                    textAlign: "right",
+                    whiteSpace: "nowrap",
+                    color: equipment > 0 ? "#b45309" : "#9ca3af",
+                  }}
+                >
+                  {equipment > 0 ? equipment.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}
+                </td>
+                <td
+                  style={{
+                    padding: "8px 10px",
+                    borderTop: "1px solid #e5e7eb",
+                    textAlign: "right",
+                    whiteSpace: "nowrap",
                   }}
                 >
                   {lineTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}
@@ -298,7 +363,7 @@ export const CostBookResultsTable = React.memo(function CostBookResultsTable(pro
 
           {windowed.bottomPad > 0 && (
             <tr aria-hidden>
-              <td colSpan={7} style={{ height: windowed.bottomPad, padding: 0 }} />
+              <td colSpan={12} style={{ height: windowed.bottomPad, padding: 0 }} />
             </tr>
           )}
         </tbody>

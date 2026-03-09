@@ -25,6 +25,7 @@ import { PetlVirtualizedTable } from "./petl-virtualized-table";
 import { InvoicePetlVirtualizedTable } from "./invoice-petl-virtualized-table";
 import { InvoicePetlFlatVirtualizedTable } from "./invoice-petl-flat-virtualized";
 import { useDraggable } from "../../hooks/use-draggable";
+import ReconBatchPasteModal from "./recon-batch-paste-modal";
 import { JournalTab } from "./journal";
 import { RoleVisible } from "../../role-audit";
 import { FileDropZone } from "../../components/file-drop-zone";
@@ -583,6 +584,7 @@ interface PetlItem {
   categoryCode: string | null;
   selectionCode: string | null;
   activity: string | null;
+  unitCost: number | null;
   projectParticle?: {
     id: string;
     name: string;
@@ -5095,6 +5097,18 @@ ${htmlBody}
       }
   >(null);
 
+  // Batch paste: source entry to copy to similar lines
+  const [reconBatchSource, setReconBatchSource] = useState<{
+    kind: string;
+    tag: string;
+    description: string;
+    note: string;
+    unitCost: number;
+    unit: string;
+    categoryCode: string;
+    selectionCode: string;
+  } | null>(null);
+
   const [reconEditCostBookOpen, setReconEditCostBookOpen] = useState(false);
   const reconTagSelectRef = useRef<HTMLSelectElement | null>(null);
   const [reconFilePickerOpen, setReconFilePickerOpen] = useState(false);
@@ -5115,6 +5129,45 @@ ${htmlBody}
     existingEntry?: any; // Pass existing entry when editing to pre-fill modal
   } | null>(null);
   const [reconWorkflowUseNote, setReconWorkflowUseNote] = useState(false);
+
+  // Comparator picker state (one-click reconciliation from comparator estimates)
+  const [comparatorLines, setComparatorLines] = useState<any[]>([]);
+  const [comparatorPetlLine, setComparatorPetlLine] = useState<any>(null);
+  const [comparatorLoading, setComparatorLoading] = useState(false);
+
+  // Auto-fetch comparator lines when reconciliation workflow modal opens (new entries only)
+  useEffect(() => {
+    if (!reconWorkflowModal?.open || reconWorkflowModal.existingEntry) {
+      setComparatorLines([]);
+      setComparatorPetlLine(null);
+      return;
+    }
+    const sowItem = reconWorkflowModal.sowItem;
+    const cLineNo = sowItem?.sourceLineNo ?? sowItem?.lineNo;
+    if (!cLineNo || cLineNo <= 0) {
+      setComparatorLines([]);
+      setComparatorPetlLine(null);
+      return;
+    }
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+
+    setComparatorLoading(true);
+    setComparatorLines([]);
+    setComparatorPetlLine(null);
+
+    fetch(`${API_BASE}/projects/${id}/petl/comparator-lines/${cLineNo}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        setComparatorLines(data?.comparatorLines ?? []);
+        setComparatorPetlLine(data?.petlLine ?? null);
+      })
+      .catch(() => setComparatorLines([]))
+      .finally(() => setComparatorLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reconWorkflowModal?.open, reconWorkflowModal?.sowItemId]);
 
   const [costBookModalOpen, setCostBookModalOpen] = useState(false);
   const [petlCostBookPickerBusy, setPetlCostBookPickerBusy] = useState(false);
@@ -6586,75 +6639,65 @@ ${htmlBody}
           }),
         ]);
 
+        // --- Parse all response data into local variables BEFORE setting state ---
+        // This lets us batch ALL state updates into a single startPetlTransition call,
+        // producing one interruptible React render instead of 11+ sequential updates.
+
         const debug: any = {
           requestedAt: new Date().toISOString(),
           apiBase: API_BASE,
           projectId: project.id,
-          petl: {
-            url: petlUrl,
-            status: petlRes.status,
-            ok: petlRes.ok,
-          },
-          groups: {
-            url: groupsUrl,
-            status: groupsRes.status,
-            ok: groupsRes.ok,
-          },
-          estimateSummary: {
-            url: summaryUrl,
-            status: summaryRes.status,
-            ok: summaryRes.ok,
-          },
+          petl: { url: petlUrl, status: petlRes.status, ok: petlRes.ok },
+          groups: { url: groupsUrl, status: groupsRes.status, ok: groupsRes.ok },
+          estimateSummary: { url: summaryUrl, status: summaryRes.status, ok: summaryRes.ok },
         };
+
+        let nextItems: PetlItem[] | null = null;
+        let nextRecon: any[] | null = null;
+        let nextActivityIds: Set<string> | null = null;
+        let nextEstimateVersionId: string | null | undefined = undefined;
+        let nextGroups: typeof groups | null = null;
+        let nextUnitGroups: typeof unitGroups | null = null;
+        let nextItemCount: number | null | undefined = undefined;
+        let nextTotalAmount: number | null | undefined = undefined;
+        let nextComponentsCount: number | null | undefined = undefined;
+        let nextLoadError: string | null = null;
+        let nextShowDiagnostics = false;
 
         // PETL
         if (!cancelled && petlRes.ok) {
           const petl: any = await petlRes.json();
-          const items: PetlItem[] = Array.isArray(petl.items) ? petl.items : [];
-          const recon: any[] = Array.isArray(petl.reconciliationEntries)
-            ? petl.reconciliationEntries
-            : [];
-          const activityIds: string[] = Array.isArray(petl.reconciliationActivitySowItemIds)
-            ? petl.reconciliationActivitySowItemIds
-            : [];
+          nextItems = Array.isArray(petl.items) ? petl.items : [];
+          nextRecon = Array.isArray(petl.reconciliationEntries) ? petl.reconciliationEntries : [];
+          const rawActivityIds: string[] = Array.isArray(petl.reconciliationActivitySowItemIds)
+            ? petl.reconciliationActivitySowItemIds : [];
+          nextActivityIds = new Set(rawActivityIds.filter((v) => typeof v === "string" && v.length > 0));
+          nextEstimateVersionId = petl?.estimateVersionId ?? null;
 
-          setPetlItems(items);
-          setPetlReconciliationEntries(recon);
-          setPetlReconActivityIds(
-            new Set(activityIds.filter((v) => typeof v === "string" && v.length > 0)),
-          );
-
-          // Mark this reload tick as successfully loaded so tab switches don't trigger
-          // redundant refreshes.
           petlLastSuccessfulLoadRef.current = { projectId: project.id, reloadTick: petlReloadTick };
 
-          debug.petl.estimateVersionId = petl?.estimateVersionId ?? null;
-          debug.petl.itemsCount = items.length;
-          setPetlEstimateVersionId(petl?.estimateVersionId ?? null);
-          debug.petl.reconciliationEntriesCount = recon.length;
-          debug.petl.reconciliationActivitySowItemIdsCount = activityIds.length;
+          debug.petl.estimateVersionId = nextEstimateVersionId;
+          debug.petl.itemsCount = nextItems!.length;
+          debug.petl.reconciliationEntriesCount = nextRecon!.length;
+          debug.petl.reconciliationActivitySowItemIdsCount = rawActivityIds.length;
         } else if (!cancelled && !petlRes.ok) {
           const text = await petlRes.text().catch(() => "");
           debug.petl.errorText = text.slice(0, 5000);
-
-          setPetlItems([]);
-          setPetlReconciliationEntries([]);
-          setPetlReconActivityIds(new Set());
-          setPetlEstimateVersionId(null);
-
-          setPetlLoadError(
-            `PETL fetch failed (${petlRes.status}). ${text || "<empty response>"}`.slice(0, 8000),
-          );
-          setPetlShowDiagnostics(true);
+          nextItems = [];
+          nextRecon = [];
+          nextActivityIds = new Set();
+          nextEstimateVersionId = null;
+          nextLoadError = `PETL fetch failed (${petlRes.status}). ${text || "<empty response>"}`.slice(0, 8000);
+          nextShowDiagnostics = true;
         }
 
         // Groups
         if (!cancelled && groupsRes.ok) {
           const json: any = await groupsRes.json();
-          setGroups(Array.isArray(json.groups) ? json.groups : []);
-          setUnitGroups(Array.isArray(json.unitGroups) ? json.unitGroups : []);
-          debug.groups.groupsCount = Array.isArray(json.groups) ? json.groups.length : 0;
-          debug.groups.unitGroupsCount = Array.isArray(json.unitGroups) ? json.unitGroups.length : 0;
+          nextGroups = Array.isArray(json.groups) ? json.groups : [];
+          nextUnitGroups = Array.isArray(json.unitGroups) ? json.unitGroups : [];
+          debug.groups.groupsCount = nextGroups!.length;
+          debug.groups.unitGroupsCount = nextUnitGroups!.length;
         } else if (!cancelled && !groupsRes.ok) {
           const text = await groupsRes.text().catch(() => "");
           debug.groups.errorText = text.slice(0, 2000);
@@ -6663,37 +6706,54 @@ ${htmlBody}
         // Estimate summary
         if (!cancelled && summaryRes.ok) {
           const summary: any = await summaryRes.json();
-          setPetlItemCount(typeof summary.itemCount === "number" ? summary.itemCount : null);
-          setPetlTotalAmount(typeof summary.totalAmount === "number" ? summary.totalAmount : null);
-          setComponentsCount(typeof summary.componentsCount === "number" ? summary.componentsCount : null);
-
-          debug.estimateSummary.itemCount = summary?.itemCount ?? null;
-          debug.estimateSummary.totalAmount = summary?.totalAmount ?? null;
-          debug.estimateSummary.componentsCount = summary?.componentsCount ?? null;
+          nextItemCount = typeof summary.itemCount === "number" ? summary.itemCount : null;
+          nextTotalAmount = typeof summary.totalAmount === "number" ? summary.totalAmount : null;
+          nextComponentsCount = typeof summary.componentsCount === "number" ? summary.componentsCount : null;
+          debug.estimateSummary.itemCount = nextItemCount;
+          debug.estimateSummary.totalAmount = nextTotalAmount;
+          debug.estimateSummary.componentsCount = nextComponentsCount;
         } else if (!cancelled && !summaryRes.ok) {
           const text = await summaryRes.text().catch(() => "");
           debug.estimateSummary.errorText = text.slice(0, 2000);
         }
 
+        // --- Batch ALL state updates in a single transition ---
+        // This makes the re-render interruptible so the UI stays responsive.
         if (!cancelled) {
-          setPetlLastLoadDebug(debug);
+          startPetlTransition(() => {
+            if (nextItems != null) setPetlItems(nextItems);
+            if (nextRecon != null) setPetlReconciliationEntries(nextRecon);
+            if (nextActivityIds != null) setPetlReconActivityIds(nextActivityIds);
+            if (nextEstimateVersionId !== undefined) setPetlEstimateVersionId(nextEstimateVersionId);
+            if (nextGroups != null) setGroups(nextGroups);
+            if (nextUnitGroups != null) setUnitGroups(nextUnitGroups);
+            if (nextItemCount !== undefined) setPetlItemCount(nextItemCount);
+            if (nextTotalAmount !== undefined) setPetlTotalAmount(nextTotalAmount);
+            if (nextComponentsCount !== undefined) setComponentsCount(nextComponentsCount);
+            if (nextLoadError) setPetlLoadError(nextLoadError);
+            if (nextShowDiagnostics) setPetlShowDiagnostics(true);
+            setPetlLastLoadDebug(debug);
+            setPetlLoading(false);
+          });
         }
       } catch (err: any) {
         if (cancelled) return;
-        setPetlItems([]);
-        setPetlReconciliationEntries([]);
-        setPetlReconActivityIds(new Set());
-        setPetlLoadError(err?.message ?? "PETL fetch failed (network error)");
-        setPetlShowDiagnostics(true);
-        setPetlLastLoadDebug({
-          requestedAt: new Date().toISOString(),
-          apiBase: API_BASE,
-          projectId: project.id,
-          error: err?.message ?? String(err),
+        startPetlTransition(() => {
+          setPetlItems([]);
+          setPetlReconciliationEntries([]);
+          setPetlReconActivityIds(new Set());
+          setPetlLoadError(err?.message ?? "PETL fetch failed (network error)");
+          setPetlShowDiagnostics(true);
+          setPetlLastLoadDebug({
+            requestedAt: new Date().toISOString(),
+            apiBase: API_BASE,
+            projectId: project.id,
+            error: err?.message ?? String(err),
+          });
+          setPetlLoading(false);
         });
       } finally {
         petlLoadInFlightRef.current = false;
-        if (!cancelled) setPetlLoading(false);
       }
     };
 
@@ -9750,11 +9810,11 @@ ${htmlBody}
     setReconWorkflowUseNote(false);
   };
 
-  // The line-sequence PETL table can be very large. Memoize its JSX so opening the
-  // reconciliation drawer doesn't force React to rebuild thousands of rows.
-  // Lowered threshold from 100 to 50 for better paint performance on medium-sized PETLs.
-  const VIRTUALIZATION_THRESHOLD = 50;
-  const useVirtualizedTable = petlFlatItems.length > VIRTUALIZATION_THRESHOLD;
+  // Always use the virtualized table (React.memo + react-window) so every PETL
+  // render goes through a proper memo boundary. The non-virtualized inline table
+  // path has no memo protection and forces React to reconcile 1000+ elements on
+  // every state change.
+  const useVirtualizedTable = true;
 
   // Callbacks for virtualized table
   const handleVirtualToggleExpand = useCallback((itemId: string) => {
@@ -9880,6 +9940,84 @@ ${htmlBody}
     showPetlToast(`Percent complete updated to ${newPercent}%`);
   }, [showPetlToast]);
 
+  // Shared helper: fetch PETL + groups from server and batch-update state in a
+  // single transition.  Eliminates 5+ duplicated fetch-then-setState blocks and
+  // ensures every refresh path is non-blocking.
+  const refreshPetlFromServer = useCallback(
+    async (opts?: { includeGroups?: boolean; includeInvoice?: boolean }) => {
+      const token = localStorage.getItem("accessToken");
+      if (!token) return;
+
+      const includeGroups = opts?.includeGroups ?? true;
+      const includeInvoice = opts?.includeInvoice ?? false;
+
+      const fetches: Promise<Response>[] = [
+        fetch(`${API_BASE}/projects/${id}/petl`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ];
+      if (includeGroups) {
+        fetches.push(
+          fetch(`${API_BASE}/projects/${id}/petl-groups`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        );
+      }
+
+      try {
+        if (includeGroups) setGroupLoading(true);
+        const responses = await Promise.all(fetches);
+        const [petlRes, groupsRes] = responses;
+
+        let nextItems: PetlItem[] | null = null;
+        let nextRecon: any[] | null = null;
+        let nextGroups: typeof groups | null = null;
+        let nextUnitGroups: typeof unitGroups | null = null;
+
+        if (petlRes.ok) {
+          const petl: any = await petlRes.json();
+          nextItems = Array.isArray(petl.items) ? petl.items : [];
+          nextRecon = Array.isArray(petl.reconciliationEntries)
+            ? petl.reconciliationEntries
+            : null;
+        }
+        if (groupsRes?.ok) {
+          const json: any = await groupsRes.json();
+          nextGroups = Array.isArray(json.groups) ? json.groups : [];
+          nextUnitGroups = Array.isArray(json.unitGroups) ? json.unitGroups : [];
+        }
+
+        // Batch all state updates in a transition for smooth UI
+        startPetlTransition(() => {
+          if (nextItems != null) setPetlItems(nextItems);
+          if (nextRecon != null) setPetlReconciliationEntries(nextRecon);
+          if (nextGroups != null) setGroups(nextGroups);
+          if (nextUnitGroups != null) setUnitGroups(nextUnitGroups);
+        });
+
+        // Optionally refresh invoice (outside transition — it's a separate concern)
+        if (includeInvoice && activeInvoice?.id) {
+          try {
+            const invRes = await fetch(
+              `${API_BASE}/projects/${id}/invoices/${activeInvoice.id}`,
+              { headers: { Authorization: `Bearer ${token}` } },
+            );
+            if (invRes.ok) {
+              const invJson = await invRes.json();
+              setActiveInvoice(invJson);
+            }
+          } catch { /* non-fatal */ }
+          setProjectInvoices(null);
+        }
+      } catch {
+        // non-fatal — the optimistic update is already in place
+      } finally {
+        if (includeGroups) setGroupLoading(false);
+      }
+    },
+    [id, startPetlTransition, activeInvoice?.id],
+  );
+
   const handleVirtualPercentChange = useCallback(
     async (sowItemId: string, displayLineNo: string | number, newPercent: number, isAcvOnly: boolean) => {
       const token = localStorage.getItem("accessToken");
@@ -9926,60 +10064,14 @@ ${htmlBody}
               : `Line #${displayLineNo} set to ${newPercent}%`
           );
 
-          // Refresh PETL from server
-          try {
-            const petlRes = await fetch(`${API_BASE}/projects/${id}/petl`, {
-              headers: { Authorization: `Bearer ${token}` },
-            });
-            if (petlRes.ok) {
-              const petl: any = await petlRes.json();
-              const items: PetlItem[] = Array.isArray(petl.items) ? petl.items : [];
-              setPetlItems(items);
-            }
-          } catch {
-            // non-fatal
-          }
-
-          // Refresh groups
-          try {
-            setGroupLoading(true);
-            const groupsRes = await fetch(`${API_BASE}/projects/${id}/petl-groups`, {
-              headers: { Authorization: `Bearer ${token}` },
-            });
-            if (groupsRes.ok) {
-              const json: any = await groupsRes.json();
-              setGroups(Array.isArray(json.groups) ? json.groups : []);
-              setUnitGroups(Array.isArray(json.unitGroups) ? json.unitGroups : []);
-            }
-          } catch {
-            // non-fatal
-          } finally {
-            setGroupLoading(false);
-          }
-
-          // Refresh the active invoice so Living Invoice reflects PETL changes
-          if (activeInvoice?.id) {
-            try {
-              const invRes = await fetch(
-                `${API_BASE}/projects/${id}/invoices/${activeInvoice.id}`,
-                { headers: { Authorization: `Bearer ${token}` } },
-              );
-              if (invRes.ok) {
-                const invJson = await invRes.json();
-                setActiveInvoice(invJson);
-              }
-            } catch {
-              // non-fatal
-            }
-          }
-          // Also refresh the invoice list to update totals
-          setProjectInvoices(null);
+          // Refresh PETL + groups from server in a transition
+          await refreshPetlFromServer({ includeGroups: true, includeInvoice: true });
         } catch (err) {
           console.error(err);
         }
       });
     },
-    [id, busyOverlay, showPetlToast, activeInvoice?.id],
+    [id, busyOverlay, showPetlToast, refreshPetlFromServer],
   );
 
   const petlLineSequenceTable = useMemo(() => {
@@ -11593,7 +11685,9 @@ ${htmlBody}
         const finalItemAmount = parseReconNumber(newDraft.itemAmount);
         const tax = parseReconNumber(newDraft.salesTaxAmount);
         const op = parseReconNumber(newDraft.opAmount);
-        const rcv = finalItemAmount + tax + op;
+        let rcv = finalItemAmount + tax + op;
+        // For CREDITs, ensure RCV is negative
+        if (newDraft.kind === "CREDIT" && rcv > 0) rcv = -rcv;
         newDraft.rcvAmount = rcv === 0 ? "" : String(rcv);
       }
       
@@ -11939,33 +12033,13 @@ ${htmlBody}
       // Give backend a moment to process and commit the changes
       await new Promise(resolve => setTimeout(resolve, 200));
       
-      // Refresh PETL items and reconciliation data
-      setPetlReloadTick((t) => t + 1);
-      
       // Reload reconciliation panel if open
       if (petlReconPanel.sowItemId) {
         await loadPetlReconciliation(petlReconPanel.sowItemId);
       }
       
-      // Explicitly fetch fresh PETL items to show updated values
-      try {
-        const petlRes = await fetch(`${API_BASE}/projects/${id}/petl`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (petlRes.ok) {
-          const petl: any = await petlRes.json();
-          const items: PetlItem[] = Array.isArray(petl.items) ? petl.items : [];
-          setPetlItems(items);
-          
-          // Also update reconciliation entries
-          const recon: any[] = Array.isArray(petl.reconciliationEntries)
-            ? petl.reconciliationEntries
-            : [];
-          setPetlReconciliationEntries(recon);
-        }
-      } catch {
-        // Non-fatal - the reload tick will trigger refresh anyway
-      }
+      // Refresh PETL items + groups in a transition (replaces reload tick + manual fetch)
+      await refreshPetlFromServer({ includeGroups: false });
 
       closeReconEntryEdit();
     } catch (err: any) {
@@ -33688,6 +33762,99 @@ onClick={() => setManageTemplatesOpen(true)}
         </div>
       ) : null}
 
+      {/* Persistent line-item reference bar — stays above all recon modals */}
+      {petlReconPanel.open && petlReconPanel.data?.xactCostComponents && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 1200,
+            background: "linear-gradient(135deg, #1e293b 0%, #0f172a 100%)",
+            color: "#ffffff",
+            borderRadius: "0 0 12px 12px",
+            padding: "8px 20px",
+            boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
+            display: "flex",
+            alignItems: "center",
+            gap: 20,
+            fontSize: 11,
+            minWidth: 700,
+            maxWidth: "96vw",
+          }}
+        >
+          {/* Description / task */}
+          <div style={{ minWidth: 140, maxWidth: 260 }}>
+            <div style={{ fontSize: 9, color: "#94a3b8", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>
+              Line {petlReconPanel.data?.sowItem?.sourceLineNo || petlReconPanel.data?.sowItem?.lineNo || ""}
+            </div>
+            <div style={{ fontWeight: 600, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+              title={petlReconPanel.data?.sowItem?.description || ""}
+            >
+              {petlReconPanel.data?.sowItem?.description || "—"}
+            </div>
+          </div>
+          {/* Qty */}
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 9, color: "#94a3b8", fontWeight: 600 }}>Qty</div>
+            <div style={{ color: "#f1f5f9", fontWeight: 700, fontSize: 12 }}>
+              {petlReconPanel.data?.sowItem?.qty ?? "—"}
+            </div>
+          </div>
+          {/* Cat */}
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 9, color: "#94a3b8", fontWeight: 600 }}>Cat</div>
+            <div style={{ color: "#e2e8f0", fontWeight: 600, fontSize: 11 }}>
+              {petlReconPanel.data?.sowItem?.categoryCode || "—"}
+            </div>
+          </div>
+          {/* Sel */}
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 9, color: "#94a3b8", fontWeight: 600 }}>Sel</div>
+            <div style={{ color: "#e2e8f0", fontWeight: 600, fontSize: 11 }}>
+              {petlReconPanel.data?.sowItem?.selectionCode || "—"}
+            </div>
+          </div>
+          <div style={{ width: 1, height: 28, background: "#334155", flexShrink: 0 }} />
+          {/* Worker's Wage */}
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 9, color: "#94a3b8", fontWeight: 600 }}>Worker's Wage</div>
+            <div style={{ color: "#93c5fd", fontWeight: 700, fontSize: 12 }}>
+              ${(petlReconPanel.data.xactCostComponents.workersWage ?? 0).toFixed(2)}
+            </div>
+          </div>
+          {/* Labor Burden */}
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 9, color: "#94a3b8", fontWeight: 600 }}>Labor Burden</div>
+            <div style={{ color: "#c4b5fd", fontWeight: 700, fontSize: 12 }}>
+              ${(petlReconPanel.data.xactCostComponents.laborBurden ?? 0).toFixed(2)}
+            </div>
+          </div>
+          {/* Labor Overhead */}
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 9, color: "#94a3b8", fontWeight: 600 }}>Labor Overhead</div>
+            <div style={{ color: "#d8b4fe", fontWeight: 700, fontSize: 12 }}>
+              ${(petlReconPanel.data.xactCostComponents.laborOverhead ?? 0).toFixed(2)}
+            </div>
+          </div>
+          {/* Material */}
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 9, color: "#94a3b8", fontWeight: 600 }}>Material</div>
+            <div style={{ color: "#86efac", fontWeight: 700, fontSize: 12 }}>
+              ${(petlReconPanel.data.xactCostComponents.material ?? 0).toFixed(2)}
+            </div>
+          </div>
+          {/* Equipment */}
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 9, color: "#94a3b8", fontWeight: 600 }}>Equipment</div>
+            <div style={{ color: "#fcd34d", fontWeight: 700, fontSize: 12 }}>
+              ${(petlReconPanel.data.xactCostComponents.equipment ?? 0).toFixed(2)}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* PETL reconciliation side drawer */}
       {petlReconPanel.open ? (
         <div
@@ -33710,10 +33877,10 @@ onClick={() => setManageTemplatesOpen(true)}
           <div
             style={{
               position: "relative",
-              margin: "24px 0",
+              margin: "60px 0 24px 0",
               width: "min(960px, 96vw)",
               maxWidth: "96vw",
-              maxHeight: "70vh",
+              maxHeight: "calc(100vh - 100px)",
               backgroundColor: "#ffffff",
               borderRadius: 10,
               boxShadow: "0 20px 50px rgba(15,23,42,0.35)",
@@ -33738,8 +33905,8 @@ onClick={() => setManageTemplatesOpen(true)}
                 ...reconPanelDraggable.handleProps.style,
               }}
             >
-              <div>
-                PETL Reconciliation
+            <div>
+                Reconcile Line {petlReconPanel.data?.sowItem?.sourceLineNo || petlReconPanel.data?.sowItem?.lineNo || ""}
                 <div style={{ fontSize: 11, fontWeight: 400, color: "#6b7280" }}>
                   {petlReconPanel.data?.sowItem?.description || ""}
                 </div>
@@ -34319,7 +34486,7 @@ onClick={() => setManageTemplatesOpen(true)}
                                       textAlign: "left",
                                     }}
                                   >
-                                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
                                       <button
                                         type="button"
                                         onClick={(event) => {
@@ -34337,6 +34504,38 @@ onClick={() => setManageTemplatesOpen(true)}
                                       >
                                         Edit
                                       </button>
+                                      {/* Copy to Similar Lines — only for non-NOTE_ONLY entries with a unit cost */}
+                                      {String(e.kind) !== "NOTE_ONLY" && e.unitCost != null && (
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            setReconBatchSource({
+                                              kind: String(e.kind ?? "CREDIT"),
+                                              tag: String(e.tag ?? ""),
+                                              description: String(e.description ?? ""),
+                                              note: String(e.note ?? ""),
+                                              unitCost: Number(e.unitCost ?? 0),
+                                              unit: String(e.unit ?? ""),
+                                              categoryCode: String(e.categoryCode ?? ""),
+                                              selectionCode: String(e.selectionCode ?? ""),
+                                            });
+                                          }}
+                                          style={{
+                                            padding: "4px 8px",
+                                            borderRadius: 6,
+                                            border: "1px solid #7c3aed",
+                                            background: "#f5f3ff",
+                                            color: "#5b21b6",
+                                            cursor: "pointer",
+                                            fontSize: 11,
+                                            whiteSpace: "nowrap",
+                                          }}
+                                          title="Copy this entry's unit cost to other similar PETL lines"
+                                        >
+                                          Copy to Similar
+                                        </button>
+                                      )}
                                       {canChangeStatus && (
                                         <>
                                           <button
@@ -34553,9 +34752,10 @@ onClick={() => setManageTemplatesOpen(true)}
             zIndex: 70,
             background: "rgba(15,23,42,0.45)",
             display: "flex",
-            alignItems: "center",
+            alignItems: "flex-start",
             justifyContent: "center",
-            padding: 12,
+            paddingTop: 60,
+            padding: "60px 12px 12px 12px",
           }}
         >
           <div
@@ -34940,9 +35140,29 @@ onClick={() => setManageTemplatesOpen(true)}
                   value={reconEntryEdit.draft.kind}
                   onChange={(e) => {
                     const v = e.target.value;
-                    setReconEntryEdit((prev) =>
-                      prev ? { ...prev, draft: { ...prev.draft, kind: v } } : prev,
-                    );
+                    setReconEntryEdit((prev) => {
+                      if (!prev) return prev;
+                      const newDraft = { ...prev.draft, kind: v };
+                      const wasCredit = prev.draft.kind === "CREDIT";
+                      const isNowCredit = v === "CREDIT";
+
+                      // Switching TO credit: negate positive amounts
+                      if (isNowCredit && !wasCredit) {
+                        const item = parseReconNumber(newDraft.itemAmount);
+                        if (item > 0) newDraft.itemAmount = String(-item);
+                        const rcv = parseReconNumber(newDraft.rcvAmount);
+                        if (rcv > 0) newDraft.rcvAmount = String(-rcv);
+                      }
+                      // Switching FROM credit to non-credit: make amounts positive
+                      if (wasCredit && !isNowCredit) {
+                        const item = parseReconNumber(newDraft.itemAmount);
+                        if (item < 0) newDraft.itemAmount = String(Math.abs(item));
+                        const rcv = parseReconNumber(newDraft.rcvAmount);
+                        if (rcv < 0) newDraft.rcvAmount = String(Math.abs(rcv));
+                      }
+
+                      return { ...prev, draft: newDraft };
+                    });
                   }}
                   style={{
                     padding: "6px 8px",
@@ -35647,7 +35867,7 @@ onClick={() => setManageTemplatesOpen(true)}
                 {(() => {
                   const isCredit = reconEntryEdit.draft.kind === "CREDIT";
                   const rcvNum = parseFloat(reconEntryEdit.draft.rcvAmount.replace(/,/g, "")) || 0;
-                  const showNegativeWarning = isCredit && rcvNum > 0;
+                  const _rcvNum = rcvNum; // retained for future use
                   return (
                     <>
                       <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2, color: isCredit ? "#b91c1c" : undefined }}>
@@ -35658,8 +35878,8 @@ onClick={() => setManageTemplatesOpen(true)}
                           </span>
                         )}
                       </div>
-                      <div style={{ fontSize: 10, color: isCredit ? "#dc2626" : "#6b7280", marginBottom: 4 }}>
-                        {isCredit ? "Credits should be negative to reduce the invoice total" : "Item amount + Tax + O&P/Other"}
+                      <div style={{ fontSize: 10, color: isCredit ? "#7c3aed" : "#6b7280", marginBottom: 4 }}>
+                        {isCredit ? "Type CO is credit — numbers reflect credit" : "Item amount + Tax + O&P/Other"}
                       </div>
                       <input
                         value={reconEntryEdit.draft.rcvAmount}
@@ -35677,7 +35897,7 @@ onClick={() => setManageTemplatesOpen(true)}
                               : prev,
                           );
                         }}
-                        placeholder={isCredit ? "Enter negative amount" : "(blank for note-only)"}
+                        placeholder={isCredit ? "Auto-negated for credit" : "(blank for note-only)"}
                         style={{
                           padding: "6px 8px",
                           borderRadius: 8,
@@ -35689,25 +35909,24 @@ onClick={() => setManageTemplatesOpen(true)}
                           backgroundColor: isCredit ? "#fef2f2" : (reconEntryEdit.rcvManuallyEdited ? "#ffffff" : "#eff6ff"),
                         }}
                       />
-                      {showNegativeWarning && (
+                      {isCredit && (
                         <div
                           style={{
                             marginTop: 6,
                             padding: "6px 10px",
                             borderRadius: 6,
-                            backgroundColor: "#fef2f2",
-                            border: "1px solid #dc2626",
+                            backgroundColor: "#f3f0ff",
+                            border: "1px solid #7c3aed",
                             fontSize: 11,
-                            color: "#991b1b",
+                            color: "#5b21b6",
                           }}
                         >
-                          <strong>⚠️ Positive value</strong> — Credits should have negative RCV to reduce the client's invoice.
-                          Add a minus sign (-) before the amount.
+                          <strong>CO Credit</strong> — Type CO is credit, numbers reflect credit.
                         </div>
                       )}
                       <div style={{ marginTop: 4, fontSize: 11, color: "#6b7280" }}>
                         {reconEntryEdit.rcvManuallyEdited
-                          ? "For CREDIT entries, keep this negative; for ADD entries, keep it positive."
+                          ? (isCredit ? "CO credit — amounts are auto-negated." : "Keep positive for ADD entries.")
                           : "Auto-calculated from Item + Tax + O\u0026P. Type a value to override."}
                       </div>
                     </>
@@ -36281,6 +36500,24 @@ onClick={() => setManageTemplatesOpen(true)}
         />
       )}
 
+      {/* Batch paste modal — copy recon entry to similar PETL lines */}
+      {reconBatchSource && project && (
+        <ReconBatchPasteModal
+          source={reconBatchSource}
+          petlItems={petlItems}
+          reconEntriesBySowItemId={reconEntriesBySowItemId}
+          projectId={project.id}
+          apiBase={API_BASE}
+          onClose={() => setReconBatchSource(null)}
+          onSuccess={() => {
+            setPetlReloadTick((t) => t + 1);
+            if (petlReconPanel.open && petlReconPanel.sowItemId) {
+              void loadPetlReconciliation(petlReconPanel.sowItemId);
+            }
+          }}
+        />
+      )}
+
       {reconEntryEdit && reconFilePickerOpen && project && (
         <div
           style={{
@@ -36706,6 +36943,47 @@ onClick={() => setManageTemplatesOpen(true)}
           }
         };
         
+        const createReconFromComparator = async (comparatorRowId: string, cTag: 'SUPPLEMENT' | 'CHANGE_ORDER', cKind: 'ADD' | 'CREDIT') => {
+          const token = localStorage.getItem("accessToken");
+          if (!token) {
+            alert("Missing access token; please log in again.");
+            return;
+          }
+          try {
+            await busyOverlay.run("Creating entry from comparator…", async () => {
+              const res = await fetch(
+                `${API_BASE}/projects/${id}/petl/${reconWorkflowModal!.sowItemId}/reconciliation/from-comparator`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                  },
+                  body: JSON.stringify({
+                    comparatorRawRowId: comparatorRowId,
+                    kind: cKind,
+                    tag: cTag,
+                  }),
+                }
+              );
+              if (!res.ok) {
+                const text = await res.text().catch(() => "");
+                alert(`Failed to create entry from comparator (${res.status}) ${text}`);
+                return;
+              }
+              const result = await res.json();
+              closeModal();
+              setPetlReloadTick(t => t + 1);
+              if (reconWorkflowModal!.sowItemId) {
+                await loadPetlReconciliation(reconWorkflowModal!.sowItemId);
+              }
+              openReconEntryEdit(result.entry ?? result);
+            });
+          } catch (err: any) {
+            alert(err?.message ?? "Failed to create entry from comparator");
+          }
+        };
+
         return (
           <div
             style={{
@@ -36889,6 +37167,137 @@ onClick={() => setManageTemplatesOpen(true)}
                       </div>
                     )}
                     
+                    {/* FROM COMPARATOR — one-click reconciliation */}
+                    {!isEditing && comparatorLines.length > 0 && (
+                      <div style={{ marginBottom: 20 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: "#059669", display: "flex", alignItems: "center", gap: 6 }}>
+                          ⚡ FROM COMPARATOR
+                          <span style={{ fontSize: 10, fontWeight: 400, color: "#6b7280" }}>One-click • Activity-specific pricing</span>
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {comparatorLines.map((cl: any) => {
+                            const cActivity = String(cl.estimateActivity ?? cl.activity ?? "Unknown").toUpperCase();
+                            const actColor = cActivity.includes("REMOVE") ? "#dc2626" : cActivity.includes("INSTALL") ? "#059669" : cActivity.includes("MATERIAL") ? "#2563eb" : "#6b7280";
+                            const actBg = cActivity.includes("REMOVE") ? "#fef2f2" : cActivity.includes("INSTALL") ? "#ecfdf5" : cActivity.includes("MATERIAL") ? "#eff6ff" : "#f3f4f6";
+                            const cUc = Number(cl.unitCost ?? 0);
+                            const cQty = Number(qty ?? cl.qty ?? 1);
+                            const cAmt = cUc * cQty;
+
+                            return (
+                              <div
+                                key={cl.id}
+                                style={{
+                                  padding: 12,
+                                  borderRadius: 8,
+                                  border: `1px solid ${actColor}30`,
+                                  background: actBg,
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                                  <span style={{
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    color: actColor,
+                                    background: `${actColor}18`,
+                                    padding: "2px 8px",
+                                    borderRadius: 4,
+                                    letterSpacing: "0.05em",
+                                  }}>
+                                    {cActivity}
+                                  </span>
+                                  <span style={{ fontSize: 11, color: "#374151", flex: 1 }}>
+                                    ${cUc.toFixed(2)}/{cl.unit ?? unit ?? "EA"} × {cQty} = ${cAmt.toFixed(2)}
+                                  </span>
+                                </div>
+                                <div style={{ display: "flex", gap: 6 }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => createReconFromComparator(cl.id, 'SUPPLEMENT', 'ADD')}
+                                    style={{
+                                      flex: 1,
+                                      padding: "6px 4px",
+                                      borderRadius: 6,
+                                      border: "1px solid #2563eb",
+                                      background: "#eff6ff",
+                                      cursor: "pointer",
+                                      fontSize: 10,
+                                      fontWeight: 600,
+                                      color: "#1d4ed8",
+                                    }}
+                                  >
+                                    Supp +
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => createReconFromComparator(cl.id, 'SUPPLEMENT', 'CREDIT')}
+                                    style={{
+                                      flex: 1,
+                                      padding: "6px 4px",
+                                      borderRadius: 6,
+                                      border: "1px solid #1e40af",
+                                      background: "#dbeafe",
+                                      cursor: "pointer",
+                                      fontSize: 10,
+                                      fontWeight: 600,
+                                      color: "#1e40af",
+                                    }}
+                                  >
+                                    Supp −
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => createReconFromComparator(cl.id, 'CHANGE_ORDER', 'ADD')}
+                                    style={{
+                                      flex: 1,
+                                      padding: "6px 4px",
+                                      borderRadius: 6,
+                                      border: "1px solid #7c3aed",
+                                      background: "#f5f3ff",
+                                      cursor: "pointer",
+                                      fontSize: 10,
+                                      fontWeight: 600,
+                                      color: "#6d28d9",
+                                    }}
+                                  >
+                                    CO +
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => createReconFromComparator(cl.id, 'CHANGE_ORDER', 'CREDIT')}
+                                    style={{
+                                      flex: 1,
+                                      padding: "6px 4px",
+                                      borderRadius: 6,
+                                      border: "1px solid #5b21b6",
+                                      background: "#ede9fe",
+                                      cursor: "pointer",
+                                      fontSize: 10,
+                                      fontWeight: 600,
+                                      color: "#5b21b6",
+                                    }}
+                                  >
+                                    CO −
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {/* Divider between comparator and manual options */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 20 }}>
+                          <div style={{ flex: 1, height: 1, background: "#e5e7eb" }} />
+                          <span style={{ fontSize: 10, color: "#9ca3af", whiteSpace: "nowrap" }}>or create manually</span>
+                          <div style={{ flex: 1, height: 1, background: "#e5e7eb" }} />
+                        </div>
+                      </div>
+                    )}
+                    {!isEditing && comparatorLoading && (
+                      <div style={{ marginBottom: 16, fontSize: 11, color: "#6b7280", display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ display: "inline-block", width: 12, height: 12, border: "2px solid #d1d5db", borderTopColor: "#059669", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                        Loading comparator estimates…
+                      </div>
+                    )}
+
                     {/* SUPPLEMENTS Section */}
                     <div style={{ marginBottom: 20 }}>
                       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: "#1d4ed8", display: "flex", alignItems: "center", gap: 6 }}>

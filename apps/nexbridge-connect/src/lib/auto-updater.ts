@@ -105,6 +105,15 @@ export function startAutoUpdater(onStatus: StatusCallback): () => void {
 }
 
 /**
+ * Trigger an immediate update check. Called by the mesh client when
+ * the server broadcasts an update:available event.
+ */
+export function triggerCheck(): void {
+  console.log("[auto-updater] triggered immediate check via mesh push");
+  checkOnce();
+}
+
+/**
  * Install the pending update and relaunch the app.
  * Call this when the user clicks "Restart Now".
  */

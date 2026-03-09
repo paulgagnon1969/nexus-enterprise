@@ -1,6 +1,6 @@
 export { default as prisma } from "./client";
 export * from "@prisma/client";
-export { importXactCsvForProject } from "./import-xact";
+export { importXactCsvForProject, importComparatorCsvForProject } from "./import-xact";
 export { importPetlNotesFromReconcileCsv } from "./import-petl-notes-from-reconcile";
 export {
   importXactComponentsCsvForEstimate,

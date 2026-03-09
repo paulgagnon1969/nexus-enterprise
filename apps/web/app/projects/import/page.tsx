@@ -30,6 +30,16 @@ function ProjectImportPageInner() {
   const [componentsJobId, setComponentsJobId] = useState<string | null>(null);
   const [componentsJob, setComponentsJob] = useState<any>(null);
 
+  // Comparator CSV upload state
+  const [comparatorFiles, setComparatorFiles] = useState<FileList | null>(null);
+  const [comparatorLoading, setComparatorLoading] = useState(false);
+  const [comparatorError, setComparatorError] = useState<string | null>(null);
+  const [comparatorJobs, setComparatorJobs] = useState<{ jobId: string; fileName: string; status?: string; progress?: number; message?: string }[]>([]);
+
+  // Previously uploaded comparator estimates
+  const [existingComparators, setExistingComparators] = useState<{ id: string; fileName: string; activity: string | null; status: string; rowCount: number; importedAt: string | null; createdAt: string }[]>([]);
+  const [existingComparatorsLoading, setExistingComparatorsLoading] = useState(false);
+
   // Lightweight "script window" logs for RAW and Components jobs so users can
   // see progress messages similar to the worker console.
   const [rawJobLog, setRawJobLog] = useState<string[]>([]);
@@ -72,6 +82,27 @@ function ProjectImportPageInner() {
 
     loadProjects();
   }, [searchParams]);
+
+  // Fetch existing comparator estimates when project changes
+  const loadExistingComparators = async (pid: string) => {
+    const token = localStorage.getItem("accessToken");
+    if (!token || !pid) { setExistingComparators([]); return; }
+    setExistingComparatorsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/projects/${pid}/comparator-estimates`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        setExistingComparators(await res.json());
+      }
+    } catch { /* ignore */ }
+    finally { setExistingComparatorsLoading(false); }
+  };
+
+  useEffect(() => {
+    if (projectId) { void loadExistingComparators(projectId); }
+    else { setExistingComparators([]); }
+  }, [projectId]);
 
   useEffect(() => {
     if (!isAnyLoading) return;
@@ -220,6 +251,39 @@ function ProjectImportPageInner() {
       done = true;
     };
   }, [componentsJobId]);
+
+  function pollComparatorJob(jobId: string, token: string) {
+    let done = false;
+    const poll = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/import-jobs/${jobId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        setComparatorJobs((prev) =>
+          prev.map((j) =>
+            j.jobId === jobId
+              ? { ...j, status: json?.status, progress: json?.progress ?? 0, message: json?.message ?? "" }
+              : j,
+          ),
+        );
+        if (json?.status === "SUCCEEDED" || json?.status === "FAILED") {
+          done = true;
+        }
+      } catch {
+        // ignore
+      }
+    };
+    void poll();
+    const id = window.setInterval(() => {
+      if (done) {
+        window.clearInterval(id);
+        return;
+      }
+      void poll();
+    }, 1500);
+  }
 
   async function performRawImport(): Promise<boolean> {
     setError(null);
@@ -849,6 +913,175 @@ function ProjectImportPageInner() {
             >
               {JSON.stringify(componentsResult, null, 2)}
             </pre>
+          )}
+        </div>
+
+        <hr style={{ marginTop: 20, marginBottom: 12, borderColor: "#e5e7eb" }} />
+
+        <div
+          style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13 }}
+        >
+          <div style={{ fontWeight: 600 }}>Step 3 – Comparator Files (optional)</div>
+          <p style={{ fontSize: 12, color: "#6b7280", margin: 0 }}>
+            Upload comparator CSVs for activity-based pricing (Remove Only, Install
+            Only, Materials Only). Activity type is auto-detected from each file.
+            Up to 3 files.
+          </p>
+
+          {/* Previously uploaded comparators */}
+          {existingComparatorsLoading && (
+            <div style={{ fontSize: 12, color: "#6b7280" }}>Loading existing comparators…</div>
+          )}
+          {existingComparators.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 4 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>Uploaded comparators</div>
+              {existingComparators.map((ec) => {
+                const actLabel = String(ec.activity ?? "Unknown").toUpperCase();
+                const actColor = actLabel.includes("REMOVE") ? "#dc2626" : actLabel.includes("INSTALL") ? "#059669" : actLabel.includes("MATERIAL") ? "#2563eb" : "#6b7280";
+                return (
+                  <div
+                    key={ec.id}
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: 6,
+                      border: `1px solid ${ec.status === "completed" ? "#d1d5db" : "#fca5a5"}`,
+                      background: ec.status === "completed" ? "#f9fafb" : "#fef2f2",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      fontSize: 12,
+                    }}
+                  >
+                    <span style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: actColor,
+                      background: `${actColor}15`,
+                      padding: "2px 6px",
+                      borderRadius: 4,
+                    }}>{actLabel}</span>
+                    <span style={{ flex: 1, color: "#374151", fontWeight: 500 }}>{ec.fileName}</span>
+                    <span style={{ color: "#6b7280", fontSize: 11 }}>{ec.rowCount} rows</span>
+                    <span style={{ color: "#9ca3af", fontSize: 10 }}>
+                      {ec.importedAt ? new Date(ec.importedAt).toLocaleDateString() : ""}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <label style={{ fontSize: 13 }}>
+            <span style={{ display: "block", marginBottom: 4 }}>Comparator CSV files</span>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              multiple
+              onChange={e => setComparatorFiles(e.target.files)}
+              style={{ marginTop: 2, fontSize: 12 }}
+            />
+          </label>
+
+          {comparatorError && (
+            <div style={{ color: "#b91c1c", fontSize: 12 }}>{comparatorError}</div>
+          )}
+
+          <button
+            type="button"
+            disabled={comparatorLoading || !comparatorFiles?.length}
+            style={{
+              marginTop: 4,
+              padding: "6px 10px",
+              borderRadius: 6,
+              border: "none",
+              backgroundColor: comparatorLoading || !comparatorFiles?.length ? "#e5e7eb" : "#7c3aed",
+              color: comparatorLoading || !comparatorFiles?.length ? "#4b5563" : "#f9fafb",
+              fontSize: 13,
+              fontWeight: 500,
+              cursor: comparatorLoading || !comparatorFiles?.length ? "default" : "pointer",
+            }}
+            onClick={async () => {
+              if (!projectId) {
+                setComparatorError("Please select a project first.");
+                return;
+              }
+              if (!comparatorFiles?.length) {
+                setComparatorError("Please select at least one comparator CSV file.");
+                return;
+              }
+              setComparatorError(null);
+              setComparatorLoading(true);
+
+              try {
+                const token = localStorage.getItem("accessToken");
+                if (!token) {
+                  setComparatorError("Missing access token. Please login again.");
+                  return;
+                }
+
+                const form = new FormData();
+                for (let i = 0; i < comparatorFiles.length; i++) {
+                  form.append("files", comparatorFiles[i]);
+                }
+
+                const res = await fetch(
+                  `${API_BASE}/projects/${projectId}/import-jobs/xact-comparator`,
+                  {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${token}` },
+                    body: form,
+                  },
+                );
+
+                const json = await res.json().catch(() => null);
+                if (!res.ok) {
+                  setComparatorError(
+                    `Comparator upload failed: ${json ? JSON.stringify(json) : `${res.status} ${res.statusText}`}`,
+                  );
+                  return;
+                }
+
+                const jobs = (json?.jobs ?? []) as { jobId: string; fileName: string }[];
+                setComparatorJobs(jobs.map(j => ({ ...j, status: "QUEUED", progress: 0 })));
+
+                // Start polling each job.
+                for (const j of jobs) {
+                  pollComparatorJob(j.jobId, token);
+                }
+
+                // Refresh the existing comparators list after upload completes
+                setTimeout(() => void loadExistingComparators(projectId), 3000);
+              } catch (err: any) {
+                setComparatorError(err.message ?? String(err));
+              } finally {
+                setComparatorLoading(false);
+              }
+            }}
+          >
+            {comparatorLoading ? "Uploading…" : "Upload comparator CSVs"}
+          </button>
+
+          {comparatorJobs.length > 0 && (
+            <div style={{ marginTop: 8, fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+              {comparatorJobs.map((cj) => (
+                <div
+                  key={cj.jobId}
+                  style={{
+                    padding: 8,
+                    borderRadius: 6,
+                    border: `1px solid ${cj.status === "SUCCEEDED" ? "#16a34a" : cj.status === "FAILED" ? "#b91c1c" : "#d1d5db"}`,
+                    backgroundColor:
+                      cj.status === "SUCCEEDED" ? "#ecfdf3" : cj.status === "FAILED" ? "#fef2f2" : "#f9fafb",
+                  }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: 2 }}>{cj.fileName}</div>
+                  <div style={{ color: "#6b7280" }}>
+                    Status: {cj.status ?? "…"} · Progress: {cj.progress ?? 0}%
+                    {cj.message ? ` · ${cj.message}` : ""}
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </form>

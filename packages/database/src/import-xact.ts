@@ -1758,3 +1758,285 @@ export async function importXactCsvForProject(options: {
     throw err;
   }
 }
+
+/**
+ * Lightweight comparator CSV import.
+ *
+ * Comparator CSVs share the same line items as the PETL but with a different
+ * SOW / activity (e.g., Remove Only, Install Only, Materials Only).  We store
+ * them as EstimateVersion records with `estimateKind = "comparator"` and
+ * populate only RawXactRow — no SOW, SowItem, particle, or unit creation.
+ *
+ * The activity type is auto-detected from the CSV's Activity column.
+ * Comparator data also feeds the tenant cost book so activity-specific
+ * pricing is available cross-project during reconciliation.
+ */
+export async function importComparatorCsvForProject(options: {
+  projectId: string;
+  csvPath: string;
+  importedByUserId?: string;
+}) {
+  const { projectId, csvPath, importedByUserId } = options;
+
+  if (!fs.existsSync(csvPath)) {
+    throw new Error(`Comparator CSV not found at ${csvPath}`);
+  }
+
+  const project = await prisma.project.findUnique({ where: { id: projectId } });
+  if (!project) {
+    throw new Error("Project not found");
+  }
+
+  // Count existing comparator versions to assign a sequence number.
+  const existingComparators = await prisma.estimateVersion.count({
+    where: { projectId, estimateKind: "comparator" },
+  });
+
+  const estimateVersion = await prisma.estimateVersion.create({
+    data: {
+      projectId,
+      sourceType: "xact_comparator",
+      fileName: path.basename(csvPath),
+      storedPath: path.relative(process.cwd(), csvPath),
+      estimateKind: "comparator",
+      sequenceNo: existingComparators + 1,
+      defaultPayerType: "carrier",
+      status: "parsing",
+      importedByUserId,
+    },
+  });
+
+  try {
+    // ---- Parse CSV (same logic as importXactCsvForProject) ----
+    const rawCsv = fs.readFileSync(csvPath, "utf8").replace(/^\uFEFF/, "");
+
+    const delimiterCandidates: string[] = ["\t", ",", ";", "|"];
+
+    const tryParse = (delimiter: string) => {
+      try {
+        const parsedRecordsRaw: any[] = parse(rawCsv, {
+          columns: true,
+          skip_empty_lines: true,
+          delimiter,
+          relax_column_count: true,
+          relax_quotes: true,
+        });
+        const parsedRecords: any[] = parsedRecordsRaw.map(sanitizeRecordHeaders);
+        const records: any[] = parsedRecords.filter((r) => !isBlankCsvRecord(r));
+        const first = records[0] ?? null;
+        const columnCount = first ? Object.keys(first).length : 0;
+        const normKeys = first ? Object.keys(first).map(normalizeHeaderLookupKey) : [];
+        const hasGroupDesc = normKeys.some((k) => k.includes("group") && k.includes("desc"));
+        const hasDesc = normKeys.some((k) => k === "desc" || k.includes("description"));
+        return {
+          ok: true as const,
+          delimiter,
+          records,
+          columnCount,
+          hasSignalColumns: hasGroupDesc || hasDesc,
+        };
+      } catch {
+        return { ok: false as const, delimiter };
+      }
+    };
+
+    const attempts = delimiterCandidates.map(tryParse);
+    const successful = attempts.filter((a): a is ReturnType<typeof tryParse> & { ok: true } => a.ok);
+    successful.sort((a, b) => {
+      if (a.columnCount !== b.columnCount) return b.columnCount - a.columnCount;
+      if (a.records.length !== b.records.length) return b.records.length - a.records.length;
+      if (a.hasSignalColumns !== b.hasSignalColumns) return a.hasSignalColumns ? -1 : 1;
+      return 0;
+    });
+
+    const best = successful[0] ?? null;
+    if (!best || best.records.length === 0 || best.columnCount <= 1) {
+      throw new Error("Comparator CSV parse produced no usable records (check delimiter/format).");
+    }
+
+    const records: any[] = best.records;
+
+    // Build header lookup
+    const headerKeys = Object.keys(records[0] ?? {});
+    const headerKeyByNorm = new Map<string, string>();
+    for (const k of headerKeys) {
+      const nk = normalizeHeaderLookupKey(k);
+      if (!headerKeyByNorm.has(nk)) headerKeyByNorm.set(nk, k);
+    }
+
+    const getCol = (rec: any, ...aliases: string[]) => {
+      for (const a of aliases) {
+        const key = headerKeyByNorm.get(normalizeHeaderLookupKey(a));
+        if (key && Object.prototype.hasOwnProperty.call(rec, key)) {
+          return (rec as any)[key];
+        }
+        if (Object.prototype.hasOwnProperty.call(rec, a)) {
+          return (rec as any)[a];
+        }
+        const target = normalizeHeaderLookupKey(a);
+        for (const k of Object.keys(rec ?? {})) {
+          if (normalizeHeaderLookupKey(k) === target) return (rec as any)[k];
+        }
+      }
+      return undefined;
+    };
+
+    // ---- Auto-detect activity: filename first, then CSV Activity column ----
+    let detectedActivity: string | null = null;
+    const fileNameLower = path.basename(csvPath).toLowerCase();
+    if (/\brem(ove)?[_\s-]?only\b/i.test(fileNameLower) || /\brem(ove)?\b/.test(fileNameLower) && !/install|material/i.test(fileNameLower)) {
+      detectedActivity = "Remove";
+    } else if (/\binstall[_\s-]?only\b/i.test(fileNameLower) || /\binstall\b/.test(fileNameLower) && !/rem|material/i.test(fileNameLower)) {
+      detectedActivity = "Install";
+    } else if (/\bmaterial[s]?[_\s-]?only\b/i.test(fileNameLower) || /\bmaterial/i.test(fileNameLower) && !/rem|install/i.test(fileNameLower)) {
+      detectedActivity = "Materials";
+    }
+    // Fallback: use first non-blank Activity value from CSV data
+    if (!detectedActivity) {
+      for (const record of records) {
+        const act = cleanText(getCol(record, "Activity"));
+        if (act) {
+          detectedActivity = act;
+          break;
+        }
+      }
+    }
+
+    // ---- Build RawXactRow data ----
+    const createdAtBase = new Date();
+
+    const rawRowsData = records.map((record, index) => {
+      const keys = Object.keys(record ?? {});
+      const pickLineKey = () => {
+        const exactHash = keys.find((k) => normalizeHeaderLookupKey(k) === "#");
+        if (exactHash) return exactHash;
+        const containsHash = keys.find((k) => normalizeHeaderLookupKey(k).includes("#"));
+        if (containsHash) return containsHash;
+        const lineNoLike = keys.find((k) => {
+          const n = normalizeHeaderLookupKey(k);
+          return (n.includes("line") && n.includes("no")) || n.includes("line number") || n.includes("linenumber");
+        });
+        if (lineNoLike) return lineNoLike;
+        return keys[0] ?? null;
+      };
+      const lineKey = pickLineKey();
+      const rawLineNoValue = lineKey ? (record[lineKey] as any) : undefined;
+      const parsedLineNo = rawLineNoValue
+        ? Number(String(rawLineNoValue).replace(/,/g, "")) || 0
+        : 0;
+
+      const createdAt = new Date(createdAtBase.getTime() + index);
+
+      return {
+        estimateVersionId: estimateVersion.id,
+        lineNo: parsedLineNo,
+        groupCode: normalizeGroupCodeForGrouping(getCol(record, "Group Code", "GroupCode", "Unit Code", "UnitCode")),
+        groupDescription: cleanKeyText(getCol(record, "Group Description", "Group Desc", "GroupDescription", "Room", "Room Name", "Room Description")),
+        desc: cleanText(getCol(record, "Desc", "Description", "Item Description")),
+        age: toNumber(getCol(record, "Age")),
+        condition: cleanText(getCol(record, "Condition")),
+        qty: toNumber(getCol(record, "Qty", "Quantity", "QTY")),
+        itemAmount: toNumber(getCol(record, "Item Amount", "ItemAmount", "Line Amount", "Amount")),
+        reportedCost: toNumber(getCol(record, "Reported Cost", "ReportedCost")),
+        unitCost: toNumber(getCol(record, "Unit Cost", "UnitCost", "Unit Price", "UnitPrice")),
+        unit: cleanText(getCol(record, "Unit", "UOM", "U/M")),
+        coverage: cleanText(getCol(record, "Coverage")),
+        activity: cleanText(getCol(record, "Activity")),
+        workersWage: toNumber(getCol(record, "Worker's Wage", "Workers Wage", "Worker Wage")),
+        laborBurden: toNumber(getCol(record, "Labor burden", "Labor Burden")),
+        laborOverhead: toNumber(getCol(record, "Labor Overhead")),
+        material: toNumber(getCol(record, "Material")),
+        equipment: toNumber(getCol(record, "Equipment")),
+        marketConditions: toNumber(getCol(record, "Market Conditions")),
+        laborMinimum: toNumber(getCol(record, "Labor Minimum")),
+        salesTax: toNumber(getCol(record, "Sales Tax", "SalesTax", "Tax")),
+        rcv: toNumber(getCol(record, "RCV")),
+        life: getCol(record, "Life") ? Number(getCol(record, "Life")) : null,
+        depreciationType: getCol(record, "Depreciation Type", "DepreciationType") || null,
+        depreciationAmount: toNumber(getCol(record, "Depreciation Amount", "Depreciation")),
+        recoverable: toBooleanYesNo(getCol(record, "Recoverable")),
+        acv: toNumber(getCol(record, "ACV")),
+        tax: toNumber(getCol(record, "Tax")),
+        replaceFlag: toBooleanYesNo(getCol(record, "Replace")),
+        cat: cleanText(getCol(record, "Cat", "Category")),
+        sel: cleanText(getCol(record, "Sel", "Selection")),
+        owner: cleanText(getCol(record, "Owner")),
+        originalVendor: cleanText(getCol(record, "Original Vendor", "OriginalVendor")),
+        sourceName: cleanText(getCol(record, "Source Name", "SourceName")),
+        sourceDate: toDate(getCol(record, "Date")),
+        note1: cleanNote(getCol(record, "Note 1", "Note1")),
+        adjSource: getCol(record, "ADJ_SOURCE") || null,
+        rawRowJson: record as any,
+        createdAt,
+        updatedAt: createdAt,
+      };
+    });
+
+    // ---- Insert raw rows in chunks ----
+    const rawChunkSize = 250;
+    let rawInserted = 0;
+    for (let i = 0; i < rawRowsData.length; i += rawChunkSize) {
+      const chunk = rawRowsData.slice(i, i + rawChunkSize);
+      if (chunk.length === 0) continue;
+      const res = await prisma.rawXactRow.createMany({ data: chunk });
+      rawInserted += res.count;
+    }
+
+    // ---- Mark estimate as completed with detected activity ----
+    await prisma.estimateVersion.update({
+      where: { id: estimateVersion.id },
+      data: {
+        status: "completed",
+        description: detectedActivity,
+        importedAt: new Date(),
+      },
+    });
+
+    // ---- Feed cost book with comparator activity-specific pricing ----
+    const costBookItems = rawRowsData
+      .filter((r) => r.cat && r.unitCost != null)
+      .map((r) => ({
+        categoryCode: r.cat,
+        selectionCode: r.sel,
+        unitCost: r.unitCost,
+        description: r.desc,
+        unit: r.unit,
+        activity: r.activity,
+        workersWage: r.workersWage,
+        laborBurden: r.laborBurden,
+        laborOverhead: r.laborOverhead,
+        material: r.material,
+        equipment: r.equipment,
+      }));
+
+    if (costBookItems.length > 0) {
+      await updateTenantGoldenFromPetl({
+        companyId: project.companyId,
+        projectId,
+        estimateVersionId: estimateVersion.id,
+        sowItems: costBookItems,
+        changedByUserId: importedByUserId,
+        source: "COMPARATOR_IMPORT",
+      });
+    }
+
+    return {
+      projectId,
+      estimateVersionId: estimateVersion.id,
+      detectedActivity,
+      rowCount: rawInserted,
+      fileName: path.basename(csvPath),
+    };
+  } catch (err: any) {
+    const message = err?.message ?? String(err);
+    try {
+      await prisma.estimateVersion.update({
+        where: { id: estimateVersion.id },
+        data: { status: "failed", errorMessage: message },
+      });
+    } catch {
+      // best effort
+    }
+    throw err;
+  }
+}

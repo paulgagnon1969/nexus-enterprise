@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import { FastifyRequest, FastifyReply } from "fastify";
 import { UpdatesService, UpdateManifest } from "./updates.service";
+import { ComputeMeshGateway } from "../compute-mesh/compute-mesh.gateway";
 import { JwtAuthGuard, GlobalRoles, GlobalRole, GlobalRolesGuard, Public } from "../auth/auth.guards";
 
 /**
@@ -25,7 +26,10 @@ import { JwtAuthGuard, GlobalRoles, GlobalRole, GlobalRolesGuard, Public } from 
  */
 @Controller("updates")
 export class UpdatesController {
-  constructor(private readonly updatesService: UpdatesService) {}
+  constructor(
+    private readonly updatesService: UpdatesService,
+    private readonly meshGateway: ComputeMeshGateway,
+  ) {}
 
   /**
    * Tauri updater calls this URL.
@@ -98,6 +102,13 @@ export class UpdatesController {
   @GlobalRoles(GlobalRole.SUPER_ADMIN)
   async publishManifest(@Body() manifest: UpdateManifest) {
     await this.updatesService.publishManifest(manifest);
+
+    // Push real-time update notification to all connected NexBRIDGE nodes
+    this.meshGateway.broadcastUpdateAvailable(
+      manifest.version,
+      manifest.notes,
+    );
+
     return { ok: true, version: manifest.version };
   }
 }

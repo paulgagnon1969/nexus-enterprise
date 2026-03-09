@@ -181,6 +181,93 @@ export class ProjectImportJobsController {
     return { jobId: job.id };
   }
 
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Post("xact-comparator")
+  async enqueueXactComparator(@Req() req: FastifyRequest, @Param("projectId") projectId: string) {
+    const user = (req as any).user as AuthenticatedUser;
+
+    const parts = (req as any).files
+      ? (req as any).files()
+      : (async function* () {})();
+
+    const baseTmpDir = process.env.NCC_UPLOAD_TMP_DIR || os.tmpdir();
+    const importDir = path.join(baseTmpDir, "ncc_uploads", "xact_comparator");
+    await fs.promises.mkdir(importDir, { recursive: true });
+
+    const savedFiles: { localPath: string; fileUri: string | null; fileName: string }[] = [];
+
+    for await (const part of parts as any) {
+      if (
+        !part.file ||
+        (part.fieldname && part.fieldname !== "file" && part.fieldname !== "files")
+      ) {
+        continue;
+      }
+
+      if (savedFiles.length >= 3) {
+        throw new BadRequestException("A maximum of 3 comparator CSV files is allowed.");
+      }
+
+      const safeName = (part.filename || "comparator.csv").replace(
+        /[^a-zA-Z0-9_.-]/g,
+        "_",
+      );
+      const dest = path.join(
+        importDir,
+        `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeName}`,
+      );
+
+      const chunks: Buffer[] = [];
+      for await (const chunk of part.file) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+
+      const buffer = Buffer.concat(chunks);
+      await fs.promises.writeFile(dest, buffer);
+
+      let uploadedFileUri: string | null = null;
+      try {
+        const key = [
+          "xact-comparator",
+          user.companyId,
+          projectId,
+          `${Date.now()}`,
+          safeName,
+        ].filter(Boolean).join("/");
+
+        uploadedFileUri = await this.gcs.uploadBuffer({
+          key,
+          buffer,
+          contentType: part.mimetype || "text/csv",
+        });
+      } catch {
+        // If GCS is not configured in dev, keep filesystem-only behavior.
+      }
+
+      savedFiles.push({ localPath: dest, fileUri: uploadedFileUri, fileName: safeName });
+    }
+
+    if (savedFiles.length === 0) {
+      throw new BadRequestException("At least one comparator CSV file is required.");
+    }
+
+    const jobs: { jobId: string; fileName: string }[] = [];
+
+    for (const sf of savedFiles) {
+      const job = await this.jobs.createJob({
+        companyId: user.companyId,
+        projectId,
+        createdByUserId: user.userId,
+        type: ImportJobType.XACT_COMPARATOR,
+        csvPath: sf.localPath,
+        fileUri: sf.fileUri,
+      });
+      jobs.push({ jobId: job.id, fileName: sf.fileName });
+    }
+
+    return { jobs };
+  }
+
   @Get()
   async listForProject(@Req() req: any, @Param("projectId") projectId: string) {
     const user = req.user as AuthenticatedUser;

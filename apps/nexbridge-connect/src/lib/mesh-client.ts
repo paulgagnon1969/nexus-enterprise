@@ -170,6 +170,12 @@ class MeshClient {
     this.socket.on("job:offer", (offer: JobOffer) => {
       this.jobOfferListeners.forEach((fn) => fn(offer));
     });
+
+    // Real-time update push — server broadcasts when a new version is published
+    this.socket.on("update:available", (payload: { version: string; notes?: string }) => {
+      console.log(`[mesh] update:available v${payload.version} — triggering immediate check`);
+      import("./auto-updater").then(({ triggerCheck }) => triggerCheck());
+    });
   }
 
   disconnect(): void {

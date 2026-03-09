@@ -523,6 +523,74 @@ export default function VideoAssessment() {
     }
   }
 
+  // Re-scan: pick a video, extract frames, upload & update assessment metadata
+  // without touching existing findings or narrative.
+  async function rescanVideo() {
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: "Video", extensions: ["mp4", "mov", "avi", "mkv", "webm", "m4v"] }],
+      });
+      if (!selected) return;
+      const path = typeof selected === "string" ? selected : selected;
+
+      setVideoPath(path);
+      setError(null);
+      setProgress("Re-extracting frames from video…");
+      setStage("extracting");
+
+      const result = await invoke<ExtractionResult>("extract_frames", {
+        videoPath: path,
+        mode: "fixed",
+        intervalSecs: 8,
+        maxFrames: 30,
+      });
+      setExtraction(result);
+
+      // Upload the new frames
+      setStage("uploading");
+      setProgress(`Uploading ${result.frames.length} frames…`);
+      const uploaded = await uploadFramesToGcs(result);
+      setUploadedFrameUris(uploaded);
+
+      // Update the assessmentJson with new frame URIs + video path (preserve everything else)
+      if (savedAssessmentId && analysis) {
+        const updatedJson = {
+          ...analysis.assessment,
+          frameUris: uploaded.map((f) => f.gcsUri),
+          localVideoPath: path,
+          videoResolution: `${result.metadata.width}x${result.metadata.height}`,
+          videoDurationSecs: result.metadata.duration_secs,
+        };
+        await updateAssessment(savedAssessmentId, { assessmentJson: updatedJson });
+        setAnalysis({ ...analysis, assessment: updatedJson } as AnalyzeFramesResponse);
+
+        // Register in the video index
+        try {
+          await registerVideo(
+            path,
+            {
+              fileName: result.metadata.file_name,
+              durationSecs: result.metadata.duration_secs,
+              resolution: `${result.metadata.width}x${result.metadata.height}`,
+            },
+            savedAssessmentId,
+          );
+          console.log("[rescan] registered", path, "→", savedAssessmentId);
+        } catch (indexErr) {
+          console.warn("[rescan] index registration failed:", indexErr);
+        }
+      }
+
+      setFallbackFrames([]);
+      setStage("review");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : typeof err === "string" ? err : JSON.stringify(err);
+      setError(`Re-scan failed: ${msg}`);
+      setStage("review");
+    }
+  }
+
   // -- Render --
 
   return (
@@ -836,11 +904,19 @@ export default function VideoAssessment() {
       {/* Stage: Review */}
       {stage === "review" && analysis && (
         <div className="space-y-6">
-          {/* Reopened badge */}
-          {savedAssessmentId && !extraction && (
-            <div className="flex items-center gap-2 rounded bg-blue-50 px-4 py-2 text-sm text-blue-700">
-              <span>Reopened saved assessment</span>
-              <span className="text-xs text-blue-500">({savedAssessmentId})</span>
+          {/* Reopened badge + Re-scan action */}
+          {savedAssessmentId && (
+            <div className="flex items-center justify-between rounded bg-blue-50 px-4 py-2 text-sm text-blue-700">
+              <div className="flex items-center gap-2">
+                <span>{extraction ? "Assessment (frames loaded)" : "Reopened saved assessment"}</span>
+                <span className="text-xs text-blue-500">({savedAssessmentId})</span>
+              </div>
+              <button
+                onClick={rescanVideo}
+                className="rounded border border-blue-300 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
+              >
+                🎬 {extraction ? "Re-scan Video" : "Load Video Frames"}
+              </button>
             </div>
           )}
 

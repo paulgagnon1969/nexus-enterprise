@@ -3726,58 +3726,57 @@ export class ProjectService {
   }
 
   private async getLatestEstimateVersionForPetl(projectId: string) {
-    // Prefer completed imports. If an import fails part-way through, it may still
-    // have some SowItems written; we should not treat that partial estimate as the
-    // active PETL version.
+    // Exclude comparator versions — they are reference data only and never
+    // have SOW/SowItem trees.  This also avoids running expensive nested
+    // relation filters against versions that can never match.
+    const baseWhere = {
+      projectId,
+      estimateKind: { not: "comparator" },
+    };
+
+    // Prefer completed imports. If an import fails part-way through, it may
+    // still have some SowItems written; we should not treat that partial
+    // estimate as the active PETL version.
     let latestVersion = await this.prisma.estimateVersion.findFirst({
       where: {
-        projectId,
+        ...baseWhere,
         status: "completed",
-        sows: {
-          some: {
-            items: {
-              some: {},
-            },
-          },
-        },
+        sows: { some: { items: { some: {} } } },
       },
       orderBy: [
         { sequenceNo: "desc" },
         { importedAt: "desc" },
         { createdAt: "desc" },
       ],
+      select: { id: true },
     });
 
-    // Fallback: if no completed estimate exists (e.g., legacy env), return the latest
-    // version even if it isn't completed.
+    // Fallback: any status with SowItems.
     if (!latestVersion) {
       latestVersion = await this.prisma.estimateVersion.findFirst({
         where: {
-          projectId,
-          sows: {
-            some: {
-              items: {
-                some: {},
-              },
-            },
-          },
+          ...baseWhere,
+          sows: { some: { items: { some: {} } } },
         },
         orderBy: [
           { sequenceNo: "desc" },
           { importedAt: "desc" },
           { createdAt: "desc" },
         ],
+        select: { id: true },
       });
     }
 
+    // Last resort: any non-comparator version.
     if (!latestVersion) {
       latestVersion = await this.prisma.estimateVersion.findFirst({
-        where: { projectId },
+        where: baseWhere,
         orderBy: [
           { sequenceNo: "desc" },
           { importedAt: "desc" },
           { createdAt: "desc" },
         ],
+        select: { id: true },
       });
     }
 
@@ -4317,12 +4316,38 @@ export class ProjectService {
       };
     }
 
-    // IMPORTANT: Do NOT include required relations like projectParticle here.
-    // In some prod data, orphaned particle IDs can exist and Prisma will throw
-    // when hydrating a required relation include.
+    // Select only columns the frontend needs (PetlItem interface) to reduce
+    // payload size and JSON serialization time for large PETLs.
     const itemsRaw = await this.prisma.sowItem.findMany({
       where: { estimateVersionId: latestVersion.id },
       orderBy: { lineNo: "asc" },
+      select: {
+        id: true,
+        estimateVersionId: true,
+        projectParticleId: true,
+        lineNo: true,
+        sourceLineNo: true,
+        description: true,
+        itemNote: true,
+        qty: true,
+        unit: true,
+        unitCost: true,
+        itemAmount: true,
+        rcvAmount: true,
+        percentComplete: true,
+        isAcvOnly: true,
+        payerType: true,
+        categoryCode: true,
+        selectionCode: true,
+        activity: true,
+        isStandaloneChangeOrder: true,
+        coSequenceNo: true,
+        coSourceLineNo: true,
+        qtyFieldNotes: true,
+        qtyFieldReported: true,
+        qtyFlaggedIncorrect: true,
+        qtyReviewStatus: true,
+      },
     });
 
     // Reconciliation entries are optional. If the DB migration hasn't been
@@ -4330,32 +4355,58 @@ export class ProjectService {
     let reconciliationEntriesRaw: any[] = [];
     let reconciliationActivitySowItemIds: string[] = [];
     try {
-      // Fetch ALL reconciliation entries (including note-only with rcvAmount=null)
-      // so notes from CSV imports are visible in the PETL UI as subordinate items.
-      const [allEntries, reconActivity] = await Promise.all([
-        this.prisma.petlReconciliationEntry.findMany({
-          where: {
-            projectId,
-            estimateVersionId: latestVersion.id,
-            parentSowItemId: { not: null },
-          },
-          orderBy: { createdAt: "asc" },
-        }),
-        this.prisma.petlReconciliationEntry.findMany({
-          where: {
-            projectId,
-            estimateVersionId: latestVersion.id,
-            parentSowItemId: { not: null },
-          },
-          distinct: ["parentSowItemId"],
-          select: { parentSowItemId: true },
-        }),
-      ]);
+      // Single query — derive activity SowItem IDs from the full result set
+      // instead of running a second distinct query.
+      reconciliationEntriesRaw = await this.prisma.petlReconciliationEntry.findMany({
+        where: {
+          projectId,
+          estimateVersionId: latestVersion.id,
+          parentSowItemId: { not: null },
+        },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          projectId: true,
+          estimateVersionId: true,
+          caseId: true,
+          parentSowItemId: true,
+          projectParticleId: true,
+          kind: true,
+          tag: true,
+          status: true,
+          description: true,
+          note: true,
+          categoryCode: true,
+          selectionCode: true,
+          unit: true,
+          qty: true,
+          unitCost: true,
+          itemAmount: true,
+          salesTaxAmount: true,
+          opAmount: true,
+          rcvAmount: true,
+          percentComplete: true,
+          isPercentCompleteLocked: true,
+          activity: true,
+          workersWage: true,
+          laborBurden: true,
+          laborOverhead: true,
+          materialCost: true,
+          equipmentCost: true,
+          isStandaloneChangeOrder: true,
+          coSequenceNo: true,
+          createdAt: true,
+        },
+      });
 
-      reconciliationEntriesRaw = allEntries;
-      reconciliationActivitySowItemIds = reconActivity
-        .map((r: any) => r.parentSowItemId)
-        .filter((v: any): v is string => typeof v === "string" && v.length > 0);
+      // Derive distinct parentSowItemIds from the already-fetched entries.
+      const activitySet = new Set<string>();
+      for (const e of reconciliationEntriesRaw) {
+        if (typeof e.parentSowItemId === "string" && e.parentSowItemId.length > 0) {
+          activitySet.add(e.parentSowItemId);
+        }
+      }
+      reconciliationActivitySowItemIds = Array.from(activitySet);
     } catch (err: any) {
       if (!this.isMissingPrismaTableError(err, "PetlReconciliationEntry")) {
         throw err;
@@ -7118,6 +7169,473 @@ export class ProjectService {
             caseId: theCase.id,
             eventType: "ENTRY_CREATED",
             payloadJson: { kind: "ADD", amount: rcvAmount },
+            createdByUserId: actor.userId,
+          },
+        },
+      },
+      include: {
+        case: {
+          include: {
+            entries: {
+              orderBy: { createdAt: "asc" },
+              include: {
+                attachments: { orderBy: { createdAt: "asc" } },
+              },
+            },
+            events: { orderBy: { createdAt: "asc" } },
+          },
+        },
+      },
+    });
+
+    return { entry, reconciliationCase: entry.case };
+  }
+
+  async batchPasteReconciliationEntry(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    body: {
+      sourceEntry: {
+        kind?: string | null;
+        tag?: string | null;
+        description?: string | null;
+        note?: string | null;
+        unitCost?: number | null;
+        unit?: string | null;
+        categoryCode?: string | null;
+        selectionCode?: string | null;
+      };
+      targetSowItemIds: string[];
+    },
+  ) {
+    const { sourceEntry, targetSowItemIds } = body;
+
+    if (!Array.isArray(targetSowItemIds) || targetSowItemIds.length === 0) {
+      throw new BadRequestException("At least one target SOW item ID is required");
+    }
+    if (targetSowItemIds.length > 200) {
+      throw new BadRequestException("Cannot paste to more than 200 lines at once");
+    }
+
+    // Validate kind
+    const kindRaw = sourceEntry.kind ?? "CREDIT";
+    let kind: PetlReconciliationEntryKind = PetlReconciliationEntryKind.CREDIT;
+    if (kindRaw === "ADD") kind = PetlReconciliationEntryKind.ADD;
+    else if (kindRaw === "CREDIT") kind = PetlReconciliationEntryKind.CREDIT;
+    else if (kindRaw === "CHANGE_ORDER_CLIENT_PAY") kind = PetlReconciliationEntryKind.CHANGE_ORDER_CLIENT_PAY;
+    else if (kindRaw === "REIMBURSE_OWNER") kind = PetlReconciliationEntryKind.REIMBURSE_OWNER;
+
+    // Validate tag
+    const tag = (() => {
+      if (sourceEntry.tag == null || String(sourceEntry.tag).trim() === "") return null;
+      const raw = String(sourceEntry.tag).trim();
+      if ((Object.values(PetlReconciliationEntryTag) as string[]).includes(raw)) {
+        return raw as PetlReconciliationEntryTag;
+      }
+      throw new BadRequestException("Invalid reconciliation entry tag");
+    })();
+
+    const unitCost = sourceEntry.unitCost ?? 0;
+
+    // Load all target SOW items in one query
+    const sowItems = await this.prisma.sowItem.findMany({
+      where: {
+        id: { in: targetSowItemIds },
+        estimateVersion: { projectId },
+      },
+      select: {
+        id: true,
+        estimateVersionId: true,
+        projectParticleId: true,
+        qty: true,
+        lineNo: true,
+        description: true,
+        logicalItemId: true,
+      },
+    });
+
+    if (sowItems.length === 0) {
+      throw new BadRequestException("No valid SOW items found for the given IDs");
+    }
+
+    const createdEntries: any[] = [];
+
+    for (const sowItem of sowItems) {
+      const theCase = await this.getOrCreatePetlReconciliationCaseForSowItem({
+        projectId,
+        companyId,
+        actor,
+        sowItemId: sowItem.id,
+      });
+
+      const targetQty = sowItem.qty ?? 1;
+      const itemAmount = unitCost * targetQty;
+
+      // For CREDIT, auto-negate
+      let rcvAmount = itemAmount;
+      if (kind === PetlReconciliationEntryKind.CREDIT && rcvAmount > 0) {
+        rcvAmount = -1 * rcvAmount;
+      }
+
+      const entry = await this.prisma.petlReconciliationEntry.create({
+        data: {
+          projectId,
+          estimateVersionId: sowItem.estimateVersionId,
+          caseId: theCase.id,
+          parentSowItemId: sowItem.id,
+          projectParticleId: sowItem.projectParticleId,
+          kind,
+          tag,
+          status: PetlReconciliationEntryStatus.APPROVED,
+          description: sourceEntry.description ?? null,
+          categoryCode: sourceEntry.categoryCode ?? null,
+          selectionCode: sourceEntry.selectionCode ?? null,
+          unit: sourceEntry.unit ?? null,
+          qty: targetQty,
+          unitCost,
+          itemAmount,
+          salesTaxAmount: 0,
+          opAmount: 0,
+          rcvAmount,
+          rcvComponentsJson: {
+            itemAmount: true,
+            salesTaxAmount: false,
+            opAmount: false,
+          },
+          note: sourceEntry.note ?? null,
+          percentComplete: 100,
+          isPercentCompleteLocked: false,
+          createdByUserId: actor.userId,
+          originEstimateVersionId: sowItem.estimateVersionId,
+          originSowItemId: sowItem.id,
+          originLineNo: sowItem.lineNo ?? null,
+          sourceSnapshotJson: {
+            batchPaste: true,
+            sourceUnitCost: unitCost,
+            sourceKind: kindRaw,
+          },
+          events: {
+            create: {
+              projectId,
+              estimateVersionId: sowItem.estimateVersionId,
+              caseId: theCase.id,
+              eventType: "ENTRY_CREATED",
+              payloadJson: {
+                kind: kindRaw,
+                amount: rcvAmount,
+                batchPaste: true,
+                targetSowItemCount: targetSowItemIds.length,
+              },
+              createdByUserId: actor.userId,
+            },
+          },
+        },
+      });
+
+      createdEntries.push({
+        id: entry.id,
+        sowItemId: sowItem.id,
+        lineNo: sowItem.lineNo,
+        qty: targetQty,
+        unitCost,
+        itemAmount,
+        rcvAmount,
+      });
+    }
+
+    return {
+      created: createdEntries.length,
+      entries: createdEntries,
+    };
+  }
+
+  async listComparatorEstimatesForProject(
+    projectId: string,
+    actor: AuthenticatedUser,
+  ) {
+    await this.getProjectByIdForUser(projectId, actor);
+
+    const versions = await this.prisma.estimateVersion.findMany({
+      where: { projectId, estimateKind: "comparator" },
+      orderBy: { sequenceNo: "asc" },
+      select: {
+        id: true,
+        fileName: true,
+        description: true,
+        status: true,
+        errorMessage: true,
+        sequenceNo: true,
+        importedAt: true,
+        createdAt: true,
+        _count: { select: { rawRows: true } },
+      },
+    });
+
+    return versions.map((v) => ({
+      id: v.id,
+      fileName: v.fileName,
+      activity: v.description,
+      status: v.status,
+      errorMessage: v.errorMessage,
+      rowCount: v._count.rawRows,
+      importedAt: v.importedAt,
+      createdAt: v.createdAt,
+    }));
+  }
+
+  async getComparatorLinesForLineNo(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    lineNo: number,
+  ) {
+    await this.getProjectByIdForUser(projectId, actor);
+
+    // Find all comparator EstimateVersions for this project.
+    const comparatorVersions = await this.prisma.estimateVersion.findMany({
+      where: { projectId, estimateKind: "comparator", status: "completed" },
+      select: { id: true, description: true, fileName: true, sequenceNo: true },
+      orderBy: { sequenceNo: "asc" },
+    });
+
+    if (comparatorVersions.length === 0) {
+      return { comparatorLines: [], petlLine: null };
+    }
+
+    // Fetch matching RawXactRow from each comparator version by line number.
+    const comparatorRows = await this.prisma.rawXactRow.findMany({
+      where: {
+        estimateVersionId: { in: comparatorVersions.map((v) => v.id) },
+        lineNo,
+      },
+      select: {
+        id: true,
+        estimateVersionId: true,
+        lineNo: true,
+        desc: true,
+        qty: true,
+        unitCost: true,
+        itemAmount: true,
+        unit: true,
+        activity: true,
+        cat: true,
+        sel: true,
+        workersWage: true,
+        laborBurden: true,
+        laborOverhead: true,
+        material: true,
+        equipment: true,
+        rcv: true,
+      },
+    });
+
+    // Enrich with estimate version metadata (detected activity label).
+    const versionMap = new Map(
+      comparatorVersions.map((v) => [v.id, v]),
+    );
+
+    const comparatorLines = comparatorRows.map((row) => {
+      const version = versionMap.get(row.estimateVersionId);
+      return {
+        ...row,
+        estimateActivity: version?.description ?? row.activity ?? null,
+        estimateFileName: version?.fileName ?? null,
+      };
+    });
+
+    // Also fetch the PETL (initial) version of the same line for reference.
+    const petlVersion = await this.prisma.estimateVersion.findFirst({
+      where: {
+        projectId,
+        estimateKind: { not: "comparator" },
+        status: "completed",
+      },
+      orderBy: [{ sequenceNo: "desc" }, { importedAt: "desc" }],
+      select: { id: true },
+    });
+
+    let petlLine = null;
+    if (petlVersion) {
+      const petlRow = await this.prisma.rawXactRow.findFirst({
+        where: { estimateVersionId: petlVersion.id, lineNo },
+        select: {
+          id: true,
+          lineNo: true,
+          desc: true,
+          qty: true,
+          unitCost: true,
+          itemAmount: true,
+          unit: true,
+          activity: true,
+          cat: true,
+          sel: true,
+          workersWage: true,
+          laborBurden: true,
+          laborOverhead: true,
+          material: true,
+          equipment: true,
+          rcv: true,
+        },
+      });
+      if (petlRow) {
+        petlLine = { ...petlRow, estimateActivity: "R&R" };
+      }
+    }
+
+    return { comparatorLines, petlLine };
+  }
+
+  async createPetlReconciliationFromComparator(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    sowItemId: string,
+    body: {
+      comparatorRawRowId: string;
+      kind: string;
+      tag?: string | null;
+      note?: string | null;
+    },
+  ) {
+    const theCase = await this.getOrCreatePetlReconciliationCaseForSowItem({
+      projectId,
+      companyId,
+      actor,
+      sowItemId,
+    });
+
+    // Load the comparator RawXactRow.
+    const comparatorRow = await this.prisma.rawXactRow.findUnique({
+      where: { id: body.comparatorRawRowId },
+      include: {
+        estimateVersion: {
+          select: { id: true, estimateKind: true, description: true, projectId: true },
+        },
+      },
+    });
+
+    if (!comparatorRow) {
+      throw new NotFoundException("Comparator line item not found");
+    }
+    if (comparatorRow.estimateVersion.estimateKind !== "comparator") {
+      throw new BadRequestException("The referenced row is not from a comparator estimate");
+    }
+    if (comparatorRow.estimateVersion.projectId !== projectId) {
+      throw new BadRequestException("Comparator row belongs to a different project");
+    }
+
+    // Load the target SOW item.
+    const sowItem = await this.prisma.sowItem.findUnique({
+      where: { id: sowItemId },
+      select: {
+        estimateVersionId: true,
+        projectParticleId: true,
+        qty: true,
+        lineNo: true,
+        description: true,
+        rawRow: { select: { lineNo: true } },
+      },
+    });
+
+    if (!sowItem) {
+      throw new NotFoundException("SOW item not found");
+    }
+
+    // Validate kind.
+    const kindRaw = body.kind ?? "CREDIT";
+    let kind: PetlReconciliationEntryKind = PetlReconciliationEntryKind.CREDIT;
+    if (kindRaw === "ADD") kind = PetlReconciliationEntryKind.ADD;
+    else if (kindRaw === "CREDIT") kind = PetlReconciliationEntryKind.CREDIT;
+    else if (kindRaw === "CHANGE_ORDER_CLIENT_PAY") kind = PetlReconciliationEntryKind.CHANGE_ORDER_CLIENT_PAY;
+    else if (kindRaw === "REIMBURSE_OWNER") kind = PetlReconciliationEntryKind.REIMBURSE_OWNER;
+
+    // Validate tag.
+    const tag = (() => {
+      if (body.tag == null || String(body.tag).trim() === "") return null;
+      const raw = String(body.tag).trim();
+      if ((Object.values(PetlReconciliationEntryTag) as string[]).includes(raw)) {
+        return raw as PetlReconciliationEntryTag;
+      }
+      throw new BadRequestException("Invalid reconciliation entry tag");
+    })();
+
+    // Compute amounts from comparator data using the target SOW item's qty.
+    const qty = sowItem.qty ?? comparatorRow.qty ?? 1;
+    const unitCost = comparatorRow.unitCost ?? 0;
+    const itemAmount = unitCost * qty;
+
+    // Auto-negate for CREDIT kinds.
+    let rcvAmount = itemAmount;
+    if (kind === PetlReconciliationEntryKind.CREDIT && rcvAmount > 0) {
+      rcvAmount = -1 * rcvAmount;
+    }
+
+    const comparatorActivity = comparatorRow.estimateVersion.description ?? comparatorRow.activity ?? null;
+
+    const entry = await this.prisma.petlReconciliationEntry.create({
+      data: {
+        projectId,
+        estimateVersionId: sowItem.estimateVersionId,
+        caseId: theCase.id,
+        parentSowItemId: sowItemId,
+        projectParticleId: sowItem.projectParticleId,
+        kind,
+        tag,
+        status: PetlReconciliationEntryStatus.APPROVED,
+        description: comparatorRow.desc ?? sowItem.description,
+        categoryCode: comparatorRow.cat ?? null,
+        selectionCode: comparatorRow.sel ?? null,
+        unit: comparatorRow.unit ?? null,
+        qty,
+        unitCost,
+        itemAmount,
+        salesTaxAmount: 0,
+        opAmount: 0,
+        rcvAmount,
+        rcvComponentsJson: {
+          itemAmount: true,
+          salesTaxAmount: false,
+          opAmount: false,
+        },
+        // Store cost component breakdown from comparator.
+        workersWage: comparatorRow.workersWage,
+        laborBurden: comparatorRow.laborBurden,
+        laborOverhead: comparatorRow.laborOverhead,
+        materialCost: comparatorRow.material,
+        equipmentCost: comparatorRow.equipment,
+        activity: comparatorActivity as any,
+        sourceActivity: comparatorActivity,
+        // Provenance: track exactly which comparator row was used.
+        sourceSnapshotJson: {
+          fromComparator: true,
+          comparatorEstimateVersionId: comparatorRow.estimateVersionId,
+          comparatorRawRowId: comparatorRow.id,
+          comparatorLineNo: comparatorRow.lineNo,
+          comparatorActivity,
+          comparatorUnitCost: unitCost,
+          comparatorItemAmount: comparatorRow.itemAmount,
+        },
+        note: body.note ?? `From comparator: ${comparatorActivity ?? "activity-based"} estimate`,
+        percentComplete: 100,
+        isPercentCompleteLocked: false,
+        createdByUserId: actor.userId,
+        originEstimateVersionId: sowItem.estimateVersionId,
+        originSowItemId: sowItemId,
+        originLineNo: sowItem.rawRow?.lineNo ?? sowItem.lineNo ?? null,
+        events: {
+          create: {
+            projectId,
+            estimateVersionId: sowItem.estimateVersionId,
+            caseId: theCase.id,
+            eventType: "ENTRY_CREATED",
+            payloadJson: {
+              kind: kindRaw,
+              amount: rcvAmount,
+              fromComparator: true,
+              comparatorRawRowId: comparatorRow.id,
+              comparatorActivity,
+            },
             createdByUserId: actor.userId,
           },
         },

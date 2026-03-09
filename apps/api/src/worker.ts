@@ -11,6 +11,7 @@ import {
   allocateComponentsForEstimate,
   importXactComponentsChunkForEstimate,
   importXactCsvForProject,
+  importComparatorCsvForProject,
   importGoldenComponentsFromFile,
   importBiaWorkers,
 } from "@repo/database";
@@ -722,6 +723,61 @@ async function processImportJob(
         sowInserted,
         totalAmount: (result as any)?.totalAmount,
       },
+    });
+
+    return;
+  }
+
+  if (job.type === ImportJobType.XACT_COMPARATOR) {
+    console.log("[worker] XACT_COMPARATOR start", {
+      importJobId,
+      companyId: job.companyId,
+      projectId: job.projectId,
+      fileUri: job.fileUri,
+      csvPath,
+    });
+
+    await prisma.importJob.update({
+      where: { id: importJobId },
+      data: { progress: 20, message: "Importing comparator estimate..." },
+    });
+
+    if (!job.projectId) {
+      throw new Error("XACT_COMPARATOR import job is missing projectId");
+    }
+
+    let effectiveCsvPath = csvPath;
+
+    if ((!effectiveCsvPath || !effectiveCsvPath.trim()) && job.fileUri) {
+      effectiveCsvPath = await downloadGcsToTmp(job.fileUri);
+    }
+
+    if (!effectiveCsvPath || !effectiveCsvPath.trim()) {
+      throw new Error("XACT_COMPARATOR import job has no csvPath or fileUri to read from");
+    }
+
+    const result = await importComparatorCsvForProject({
+      projectId: job.projectId,
+      csvPath: effectiveCsvPath,
+      importedByUserId: job.createdByUserId,
+    });
+
+    await prisma.importJob.update({
+      where: { id: importJobId },
+      data: {
+        status: ImportJobStatus.SUCCEEDED,
+        finishedAt: new Date(),
+        progress: 100,
+        message: `Comparator import complete (${(result as any)?.rowCount ?? 0} rows, activity: ${(result as any)?.detectedActivity ?? "unknown"})`,
+        resultJson: result as any,
+      },
+    });
+
+    console.log("[worker] XACT_COMPARATOR complete", {
+      importJobId,
+      companyId: job.companyId,
+      projectId: job.projectId,
+      result,
     });
 
     return;

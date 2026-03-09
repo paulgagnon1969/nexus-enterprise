@@ -1464,6 +1464,96 @@ export class ProjectController {
     );
   }
 
+  // Batch-paste a reconciliation entry to multiple PETL lines at once.
+  // Copies kind/tag/description/note/unitCost from the source; uses each target's own qty.
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/petl/reconciliation/batch-paste")
+  batchPasteReconciliationEntry(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Body()
+    body: {
+      sourceEntry: {
+        kind?: string | null;
+        tag?: string | null;
+        description?: string | null;
+        note?: string | null;
+        unitCost?: number | null;
+        unit?: string | null;
+        categoryCode?: string | null;
+        selectionCode?: string | null;
+      };
+      targetSowItemIds: string[];
+    },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.batchPasteReconciliationEntry(
+      projectId,
+      user.companyId,
+      user,
+      body,
+    );
+  }
+
+  // List all comparator EstimateVersions uploaded for this project.
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/comparator-estimates")
+  async listComparatorEstimates(
+    @Req() req: any,
+    @Param("id") projectId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.listComparatorEstimatesForProject(projectId, user);
+  }
+
+  // Fetch comparator line items for a given PETL line number.
+  // Returns matching RawXactRow data across all comparator EstimateVersions.
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/petl/comparator-lines/:lineNo")
+  getComparatorLines(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("lineNo") lineNo: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    const lineNoNum = Number(lineNo);
+    if (!Number.isFinite(lineNoNum) || lineNoNum <= 0) {
+      throw new BadRequestException("lineNo must be a positive number");
+    }
+    return this.projects.getComparatorLinesForLineNo(
+      projectId,
+      user.companyId,
+      user,
+      lineNoNum,
+    );
+  }
+
+  // Create a reconciliation entry from a comparator line.
+  // One-click: pulls pricing from the comparator RawXactRow and creates a recon entry.
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/petl/:sowItemId/reconciliation/from-comparator")
+  createReconFromComparator(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("sowItemId") sowItemId: string,
+    @Body()
+    body: {
+      comparatorRawRowId: string;
+      kind: string;
+      tag?: string | null;
+      note?: string | null;
+    },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.createPetlReconciliationFromComparator(
+      projectId,
+      user.companyId,
+      user,
+      sowItemId,
+      body,
+    );
+  }
+
   @UseGuards(JwtAuthGuard)
   @Delete(":id/petl-reconciliation/entries/:entryId")
   deletePetlReconciliationEntry(

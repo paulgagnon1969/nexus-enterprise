@@ -24,9 +24,10 @@ interface PetlItem {
   percentComplete: number;
   isAcvOnly?: boolean;
   payerType: string;
+  activity: string | null;
+  unitCost: number | null;
   categoryCode: string | null;
   selectionCode: string | null;
-  activity: string | null;
   projectParticle?: {
     id: string;
     name: string;
@@ -316,6 +317,11 @@ const PetlRow = memo(function PetlRow({
         </td>
         <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", whiteSpace: "nowrap" }}>
           <RoleVisible minRole="SUPER">
+            {item.unitCost != null ? formatUSD(item.unitCost) : ""}
+          </RoleVisible>
+        </td>
+        <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", whiteSpace: "nowrap" }}>
+          <RoleVisible minRole="SUPER">
             {formatUSD(item.itemAmount)}
           </RoleVisible>
         </td>
@@ -493,7 +499,7 @@ const PetlRow = memo(function PetlRow({
           </td>
           <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
           <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
-          <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", overflow: "hidden", textOverflow: "ellipsis" }} colSpan={8}>
+          <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", overflow: "hidden", textOverflow: "ellipsis" }} colSpan={9}>
             <span style={{ color: "#92400e", fontStyle: "italic" }}>{item.itemNote}</span>
           </td>
         </tr>
@@ -511,6 +517,7 @@ const PetlRow = memo(function PetlRow({
           <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right", color: "#7c3aed", fontWeight: 600 }}>
             {item.qtyFieldReported != null ? item.qtyFieldReported : "—"}
           </td>
+          <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
           <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
           <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
           <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
@@ -576,6 +583,9 @@ const PetlRow = memo(function PetlRow({
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
                 {e?.unit ?? ""}
+              </td>
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
+                {(e as any)?.unitCost != null ? formatUSD((e as any).unitCost) : ""}
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
                 {e?.itemAmount != null ? formatUSD(e.itemAmount) : ""}
@@ -792,6 +802,9 @@ function VirtualizedRow({
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }}>{isNoteOnly ? "" : (e?.qty ?? "")}</td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }}>{isNoteOnly ? "" : (e?.unit ?? "")}</td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right" }}>
+                {isNoteOnly ? "" : ((e as any)?.unitCost != null ? formatUSD((e as any).unitCost) : "")}
+              </td>
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right" }}>
                 {isNoteOnly ? "" : (e?.itemAmount != null ? formatUSD(e.itemAmount) : "")}
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right", color: isNoteOnly ? "#9ca3af" : undefined }}>
@@ -967,6 +980,7 @@ function VirtualizedRow({
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }} />
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right" }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right" }} />
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right", color: "#9ca3af" }}>—</td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }}>
                 <span style={{ fontSize: 10, color: statusColor, fontWeight: 600 }}>{reviewStatus}</span>
@@ -1008,6 +1022,7 @@ function VirtualizedRow({
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }} />
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }} />
+              <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right" }} />
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right" }} />
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right", color: "#9ca3af" }}>—</td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }}>
@@ -1153,6 +1168,9 @@ function VirtualizedRow({
                   {item.unit ?? ""}
                 </button>
               )}
+            </td>
+            <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right" }}>
+              {item.unitCost != null ? formatUSD(item.unitCost) : ""}
             </td>
             <td data-sec-key="petl.itemAmount" style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 100, textAlign: "right" }}>
               {formatUSD(item.itemAmount)}
@@ -1390,6 +1408,9 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
               </th>
               <th style={{ textAlign: "right", padding: "6px 8px", width: 80 }}>
                 <RoleVisible minRole="CREW" clientVisible>Unit</RoleVisible>
+              </th>
+              <th style={{ textAlign: "right", padding: "6px 8px", width: 100 }}>
+                <RoleVisible minRole="SUPER">Unit Price</RoleVisible>
               </th>
               <th style={{ textAlign: "right", padding: "6px 8px", width: 100 }}>
                 <RoleVisible minRole="SUPER">Total</RoleVisible>
