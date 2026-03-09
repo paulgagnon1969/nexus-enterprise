@@ -31931,7 +31931,7 @@ onClick={() => setManageTemplatesOpen(true)}
               <input
                 type="text"
                 value={petlTaskSearch}
-                onChange={(e) => setPetlTaskSearchTransition(e.target.value)}
+                onChange={(e) => setPetlTaskSearch(e.target.value)}
                 placeholder="Filter by task…"
                 style={{
                   padding: "5px 28px 5px 8px",
@@ -31945,7 +31945,7 @@ onClick={() => setManageTemplatesOpen(true)}
               {petlTaskSearch && (
                 <button
                   type="button"
-                  onClick={() => setPetlTaskSearchTransition("")}
+                  onClick={() => setPetlTaskSearch("")}
                   style={{
                     position: "absolute",
                     right: 6,
