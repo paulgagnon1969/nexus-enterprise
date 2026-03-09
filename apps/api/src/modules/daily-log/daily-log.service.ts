@@ -1853,6 +1853,7 @@ export class DailyLogService {
         logType: log.type,
       },
       sound: "default",
+      categoryId: "daily_log",
     };
 
     // Get project members (excluding the creator)

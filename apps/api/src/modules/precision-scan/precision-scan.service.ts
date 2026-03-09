@@ -8,6 +8,7 @@ import { PrismaService } from '../../infra/prisma/prisma.service';
 import { MeshJobService } from '../compute-mesh/mesh-job.service';
 import type { MeshJob } from '../compute-mesh/mesh-node.interface';
 import { AuthenticatedUser } from '../auth/jwt.strategy';
+import { GlobalRole } from '../auth/auth.guards';
 
 @Injectable()
 export class PrecisionScanService {
@@ -81,15 +82,12 @@ export class PrecisionScanService {
         name: payload.name,
       },
       serverFallback: async (_job: MeshJob) => {
-        // No server-side photogrammetry — mark as failed
-        await this.prisma.precisionScan.update({
-          where: { id: scan.id },
-          data: {
-            status: 'FAILED',
-            error: 'No NexBridge Connect node available for photogrammetry',
-          },
-        });
-        return { error: 'No client node available' };
+        // No NexBridge node available right now — keep scan PENDING
+        // so it can be picked up when a node comes online.
+        this.logger.warn(
+          `PrecisionScan ${scan.id}: no NexBridge node available, staying PENDING`,
+        );
+        return { queued: true, message: 'Waiting for NexBridge Connect node' };
       },
     });
 
@@ -170,6 +168,65 @@ export class PrecisionScanService {
       where: { id: scanId },
       data: { status },
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Retrigger a scan (re-dispatch mesh job)
+  // ---------------------------------------------------------------------------
+
+  async retrigger(scanId: string, companyId: string, actor: AuthenticatedUser) {
+    const isSuperAdmin = actor.globalRole === GlobalRole.SUPER_ADMIN;
+    const scan = await this.prisma.precisionScan.findFirst({
+      where: { id: scanId, ...(isSuperAdmin ? {} : { companyId }) },
+      include: { images: { orderBy: { sortOrder: 'asc' } } },
+    });
+    if (!scan) throw new NotFoundException('Precision scan not found');
+
+    if (scan.status === 'COMPLETED') {
+      throw new BadRequestException('Scan already completed');
+    }
+
+    // Reset status
+    await this.prisma.precisionScan.update({
+      where: { id: scanId },
+      data: { status: 'PENDING', error: null, meshJobId: null },
+    });
+
+    const imageUrls = scan.images.map((img) => img.url);
+
+    // Dispatch new mesh job (use scan's own companyId for node matching)
+    const job = await this.meshJobs.createJob({
+      type: 'precision_photogrammetry',
+      companyId: scan.companyId,
+      requestedBy: scan.createdById,
+      preferClient: true,
+      preferUserId: scan.createdById,
+      searchAllCompanies: isSuperAdmin,
+      payload: {
+        scanId: scan.id,
+        imageUrls,
+        detailLevel: scan.detailLevel ?? 'full',
+        name: scan.name,
+      },
+      serverFallback: async (_job: MeshJob) => {
+        this.logger.warn(
+          `PrecisionScan ${scan.id}: no NexBridge node available, staying PENDING`,
+        );
+        return { queued: true, message: 'Waiting for NexBridge Connect node' };
+      },
+    });
+
+    const updated = await this.prisma.precisionScan.update({
+      where: { id: scanId },
+      data: { meshJobId: job.id },
+      include: { images: true },
+    });
+
+    this.logger.log(
+      `PrecisionScan ${scan.id}: retriggered, new meshJob=${job.id}`,
+    );
+
+    return updated;
   }
 
   // ---------------------------------------------------------------------------

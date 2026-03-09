@@ -139,34 +139,55 @@ export function PrecisionScanScreen({ onBack, projectId }: Props) {
       // Auto-generate name
       if (!name) setName(`Precision Scan — ${result.imageCount} images`);
 
-      // Upload images to API
+      // Upload images to API in parallel batches
       setStatus("uploading");
-      setStatusDetail("Uploading images to server...");
+      const total = result.imagePaths.length;
+      const BATCH_SIZE = 5;
+      const MAX_RETRIES = 2;
+      let completed = 0;
+      const imageUrls: string[] = new Array(total).fill("");
 
-      const imageUrls: string[] = [];
-      for (let i = 0; i < result.imagePaths.length; i++) {
-        const path = result.imagePaths[i];
+      const uploadOne = async (index: number, retries = 0): Promise<void> => {
+        const path = result.imagePaths[index];
+        const ext = path.split(".").pop()?.toLowerCase() || "heic";
+        const mimeType = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/heic";
         const formData = new FormData();
         formData.append("file", {
           uri: path,
-          name: `img_${String(i).padStart(4, "0")}.heic`,
-          type: "image/heic",
+          name: `img_${String(index).padStart(4, "0")}.${ext}`,
+          type: mimeType,
         } as any);
 
-        const res = await apiFetch("/uploads/precision-scan-image", {
-          method: "POST",
-          body: formData,
-          _skipRetry: true,
-        });
+        try {
+          const res = await apiFetch("/uploads/file", {
+            method: "POST",
+            body: formData,
+            _skipRetry: true,
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const { publicUrl } = (await res.json()) as { fileUri: string; publicUrl: string };
+          imageUrls[index] = publicUrl;
+        } catch (err: any) {
+          if (retries < MAX_RETRIES) {
+            await new Promise((r) => setTimeout(r, 1000 * (retries + 1)));
+            return uploadOne(index, retries + 1);
+          }
+          throw new Error(`Image ${index} failed after ${MAX_RETRIES + 1} attempts: ${err?.message}`);
+        }
 
-        if (!res.ok) throw new Error(`Upload failed for image ${i}: ${res.status}`);
-        const { url } = (await res.json()) as { url: string };
-        imageUrls.push(url);
+        completed++;
+        const pct = Math.round((completed / total) * 100);
+        setUploadProgress(pct);
+        setStatusDetail(`Uploading ${completed}/${total} images (${pct}%)...`);
+      };
 
-        setUploadProgress(Math.round(((i + 1) / result.imagePaths.length) * 100));
-        setStatusDetail(
-          `Uploading ${i + 1}/${result.imagePaths.length} images (${uploadProgress}%)...`,
+      // Process in batches of BATCH_SIZE
+      for (let i = 0; i < total; i += BATCH_SIZE) {
+        const batch = Array.from(
+          { length: Math.min(BATCH_SIZE, total - i) },
+          (_, k) => uploadOne(i + k),
         );
+        await Promise.all(batch);
       }
 
       // Create precision scan job
@@ -186,7 +207,7 @@ export function PrecisionScanScreen({ onBack, projectId }: Props) {
 
       setScanResult(scan);
       setStatus("processing");
-      setStatusDetail(STATUS_LABELS[scan.status] || "Processing...");
+      setStatusDetail(STATUS_LABELS[scan.status] || "Queued — waiting for NexBridge...");
 
       // Start polling for updates
       startPolling(scan.id);

@@ -2,6 +2,22 @@
 
 This file provides guidance to WARP (warp.dev) when working with code in this repository.
 
+## Terminal Command Path Contract — CRITICAL
+
+Every terminal command Warp suggests MUST be **copy-pasteable and self-contained**. The user must be able to paste it from any directory and have it work.
+
+**Format:** Always use inline `cd <path> &&` so the command runs in the correct directory.
+
+```bash
+cd /Users/pg/nexus-enterprise && npm run deploy:shadow
+
+cd /Users/pg/nexus-enterprise/packages/database && npm run prisma:migrate
+```
+
+**Exception:** Commands that are directory-independent (e.g. `docker ps`, `curl`, absolute-path scripts) do not need `cd`.
+
+This applies to every directory-dependent command — npm scripts, git, make, etc. No exceptions. Never use `# From <path>:` comments — they are not executable and break when copy-pasted.
+
 ## Monorepo layout and architecture
 
 - This is a JavaScript/TypeScript monorepo managed by Turborepo with npm workspaces.
@@ -202,6 +218,37 @@ The canonical dev database is **`NEXUSDEVv3`** on `localhost:5433`. Every file t
 - Stop or restart Docker Desktop from a script — the shadow tunnel and staging site depend on it being always-on.
 - Run `docker compose down` on `docker-compose.shadow.yml` unless explicitly rebuilding the shadow stack.
 - Set `DATABASE_URL` to anything other than `NEXUSDEVv3` in dev `.env` files.
+
+### Docker Context Hygiene — CRITICAL
+
+The `.dockerignore` file controls what gets sent to Docker during image builds. A bloated context causes deploys to take 10+ minutes instead of 30 seconds. **This file must be maintained.**
+
+**The rule:** Only source code needed at runtime belongs in the Docker context. Everything else MUST be excluded.
+
+**What MUST be excluded (and already is in `.dockerignore`):**
+- `apps/mobile/` — iOS/Android build dirs, IPA files, node_modules (~5GB)
+- `apps/nexbridge-connect/` — Tauri desktop app, iOS builds, Rust target (~1GB)
+- `apps/web/.next/` — Next.js build cache (~4GB)
+- `apps/api/uploads/` — runtime upload data (~300MB)
+- `docs/data/`, `docs/plan-sheets/` — reference data (~570MB)
+- `archive/` — legacy code (~130MB)
+- All `node_modules/` dirs — reinstalled in container
+- All `dist/`, `.turbo/`, `.cache/` — build artifacts
+- `*.ipa`, `*.apk`, `*.app`, `*.mov` — binary artifacts
+- `.git` — version history (~460MB)
+
+**When adding new apps, large directories, or binary files to the repo:**
+1. Add the path to `.dockerignore` IMMEDIATELY
+2. Run `du -sh` on the new directory to verify size
+3. If it exceeds 10MB and isn't needed at runtime, it goes in `.dockerignore`
+
+**Verification command** (run before deploying if context seems slow):
+```bash
+# Should be < 500MB. If over 1GB, .dockerignore needs updating.
+cd /Users/pg/nexus-enterprise && docker build --no-cache -f apps/api/Dockerfile . 2>&1 | head -3
+```
+
+**NEVER remove entries from `.dockerignore` unless you're certain the Docker image needs them.**
 
 ### Common infra workflows
 

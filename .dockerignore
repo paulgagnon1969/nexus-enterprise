@@ -1,14 +1,85 @@
-node_modules
-npm-debug.log
-Dockerfile*
-.dockerignore
+# ─── Git / IDE / OS ──────────────────────────────────────────────────
 .git
 .gitignore
+.dockerignore
+.vscode
+.expo
+.vercel
+.vercelignore
+.DS_Store
+**/.DS_Store
+
+# ─── Env & secrets ───────────────────────────────────────────────────
 .env
 .env.*
 **/.env
 **/.env.*
+.tauri-updater-key
+.tauri-updater-key.pub
+.npmrc
+
+# ─── Root node_modules (reinstalled in container) ───────────────────
+node_modules
+
+# ─── Build artifacts & caches ────────────────────────────────────────
 **/dist
+**/.next
+**/.turbo
+.turbo
+.cache
+**/*.tsbuildinfo
 **/*.log
-NEAT NODE STACK iTERM WINDOWS (12:5:2025).iterm2arrangement
-NEAT_SU_PANE_STACK (12:5:2025).iterm2arrangement
+npm-debug.log
+logs/
+infra/logs/
+
+# ─── Mobile app (not needed for API/Web Docker images) ──────────────
+apps/mobile/android/
+apps/mobile/ios/
+apps/mobile/node_modules/
+apps/mobile/build-*.ipa
+apps/mobile/.expo/
+*.ipa
+*.apk
+
+# ─── NexBridge Connect (Tauri desktop app — not dockerized) ─────────
+apps/nexbridge-connect/ios/
+apps/nexbridge-connect/src-tauri/target/
+apps/nexbridge-connect/node_modules/
+apps/nexbridge-connect/dist/
+
+# ─── Web app build cache (rebuilt in its own container) ─────────────
+apps/web/.next/
+apps/web/node_modules/
+apps/web/tmp_uploads/
+
+# ─── API local uploads (runtime data, not source) ───────────────────
+apps/api/uploads/
+
+# ─── Docs / data (reference data, not needed at runtime) ────────────
+docs/data/
+docs/plan-sheets/
+
+# ─── Archive / legacy ────────────────────────────────────────────────
+archive/
+promotion/
+scripts/data-promotion/
+
+# ─── macOS app bundles (Automator shortcuts) ─────────────────────────
+*.app
+*.mov
+*.rtf
+*.iterm2arrangement
+
+# ─── Docker files themselves ─────────────────────────────────────────
+Dockerfile*
+!apps/api/Dockerfile
+!apps/web/Dockerfile
+
+# ─── Misc ────────────────────────────────────────────────────────────
+android/
+.quarantine
+ICC API JSON file/
+NexConnect old files and locations tree/
+skills/
+.github/

@@ -24,19 +24,42 @@ import { ObjectStorageService } from "./object-storage.service";
 export class MinioStorageService extends ObjectStorageService {
   private readonly logger = new Logger(MinioStorageService.name);
   private readonly client: Minio.Client;
+  /**
+   * Client configured with the externally-reachable endpoint for generating
+   * presigned URLs that external clients (e.g. NexBRIDGE desktop) can use.
+   * Falls back to the internal client when MINIO_EXTERNAL_ENDPOINT is not set.
+   */
+  private readonly externalClient: Minio.Client;
 
   constructor() {
     super();
     const endpoint = process.env.MINIO_ENDPOINT || "localhost";
     const port = Number(process.env.MINIO_PORT || "9000");
     const useSSL = process.env.MINIO_USE_SSL === "true";
+    const accessKey = process.env.MINIO_ACCESS_KEY || "minioadmin";
+    const secretKey = process.env.MINIO_SECRET_KEY || "minioadmin";
 
     this.client = new Minio.Client({
       endPoint: endpoint,
       port,
       useSSL,
-      accessKey: process.env.MINIO_ACCESS_KEY || "minioadmin",
-      secretKey: process.env.MINIO_SECRET_KEY || "minioadmin",
+      accessKey,
+      secretKey,
+    });
+
+    // External client uses MINIO_EXTERNAL_ENDPOINT (e.g. "localhost") so that
+    // presigned URLs are reachable from outside the Docker network.
+    // Region is set explicitly to avoid a network call to the (unreachable)
+    // external endpoint for bucket region discovery.
+    const externalEndpoint = process.env.MINIO_EXTERNAL_ENDPOINT || endpoint;
+    const externalPort = Number(process.env.MINIO_EXTERNAL_PORT || port);
+    this.externalClient = new Minio.Client({
+      endPoint: externalEndpoint,
+      port: externalPort,
+      useSSL,
+      accessKey,
+      secretKey,
+      region: 'us-east-1',
     });
   }
 
@@ -51,7 +74,7 @@ export class MinioStorageService extends ObjectStorageService {
 
     await this.ensureBucket(bucketName);
 
-    const uploadUrl = await this.client.presignedPutObject(
+    const uploadUrl = await this.externalClient.presignedPutObject(
       bucketName,
       key,
       expiresInSeconds,
@@ -119,7 +142,7 @@ export class MinioStorageService extends ObjectStorageService {
     const { key, expiresInSeconds = 15 * 60 } = options;
     const bucketName = this.resolveBucket(options.bucket);
 
-    return this.client.presignedGetObject(
+    return this.externalClient.presignedGetObject(
       bucketName,
       key,
       expiresInSeconds,

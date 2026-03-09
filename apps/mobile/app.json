@@ -2,7 +2,7 @@
   "expo": {
     "name": "Nexus Mobile",
     "slug": "nexus-mobile",
-    "version": "2.22.2",
+"version": "2.23.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -14,7 +14,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.pg1969.nexusmobile",
-      "buildNumber": "77",
+"buildNumber": "96",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Nexus Mobile uses the camera for video calls, daily log photos, and document scanning.",
@@ -118,7 +118,7 @@
     "updates": {
       "url": "https://u.expo.dev/28b82c06-3d43-44f0-ba56-110645a13d80"
     },
-    "runtimeVersion": "2.22.2",
+"runtimeVersion": "2.23.0",
     "extra": {
       "mapboxPublicToken": "SET_VIA_EXPO_PUBLIC_MAPBOX_TOKEN_ENV",
       "eas": {

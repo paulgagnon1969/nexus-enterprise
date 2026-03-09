@@ -11,6 +11,7 @@ import type {
 const NODE_TTL = 90; // seconds — node is considered offline if no heartbeat for 90s
 const REGISTRY_PREFIX = "mesh:node:";
 const COMPANY_SET_PREFIX = "mesh:company:";
+const GLOBAL_SET_KEY = "mesh:global-nodes";
 
 @Injectable()
 export class ComputeMeshService {
@@ -68,6 +69,7 @@ export class ComputeMeshService {
     const client = this.redis.getClient();
     await client.del(`${REGISTRY_PREFIX}${nodeId}`);
     await client.srem(`${COMPANY_SET_PREFIX}${node.companyId}`, nodeId);
+    await client.srem(GLOBAL_SET_KEY, nodeId);
     this.logger.log(`Node unregistered: ${nodeId}`);
   }
 
@@ -81,9 +83,12 @@ export class ComputeMeshService {
 
   async getCompanyNodes(companyId: string): Promise<MeshNode[]> {
     const client = this.redis.getClient();
-    const nodeIds: string[] = await client.smembers(
+    const companyNodeIds: string[] = await client.smembers(
       `${COMPANY_SET_PREFIX}${companyId}`,
     );
+    // Also include global nodes (SUPER_ADMIN nodes that serve all tenants)
+    const globalNodeIds: string[] = await client.smembers(GLOBAL_SET_KEY);
+    const nodeIds = [...new Set([...companyNodeIds, ...globalNodeIds])];
     if (!nodeIds.length) return [];
 
     const nodes: MeshNode[] = [];
@@ -109,8 +114,11 @@ export class ComputeMeshService {
     companyId: string,
     jobType: MeshJobType,
     preferUserId?: string,
+    searchAllCompanies?: boolean,
   ): Promise<MeshNode | null> {
-    const nodes = await this.getCompanyNodes(companyId);
+    const nodes = searchAllCompanies
+      ? await this.getAllNodes()
+      : await this.getCompanyNodes(companyId);
 
     const candidates = nodes
       .filter((n) => n.status !== "offline")
@@ -227,5 +235,9 @@ export class ComputeMeshService {
       JSON.stringify(node),
     );
     await client.sadd(`${COMPANY_SET_PREFIX}${node.companyId}`, node.nodeId);
+    // Global nodes also go into the global set so any tenant can find them
+    if (node.isGlobal) {
+      await client.sadd(GLOBAL_SET_KEY, node.nodeId);
+    }
   }
 }

@@ -389,6 +389,56 @@ export async function listAssessments(): Promise<ListAssessmentsResponse> {
   return request("/video-assessment");
 }
 
+export async function getAssessment(id: string): Promise<VideoAssessmentRecord> {
+  return request(`/video-assessment/${id}`);
+}
+
+export async function updateAssessment(
+  id: string,
+  payload: {
+    projectId?: string;
+    status?: string;
+    notes?: string;
+    assessmentJson?: any;
+  },
+): Promise<VideoAssessmentRecord> {
+  return request(`/video-assessment/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * GET /uploads/signed?uri=gs://...
+ * Returns a time-limited signed URL for a storage URI.
+ */
+export async function getSignedUrl(uri: string): Promise<string> {
+  const res = await request<{ url: string }>(
+    `/uploads/signed?uri=${encodeURIComponent(uri)}`,
+  );
+  return res.url;
+}
+
+export async function overrideFinding(
+  assessmentId: string,
+  findingId: string,
+  payload: {
+    zone?: string;
+    category?: string;
+    severity?: string;
+    causation?: string;
+    description?: string;
+    costbookItemCode?: string;
+    estimatedQuantity?: number;
+    estimatedUnit?: string;
+  },
+): Promise<VideoAssessmentFinding> {
+  return request(`/video-assessment/${assessmentId}/findings/${findingId}/override`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Zoom & Teach
 // ---------------------------------------------------------------------------

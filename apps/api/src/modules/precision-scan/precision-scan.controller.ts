@@ -67,6 +67,21 @@ export class PrecisionScanController {
   }
 
   /**
+   * POST /precision-scans/:scanId/retrigger
+   * Re-dispatch mesh job for an existing scan (e.g. after a failure).
+   */
+  @UseGuards(CombinedAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Post(':scanId/retrigger')
+  async retrigger(
+    @Req() req: any,
+    @Param('scanId') scanId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.scans.retrigger(scanId, user.companyId, user);
+  }
+
+  /**
    * PATCH /precision-scans/:scanId/status
    * Update scan processing status (called by NexBridge mesh job progress).
    */

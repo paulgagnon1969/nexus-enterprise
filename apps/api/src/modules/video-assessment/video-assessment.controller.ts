@@ -170,6 +170,7 @@ export class VideoAssessmentController {
       projectId?: string;
       status?: 'COMPLETE' | 'REVIEWED';
       notes?: string;
+      assessmentJson?: any;
     },
   ) {
     const user = req.user as AuthenticatedUser;

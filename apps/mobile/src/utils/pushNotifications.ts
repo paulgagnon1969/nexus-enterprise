@@ -5,6 +5,69 @@ import { AppState, Platform } from "react-native";
 import { apiFetch } from "../api/client";
 import { callRingConfig } from "../config/callRingConfig";
 
+// ── Notification categories (iOS + Apple Watch action buttons) ──────
+// These categories define quick-action buttons that appear on notifications,
+// including on Apple Watch (mirrored automatically by iOS).
+async function registerNotificationCategories() {
+  await Notifications.setNotificationCategoryAsync("video_call", [
+    {
+      identifier: "accept",
+      buttonTitle: "Accept",
+      options: { opensAppToForeground: true },
+    },
+    {
+      identifier: "decline",
+      buttonTitle: "Decline",
+      options: { isDestructive: true, opensAppToForeground: false },
+    },
+  ]);
+
+  await Notifications.setNotificationCategoryAsync("daily_log", [
+    {
+      identifier: "view",
+      buttonTitle: "View Log",
+      options: { opensAppToForeground: true },
+    },
+  ]);
+
+  await Notifications.setNotificationCategoryAsync("daily_brief", [
+    {
+      identifier: "view",
+      buttonTitle: "View Brief",
+      options: { opensAppToForeground: true },
+    },
+  ]);
+
+  await Notifications.setNotificationCategoryAsync("overdue_reminder", [
+    {
+      identifier: "view",
+      buttonTitle: "View Tasks",
+      options: { opensAppToForeground: true },
+    },
+  ]);
+
+  await Notifications.setNotificationCategoryAsync("task_escalation", [
+    {
+      identifier: "view",
+      buttonTitle: "View Task",
+      options: { opensAppToForeground: true },
+    },
+  ]);
+
+  await Notifications.setNotificationCategoryAsync("task_update", [
+    {
+      identifier: "view",
+      buttonTitle: "View Task",
+      options: { opensAppToForeground: true },
+    },
+  ]);
+}
+
+// Register categories immediately on module load
+registerNotificationCategories().catch((err) =>
+  console.warn("[push] Failed to register notification categories:", err),
+);
+
 // ── Notification display behaviour ──────────────────────────────────
 // Ring behaviour for video calls is driven by callRingConfig.
 // See src/config/callRingConfig.ts and the SOP for the full flag reference.
@@ -125,11 +188,20 @@ export async function deregisterPushToken(): Promise<void> {
 }
 
 /**
- * Parse the deep-link data from a notification response (user tapped a notification).
+ * Parse the deep-link data from a notification response (user tapped a notification
+ * or pressed a category action button, including on Apple Watch).
  */
 export function parseNotificationData(
   response: Notifications.NotificationResponse,
-): { type: string; dailyLogId?: string; projectId?: string; roomId?: string } | null {
+): {
+  type: string;
+  dailyLogId?: string;
+  projectId?: string;
+  roomId?: string;
+  taskId?: string;
+  /** The action button identifier the user pressed (e.g. "accept", "decline", "view") */
+  actionIdentifier?: string;
+} | null {
   const data = response.notification.request.content.data;
   if (!data?.type) return null;
   return {
@@ -137,5 +209,9 @@ export function parseNotificationData(
     dailyLogId: data.dailyLogId as string | undefined,
     projectId: data.projectId as string | undefined,
     roomId: data.roomId as string | undefined,
+    taskId: data.taskId as string | undefined,
+    actionIdentifier: response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER
+      ? response.actionIdentifier
+      : undefined,
   };
 }

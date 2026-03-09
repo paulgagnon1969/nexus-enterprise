@@ -264,6 +264,7 @@ export class TaskEscalationService {
             taskCount: tasks.length,
           },
           sound: "default",
+          categoryId: "overdue_reminder",
         });
 
         // Email reminder
@@ -331,6 +332,7 @@ export class TaskEscalationService {
             projectId: project?.id,
           },
           sound: "default",
+          categoryId: "task_escalation",
         });
       } catch (err: any) {
         this.logger.warn(`Push notification failed: ${err?.message}`);

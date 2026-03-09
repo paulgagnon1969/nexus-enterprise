@@ -291,8 +291,10 @@ export class GeminiService {
   // ── Private helpers ────────────────────────────────────────────────
 
   /**
-   * Convert a frame's base64 data or storage URI into a URL that OpenAI
-   * can fetch. Base64 → data-URI, gs://… → presigned MinIO URL.
+   * Convert a frame's base64 data or storage URI into a data-URI that any
+   * vision API can consume.  Base64 → data-URI, gs://… → download from
+   * MinIO and encode as base64 data-URI (presigned MinIO URLs use the
+   * internal Docker hostname which external APIs cannot reach).
    */
   private async resolveImageUrl(
     frame: { base64?: string; gcsUri?: string; mimeType?: string },
@@ -304,7 +306,15 @@ export class GeminiService {
     if (frame.gcsUri) {
       const match = frame.gcsUri.match(/^(?:gs|s3):\/\/([^/]+)\/(.+)$/);
       if (!match) throw new Error(`Invalid storage URI: ${frame.gcsUri}`);
-      return this.storage.createSignedReadUrl({ bucket: match[1]!, key: match[2]!, expiresInSeconds: 3600 });
+
+      const stream = await this.storage.getObjectStream({ bucket: match[1]!, key: match[2]! });
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      const b64 = Buffer.concat(chunks).toString('base64');
+      const mime = frame.mimeType || 'image/jpeg';
+      return `data:${mime};base64,${b64}`;
     }
     return null;
   }

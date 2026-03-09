@@ -66,7 +66,8 @@ export default function Dashboard() {
             return (
               <div
                 key={a.id}
-                className="flex items-center justify-between rounded-lg border bg-white px-5 py-4 shadow-sm"
+                onClick={() => navigate(`/assess?id=${a.id}`)}
+                className="flex cursor-pointer items-center justify-between rounded-lg border bg-white px-5 py-4 shadow-sm transition-colors hover:border-nexus-300 hover:bg-nexus-50/30"
               >
                 <div className="min-w-0">
                   <p className="truncate font-medium text-gray-800">
@@ -82,19 +83,22 @@ export default function Dashboard() {
                     </p>
                   )}
                 </div>
-                <span
-                  className={`ml-4 shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                    a.status === "COMPLETE"
-                      ? "bg-green-100 text-green-700"
-                      : a.status === "PROCESSING"
-                        ? "bg-yellow-100 text-yellow-700"
-                        : a.status === "FAILED"
-                          ? "bg-red-100 text-red-700"
-                          : "bg-gray-100 text-gray-700"
-                  }`}
-                >
-                  {a.status}
-                </span>
+                <div className="ml-4 flex shrink-0 items-center gap-2">
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                      a.status === "COMPLETE"
+                        ? "bg-green-100 text-green-700"
+                        : a.status === "PROCESSING"
+                          ? "bg-yellow-100 text-yellow-700"
+                          : a.status === "FAILED"
+                            ? "bg-red-100 text-red-700"
+                            : "bg-gray-100 text-gray-700"
+                    }`}
+                  >
+                    {a.status}
+                  </span>
+                  <span className="text-xs text-gray-400">→</span>
+                </div>
               </div>
             );
           })}

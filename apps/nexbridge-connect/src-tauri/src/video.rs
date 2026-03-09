@@ -150,6 +150,9 @@ pub async fn extract_frames(
     scene_threshold: Option<f64>,
     // Legacy compat — treated as mode="scene" when true
     use_scene_detection: Option<bool>,
+    // Time range selection — extract only a portion of the video
+    start_secs: Option<f64>,
+    end_secs: Option<f64>,
 ) -> Result<ExtractionResult, String> {
     let max = max_frames.unwrap_or(120);
     let metadata = get_video_metadata(video_path.clone()).await?;
@@ -215,23 +218,45 @@ pub async fn extract_frames(
         _ => format!("fixed interval ({}s)", interval_secs.unwrap_or(10.0)),
     };
 
+    // Clamp time range to video bounds
+    let effective_start = start_secs.unwrap_or(0.0).max(0.0);
+    let effective_end = end_secs.unwrap_or(metadata.duration_secs).min(metadata.duration_secs);
+    let effective_duration = effective_end - effective_start;
+
+    let range_desc = if start_secs.is_some() || end_secs.is_some() {
+        format!(" [{:.0}s–{:.0}s]", effective_start, effective_end)
+    } else {
+        String::new()
+    };
+
     let _ = app.emit("extraction-progress", serde_json::json!({
         "stage": "extracting",
-        "message": format!("Extracting frames from {} ({:.0}s, {})...", metadata.file_name, metadata.duration_secs, mode_desc),
+        "message": format!("Extracting frames from {} ({:.0}s, {}{})...", metadata.file_name, effective_duration, mode_desc, range_desc),
     }));
 
+    let mut ffmpeg_args: Vec<String> = Vec::new();
+
+    // Seek to start position (before -i for fast seeking)
+    if effective_start > 0.0 {
+        ffmpeg_args.extend(["-ss".to_string(), format!("{:.3}", effective_start)]);
+    }
+
+    ffmpeg_args.extend(["-i".to_string(), video_path.clone()]);
+
+    // Limit duration if end was specified
+    if end_secs.is_some() || start_secs.is_some() {
+        ffmpeg_args.extend(["-t".to_string(), format!("{:.3}", effective_duration)]);
+    }
+
+    ffmpeg_args.extend([
+        "-vf".to_string(), vf.clone(),
+        "-fps_mode".to_string(), "vfr".to_string(),
+        "-q:v".to_string(), "2".to_string(),
+        output_pattern.to_str().unwrap().to_string(),
+    ]);
+
     let output = Command::new(ffmpeg_path())
-        .args([
-            "-i",
-            &video_path,
-            "-vf",
-            &vf,
-            "-fps_mode",
-            "vfr",
-            "-q:v",
-            "2",
-            output_pattern.to_str().unwrap(),
-        ])
+        .args(&ffmpeg_args)
         .output()
         .await
         .map_err(|e| format!("FFmpeg failed: {}", e))?;
@@ -300,11 +325,12 @@ pub async fn extract_frames(
 
         let b64 = STANDARD.encode(&data);
 
-        // Use actual timestamp from showinfo if available, otherwise estimate
+        // Use actual timestamp from showinfo if available, otherwise estimate.
+        // Add effective_start so timestamps are absolute (relative to full video).
         let timestamp = if i < showinfo_timestamps.len() {
-            showinfo_timestamps[i]
+            showinfo_timestamps[i] + effective_start
         } else {
-            i as f64 * interval_fallback
+            effective_start + (i as f64 * interval_fallback)
         };
 
         frames.push(ExtractedFrame {

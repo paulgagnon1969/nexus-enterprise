@@ -1,6 +1,6 @@
 [package]
 name = "nexbridge-connect"
-version = "1.1.0"
+version = "1.4.0"
 description = "NexBRIDGE Connect — Unified desktop companion for NEXUS"
 authors = ["Nexus"]
 edition = "2021"
@@ -13,7 +13,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
 tauri-plugin-shell = "2"
 tauri-plugin-store = "2"
 tauri-plugin-notification = "2"

@@ -125,7 +125,7 @@ export function useAuth() {
   }, [state.authenticated]);
 
   /** Post-login: register device, check entitlements, connect mesh. */
-  const postLoginSetup = useCallback(async (appVer: string, opts?: { userId?: string; companyId?: string; apiUrl?: string }) => {
+  const postLoginSetup = useCallback(async (appVer: string, opts?: { userId?: string; companyId?: string; apiUrl?: string; globalRole?: string }) => {
     // --- Device registration ---
     try {
       const devId = await getOrCreateDeviceId();
@@ -183,6 +183,7 @@ export function useAuth() {
           userId: opts.userId,
           companyId: opts.companyId,
           appVersion: appVer,
+          globalRole: opts.globalRole,
         });
         meshJobRunner.start();
       } catch (err) {
@@ -208,10 +209,12 @@ export function useAuth() {
           // Decode JWT to get userId and companyId for mesh connection
           let userId: string | undefined;
           let companyId: string | undefined;
+          let globalRole: string | undefined;
           try {
             const payload = JSON.parse(atob(stored.accessToken.split(".")[1]));
             userId = payload.sub || payload.userId;
             companyId = payload.companyId;
+            globalRole = payload.globalRole;
           } catch { /* token decode failed — mesh will skip */ }
           setState((s) => ({
             ...s,
@@ -222,7 +225,7 @@ export function useAuth() {
             userId: userId ?? null,
             companyId: companyId ?? null,
           }));
-          await postLoginSetup(appVer, { userId, companyId, apiUrl: stored.apiUrl });
+          await postLoginSetup(appVer, { userId, companyId, apiUrl: stored.apiUrl, globalRole });
         } else {
           setState((s) => ({ ...s, loading: false }));
         }
@@ -249,10 +252,17 @@ export function useAuth() {
         userId: data.user.id,
         companyId: data.company.id,
       }));
+      // Decode globalRole from JWT for mesh registration
+      let loginGlobalRole: string | undefined;
+      try {
+        const jwtPayload = JSON.parse(atob(data.accessToken.split(".")[1]));
+        loginGlobalRole = jwtPayload.globalRole;
+      } catch { /* decode failed */ }
       await postLoginSetup(appVer, {
         userId: data.user.id,
         companyId: data.company.id,
         apiUrl: apiUrl.replace(/\/$/, ""),
+        globalRole: loginGlobalRole,
       });
       return data;
     },

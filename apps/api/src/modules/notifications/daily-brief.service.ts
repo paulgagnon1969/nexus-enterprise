@@ -355,6 +355,7 @@ export class DailyBriefService implements OnModuleInit, OnModuleDestroy {
       data: { type: "daily_brief" },
       sound: "default",
       channelId: "morning-brief",
+      categoryId: "daily_brief",
     };
 
     await this.push.sendToUsers([user.id], pushPayload).catch((err) =>

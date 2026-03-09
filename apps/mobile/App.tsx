@@ -148,20 +148,24 @@ export default function App() {
     };
   }, []);
 
-  // Handle notification tap → deep-link to daily log or video call
+  // Handle notification tap or category action button press
+  // (includes taps from Apple Watch mirrored notifications)
   useEffect(() => {
     notificationResponseListener.current =
       Notifications.addNotificationResponseReceivedListener(async (response) => {
         const data = parseNotificationData(response);
         if (!data || !navigationRef.current) return;
 
-        if (data.type === "daily_log" && data.dailyLogId) {
-          navigationRef.current.navigate("DailyLogDetail" as any, {
-            logId: data.dailyLogId,
-            projectId: data.projectId,
-          });
-        } else if (data.type === "video_call" && data.roomId) {
-          // Dismiss incoming call UI if showing, then join
+        // ── Video call: handle accept / decline actions ──
+        if (data.type === "video_call" && data.roomId) {
+          // "Decline" action from notification or Watch — just dismiss
+          if (data.actionIdentifier === "decline") {
+            setIncomingCall(null);
+            if (incomingCallTimeout.current) clearTimeout(incomingCallTimeout.current);
+            return;
+          }
+
+          // Default tap or "Accept" action — join the call
           setIncomingCall(null);
           try {
             const res = await apiJson<{ room: any; token: string; livekitUrl: string }>(
@@ -178,6 +182,27 @@ export default function App() {
           } catch (err) {
             console.warn("[push] Failed to join video call:", err);
           }
+          return;
+        }
+
+        // ── Daily log ──
+        if (data.type === "daily_log" && data.dailyLogId) {
+          navigationRef.current.navigate("DailyLogDetail" as any, {
+            logId: data.dailyLogId,
+            projectId: data.projectId,
+          });
+          return;
+        }
+
+        // ── Tasks (escalation, overdue, update) ──
+        if (
+          (data.type === "task_escalation" ||
+            data.type === "overdue_reminder" ||
+            data.type === "task_update") &&
+          data.taskId
+        ) {
+          navigationRef.current.navigate("Todos" as any);
+          return;
         }
       });
 

@@ -65,6 +65,7 @@ export class MeshJobService {
     payload: Record<string, unknown>;
     preferClient?: boolean;
     preferUserId?: string;
+    searchAllCompanies?: boolean;
     serverFallback: (job: MeshJob) => Promise<Record<string, unknown>>;
   }): Promise<MeshJob> {
     const job: MeshJob = {
@@ -93,6 +94,7 @@ export class MeshJobService {
         job.companyId,
         job.type,
         params.preferUserId,
+        params.searchAllCompanies,
       );
 
       if (node && this.emitOffer) {

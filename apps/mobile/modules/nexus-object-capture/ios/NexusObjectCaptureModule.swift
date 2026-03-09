@@ -457,11 +457,9 @@ class PrecisionCaptureCoordinator: NSObject {
     let session = ObjectCaptureSession()
     self.session = session
 
-    var config = ObjectCaptureSession.Configuration()
-    config.checkpointDirectory = tempBase.appendingPathComponent("checkpoints")
-    config.isOverCaptureEnabled = true
-    try? FileManager.default.createDirectory(at: config.checkpointDirectory!, withIntermediateDirectories: true)
-
+    // Use default config — isOverCaptureEnabled and checkpointDirectory
+    // were preventing object detection from completing on some objects.
+    let config = ObjectCaptureSession.Configuration()
     session.start(imagesDirectory: imagesDir, configuration: config)
 
     // Observe state — but we only care about .completed (all images written)
@@ -476,7 +474,8 @@ class PrecisionCaptureCoordinator: NSObject {
     let captureView = PrecisionCaptureContainerView(
       session: session,
       onDone: { [weak self] in self?.finishCapture() },
-      onCancel: { [weak self] in self?.cancel() }
+      onCancel: { [weak self] in self?.cancel() },
+      imagesDirectory: imagesDir
     )
 
     let vc = UIHostingController(rootView: captureView)
@@ -491,16 +490,22 @@ class PrecisionCaptureCoordinator: NSObject {
     rootVC.present(vc, animated: true)
   }
 
+  private var startAttempts = 0
+
   private func handleState(_ state: ObjectCaptureSession.CaptureState) {
     switch state {
     case .initializing:
-      print("[NexusPrecision] Session initializing (overCapture enabled)")
+      print("[NexusPrecision] Session initializing")
     case .ready:
-      print("[NexusPrecision] Session ready")
+      print("[NexusPrecision] Session ready — will try startCapturing in 3s")
+      // Object detection can be slow or fail on reflective/small objects.
+      // Try forcing into capturing state after a delay.
+      scheduleStartCapturing(delay: 3.0)
     case .detecting:
-      print("[NexusPrecision] Detecting object...")
+      print("[NexusPrecision] Detecting object — will auto-start in 1s")
+      scheduleStartCapturing(delay: 1.0)
     case .capturing:
-      print("[NexusPrecision] Capturing images (precision mode)...")
+      print("[NexusPrecision] ✅ Now capturing images!")
     case .finishing:
       print("[NexusPrecision] Finishing capture...")
     case .completed:
@@ -513,6 +518,32 @@ class PrecisionCaptureCoordinator: NSObject {
       }
     @unknown default:
       break
+    }
+  }
+
+  /// Try to transition to .capturing. Retries up to 5 times with increasing delay.
+  private func scheduleStartCapturing(delay: TimeInterval) {
+    guard startAttempts < 5 else { return }
+    startAttempts += 1
+    let attempt = startAttempts
+    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+      guard let self = self, let session = self.session else { return }
+      let state = session.state
+      print("[NexusPrecision] startCapturing attempt \(attempt), session.state=\(state)")
+      if case .capturing = state { return } // already there
+      if case .finishing = state { return }
+      if case .completed = state { return }
+      session.startCapturing()
+      // Check again after a moment
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+        guard let self = self, let session = self.session else { return }
+        if case .capturing = session.state {
+          print("[NexusPrecision] ✅ startCapturing succeeded on attempt \(attempt)")
+        } else {
+          print("[NexusPrecision] ❌ Still in \(session.state) after attempt \(attempt), retrying...")
+          self.scheduleStartCapturing(delay: 2.0)
+        }
+      }
     }
   }
 
@@ -615,88 +646,226 @@ class PrecisionCaptureCoordinator: NSObject {
   }
 }
 
-/// Precision capture UI — similar to standard but with image count guidance.
+/// Precision capture UI with live image counter, manual capture, and haptic feedback.
+///
+/// ObjectCaptureView handles the AR bounding box and visual feedback, but does NOT
+/// provide its own buttons. We must provide:
+///   - .detecting → "Start Capture" button (calls session.startCapturing())
+///   - .capturing → shutter button, image counter, done button
+/// We track session state via @State + .task { stateUpdates } because
+/// ObjectCaptureSession is NOT @Observable — reading session.state in body
+/// won't trigger SwiftUI re-renders.
+enum ScanPhase: Equatable {
+  case initializing, ready, detecting, capturing, finishing, completed, failed
+}
+
 @available(iOS 17.0, *)
 struct PrecisionCaptureContainerView: View {
   let session: ObjectCaptureSession
   let onDone: () -> Void
   let onCancel: () -> Void
+  let imagesDirectory: URL?
+
+  @State private var phase: ScanPhase = .initializing
+  @State private var imageCount: Int = 0
+  @State private var flashOpacity: Double = 0
+  private let feedbackGenerator = UIImpactFeedbackGenerator(style: .light)
+  private let pollTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+
+  private var isCapturing: Bool {
+    phase == .capturing || phase == .finishing
+  }
 
   var body: some View {
-    ZStack {
-      ObjectCaptureView(session: session)
-        .edgesIgnoringSafeArea(.all)
+    VStack(spacing: 0) {
+      // ── AR camera view (fills available space) ─────────────────────
+      ZStack {
+        ObjectCaptureView(session: session)
 
-      VStack {
-        // Top bar
-        HStack {
-          Button(action: onCancel) {
-            HStack(spacing: 6) {
-              Image(systemName: "xmark")
-              Text("Cancel")
-            }
-            .foregroundColor(.white)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(.ultraThinMaterial, in: Capsule())
-          }
-          Spacer()
+        // Flash overlay
+        Color.white
+          .opacity(flashOpacity)
+          .allowsHitTesting(false)
 
-          // Precision mode badge
-          Text("PRECISION")
-            .font(.caption.weight(.heavy))
-            .foregroundColor(.orange)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(.ultraThinMaterial, in: Capsule())
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 8)
-
-        Spacer()
-
-        // Done button
-        if session.canRequestImageCapture {
-          Button(action: onDone) {
-            Text("Done Scanning")
-              .font(.headline)
+        // Top bar overlay (cancel + badge)
+        VStack {
+          HStack {
+            Button(action: onCancel) {
+              HStack(spacing: 6) {
+                Image(systemName: "xmark")
+                Text("Cancel")
+              }
               .foregroundColor(.white)
-              .frame(width: 200, height: 50)
-              .background(Color.orange)
-              .cornerRadius(12)
-          }
-          .padding(.bottom, 10)
-        }
+              .padding(.horizontal, 16)
+              .padding(.vertical, 10)
+              .background(.ultraThinMaterial, in: Capsule())
+            }
 
-        // Guidance text
-        precisionStatusView
-          .padding(.bottom, 10)
+            Spacer()
+
+            if isCapturing {
+              HStack(spacing: 6) {
+                Image(systemName: "photo.stack")
+                Text("\(imageCount)")
+                  .font(.title3.weight(.bold).monospacedDigit())
+                Text(imageCount >= 80 ? "✓" : "/ 80+")
+                  .font(.caption)
+              }
+              .foregroundColor(imageCount >= 80 ? .green : (imageCount >= 40 ? .orange : .white))
+              .padding(.horizontal, 14)
+              .padding(.vertical, 8)
+              .background(.ultraThinMaterial, in: Capsule())
+            }
+
+            Spacer()
+
+            Text("PRECISION")
+              .font(.caption.weight(.heavy))
+              .foregroundColor(.orange)
+              .padding(.horizontal, 12)
+              .padding(.vertical, 6)
+              .background(.ultraThinMaterial, in: Capsule())
+          }
+          .padding(.horizontal, 16)
+          .padding(.top, 8)
+
+          Spacer()
+        }
+        .allowsHitTesting(true)
       }
+      .edgesIgnoringSafeArea(.top)
+
+      // ── Bottom control bar (SEPARATE from AR view — no touch conflict) ──
+      bottomControlBar
+        .frame(minHeight: 120)
+        .background(Color.black)
+    }
+    .edgesIgnoringSafeArea(.bottom)
+    .onReceive(pollTimer) { _ in
+      pollSessionState()
+      updateImageCount()
+    }
+    .onAppear {
+      feedbackGenerator.prepare()
+      pollSessionState()
     }
   }
 
   @ViewBuilder
-  private var precisionStatusView: some View {
-    switch session.state {
-    case .ready:
-      Label("Precision Mode — capture from all angles", systemImage: "viewfinder")
-        .font(.subheadline).foregroundColor(.white)
-        .padding(8).background(.ultraThinMaterial, in: Capsule())
-    case .detecting:
-      Label("Move closer to the object...", systemImage: "magnifyingglass")
-        .font(.subheadline).foregroundColor(.white)
-        .padding(8).background(.ultraThinMaterial, in: Capsule())
-    case .capturing:
-      Label("Orbit slowly — capture all sides, top & bottom", systemImage: "arrow.triangle.2.circlepath.camera")
-        .font(.subheadline).foregroundColor(.orange)
-        .padding(8).background(.ultraThinMaterial, in: Capsule())
-    case .finishing:
-      Label("Saving images...", systemImage: "gearshape.2")
-        .font(.subheadline).foregroundColor(.yellow)
-        .padding(8).background(.ultraThinMaterial, in: Capsule())
-    default:
-      EmptyView()
+  private var bottomControlBar: some View {
+    if phase == .ready || phase == .detecting || phase == .initializing {
+      VStack(spacing: 10) {
+        // Debug state
+        Text("Session: \(String(describing: phase))")
+          .font(.caption2.monospaced())
+          .foregroundColor(.gray.opacity(0.5))
+
+        Label(
+          phase == .detecting
+            ? "Object detected — starting capture..."
+            : "Scanning for object... move camera slowly",
+          systemImage: phase == .detecting ? "checkmark.circle" : "viewfinder"
+        )
+        .font(.subheadline)
+        .foregroundColor(phase == .detecting ? .green : .white)
+
+        // Always show Start button — tapping it tries startCapturing() regardless
+        Button {
+          print("[NexusPrecision] Manual startCapturing() from button, state=\(session.state)")
+          session.startCapturing()
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { pollSessionState() }
+        } label: {
+          HStack(spacing: 10) {
+            Image(systemName: "camera.fill")
+            Text("Start Capture")
+          }
+          .font(.title3.weight(.semibold))
+          .foregroundColor(.white)
+          .frame(maxWidth: .infinity)
+          .frame(height: 56)
+          .background(Color.orange)
+          .cornerRadius(14)
+        }
+        .padding(.horizontal, 32)
+      }
+      .padding(.vertical, 12)
+
+    } else if isCapturing {
+      VStack(spacing: 8) {
+        Button {
+          session.requestImageCapture()
+          triggerFlash()
+        } label: {
+          ZStack {
+            Circle().fill(.white.opacity(0.3)).frame(width: 72, height: 72)
+            Circle().fill(.white).frame(width: 56, height: 56)
+            Circle().stroke(Color.orange, lineWidth: 3).frame(width: 64, height: 64)
+          }
+        }
+
+        Button(action: onDone) {
+          HStack(spacing: 8) {
+            Image(systemName: imageCount >= 80 ? "checkmark.circle.fill" : "arrow.trianglehead.counterclockwise")
+            Text(imageCount >= 80 ? "Done — \(imageCount) images" : "Keep going (\(imageCount)/80+)")
+          }
+          .font(.headline)
+          .foregroundColor(.white)
+          .frame(maxWidth: .infinity)
+          .frame(height: 46)
+          .background(imageCount >= 80 ? Color.orange : Color.gray.opacity(0.6))
+          .cornerRadius(12)
+        }
+        .disabled(imageCount < 20)
+        .padding(.horizontal, 32)
+
+        Text("Orbit slowly — tap shutter or auto-capture")
+          .font(.caption).foregroundColor(.orange)
+      }
+      .padding(.vertical, 8)
+
+    } else {
+      // Initializing / finishing / other states
+      Text("Preparing...")
+        .foregroundColor(.gray)
+        .padding(.vertical, 20)
     }
+  }
+
+  /// Poll session.state and update our @State phase so SwiftUI re-renders.
+  /// ObjectCaptureSession is not @Observable, so this is the only reliable way.
+  private func pollSessionState() {
+    let newPhase: ScanPhase
+    switch session.state {
+    case .initializing: newPhase = .initializing
+    case .ready:        newPhase = .ready
+    case .detecting:    newPhase = .detecting
+    case .capturing:    newPhase = .capturing
+    case .finishing:    newPhase = .finishing
+    case .completed:    newPhase = .completed
+    case .failed:       newPhase = .failed
+    @unknown default:   return
+    }
+    if newPhase != phase {
+      print("[NexusPrecision] UI phase: \(phase) → \(newPhase)")
+      phase = newPhase
+    }
+  }
+
+  private func updateImageCount() {
+    guard let dir = imagesDirectory else { return }
+    let fm = FileManager.default
+    let imageExts: Set<String> = ["heic", "jpg", "jpeg", "png"]
+    let allFiles = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+    let count = allFiles.filter { imageExts.contains($0.pathExtension.lowercased()) }.count
+    if count > imageCount {
+      feedbackGenerator.impactOccurred()
+    }
+    imageCount = count
+  }
+
+  private func triggerFlash() {
+    withAnimation(.easeIn(duration: 0.05)) { flashOpacity = 0.15 }
+    withAnimation(.easeOut(duration: 0.2).delay(0.05)) { flashOpacity = 0 }
   }
 }
 

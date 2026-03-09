@@ -495,6 +495,7 @@ export class TaskService {
         title: "Task Update",
         body,
         data: { taskId, screen: "todos" },
+        categoryId: "task_update",
       });
     } catch (err) {
       this.logger.warn(`Failed to notify originator ${originatorUserId}: ${err}`);

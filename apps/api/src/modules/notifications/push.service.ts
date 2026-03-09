@@ -21,6 +21,8 @@ export interface PushPayload {
   sound?: string | null;
   /** Optional channel (Android) */
   channelId?: string;
+  /** Notification category identifier (iOS action buttons + Apple Watch) */
+  categoryId?: string;
 }
 
 @Injectable()
@@ -96,6 +98,7 @@ export class PushService {
       sound: payload.sound ?? "default",
       badge: payload.badge,
       channelId: payload.channelId,
+      categoryId: payload.categoryId,
     }));
 
     // Chunk and send

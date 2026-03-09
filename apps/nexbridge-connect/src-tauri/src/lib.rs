@@ -4,6 +4,7 @@ mod converter;
 mod documents;
 mod index;
 mod input;
+mod keep_alive;
 mod precision_scan;
 mod system_info;
 mod tray;

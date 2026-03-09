@@ -46,6 +46,8 @@ export interface NodeRegistration {
   power: NodePower;
   /** True if this node detected the API server on localhost (same machine) */
   isServerHost: boolean;
+  /** True if this node can serve jobs for ANY company (SUPER_ADMIN nodes) */
+  isGlobal?: boolean;
 }
 
 /** Heartbeat payload (subset — only changing values) */

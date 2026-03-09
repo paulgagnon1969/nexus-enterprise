@@ -36,6 +36,7 @@ import { PlanSheetsTab } from "./plan-sheets-tab";
 import CollaborationsPanel from "./collaborations-panel";
 
 const LogisticsTab = dynamic(() => import("./logistics-tab"), { ssr: false });
+const ScansTab = dynamic(() => import("./scans-tab"), { ssr: false });
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -892,6 +893,7 @@ type TabKey =
   | "DAILY_LOGS"
   | "LOGISTICS"
   | "FILES"
+  | "SCANS"
   | "FINANCIAL"
   | "JOURNAL";
 
@@ -6073,6 +6075,7 @@ ${htmlBody}
       tab === "STRUCTURE" ||
       tab === "DAILY_LOGS" ||
       tab === "FILES" ||
+      tab === "SCANS" ||
       tab === "FINANCIAL" ||
       tab === "PLANS"
     ) {
@@ -14848,6 +14851,7 @@ ${htmlBody}
             ...(isPmOrAbove ? [{ key: "STRUCTURE" as TabKey, label: "Project Organization" }] : []),
             ...(isPmOrAbove ? [{ key: "LOGISTICS" as TabKey, label: "Logistics" }] : []),
             { key: "FILES", label: "Files" },
+            ...(isPmOrAbove ? [{ key: "SCANS" as TabKey, label: "Scans" }] : []),
             ...(isAdminOrAbove ? [{ key: "JOURNAL" as TabKey, label: "Journal" }] : []),
             ...(isPmOrAbove ? [{ key: "FINANCIAL" as TabKey, label: "Financial" }] : []),
             ...(isPmOrAbove ? [{ key: "SUMMARY" as TabKey, label: "Job Parameters" }] : []),
@@ -28483,6 +28487,11 @@ onClick={() => setManageTemplatesOpen(true)}
       {/* PLANS tab content (PM+ only) */}
       {activeTab === "PLANS" && isPmOrAbove && (
         <PlanSheetsTab projectId={id} />
+      )}
+
+      {/* SCANS tab content (PM+ only) */}
+      {activeTab === "SCANS" && isPmOrAbove && (
+        <ScansTab projectId={id} />
       )}
 
       {/* LOGISTICS tab content (PM+ only) */}

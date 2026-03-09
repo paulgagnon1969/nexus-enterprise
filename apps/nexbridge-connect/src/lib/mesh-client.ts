@@ -49,6 +49,8 @@ export interface NodeRegistration {
   power: NodePower;
   /** True if this node detected the API server on localhost (same machine) */
   isServerHost: boolean;
+  /** True if this node can serve jobs for ANY company (SUPER_ADMIN nodes) */
+  isGlobal?: boolean;
 }
 
 export interface HeartbeatPayload {
@@ -113,6 +115,7 @@ class MeshClient {
   private companyId = "";
   private appVersion = "1.0.0";
   private serverUrl = "";
+  private isGlobal = false;
 
   // Cached network metrics (updated by speed test)
   private lastNetwork: NodeNetwork = { downloadMbps: 50, uploadMbps: 10, apiLatencyMs: 50 };
@@ -133,6 +136,7 @@ class MeshClient {
     userId: string;
     companyId: string;
     appVersion: string;
+    globalRole?: string;
   }): Promise<void> {
     if (this.socket?.connected) return;
 
@@ -140,6 +144,7 @@ class MeshClient {
     this.userId = opts.userId;
     this.companyId = opts.companyId;
     this.appVersion = opts.appVersion;
+    this.isGlobal = opts.globalRole === "SUPER_ADMIN";
     this.nodeId = await getOrCreateDeviceId();
 
     this.setStatus("connecting");
@@ -210,6 +215,7 @@ class MeshClient {
         onAc: sysInfo.on_ac,
       },
       isServerHost,
+      isGlobal: this.isGlobal,
     };
 
     this.socket?.emit("node:register", registration);

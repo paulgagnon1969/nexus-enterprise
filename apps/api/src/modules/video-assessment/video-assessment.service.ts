@@ -6,6 +6,38 @@ import { AuthenticatedUser } from '../auth/jwt.strategy';
 import { GeminiService } from './gemini.service';
 import type { AssessmentType } from './prompts';
 
+// Valid Prisma enum values — AI output is sanitized against these.
+const VALID_ZONES = new Set([
+  'ROOF','SIDING','WINDOWS','GUTTERS','FASCIA_SOFFIT','FOUNDATION',
+  'DECK_PATIO','FENCING','LANDSCAPING','INTERIOR_WALLS','INTERIOR_CEILING',
+  'INTERIOR_FLOOR','INTERIOR_CABINETS','INTERIOR_FIXTURES','PLUMBING',
+  'ELECTRICAL','HVAC','OTHER',
+]);
+const VALID_CATEGORIES = new Set([
+  'MISSING_SHINGLES','CURLING','GRANULE_LOSS','HAIL_IMPACT','WIND_LIFT',
+  'ALGAE_MOSS','FLASHING','RIDGE_CAP','VALLEY','UNDERLAYMENT','DRAINAGE',
+  'CRACKING','PEELING','ROT','WATER_STAIN','MOLD','WARPING','BROKEN_SEAL',
+  'MISSING_CAULK','STRUCTURAL_SHIFT','CORROSION','INSECT_DAMAGE',
+  'EFFLORESCENCE','SPALLING','OTHER',
+]);
+const VALID_SEVERITIES = new Set(['LOW','MODERATE','SEVERE','CRITICAL']);
+const VALID_CAUSATIONS = new Set([
+  'HAIL','WIND','AGE','WATER','FIRE','IMPACT','THERMAL',
+  'IMPROPER_INSTALL','SETTLING','PEST','UNKNOWN',
+]);
+
+function safeEnum<T extends string>(value: string | undefined, valid: Set<string>, fallback: T): T {
+  const v = (value || '').toUpperCase().trim();
+  return (valid.has(v) ? v : fallback) as T;
+}
+
+/** Coerce AI output to a float, returning null for non-numeric values. */
+function safeFloat(value: unknown): number | null {
+  if (value == null) return null;
+  const n = typeof value === 'number' ? value : parseFloat(String(value));
+  return Number.isFinite(n) ? n : null;
+}
+
 @Injectable()
 export class VideoAssessmentService {
   private readonly logger = new Logger(VideoAssessmentService.name);
@@ -131,18 +163,18 @@ export class VideoAssessmentService {
         findings: {
           create: payload.findings.map((f, i) => ({
             companyId,
-            zone: f.zone as any,
-            category: f.category as any,
-            severity: f.severity as any,
-            causation: (f.causation as any) || 'UNKNOWN',
+            zone: safeEnum(f.zone, VALID_ZONES, 'OTHER'),
+            category: safeEnum(f.category, VALID_CATEGORIES, 'OTHER'),
+            severity: safeEnum(f.severity, VALID_SEVERITIES, 'MODERATE'),
+            causation: safeEnum(f.causation, VALID_CAUSATIONS, 'UNKNOWN'),
             description: f.description,
             frameTimestamp: f.frameTimestamp,
             thumbnailUrl: f.thumbnailUrl,
             boundingBoxJson: f.boundingBoxJson,
-            costbookItemCode: f.costbookItemCode,
-            estimatedQuantity: f.estimatedQuantity,
-            estimatedUnit: f.estimatedUnit,
-            confidenceScore: f.confidenceScore,
+            costbookItemCode: f.costbookItemCode ?? null,
+            estimatedQuantity: safeFloat(f.estimatedQuantity),
+            estimatedUnit: f.estimatedUnit ?? null,
+            confidenceScore: safeFloat(f.confidenceScore),
             sortOrder: f.sortOrder ?? i,
           })),
         },
@@ -288,6 +320,7 @@ export class VideoAssessmentService {
       projectId?: string;
       status?: 'COMPLETE' | 'REVIEWED';
       notes?: string;
+      assessmentJson?: any;
     },
   ) {
     const existing = await this.prisma.videoAssessment.findFirst({
@@ -318,6 +351,7 @@ export class VideoAssessmentService {
 
     if (payload.status) data.status = payload.status;
     if (payload.notes !== undefined) data.notes = payload.notes;
+    if (payload.assessmentJson !== undefined) data.assessmentJson = payload.assessmentJson;
 
     const updated = await this.prisma.videoAssessment.update({
       where: { id: assessmentId },
@@ -487,10 +521,10 @@ export class VideoAssessmentService {
         data: {
           companyId,
           assessmentId,
-          zone: (result.finding.zone || 'OTHER') as any,
-          category: (result.finding.category || 'OTHER') as any,
-          severity: (result.finding.severity || 'MODERATE') as any,
-          causation: (result.finding.causation || 'UNKNOWN') as any,
+          zone: safeEnum(result.finding.zone, VALID_ZONES, 'OTHER'),
+          category: safeEnum(result.finding.category, VALID_CATEGORIES, 'OTHER'),
+          severity: safeEnum(result.finding.severity, VALID_SEVERITIES, 'MODERATE'),
+          causation: safeEnum(result.finding.causation, VALID_CAUSATIONS, 'UNKNOWN'),
           description: result.finding.description,
           frameTimestamp: null,
           confidenceScore: result.finding.confidence,
