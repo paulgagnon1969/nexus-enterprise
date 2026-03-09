@@ -9,7 +9,7 @@ status: draft
 created: 2026-03-09
 updated: 2026-03-09
 author: Warp
-score:
+scores:
   uniqueness: 8
   value: 8
   demonstrable: 9
@@ -85,6 +85,17 @@ Scans and assessments tied to a project feed directly into the PETL and estimati
 - Web: `apps/web/app/projects/[id]/scans-tab.tsx`, `apps/web/app/reports/page.tsx`
 - NexMESH compute mesh for scan processing (TECH-AUTO-0001)
 - NexCAD precision pipeline (TECH-INTG-0001)
+
+## NexOP Impact
+- **Category**: Operations Visibility — Field Intelligence Utilization
+- **Estimated NexOP contribution**: ~0.22%
+- **Basis**: Unassigned scans and assessments represent wasted field effort. Before this hub, ~30% of video assessments sat unlinked to any project (no one knew they existed). Surfacing them in the project context means AI findings feed into PETL and estimating. For a $10M firm, 20 unlinked assessments/year × 30 min estimator time to re-do work = ~10 hours/year saved. The executive rollup also prevents scan processing failures from going unnoticed.
+
+## Future Extensions
+- **Auto-assignment**: Match assessments to projects based on GPS coordinates or address fuzzy matching.
+- **Assessment merge**: Combine multiple video assessments into a single consolidated report.
+- **Scan comparison**: Side-by-side diff of two LiDAR scans of the same property (before/after).
+- **Client scan sharing**: Allow clients to view their property scans through the client portal.
 
 ## Revision History
 

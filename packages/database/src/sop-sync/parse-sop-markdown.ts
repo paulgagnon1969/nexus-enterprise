@@ -50,9 +50,9 @@ function parseFrontmatter(content: string): { frontmatter: SopFrontmatter; body:
     }
   }
 
-  // Parse nested scores block (indented under "scores:")
+  // Parse nested scores block (indented under "scores:", "score:", or "cam_score:")
   let scores: SopFrontmatter["scores"] | undefined;
-  const scoresBlockRegex = /^scores:\s*\n((?:\s+\w+:.*\n?)+)/m;
+  const scoresBlockRegex = /^(?:scores|score|cam_score):\s*\n((?:\s+\w+:.*\n?)+)/m;
   const scoresMatch = yamlContent.match(scoresBlockRegex);
   if (scoresMatch) {
     const scoreLines = scoresMatch[1].split("\n");
@@ -61,6 +61,20 @@ function parseFrontmatter(content: string): { frontmatter: SopFrontmatter; body:
       const sm = sl.match(/^\s+(\w+):\s*(\d+)/);
       if (sm) {
         (scores as any)[sm[1]] = parseInt(sm[2], 10);
+      }
+    }
+  }
+  // Fallback: inline score object e.g. score: { uniqueness: 6, value: 7, ... }
+  if (!scores) {
+    const inlineScoreMatch = yamlContent.match(/^(?:scores|score|cam_score):\s*\{([^}]+)\}/m);
+    if (inlineScoreMatch) {
+      scores = {};
+      const pairs = inlineScoreMatch[1].split(",");
+      for (const pair of pairs) {
+        const pm = pair.match(/(\w+):\s*(\d+)/);
+        if (pm) {
+          (scores as any)[pm[1]] = parseInt(pm[2], 10);
+        }
       }
     }
   }

@@ -2,13 +2,17 @@ import { Controller, Get, Post, Query, Param, Body, Req, UseGuards, ForbiddenExc
 import { JwtAuthGuard, getEffectiveRoleLevel, PROFILE_LEVELS } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { AnalyticsService } from "./analytics.service";
+import { NexIntService } from "./nexint.service";
 
 const PM_LEVEL = PROFILE_LEVELS.PM; // 60
 
 @UseGuards(JwtAuthGuard)
 @Controller("analytics")
 export class AnalyticsController {
-  constructor(private readonly analytics: AnalyticsService) {}
+  constructor(
+    private readonly analytics: AnalyticsService,
+    private readonly nexint: NexIntService,
+  ) {}
 
   /** Personal KPI dashboard — any authenticated user */
   @Get("me")
@@ -60,5 +64,32 @@ export class AnalyticsController {
       action as "DISMISSED" | "CONFIRMED" | "COACHED",
       notes,
     );
+  }
+
+  // ── NexINT — Operational Integrity Dashboard ──────────────────────────
+
+  /** NexINT dashboard for caller's company — PM+ */
+  @Get("nexint")
+  getNexIntDashboard(@Req() req: any) {
+    const user = req.user as AuthenticatedUser;
+    this.assertPmPlus(user);
+    return this.nexint.getNexIntDashboard(user.companyId);
+  }
+
+  /** NexINT trend data from stored snapshots — PM+ */
+  @Get("nexint/trend")
+  getNexIntTrend(@Req() req: any, @Query("days") daysRaw?: string) {
+    const user = req.user as AuthenticatedUser;
+    this.assertPmPlus(user);
+    const days = daysRaw ? parseInt(daysRaw, 10) || 90 : 90;
+    return this.nexint.getNexIntDashboard(user.companyId).then(d => d.trend.slice(-days));
+  }
+
+  /** On-demand snapshot computation — PM+ */
+  @Post("nexint/snapshot")
+  computeNexIntSnapshot(@Req() req: any) {
+    const user = req.user as AuthenticatedUser;
+    this.assertPmPlus(user);
+    return this.nexint.computeAndStoreSnapshot(user.companyId);
   }
 }

@@ -1,0 +1,12 @@
+{
+  "name": "Technology Infrastructure — Executive Brief",
+  "description": "Technology module for executive presentations — architecture, resilience, integrations",
+  "format": "overview",
+  "modes": ["TECH"],
+  "title": "NEXUS Technology Infrastructure",
+  "subtitle": "Enterprise-grade architecture built for construction",
+  "includeScores": true,
+  "includeTechnical": false,
+  "includeDemoScript": true,
+  "includeCompetitiveLandscape": true
+}

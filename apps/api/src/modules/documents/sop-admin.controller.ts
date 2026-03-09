@@ -107,6 +107,16 @@ export class SopAdminController {
   }
 
   /**
+   * GET /admin/sops/cam-handbook-html
+   * Get full CAM handbook with HTML content for print/handbook view.
+   * Same grouping as cam-manual but includes rendered HTML body of each CAM.
+   */
+  @Get("cam-handbook-html")
+  async getCamHandbookHtml() {
+    return this.sopSync.getCamHandbookHtml();
+  }
+
+  /**
    * POST /admin/sops/sync-cams
    * Sync all CAM files from docs/cams/ to SystemDocument
    * and link to ModuleCatalog via camDocumentId.

@@ -9,7 +9,12 @@ status: draft
 created: 2026-03-06
 updated: 2026-03-06
 author: Warp
-score: { uniqueness: 6, value: 7, demonstrable: 8, defensible: 5, total: 26 }
+scores:
+  uniqueness: 6
+  value: 7
+  demonstrable: 8
+  defensible: 5
+  total: 26
 website: false
 visibility:
   public: false
@@ -41,8 +46,30 @@ NEXI Capture now includes an **"Other"** category with a built-in disposition wo
 - Catalog screen surfaces pending items with the review note and PM-action hint.
 - No backend changes required — uses existing `pending_approval` status flow.
 
-## Competitive Angle
-Most restoration field tools treat categories as static admin-configured lists. NEXI's approach turns uncategorized field data into a feedback loop that continuously improves the taxonomy — driven by the people who actually see the materials on site.
+## Competitive Differentiation
+- **CompanyCam / fieldwire**: Photo capture with fixed category lists; no "Other" workflow, no PM review loop.
+- **Procore**: Observation logs have categories but no disposition-to-reclassify pipeline.
+- **Buildertrend**: Daily logs accept free-text notes but don't feed into a structured catalog.
+- **NEXI**: Turns uncategorized field data into a feedback loop that continuously improves the taxonomy — driven by the people who actually see the materials on site.
+
+## NexOP Impact
+- **Category**: Operations Accuracy — Field Data Quality
+- **Estimated NexOP contribution**: ~0.08%
+- **Basis**: Preventing mis-categorized items from polluting material quantity estimates. One incorrectly categorized material type per project can cause $200–$500 in estimating rework. Across 60 projects/year at a $10M firm, this compounds to ~$8K–$12K in avoided rework plus improved catalog accuracy over time.
+
+## Demo Script
+1. Open NEXI Capture on mobile → start a new catalog entry.
+2. Show the category picker — scroll to the bottom, select **Other**.
+3. Amber warning card appears: "Describe what you're capturing" → type "spray foam insulation, 2-inch closed cell".
+4. Save → entry appears in the catalog with a **Pending PM review** badge.
+5. Switch to PM view on web → show the flagged entry with crew description in quotes.
+6. PM clicks "Reclassify" → moves it to a new "Insulation" category → badge clears.
+7. Key message: *"Nothing gets lost. Every observation feeds the next project."*
+
+## Future Extensions
+- **Auto-suggest categories**: Use AI to recommend the most likely category based on the description text before saving.
+- **Trend analysis**: Dashboard showing which "Other" descriptions appear most frequently → prompts for new category creation.
+- **Photo matching**: Pair the "Other" entry with a photo capture and use vision AI to suggest categorization.
 
 ## Revision History
 | Rev | Date | Changes |

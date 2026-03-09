@@ -1,0 +1,12 @@
+{
+  "name": "Elite CAMs — Marketing Highlights",
+  "description": "Top-scoring competitive advantages (35+/40) for flagship marketing materials",
+  "format": "marketing",
+  "minScore": 35,
+  "title": "NEXUS — What Sets Us Apart",
+  "subtitle": "Market-leading capabilities no competitor can match",
+  "includeScores": false,
+  "includeTechnical": false,
+  "includeDemoScript": true,
+  "includeCompetitiveLandscape": true
+}

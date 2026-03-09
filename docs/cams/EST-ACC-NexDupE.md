@@ -94,6 +94,25 @@ Dispositioned groups are permanently excluded from future scans. However, SibE b
 - **Prescreening** — Auto-assignment of imported transactions to projects
 - **Purchase Reconciliation** — CC-to-receipt matching
 
+## NexOP Impact
+- **Category**: Estimating Accuracy — Expense Integrity
+- **Estimated NexOP contribution**: ~0.35%
+- **Basis**: Cross-project duplicate expenses are more common than within-project duplicates because they span different accounting silos. For a $10M firm with $900K/year in material spend across 60 projects, a 0.5% duplicate rate = ~$4.5K/year in direct savings. The SibE archival mechanism also prevents historical duplicates from re-emerging through later imports.
+
+## Demo Script
+1. Open the Financial module → click **🔍 Duplicate Expenses**.
+2. Scanner runs across all projects → results appear with EXACT and FUZZY badges.
+3. Click **Compare Side-by-Side** on a fuzzy match → full-screen modal shows both bills with receipt images.
+4. Choose **Confirmed Duplicate** → one bill becomes SibE (greyed out, $0 net impact).
+5. Show the PNG snapshot saved in the disposition archive.
+6. Re-run the scanner → the dispositioned group no longer appears.
+7. Key message: *"Caught, documented, and permanently resolved in 30 seconds."*
+
+## Future Extensions
+- **Real-time detection**: Flag duplicates at bill creation time, not just on-demand scan.
+- **Receipt image hashing**: Detect when the same physical receipt photo is uploaded to different projects.
+- **Monthly digest**: Automated email to accounting with duplicate summary and savings metrics.
+
 ## Revision History
 
 | Rev | Date | Changes |

@@ -400,9 +400,12 @@ export default function TucksAnalyticsDashboard() {
             )}
 
             {/* Footer */}
-            <div style={{ fontSize: 10, color: "#d1d5db", display: "flex", justifyContent: "space-between" }}>
+            <div style={{ fontSize: 10, color: "#d1d5db", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span>TUCKS — Telemetry Usage Chart KPI System · Phase 5 · Full Reporting Dashboard</span>
-              <span>{new Date().toLocaleDateString()}</span>
+              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                <a href="/system/analytics/nexint" style={{ fontSize: 11, color: "#10b981", textDecoration: "none", fontWeight: 600 }}>NexINT Dashboard →</a>
+                <span>{new Date().toLocaleDateString()}</span>
+              </div>
             </div>
           </>
         )}

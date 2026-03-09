@@ -173,6 +173,25 @@ export default function CamManualPage() {
           <button onClick={collapseAll} style={btnStyle}>
             Collapse All
           </button>
+          <div style={{ flex: 1 }} />
+          <Link
+            href="/system/documents/cam-manual/handbook"
+            style={{
+              padding: "6px 14px",
+              borderRadius: 6,
+              border: "none",
+              background: "#2563eb",
+              color: "white",
+              fontSize: 13,
+              fontWeight: 500,
+              textDecoration: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            📖 Print Handbook
+          </Link>
         </div>
       )}
 

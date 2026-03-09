@@ -3,6 +3,7 @@ import { AdminService } from "./admin.service";
 import { JwtAuthGuard, GlobalRolesGuard, GlobalRoles, GlobalRole } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { AuthService } from "../auth/auth.service";
+import { NexIntService } from "../analytics/nexint.service";
 
 @UseGuards(JwtAuthGuard, GlobalRolesGuard)
 @GlobalRoles(GlobalRole.SUPER_ADMIN)
@@ -10,7 +11,8 @@ import { AuthService } from "../auth/auth.service";
 export class AdminController {
   constructor(
     private readonly admin: AdminService,
-    private readonly auth: AuthService
+    private readonly auth: AuthService,
+    private readonly nexint: NexIntService,
   ) {}
 
   @Get("companies")
@@ -130,6 +132,26 @@ export class AdminController {
   getAnalyticsGamingSummary(@Req() req: any) {
     const actor = req.user as AuthenticatedUser;
     return this.admin.getAnalyticsGamingSummary(actor);
+  }
+
+  // ── NexINT ───────────────────────────────────────────────────────────────────
+
+  /** Cross-company NexINT scores — SUPER_ADMIN */
+  @Get("analytics/nexint")
+  getNexIntAllCompanies() {
+    return this.nexint.getAllCompanyScores();
+  }
+
+  /** NexINT dashboard for a specific company — SUPER_ADMIN */
+  @Get("analytics/nexint/:companyId")
+  getNexIntForCompany(@Param("companyId") companyId: string) {
+    return this.nexint.getNexIntDashboard(companyId);
+  }
+
+  /** Force snapshot computation for a specific company — SUPER_ADMIN */
+  @Post("analytics/nexint/:companyId/snapshot")
+  computeNexIntSnapshot(@Param("companyId") companyId: string) {
+    return this.nexint.computeAndStoreSnapshot(companyId);
   }
 
   @Get("global-search/people")

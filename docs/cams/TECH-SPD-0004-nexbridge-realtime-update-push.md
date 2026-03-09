@@ -9,7 +9,7 @@ status: draft
 created: 2026-03-09
 updated: 2026-03-09
 author: Warp
-score:
+scores:
   uniqueness: 7
   value: 7
   demonstrable: 8
@@ -71,6 +71,17 @@ Desktop app fleets in field-service companies suffer from version fragmentation.
 - `apps/api/src/modules/updates/updates.controller.ts` — triggers broadcast after publish
 - `apps/nexbridge-connect/src/lib/mesh-client.ts` — listens for `update:available`
 - `apps/nexbridge-connect/src/lib/auto-updater.ts` — `triggerCheck()` for on-demand checks
+
+## NexOP Impact
+- **Category**: Technology Speed — Fleet Consistency
+- **Estimated NexOP contribution**: ~0.06%
+- **Basis**: Version fragmentation causes support incidents when field devices run different app versions. Real-time push reduces the "stale version" window from hours to seconds. For a 20-device fleet, each stale-version support incident costs ~30 min of IT time. Preventing 2–3 incidents/month = ~$3K–$6K/year in IT overhead eliminated. Critical bug fixes also reach the field instantly instead of waiting for the next poll cycle.
+
+## Future Extensions
+- **Staged rollouts**: Push to 10% of fleet first, monitor crash telemetry, then auto-promote to 100%.
+- **Version pinning**: Allow specific devices to stay on an older version (e.g., demo machines).
+- **Mandatory updates**: Block app usage below a minimum version for security patches.
+- **Update analytics**: Dashboard showing rollout progress, devices updated, devices pending, time-to-full-propagation.
 
 ## Revision History
 | Rev | Date | Changes |

@@ -1,23 +1,77 @@
 ---
-title: "NexOP Portfolio — Nexus Operating Percentage by Company Size"
-revision: "2.3"
+cam_id: "FIN-VIS-0003"
+title: "Nexus Impact Portfolio — NexOP Savings + NexINT Operational Integrity"
+mode: FIN
+category: VIS
+revision: "3.0"
+status: validated
 created: 2026-03-04
-updated: 2026-03-06
+updated: 2026-03-09
 author: Warp
+scores:
+  uniqueness: 9
+  value: 9
+  demonstrable: 9
+  defensible: 8
+  total: 35
 visibility:
   public: false
   internal: true
   roles: [admin, exec]
-tags: [cam, portfolio, nexop, operating-percentage, revenue-tiers, roi]
+tags: [cam, portfolio, nexop, nexint, operating-percentage, integrity, revenue-tiers, roi, accuracy]
 ---
 
-# NexOP Portfolio — Nexus Operating Percentage by Company Size
+# Nexus Impact Portfolio — NexOP Savings + NexINT Operational Integrity
 
-## Overview
+## Aggregate Impact at a Glance
+
+Nexus measures its value on two axes: **what it saves** (NexOP) and **what it corrects** (NexINT). Together, they answer the only two questions that matter: *How much money are you recovering?* and *How tight is your operation actually running?*
+
+### Financial Recovery — NexOP
+
+|| Metric | Value |
+||--------|-------|
+|| **Portfolio NexOP** | **~6–12%** of annual revenue recovered, at every company size |
+|| **Dollar impact ($10M firm)** | **~$890K/year** in recovered revenue, avoided loss, and efficiency gains |
+|| **Dollar impact ($50M firm)** | **~$3M–$4M/year** |
+|| **CAMs contributing** | 20 modules across Financial, Estimating, Operations, Compliance, and Technology |
+|| **Top 3 drivers** | NexVERIFY (~7.5%), BOM Pricing (~3.0%), TUCKS Telemetry (~1.2%) |
+|| **Per-employee/year** | ~$30K–$38K saved per employee depending on company size |
+
+### Operational Integrity — NexINT
+
+|| Metric | Industry Baseline | With Nexus | Improvement |
+||--------|-------------------|-----------|-------------|
+|| **Financial Integrity** | ~72% | ~96% | **+24 pts** — receipt coverage, duplicate detection, pricing accuracy, reconciliation |
+|| **Process Completion** | ~68% | ~93% | **+25 pts** — task disposition, assessment linkage, discrepancy resolution |
+|| **Compliance** | ~78% | ~98% | **+20 pts** — checklist completion, certification currency, audit readiness |
+|| **Data Quality** | ~70% | ~91% | **+21 pts** — field categorization, vendor normalization, AI learning, fleet consistency |
+|| **NexINT Composite** | **~72%** | **~95%** | **+23 pts** — the gap between how you think you operate and how you actually operate |
+
+### The Two-Sentence Pitch
+
+> **NexOP**: *"Nexus recovers 6–12% of your annual revenue through automation, accuracy, and waste elimination."*
+>
+> **NexINT**: *"The average contractor operates at ~72% integrity. Nexus brings you to 95% — because the system makes it structurally impossible to operate sloppily."*
+
+### Combined Impact by Revenue Tier
+
+|| Revenue Tier | NexOP Savings | NexINT Improvement | What Changes |
+||-------------|---------------|-------------------|--------------|
+|| **$1M** | ~$90K–$120K/yr | 72% → 95% | Owner stops double-checking everything manually; the system does it |
+|| **$5M** | ~$350K–$450K/yr | 72% → 95% | First PM hire trusts the data from day one; compliance is automatic |
+|| **$10M** | ~$890K/yr | 72% → 95% | Accounting closes month-end in days, not weeks; zero orphaned workflows |
+|| **$50M** | ~$3M–$4M/yr | 72% → 95% | Executive dashboard proves operational discipline to clients and insurers |
+
+---
+
+## NexOP — Financial Recovery Detail
+
+### Overview
 
 All CAM financial impact figures are expressed using **NexOP (Nexus Operating Percentage)** — the percentage of annual revenue that Nexus recovers through operational impact. A $1M startup and a $50M GC experience the same proportional exposure — and the same proportional recovery when Nexus is active.
 
-This document aggregates the NexOP from all 20 Nexus CAMs and extrapolates real-dollar values across five revenue tiers. See `TECH-VIS-0001` for the full NexOP methodology and dashboard design.
+This document aggregates the NexOP from all 20 Nexus CAMs and extrapolates real-dollar values across five revenue tiers. See `TECH-VIS-0001` for the full NexOP methodology and `TECH-VIS-0002` for NexINT scoring architecture.
 
 **Key takeaway**: Nexus delivers a **NexOP of ~6–12%** at every tier. The percentage, not the dollar figure, is the metric.
 
@@ -182,28 +236,99 @@ Each CAM uses 1–3 primary scaling drivers depending on where its value comes f
 - No revenue-uplift from faster estimates or better bids (only cost savings counted)
 - Compliance fine avoidance uses average penalties, not maximum ($156K+ for willful violations)
 
+## NexINT — Operational Integrity by CAM
+
+Every CAM contributes to one or more NexINT dimensions. This table maps the relationship — showing that Nexus isn't just a collection of features, but an integrated integrity framework.
+
+### Financial Integrity (FI) Contributors — Baseline ~72% → ~96%
+
+|| CAM | FI Contribution | Mechanism |
+||-----|----------------|----------|
+|| **FIN-ACC-0001** NexVERIFY | Critical | Verification groups eliminate phantom duplicates; PM decisions based on clean data |
+|| **FIN-ACC-0002** Zero-Loss Receipt | High | Bill-first model ensures every expense has a receipt before approval |
+|| **FIN-ACC-0003** Duplicate Scanner | High | Cross-project detection catches what single-project tools miss |
+|| **FIN-ACC-0005** Bidirectional Pricing | High | Zero arithmetic errors in markup/discount chain |
+|| **FIN-AUTO-0001** Receipt OCR | Medium | Automated data extraction reduces manual entry error rate |
+|| **FIN-AUTO-0002** Auto-Posting | High | Dual-role PM detection prevents assignment conflicts |
+|| **FIN-VIS-0001** Purchase Recon | High | CC-to-receipt matching; personal expense identification |
+|| **FIN-VIS-0002** Invoice Transparency | Medium | Retail vs. actual audit trail on every line item |
+|| **FIN-INTL-0002** Smart Prescreen | Medium | Intelligent routing reduces transaction mis-assignment |
+|| **EST-ACC-0001** NexDupE | High | Cross-project expense integrity with permanent archival |
+
+### Process Completion (PC) Contributors — Baseline ~68% → ~93%
+
+|| CAM | PC Contribution | Mechanism |
+||-----|----------------|----------|
+|| **OPS-AUTO-0001** Group Task Cascading | Critical | One task, any member completes, everyone is cleared — zero orphans |
+|| **OPS-VIS-0001** Field Qty Discrepancy | High | Forces PM review of every quantity variance before billing |
+|| **OPS-VIS-0002** Task Dashboard | Medium | Real-time visibility prevents tasks from falling through cracks |
+|| **OPS-VIS-0003** Scan/Assessment Hub | Medium | Surfaces unassigned assessments; forces project linkage |
+|| **OPS-ACC-0001** NEXI Capture | Medium | "Other" category with mandatory disposition ensures no data loss |
+|| **OPS-COLLAB-0001** Phantom Fleet | Medium | Equipment accountability workflow reaches terminal state |
+|| **CLT-COLLAB-0001** Client Tier | Medium | Collaboration workflows tracked to completion |
+|| **CLT-COLLAB-0002** Dual Portal | Medium | Correct routing ensures correct actions on every login |
+
+### Compliance (CO) Contributors — Baseline ~78% → ~98%
+
+|| CAM | CO Contribution | Mechanism |
+||-----|----------------|----------|
+|| **CMP-AUTO-0001** NexCheck | Critical | Checklists block work continuation without completion |
+|| **CMP-INTG-0001** OSHA/eCFR Sync | Critical | Regulatory standards update automatically from federal sources |
+
+### Data Quality (DQ) Contributors — Baseline ~70% → ~91%
+
+|| CAM | DQ Contribution | Mechanism |
+||-----|----------------|----------|
+|| **TECH-INTL-0001** NexEXTRACT | Critical | Per-company learning loop; every correction improves future accuracy |
+|| **TECH-ACC-0001** Graceful Fallback | Medium | System reliability preserves data continuity during failures |
+|| **TECH-SPD-0003** Smart Media Upload | Medium | Reliable upload = complete field documentation |
+|| **TECH-SPD-0004** Real-Time Push | Medium | Fleet version consistency = consistent data collection |
+|| **TECH-INTG-0001** NexCAD | Medium | Precision scan accuracy for dimensional data |
+|| **TECH-INTG-0002** NexMESH | Medium | Distributed compute reliability for processing integrity |
+|| **TECH-VIS-0001** NexOP Dashboard | Medium | Makes data quality visible and measurable |
+|| **TECH-VIS-0002** NexINT Dashboard | High | Integrity score drives behavioral change |
+|| **EST-INTL-0001** Video Index | Medium | Evidence continuity across re-scans |
+|| **EST-INTG-0001** BOM Pricing | Medium | Price accuracy from multi-provider normalization |
+|| **EST-AUTO-0002** NexPlan AI | Medium | AI-assisted item selection reduces human categorization error |
+|| **OPS-ACC-0001** NEXI Capture | Medium | Other category disposition improves taxonomy over time |
+
+### The Cultural Equation
+
+NexOP captures dollars. NexINT captures discipline. Together:
+
+- A prospect hears *"NexOP ~9%"* and thinks: *"That's real money."*
+- A prospect hears *"NexINT ~95% vs. industry ~72%"* and thinks: *"That's a different kind of company."*
+- Combined: *"Nexus doesn't just save you money — it makes your operation provably better than your competitors'."*
+
+See `TECH-VIS-0002` for the full NexINT scoring methodology, dashboard design, and technical architecture.
+
+---
+
 ## How to Use This Document
 
 ### Sales / Demo
-- Lead with NexOP: *"Your NexOP is ~9% — Nexus recovers 9% of your revenue."*
-- Let the prospect self-identify their tier, then show the dollar extrapolation
-- Highlight the top 3 CAMs by NexOP for their industry/role
-- See `TECH-VIS-0001` for full NexOP dashboard demo script
+- **Lead with both metrics**: *"Your NexOP is ~9% — Nexus recovers 9% of your revenue. And your NexINT will go from ~72% to ~95% — that's the difference between hoping your operation is tight and proving it."*
+- Let the prospect self-identify their tier, then show the dollar extrapolation AND the integrity improvement
+- Financial buyers respond to NexOP; operations buyers respond to NexINT; executives respond to both
+- See `TECH-VIS-0001` for NexOP dashboard demo, `TECH-VIS-0002` for NexINT dashboard demo
 
 ### Pricing
 - Platform pricing should capture 10–20% of the value delivered (industry standard for SaaS ROI)
 - At NexOP ~9% on $10M: ~$890K impact → $89K–$178K/year platform pricing is justified
 - At NexOP ~8% on $5M: ~$400K impact → $40K–$80K/year
+- NexINT adds a second justification layer: *"You're not just buying cost savings — you're buying operational discipline that reduces your liability exposure"*
 
 ### Product Prioritization
 - NexVERIFY and BOM Pricing are the #1 and #2 NexOP drivers (~7.5% + ~3.0%)
 - TUCKS and Purchase Reconciliation round out the top 4
 - These four CAMs alone account for NexOP ~12.3%
+- For NexINT: NexCheck (compliance) and Group Task Cascading (process completion) are the highest-impact integrity drivers
 
 ## Revision History
 
 | Rev | Date | Changes |
 |-----|------|---------|
+| 3.0 | 2026-03-09 | Major revision: Added NexINT (Operational Integrity Index) as second axis. Aggregate impact summary at top. NexINT-by-CAM mapping across four dimensions (FI, PC, CO, DQ). Dual-metric sales guidance. Companion CAM TECH-VIS-0002. |
 | 2.3 | 2026-03-06 | Added FIN-ACC-0003 (Cross-Project Duplicate Scanner, ~0.45%). Financial module NexOP updated from ~11.77% to ~12.22%. CAM count updated from 19 to 20. |
 | 2.2 | 2026-03-06 | Added FIN-AUTO-0002 (Transaction-to-Bill Auto-Posting, ~0.75%) and FIN-ACC-0002 (Zero-Loss Receipt Capture, ~1.65%). Financial module NexOP updated from ~9.37% to ~11.77%. CAM count updated from 17 to 19. |
 | 2.1 | 2026-03-05 | Rebranded AOP → NexOP (Nexus Operating Percentage); linked to TECH-VIS-0001 NexOP CAM; updated all column headers, headings, and narrative to NexOP terminology |

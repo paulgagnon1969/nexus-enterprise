@@ -1,0 +1,12 @@
+{
+  "name": "Financial Operations Overview",
+  "description": "Financial module overview for accounting teams and executive presentations",
+  "format": "overview",
+  "modes": ["FIN"],
+  "title": "NEXUS Financial Operations & Intelligence",
+  "subtitle": "Automated billing, receipt processing, and real-time financial visibility",
+  "includeScores": true,
+  "includeTechnical": false,
+  "includeDemoScript": true,
+  "includeCompetitiveLandscape": true
+}

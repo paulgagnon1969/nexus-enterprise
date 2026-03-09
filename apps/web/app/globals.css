@@ -204,3 +204,23 @@ a:hover {
   background: #f9fafb;
   border-color: var(--color-border-subtle);
 }
+
+/* ── Print styles ── */
+@media print {
+  /* Break out of the viewport-height shell so all content flows naturally */
+  .app-shell {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .app-main {
+    overflow: visible !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Hide chrome: header, nav, sidebar, fixed badges */
+  .app-header,
+  .no-print {
+    display: none !important;
+  }
+}

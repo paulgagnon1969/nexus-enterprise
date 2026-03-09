@@ -9,7 +9,7 @@ status: draft
 created: 2026-03-05
 updated: 2026-03-05
 author: Warp
-cam_score:
+scores:
   uniqueness: 9
   value: 9
   demonstrable: 9

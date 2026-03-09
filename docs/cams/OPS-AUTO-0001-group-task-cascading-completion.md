@@ -9,7 +9,7 @@ status: draft
 created: 2026-03-05
 updated: 2026-03-05
 author: Warp
-score:
+scores:
   uniqueness: 6
   value: 7
   demonstrable: 8

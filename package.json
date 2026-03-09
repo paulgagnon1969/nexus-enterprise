@@ -36,6 +36,8 @@
     "api-token:generate": "ts-node scripts/generate-api-token.ts",
     "seed:checklist": "ts-node scripts/seed-checklist-costbook.ts",
     "compile:cam-manual": "ts-node scripts/compile-cam-manual.ts",
+    "compile:cam": "ts-node scripts/compile-cam-manual.ts",
+    "compile:cam:list": "ts-node scripts/compile-cam-manual.ts --list",
     "eval:vision": "ts-node scripts/eval-vision-models.ts"
   },
   "workspaces": [

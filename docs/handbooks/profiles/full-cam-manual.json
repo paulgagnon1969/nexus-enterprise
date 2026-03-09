@@ -1,0 +1,11 @@
+{
+  "name": "Full CAM Manual",
+  "description": "Complete competitive advantage manual — all modules, all CAMs, full technical detail",
+  "format": "full",
+  "title": "NEXUS SYSTEM NCC — Competitive Advantage Manual (CAM)",
+  "subtitle": "Complete Technical Reference",
+  "includeScores": true,
+  "includeTechnical": true,
+  "includeDemoScript": true,
+  "includeCompetitiveLandscape": true
+}

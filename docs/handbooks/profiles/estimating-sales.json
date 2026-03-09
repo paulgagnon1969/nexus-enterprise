@@ -1,0 +1,12 @@
+{
+  "name": "Estimating Sales Pack",
+  "description": "Pricing & Estimation Excellence for sales demos and prospect presentations",
+  "format": "marketing",
+  "modes": ["EST"],
+  "title": "NEXUS Estimating Excellence",
+  "subtitle": "Faster quotes. Better pricing. Zero guesswork.",
+  "includeScores": false,
+  "includeTechnical": false,
+  "includeDemoScript": true,
+  "includeCompetitiveLandscape": true
+}

@@ -1,0 +1,12 @@
+{
+  "name": "Compliance & Documentation Pack",
+  "description": "Full compliance module for safety-focused sales and RFP responses",
+  "format": "full",
+  "modes": ["CMP"],
+  "title": "NEXUS Compliance & Documentation",
+  "subtitle": "OSHA integration, automated compliance tracking, audit-ready documentation",
+  "includeScores": true,
+  "includeTechnical": true,
+  "includeDemoScript": true,
+  "includeCompetitiveLandscape": true
+}

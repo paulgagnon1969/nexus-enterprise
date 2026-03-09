@@ -9,6 +9,12 @@ status: validated
 created: 2026-03-06
 updated: 2026-03-06
 author: Warp
+scores:
+  uniqueness: 7
+  value: 8
+  demonstrable: 9
+  defensible: 7
+  total: 31
 website: false
 visibility:
   public: false

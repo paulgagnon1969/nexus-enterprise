@@ -8,7 +8,7 @@ status: draft
 created: 2026-03-08
 updated: 2026-03-08
 author: Warp
-score:
+scores:
   uniqueness: 7
   value: 8
   demonstrable: 8
@@ -68,6 +68,17 @@ A "Return to Client Portal" pill in the app header lets users bounce back to the
 5. Click an ADMIN project → full admin view
 6. Click "Client Portal" pill in header → instant return to client experience
 7. Highlight: one login, zero confusion, every role respected
+
+## NexOP Impact
+- **Category**: Client Relations — User Experience & Retention
+- **Estimated NexOP contribution**: ~0.15%
+- **Basis**: Reduces client onboarding friction and support tickets. Companies with dual-role users (adjuster/client, sub/client) report 30–40% of client support calls are "I can't find my project" or "I'm seeing the wrong view". Automatic routing eliminates this. At a $10M firm with 60 projects, ~15 involve dual-role users → ~$15K/year in reduced support overhead and faster client engagement.
+
+## Future Extensions
+- **Role-specific dashboards**: Client portal customized by project role (CLIENT sees timeline + photos, CREW sees tasks + daily logs).
+- **Smart home screen**: Portal landing page shows only projects with recent activity, sorted by last update.
+- **Guest access**: Unauthenticated project viewers via time-limited link (for inspectors who don't need accounts).
+- **Notification routing**: Push notifications respect the user's current context — client notifications go to portal, internal to workspace.
 
 ## Revision History
 

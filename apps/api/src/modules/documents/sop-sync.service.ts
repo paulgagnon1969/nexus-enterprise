@@ -771,6 +771,109 @@ export class SopSyncService {
   }
 
   /**
+   * Get full CAM handbook data with HTML content for print/handbook view.
+   * Returns the same module grouping as getCamManualData but includes
+   * the rendered HTML body of each CAM for inline display.
+   */
+  async getCamHandbookHtml(): Promise<{
+    modules: Array<{
+      mode: string;
+      modeLabel: string;
+      camCount: number;
+      aggregateScore: number;
+      cams: Array<{
+        camId: string;
+        code: string;
+        title: string;
+        category: string;
+        scores: { uniqueness: number; value: number; demonstrable: number; defensible: number; total: number };
+        status: string;
+        htmlContent: string;
+      }>;
+    }>;
+    totalCams: number;
+    overallAvgScore: number;
+  }> {
+    let allCams: ParsedSop[] = [];
+    try {
+      allCams = parseAllSops(CAMS_DIR);
+    } catch {
+      // Directory may not exist
+    }
+
+    const MODE_LABELS: Record<string, string> = {
+      EST: "Pricing & Estimation",
+      FIN: "Financial Operations",
+      OPS: "Project Operations",
+      HR: "Workforce & Time Management",
+      CLT: "Client Collaboration",
+      CMP: "Compliance & Documentation",
+      TECH: "Technology Infrastructure",
+    };
+
+    const moduleMap = new Map<string, {
+      mode: string;
+      cams: Array<{
+        camId: string;
+        code: string;
+        title: string;
+        category: string;
+        scores: { uniqueness: number; value: number; demonstrable: number; defensible: number; total: number };
+        status: string;
+        htmlContent: string;
+      }>;
+    }>();
+
+    for (const cam of allCams) {
+      const fm = cam.frontmatter;
+      const mode = (fm.mode || "UNKNOWN").toUpperCase();
+      const scores = fm.scores || {};
+
+      if (!moduleMap.has(mode)) {
+        moduleMap.set(mode, { mode, cams: [] });
+      }
+
+      moduleMap.get(mode)!.cams.push({
+        camId: fm.cam_id || cam.code,
+        code: cam.code,
+        title: fm.title,
+        category: (fm.category || "UNKNOWN").toUpperCase(),
+        scores: {
+          uniqueness: scores.uniqueness ?? 0,
+          value: scores.value ?? 0,
+          demonstrable: scores.demonstrable ?? 0,
+          defensible: scores.defensible ?? 0,
+          total: scores.total ?? 0,
+        },
+        status: fm.status,
+        htmlContent: cam.htmlBody,
+      });
+    }
+
+    const modules = Array.from(moduleMap.values()).map((m) => {
+      const totalScoreSum = m.cams.reduce((sum, c) => sum + c.scores.total, 0);
+      const aggregateScore = m.cams.length > 0 ? Math.round((totalScoreSum / m.cams.length) * 10) / 10 : 0;
+      m.cams.sort((a, b) => b.scores.total - a.scores.total);
+
+      return {
+        mode: m.mode,
+        modeLabel: MODE_LABELS[m.mode] || m.mode,
+        camCount: m.cams.length,
+        aggregateScore,
+        cams: m.cams,
+      };
+    });
+
+    modules.sort((a, b) => b.aggregateScore - a.aggregateScore);
+
+    const totalCams = allCams.length;
+    const totalScoreAll = modules.reduce((s, m) => s + m.cams.reduce((ss, c) => ss + c.scores.total, 0), 0);
+    const overallAvgScore = totalCams > 0 ? Math.round((totalScoreAll / totalCams) * 10) / 10 : 0;
+
+    return { modules, totalCams, overallAvgScore };
+  }
+
+  /**
    * Map SOP module name to NccPM chapter title.
    * Returns null if the SOP should go to root level.
    */

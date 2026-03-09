@@ -368,6 +368,9 @@ model Company {
 
   // NexCAD — Precision Object Scanning
   precisionScans PrecisionScan[]
+
+  // NexINT — Operational Integrity Snapshots
+  nexIntSnapshots NexIntSnapshot[]
 }
 
 model OrganizationTemplate {
@@ -10493,4 +10496,36 @@ model PrecisionScanImage {
   scan PrecisionScan @relation(fields: [scanId], references: [id], onDelete: Cascade)
 
   @@index([scanId], map: "PrecisionScanImage_scan_idx")
+}
+
+// =============================================================================
+// NexINT — Operational Integrity Index Snapshots
+// =============================================================================
+
+/// Daily snapshot of the NexINT composite integrity score for a company.
+/// Computed nightly from live data across four dimensions: Financial Integrity,
+/// Process Completion, Compliance, and Data Quality.
+model NexIntSnapshot {
+  id        String   @id @default(cuid())
+  companyId String
+  date      DateTime @db.Date
+
+  composite Float /// NexINT composite score (0–100)
+  fi        Float /// Financial Integrity dimension (0–100)
+  pc        Float /// Process Completion dimension (0–100)
+  co        Float /// Compliance dimension (0–100)
+  dq        Float /// Data Quality dimension (0–100)
+
+  /// Granular component metrics stored as JSON for drill-down views.
+  /// Structure: { fi: { receiptCoverage, dupDetection, pricingAccuracy, reconciliation },
+  ///              pc: { taskCompletion, assessmentAssignment, scanUtilization, reviewCycleHrs },
+  ///              co: { stubbed: true }, dq: { aiLearning, fleetConsistency, assessmentConfidence } }
+  componentMetrics Json?
+
+  createdAt DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, date], name: "NexIntSnapshot_company_date_key")
+  @@index([companyId, date], map: "NexIntSnapshot_company_date_idx")
 }

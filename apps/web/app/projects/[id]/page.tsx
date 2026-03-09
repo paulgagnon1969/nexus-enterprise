@@ -1385,6 +1385,8 @@ export default function ProjectDetailPage({
   const [petlOrgGroupFilters, setPetlOrgGroupFilters] = useState<string[]>([]);
   // Hide note badges and note-only reconciliation lines by default
   const [petlHideNotes, setPetlHideNotes] = useState(true);
+  // Soft search: substring filter across task description, room, activity, cat, sel
+  const [petlTaskSearch, setPetlTaskSearch] = useState("");
 
   const roomParticleIdFilterSet = useMemo(
     () => new Set(roomParticleIdFilters),
@@ -5805,6 +5807,10 @@ ${htmlBody}
     startPetlTransition(() => setPetlOrgGroupFilters(next));
   }, [startPetlTransition]);
 
+  const setPetlTaskSearchTransition = useCallback((next: string) => {
+    startPetlTransition(() => setPetlTaskSearch(next));
+  }, [startPetlTransition]);
+
   // Wrap schedule setters in transitions to avoid 2+ second INP issues
   const setScheduleZoomTransition = useCallback((next: "AUTO" | "DAY" | "WEEK" | "MONTH") => {
     startUiTransition(() => setScheduleZoom(next));
@@ -6278,10 +6284,28 @@ ${htmlBody}
 
 
   const petlFlatItems = useMemo(() => {
+    const searchLower = petlTaskSearch.trim().toLowerCase();
     const filtered = petlItems.filter((it) => {
       if (!matchesFilters(it)) return false;
       if (petlDisplayMode === "RECONCILIATION_ONLY") {
         return petlReconActivityIds.has(it.id);
+      }
+      // Soft search: match against description, room, activity, cat, sel
+      if (searchLower) {
+        const desc = (it.description ?? "").toLowerCase();
+        const room = (it.projectParticle?.fullLabel ?? it.projectParticle?.name ?? "").toLowerCase();
+        const activity = (it.activity ?? "").toLowerCase();
+        const cat = (it.categoryCode ?? "").toLowerCase();
+        const sel = (it.selectionCode ?? "").toLowerCase();
+        if (
+          !desc.includes(searchLower) &&
+          !room.includes(searchLower) &&
+          !activity.includes(searchLower) &&
+          !cat.includes(searchLower) &&
+          !sel.includes(searchLower)
+        ) {
+          return false;
+        }
       }
       return true;
     });
@@ -6316,6 +6340,7 @@ ${htmlBody}
     roomParticleIdFilterSet,
     categoryCodeFilterSet,
     selectionCodeFilterSet,
+    petlTaskSearch,
   ]);
 
   const [petlEditingCell, setPetlEditingCell] = useState<
@@ -31898,6 +31923,46 @@ onClick={() => setManageTemplatesOpen(true)}
               minWidth={140}
               minListHeight={240}
             />
+          </div>
+
+          <div>
+            <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Search</div>
+            <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+              <input
+                type="text"
+                value={petlTaskSearch}
+                onChange={(e) => setPetlTaskSearchTransition(e.target.value)}
+                placeholder="Filter by task…"
+                style={{
+                  padding: "5px 28px 5px 8px",
+                  borderRadius: 999,
+                  border: petlTaskSearch ? "2px solid #2563eb" : "1px solid #d1d5db",
+                  fontSize: 12,
+                  width: 170,
+                  outline: "none",
+                }}
+              />
+              {petlTaskSearch && (
+                <button
+                  type="button"
+                  onClick={() => setPetlTaskSearchTransition("")}
+                  style={{
+                    position: "absolute",
+                    right: 6,
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    fontSize: 14,
+                    color: "#6b7280",
+                    lineHeight: 1,
+                    padding: 0,
+                  }}
+                  aria-label="Clear search"
+                >
+                  ×
+                </button>
+              )}
+            </div>
           </div>
 
           <div>

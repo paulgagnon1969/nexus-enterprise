@@ -9,7 +9,7 @@ status: draft
 created: 2026-03-09
 updated: 2026-03-09
 author: Warp
-score:
+scores:
   uniqueness: 8
   value: 8
   demonstrable: 9
@@ -71,6 +71,17 @@ Traditional video-based inspection tools treat the assessment as a one-shot proc
 - `src/lib/api.ts` — `getSignedUrl()` for MinIO fallback
 - `src/pages/VideoAssessment.tsx` — save/reopen/rescan integration
 - `apps/api/src/modules/uploads/uploads.controller.ts` — `GET /uploads/signed` endpoint
+
+## NexOP Impact
+- **Category**: Estimating Intelligence — Evidence Continuity
+- **Estimated NexOP contribution**: ~0.18%
+- **Basis**: Eliminates re-assessment waste. Without video indexing, adjusters who need to revisit findings create entirely new assessments (losing 15–30 minutes of AI analysis + manual overrides per re-do). For a firm running 5 video assessments/week, 20% needing re-inspection = ~52 re-scans/year × 25 min saved = ~22 hours/year of estimator time. Additionally, the persistent evidence library serves as audit documentation for disputed claims.
+
+## Future Extensions
+- **Cloud index sync**: Back up the local video index to the API so assessments are recoverable on a new device.
+- **Video timeline markers**: Show AI findings as markers on a video timeline scrubber — click a finding to jump to the exact frame.
+- **Batch re-scan**: Select multiple saved assessments and re-extract frames from a single new video (useful when a property is revisited months later).
+- **Assessment diff**: Compare two assessments of the same property side-by-side to show damage progression.
 
 ## Revision History
 | Rev | Date | Changes |

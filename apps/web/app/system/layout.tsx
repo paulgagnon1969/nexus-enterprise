@@ -253,6 +253,7 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
       {/* Left sidebar: organizations list (SUPER_ADMIN only, hidden on document detail pages) */}
       {isSuperAdmin && !hideSidebar && (
       <aside
+        className="system-sidebar no-print"
         style={{
           width: 260,
           flexShrink: 0,

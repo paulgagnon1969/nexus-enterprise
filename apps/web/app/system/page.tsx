@@ -731,7 +731,10 @@ export default function NexusSystemOverviewPage() {
               }}
             >
               <span>TUCKS — Telemetry Usage Chart KPI System</span>
-              <a href="/system/analytics" style={{ color: "#3b82f6", textDecoration: "none", fontWeight: 500 }}>Full Analytics Dashboard →</a>
+              <div style={{ display: "flex", gap: 16 }}>
+                <a href="/system/analytics/nexint" style={{ color: "#10b981", textDecoration: "none", fontWeight: 500 }}>NexINT Dashboard →</a>
+                <a href="/system/analytics" style={{ color: "#3b82f6", textDecoration: "none", fontWeight: 500 }}>Full Analytics Dashboard →</a>
+              </div>
             </div>
           </>
         )}

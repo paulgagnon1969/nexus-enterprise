@@ -9,7 +9,7 @@ status: draft
 created: 2026-03-07
 updated: 2026-03-07
 author: Warp
-score:
+scores:
   uniqueness: 6
   value: 7
   demonstrable: 8
@@ -76,6 +76,25 @@ A live summary strip shows the full pricing chain: `Edited: $25.00 × (1 + 25.00
 - `apps/web/app/projects/[id]/page.tsx` — Modal state, math helpers (~lines 4268-4435), modal JSX (~lines 17214-17574)
 - `apps/api/src/modules/project/dto/project-invoice.dto.ts` — DTO fields for costBookUnitPrice, adjustedUnitPrice, discountPercent
 - `packages/database/prisma/schema.prisma` — ProjectInvoiceLineItem fields (lines 2331-2337)
+
+## NexOP Impact
+- **Category**: Financial Accuracy — Pricing Integrity
+- **Estimated NexOP contribution**: ~0.15%
+- **Basis**: Manual markup/discount calculations are error-prone. A 2% pricing error on a $50K invoice = $1,000 undercharge. For a $10M firm issuing 200 invoices/year, even a 5% error rate on 10% of lines = ~$10K–$15K in pricing leakage. Bidirectional recalculation eliminates arithmetic errors entirely.
+
+## Demo Script
+1. Open an invoice line item edit modal.
+2. Show the 6-field layout: Original, Edited, Markup%, Final, Discount$, Discount%.
+3. Change the Edited rate from $128 to $100 → watch Markup, Final, Discount all recalculate.
+4. Now change the Discount % to 25% → watch the chain recalculate backwards.
+5. Show the live summary strip at the bottom.
+6. Key message: *"Edit any field, everything stays in sync. No spreadsheets needed."*
+
+## Future Extensions
+- **Batch pricing**: Apply a discount % or markup to all line items in one action.
+- **Client rate cards**: Save per-client rate overrides that auto-populate when creating invoices.
+- **Pricing history**: Track price changes over time per line item for audit purposes.
+- **Smart suggestions**: AI suggests markup based on historical data for similar line items.
 
 ## Revision History
 | Rev | Date | Changes |
