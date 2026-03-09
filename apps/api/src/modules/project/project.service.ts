@@ -3748,7 +3748,19 @@ export class ProjectService {
         { importedAt: "desc" },
         { createdAt: "desc" },
       ],
-      select: { id: true },
+      select: {
+        id: true,
+        sequenceNo: true,
+        sourceType: true,
+        fileName: true,
+        storedPath: true,
+        estimateKind: true,
+        defaultPayerType: true,
+        description: true,
+        status: true,
+        importedAt: true,
+        createdAt: true,
+      },
     });
 
     // Fallback: any status with SowItems.
@@ -3763,7 +3775,19 @@ export class ProjectService {
           { importedAt: "desc" },
           { createdAt: "desc" },
         ],
-        select: { id: true },
+        select: {
+          id: true,
+          sequenceNo: true,
+          sourceType: true,
+          fileName: true,
+          storedPath: true,
+          estimateKind: true,
+          defaultPayerType: true,
+          description: true,
+          status: true,
+          importedAt: true,
+          createdAt: true,
+        },
       });
     }
 
@@ -3776,7 +3800,19 @@ export class ProjectService {
           { importedAt: "desc" },
           { createdAt: "desc" },
         ],
-        select: { id: true },
+        select: {
+          id: true,
+          sequenceNo: true,
+          sourceType: true,
+          fileName: true,
+          storedPath: true,
+          estimateKind: true,
+          defaultPayerType: true,
+          description: true,
+          status: true,
+          importedAt: true,
+          createdAt: true,
+        },
       });
     }
 
