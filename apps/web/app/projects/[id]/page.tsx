@@ -5092,6 +5092,8 @@ ${htmlBody}
           equipmentCost: string;
           // Status (PM+ can change)
           status: string;
+          // ACV calculator
+          depreciationPct: string;
         };
         rcvManuallyEdited: boolean;
         saving: boolean;
@@ -11620,6 +11622,8 @@ ${htmlBody}
         equipmentCost: getCostComponent(entry?.equipmentCost, parentXact?.equipment),
         // Status - PM+ can change
         status: String(entry?.status ?? "PENDING"),
+        // ACV calculator — default 20% O&P depreciation
+        depreciationPct: "20",
       },
       rcvManuallyEdited: false,
       saving: false,
@@ -36014,6 +36018,96 @@ onClick={() => setManageTemplatesOpen(true)}
                   </div>
                 )}
               </div>
+
+              {/* ── ACV / RCV Calculation Breakdown ── */}
+              {(() => {
+                const rcvRaw = parseReconNumber(reconEntryEdit.draft.rcvAmount);
+                if (rcvRaw === 0) return null; // only show when RCV has a value
+                const depPct = parseReconNumber(reconEntryEdit.draft.depreciationPct);
+                const depAmount = rcvRaw * (depPct / 100);
+                const acvAmount = rcvRaw - depAmount;
+                const xactUnitPrice = petlReconPanel.data?.sowItem?.unitCost;
+                const reconUnitCost = parseReconNumber(reconEntryEdit.draft.unitCost);
+                const reconQty = parseReconNumber(reconEntryEdit.draft.qty);
+                return (
+                  <div
+                    style={{
+                      padding: 12,
+                      borderRadius: 8,
+                      border: "1px solid #a5b4fc",
+                      background: "linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)",
+                    }}
+                  >
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#4338ca", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                      ACV / RCV Breakdown
+                    </div>
+                    {/* Reference: Xact unit price vs recon unit cost */}
+                    {xactUnitPrice != null && reconUnitCost !== 0 && (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                        <div style={{ fontSize: 11, color: "#6b7280" }}>
+                          Xact Unit Price: <span style={{ fontWeight: 600, color: "#111827" }}>${Number(xactUnitPrice).toFixed(2)}</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: "#6b7280" }}>
+                          Recon Unit Cost: <span style={{ fontWeight: 600, color: "#111827" }}>${reconUnitCost.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    )}
+                    {/* O&P / Depreciation % */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 500, color: "#4b5563", whiteSpace: "nowrap" }}>O&P / Depreciation %</div>
+                      <input
+                        value={reconEntryEdit.draft.depreciationPct}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setReconEntryEdit((prev) =>
+                            prev ? { ...prev, draft: { ...prev.draft, depreciationPct: v } } : prev,
+                          );
+                        }}
+                        style={{
+                          width: 60,
+                          padding: "4px 6px",
+                          borderRadius: 6,
+                          border: "1px solid #a5b4fc",
+                          fontSize: 12,
+                          textAlign: "center",
+                          background: "#ffffff",
+                        }}
+                      />
+                      <span style={{ fontSize: 11, color: "#6b7280" }}>%</span>
+                    </div>
+                    {/* RCV → Depreciation → ACV */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr auto 1fr", gap: 6, alignItems: "center" }}>
+                      <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>RCV</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#1e40af" }}>
+                          ${Math.abs(rcvRaw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 14, color: "#9ca3af", fontWeight: 600 }}>−</div>
+                      <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>Depreciation ({depPct}%)</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#dc2626" }}>
+                          ${Math.abs(depAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 14, color: "#9ca3af", fontWeight: 600 }}>=</div>
+                      <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 2 }}>ACV</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#059669" }}>
+                          ${Math.abs(acvAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                      </div>
+                    </div>
+                    {/* Formula line */}
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #c7d2fe", fontSize: 11, color: "#6366f1", fontFamily: "monospace" }}>
+                      {reconQty !== 0 && reconUnitCost !== 0
+                        ? `${reconQty} qty × $${reconUnitCost.toFixed(2)} = $${(reconQty * reconUnitCost).toFixed(2)} (item) → RCV $${Math.abs(rcvRaw).toFixed(2)} × ${(100 - depPct).toFixed(0)}% = ACV $${Math.abs(acvAmount).toFixed(2)}`
+                        : `RCV $${Math.abs(rcvRaw).toFixed(2)} × ${(100 - depPct).toFixed(0)}% = ACV $${Math.abs(acvAmount).toFixed(2)}`
+                      }
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Description</div>
