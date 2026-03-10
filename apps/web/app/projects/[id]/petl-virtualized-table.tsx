@@ -594,7 +594,7 @@ const PetlRow = memo(function PetlRow({
                 {rcvAmt != null ? formatUSD(rcvAmt) : ""}
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", textAlign: "right" }}>
-                {pct}%
+                {isCredit ? <span style={{ fontSize: 11, color: "#9ca3af" }}>—</span> : `${pct}%`}
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb" }} />
@@ -811,7 +811,7 @@ function VirtualizedRow({
                 {isNoteOnly ? "$0.00" : (rcvAmt != null ? formatUSD(rcvAmt) : "")}
               </td>
               <td style={{ padding: "4px 8px", borderTop: "1px solid #e5e7eb", width: 80, textAlign: "right" }}>
-                {isNoteOnly ? (
+                {isNoteOnly || isCredit ? (
                   <span style={{ fontSize: 11, color: "#9ca3af" }}>—</span>
                 ) : e?.isPercentCompleteLocked && !isPmOrAbove ? (
                   <span style={{ fontSize: 11, color: "#6b7280" }}>{e?.percentComplete ?? 0}%</span>
