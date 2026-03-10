@@ -6288,7 +6288,7 @@ ${htmlBody}
     const filtered = petlItems.filter((it) => {
       if (!matchesFilters(it)) return false;
       if (petlDisplayMode === "RECONCILIATION_ONLY") {
-        return petlReconActivityIds.has(it.id);
+        if (!petlReconActivityIds.has(it.id)) return false;
       }
       // Soft search: match against description, room, activity, cat, sel
       if (searchLower) {
