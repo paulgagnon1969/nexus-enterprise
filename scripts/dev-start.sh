@@ -96,7 +96,22 @@ else
   echo "[dev-start] DATABASE_URL already set in environment — respecting it" | tee -a "$LOG_DIR/dev-start.log"
 fi
 
-# --- 3) Ensure Prisma client is up-to-date --------------------------------
+# --- 3) Apply pending Prisma migrations + regenerate client ----------------
+
+echo "[dev-start] Checking for pending Prisma migrations…" | tee -a "$LOG_DIR/dev-start.log"
+MIGRATE_OUTPUT=$(
+  cd "$REPO_ROOT/packages/database"
+  npx prisma migrate deploy 2>&1
+) || true
+echo "$MIGRATE_OUTPUT" >> "$LOG_DIR/dev-start.log"
+
+if echo "$MIGRATE_OUTPUT" | grep -q "migrations have been applied"; then
+  echo "[dev-start] ✓ Prisma migrations applied." | tee -a "$LOG_DIR/dev-start.log"
+elif echo "$MIGRATE_OUTPUT" | grep -q "No pending migrations"; then
+  echo "[dev-start] ✓ No pending migrations." | tee -a "$LOG_DIR/dev-start.log"
+else
+  echo "[dev-start] ⚠ Prisma migrate output: $(echo "$MIGRATE_OUTPUT" | tail -1)" | tee -a "$LOG_DIR/dev-start.log"
+fi
 
 echo "[dev-start] Regenerating Prisma client (ensures types match schema)…" | tee -a "$LOG_DIR/dev-start.log"
 (

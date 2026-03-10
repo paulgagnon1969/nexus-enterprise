@@ -7247,6 +7247,9 @@ export class ProjectService {
   ) {
     const { sourceEntry, targetSowItemIds } = body;
 
+    // Generate a batch ID so every entry in this paste can be grouped/undone together.
+    const batchId = randomUUID();
+
     if (!Array.isArray(targetSowItemIds) || targetSowItemIds.length === 0) {
       throw new BadRequestException("At least one target SOW item ID is required");
     }
@@ -7346,8 +7349,11 @@ export class ProjectService {
           originEstimateVersionId: sowItem.estimateVersionId,
           originSowItemId: sowItem.id,
           originLineNo: sowItem.lineNo ?? null,
+          batchId,
+          batchLabel: `${kindRaw} – ${(sourceEntry.description ?? "batch paste").slice(0, 60)} (${targetSowItemIds.length} lines)`,
           sourceSnapshotJson: {
             batchPaste: true,
+            batchId,
             sourceUnitCost: unitCost,
             sourceKind: kindRaw,
           },
@@ -7361,6 +7367,7 @@ export class ProjectService {
                 kind: kindRaw,
                 amount: rcvAmount,
                 batchPaste: true,
+                batchId,
                 targetSowItemCount: targetSowItemIds.length,
               },
               createdByUserId: actor.userId,
@@ -7382,8 +7389,200 @@ export class ProjectService {
 
     return {
       created: createdEntries.length,
+      batchId,
       entries: createdEntries,
     };
+  }
+
+  // ── Batch management ────────────────────────────────────────────────
+
+  /**
+   * List all reconciliation batches for a project, ordered newest-first.
+   * Each batch is a distinct batchId with aggregated metadata.
+   */
+  async listPetlReconciliationBatches(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+  ) {
+    await this.getProjectByIdForUser(projectId, actor);
+
+    const entries = await this.prisma.petlReconciliationEntry.findMany({
+      where: {
+        projectId,
+        batchId: { not: null },
+      },
+      select: {
+        id: true,
+        batchId: true,
+        batchLabel: true,
+        kind: true,
+        tag: true,
+        status: true,
+        unitCost: true,
+        rcvAmount: true,
+        description: true,
+        createdByUserId: true,
+        createdAt: true,
+        createdBy: { select: { id: true, firstName: true, lastName: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    // Group by batchId
+    const batchMap = new Map<
+      string,
+      {
+        batchId: string;
+        batchLabel: string | null;
+        kind: string;
+        tag: string | null;
+        entryCount: number;
+        totalRcv: number;
+        unitCost: number | null;
+        activeCount: number;
+        rejectedCount: number;
+        createdBy: { id: string; firstName: string | null; lastName: string | null } | null;
+        createdAt: Date;
+        entryIds: string[];
+      }
+    >();
+
+    for (const e of entries) {
+      const bid = e.batchId!;
+      const existing = batchMap.get(bid);
+      if (!existing) {
+        batchMap.set(bid, {
+          batchId: bid,
+          batchLabel: e.batchLabel,
+          kind: e.kind,
+          tag: e.tag,
+          entryCount: 1,
+          totalRcv: e.rcvAmount ?? 0,
+          unitCost: e.unitCost,
+          activeCount: e.status !== "REJECTED" ? 1 : 0,
+          rejectedCount: e.status === "REJECTED" ? 1 : 0,
+          createdBy: e.createdBy,
+          createdAt: e.createdAt,
+          entryIds: [e.id],
+        });
+      } else {
+        existing.entryCount += 1;
+        existing.totalRcv += e.rcvAmount ?? 0;
+        if (e.status === "REJECTED") existing.rejectedCount += 1;
+        else existing.activeCount += 1;
+        existing.entryIds.push(e.id);
+      }
+    }
+
+    return Array.from(batchMap.values()).sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+    );
+  }
+
+  /**
+   * Undo a batch: mark all entries in the batch as REJECTED (soft-delete).
+   * REJECTED entries are zeroed out in invoice rollups.
+   */
+  async undoPetlReconciliationBatch(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    batchId: string,
+  ) {
+    await this.getProjectByIdForUser(projectId, actor);
+
+    const canEdit = await this.isProjectManagerOrAbove(projectId, actor);
+    if (!canEdit) {
+      throw new ForbiddenException(
+        "Only project managers/owners/admins can undo reconciliation batches",
+      );
+    }
+
+    const entries = await this.prisma.petlReconciliationEntry.findMany({
+      where: { projectId, batchId, status: { not: "REJECTED" } },
+      select: { id: true, caseId: true, estimateVersionId: true },
+    });
+
+    if (entries.length === 0) {
+      throw new NotFoundException("No active entries found for this batch");
+    }
+
+    // Mark all as REJECTED and create audit events
+    for (const entry of entries) {
+      await this.prisma.petlReconciliationEntry.update({
+        where: { id: entry.id },
+        data: {
+          status: PetlReconciliationEntryStatus.REJECTED,
+          events: {
+            create: {
+              projectId,
+              estimateVersionId: entry.estimateVersionId,
+              caseId: entry.caseId,
+              eventType: "BATCH_UNDO",
+              payloadJson: { batchId, undoneByUserId: actor.userId },
+              createdByUserId: actor.userId,
+            },
+          },
+        },
+      });
+    }
+
+    // Sync living invoice draft
+    await this.maybeSyncLivingDraftInvoiceFromPetl(projectId, companyId, actor);
+
+    return { undone: entries.length, batchId };
+  }
+
+  /**
+   * Restore a previously undone batch: set entries back to APPROVED.
+   */
+  async restorePetlReconciliationBatch(
+    projectId: string,
+    companyId: string,
+    actor: AuthenticatedUser,
+    batchId: string,
+  ) {
+    await this.getProjectByIdForUser(projectId, actor);
+
+    const canEdit = await this.isProjectManagerOrAbove(projectId, actor);
+    if (!canEdit) {
+      throw new ForbiddenException(
+        "Only project managers/owners/admins can restore reconciliation batches",
+      );
+    }
+
+    const entries = await this.prisma.petlReconciliationEntry.findMany({
+      where: { projectId, batchId, status: "REJECTED" },
+      select: { id: true, caseId: true, estimateVersionId: true },
+    });
+
+    if (entries.length === 0) {
+      throw new NotFoundException("No rejected entries found for this batch");
+    }
+
+    for (const entry of entries) {
+      await this.prisma.petlReconciliationEntry.update({
+        where: { id: entry.id },
+        data: {
+          status: PetlReconciliationEntryStatus.APPROVED,
+          events: {
+            create: {
+              projectId,
+              estimateVersionId: entry.estimateVersionId,
+              caseId: entry.caseId,
+              eventType: "BATCH_RESTORE",
+              payloadJson: { batchId, restoredByUserId: actor.userId },
+              createdByUserId: actor.userId,
+            },
+          },
+        },
+      });
+    }
+
+    await this.maybeSyncLivingDraftInvoiceFromPetl(projectId, companyId, actor);
+
+    return { restored: entries.length, batchId };
   }
 
   async listComparatorEstimatesForProject(

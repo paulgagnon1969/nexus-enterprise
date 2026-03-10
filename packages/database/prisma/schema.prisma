@@ -3527,6 +3527,10 @@ model PetlReconciliationEntry {
   isStandaloneChangeOrder Boolean @default(false)
   coSequenceNo            Int? // 1, 2, 3... for CO items under same parent line
 
+  // Batch metadata — groups entries created together via batch-paste or similar
+  batchId    String? // Shared cuid across all entries created in the same batch operation
+  batchLabel String? // Human-readable label, e.g. "CO Credit – R&R Vanity (12 lines)"
+
   createdByUserId  String?
   approvedByUserId String?
   approvedAt       DateTime?
@@ -3549,6 +3553,7 @@ model PetlReconciliationEntry {
   @@index([caseId], map: "PetlReconEntry_case_idx")
   @@index([projectParticleId], map: "PetlReconEntry_particle_idx")
   @@index([originEstimateVersionId], map: "PetlReconEntry_origin_estimate_idx")
+  @@index([batchId], map: "PetlReconEntry_batch_idx")
 }
 
 model PetlReconciliationAttachment {

@@ -1495,6 +1495,55 @@ export class ProjectController {
     );
   }
 
+  // List reconciliation batches for a project.
+  @UseGuards(JwtAuthGuard)
+  @Get(":id/petl/reconciliation/batches")
+  listPetlReconciliationBatches(
+    @Req() req: any,
+    @Param("id") projectId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.listPetlReconciliationBatches(
+      projectId,
+      user.companyId,
+      user,
+    );
+  }
+
+  // Undo a reconciliation batch (mark all entries as REJECTED).
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/petl/reconciliation/batches/:batchId/undo")
+  undoPetlReconciliationBatch(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("batchId") batchId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.undoPetlReconciliationBatch(
+      projectId,
+      user.companyId,
+      user,
+      batchId,
+    );
+  }
+
+  // Restore an undone reconciliation batch (set entries back to APPROVED).
+  @UseGuards(JwtAuthGuard)
+  @Post(":id/petl/reconciliation/batches/:batchId/restore")
+  restorePetlReconciliationBatch(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("batchId") batchId: string,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.projects.restorePetlReconciliationBatch(
+      projectId,
+      user.companyId,
+      user,
+      batchId,
+    );
+  }
+
   // List all comparator EstimateVersions uploaded for this project.
   @UseGuards(JwtAuthGuard)
   @Get(":id/comparator-estimates")

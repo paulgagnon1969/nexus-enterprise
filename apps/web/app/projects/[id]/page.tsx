@@ -26,6 +26,7 @@ import { InvoicePetlVirtualizedTable } from "./invoice-petl-virtualized-table";
 import { InvoicePetlFlatVirtualizedTable } from "./invoice-petl-flat-virtualized";
 import { useDraggable } from "../../hooks/use-draggable";
 import ReconBatchPasteModal from "./recon-batch-paste-modal";
+import ReconBatchManagerModal from "./recon-batch-manager-modal";
 import { JournalTab } from "./journal";
 import { RoleVisible } from "../../role-audit";
 import { FileDropZone } from "../../components/file-drop-zone";
@@ -5113,6 +5114,7 @@ ${htmlBody}
     selectionCode: string;
   } | null>(null);
 
+  const [reconBatchManagerOpen, setReconBatchManagerOpen] = useState(false);
   const [reconEditCostBookOpen, setReconEditCostBookOpen] = useState(false);
   const reconTagSelectRef = useRef<HTMLSelectElement | null>(null);
   const [reconFilePickerOpen, setReconFilePickerOpen] = useState(false);
@@ -31852,6 +31854,23 @@ onClick={() => setManageTemplatesOpen(true)}
 
           <button
             type="button"
+            onClick={() => setReconBatchManagerOpen(true)}
+            style={{
+              padding: "5px 10px",
+              borderRadius: 999,
+              border: "1px solid #7c3aed",
+              background: "#f5f3ff",
+              color: "#6d28d9",
+              fontSize: 12,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Batch Updates
+          </button>
+
+          <button
+            type="button"
             onClick={() => setImportsModalOpen(true)}
             style={{
               padding: "5px 10px",
@@ -36656,6 +36675,21 @@ onClick={() => setManageTemplatesOpen(true)}
             }, 100);
           }}
           onClose={() => setReconEditCostBookOpen(false)}
+        />
+      )}
+
+      {/* Batch manager modal — view/undo reconciliation batches */}
+      {reconBatchManagerOpen && project && (
+        <ReconBatchManagerModal
+          projectId={project.id}
+          apiBase={API_BASE}
+          onClose={() => setReconBatchManagerOpen(false)}
+          onMutate={() => {
+            setPetlReloadTick((t) => t + 1);
+            if (petlReconPanel.open && petlReconPanel.sowItemId) {
+              void loadPetlReconciliation(petlReconPanel.sowItemId);
+            }
+          }}
         />
       )}
 
