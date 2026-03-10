@@ -652,8 +652,9 @@ async function processImportJob(
 
     let effectiveCsvPath = csvPath;
 
-    // If csvPath is not set but fileUri is, fetch the CSV from GCS to a local tmp path.
-    if ((!effectiveCsvPath || !effectiveCsvPath.trim()) && job.fileUri) {
+    // If csvPath is not set or file doesn't exist locally (API and worker are
+    // separate containers), fetch the CSV from object storage.
+    if ((!effectiveCsvPath || !fs.existsSync(effectiveCsvPath)) && job.fileUri) {
       console.log("[worker] XACT_RAW using fileUri, downloading from GCS", {
         importJobId,
         fileUri: job.fileUri,
@@ -666,7 +667,7 @@ async function processImportJob(
       });
     }
 
-    if (!effectiveCsvPath || !effectiveCsvPath.trim()) {
+    if (!effectiveCsvPath || !fs.existsSync(effectiveCsvPath)) {
       throw new Error("XACT_RAW import job has no csvPath or fileUri to read from");
     }
 
@@ -748,12 +749,18 @@ async function processImportJob(
 
     let effectiveCsvPath = csvPath;
 
-    if ((!effectiveCsvPath || !effectiveCsvPath.trim()) && job.fileUri) {
+    // If csvPath doesn't exist locally (API and worker are separate containers),
+    // fall back to downloading from object storage.
+    if ((!effectiveCsvPath || !fs.existsSync(effectiveCsvPath)) && job.fileUri) {
+      console.log("[worker] XACT_COMPARATOR using fileUri, downloading from storage", {
+        importJobId,
+        fileUri: job.fileUri,
+      });
       effectiveCsvPath = await downloadGcsToTmp(job.fileUri);
     }
 
-    if (!effectiveCsvPath || !effectiveCsvPath.trim()) {
-      throw new Error("XACT_COMPARATOR import job has no csvPath or fileUri to read from");
+    if (!effectiveCsvPath || !fs.existsSync(effectiveCsvPath)) {
+      throw new Error("Comparator CSV not found locally and no fileUri available. Ensure object storage is configured.");
     }
 
     const result = await importComparatorCsvForProject({

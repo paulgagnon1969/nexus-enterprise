@@ -240,8 +240,10 @@ export class ProjectImportJobsController {
           buffer,
           contentType: part.mimetype || "text/csv",
         });
-      } catch {
-        // If GCS is not configured in dev, keep filesystem-only behavior.
+      } catch (err) {
+        // If object storage is not configured in dev, keep filesystem-only behavior.
+        // In production (separate containers), this MUST succeed or the worker can't read the file.
+        console.error("[import-jobs] xact-comparator: object storage upload failed", { fileName: safeName, error: (err as any)?.message ?? String(err) });
       }
 
       savedFiles.push({ localPath: dest, fileUri: uploadedFileUri, fileName: safeName });
