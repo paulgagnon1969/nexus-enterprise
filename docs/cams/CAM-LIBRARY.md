@@ -14,7 +14,7 @@ tags: [cam, library, index, portfolio, competitive-advantage]
 
 # Nexus CAM Library
 
-> **46 modules. 7 functional areas. NexOP ~6–12% of revenue recovered. NexINT 72% → 95% operational integrity.**
+> **49 modules. 7 functional areas. NexOP ~6–12% of revenue recovered. NexINT 72% → 95% operational integrity.**
 
 This document is the master index and executive summary of every Competitive Advantage Module in the Nexus platform. It is organized in three tiers:
 
@@ -42,7 +42,7 @@ Five cross-tenant collaboration mechanisms form the backbone:
 - NexNet Candidate Pool Sharing (curated talent distribution)
 - The Referral Graph (trust as the strongest intent signal)
 
-The 45 CAMs below organize into four layers of the intent system:
+The 49 CAMs below organize into four layers of the intent system:
 - **Discovery & Recruitment** — CLT-INTG-0001 (Sovereign Marketplace), CLT-COLLAB-0001/0002, NexFIND, Phantom Fleet
 - **Identity & Reputation** — NexCheck, TUCKS, NexOP, NexINT
 - **Operational Execution** — NexPLAN, BOM Pricing, Task Cascading, Auto-Posting
@@ -64,14 +64,14 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
   EST          1      1      1      —     1     2      —       —     =  6
   OPS          1      1      1      4     —     1      1       —     =  9
   TECH         1      2      3      2     2     1      —       —     = 11
-  CLT          —      1      1      —     —     —      3       —     =  5
-  CMP          1      —      1      —     —     —      —       —     =  2
+  CLT          —      1      1      —     —     —      4       —     =  6
+  CMP          1      —      1      —     —     —      —       1     =  3
   HR           —      —      —      —     —     —      —       —     =  0
              ───    ───    ───    ───   ───   ───    ───     ───
-              6      7      8      8     4     9      4       0     = 46+1 portfolio
+              6      7      8      8     4     9      5       1     = 48+1 portfolio
 ```
 
-**Densest cells**: FIN-ACC (5), OPS-VIS (4), TECH-INTG (3), TECH-VIS (2), TECH-INTL (2), FIN-AUTO (2), FIN-INTL (2), FIN-VIS (2)
+**Densest cells**: FIN-ACC (5), OPS-VIS (4), CLT-COLLAB (4), TECH-INTG (3), TECH-VIS (2), TECH-INTL (2), FIN-AUTO (2), FIN-INTL (2), FIN-VIS (2)
 
 ---
 
@@ -136,7 +136,7 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 | TECH-VIS-0001 | NexOP — Operating Percentage Metric | 35/40 | — | draft |
 | TECH-VIS-0002 | NexINT — Operational Integrity Dashboard | 36/40 | — | draft |
 
-### Client Relations (CLT) — 5 CAMs
+### Client Relations (CLT) — 6 CAMs
 
 | CAM ID | Title | Score | NexOP | Status |
 |--------|-------|-------|-------|--------|
@@ -145,12 +145,14 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 | CLT-COLLAB-0001 | Client Tenant Tier — Acquisition Flywheel | 30/40 | — | draft (implemented) |
 | CLT-COLLAB-0002 | Dual-User Portal Routing | 29/40 | ~0.15% | draft |
 | CLT-COLLAB-0003 | Viral Document Sharing & Graduated Identity System | 35/40 | — | draft |
+| CLT-COLLAB-0004 | CAM Portal Viral Referral System | 33/40 | — | draft |
 
-### Compliance (CMP) — 2 CAMs | Module NexOP ~0.60%
+### Compliance (CMP) — 3 CAMs | Module NexOP ~0.60%
 
 | CAM ID | Title | Score | NexOP | Status |
 |--------|-------|-------|-------|--------|
 | CMP-AUTO-0001 | NexCheck — Site Compliance Kiosk | 34/40 | ~0.40% | draft |
+| CMP-CMP-0001 | CNDA+ Gated Access System | 34/40 | — | draft |
 | CMP-INTG-0001 | OSHA eCFR Auto-Sync | 33/40 | ~0.20% | draft |
 
 ---
@@ -160,13 +162,13 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 1. **CLT-INTG-0001** NCC Sovereign Marketplace — **37/40** ★ Flagship
 2. **EST-ACC-0002** NexCAD Enhanced Video Assessment — **37/40**
 3. **TECH-AUTO-0001** NexBRIDGE Distributed Compute Mesh — **37/40**
-4. **CLT-INTL-0001** NexFIT Module Discovery & ROI Engine — **36/40** ★ NEW
+4. **CLT-INTL-0001** NexFIT Module Discovery & ROI Engine — **36/40**
 5. **FIN-ACC-0002** Zero-Loss Receipt Capture — **36/40**
 6. **EST-AUTO-0002** NexPLAN AI-Assisted Selections — **36/40**
 7. **TECH-INTG-0001b** NexCAD Precision Scan → CAD — **36/40**
 8. **TECH-VIS-0002** NexINT Operational Integrity Dashboard — **36/40**
 9. **FIN-INTL-0003** NexPRICE Regional Pricing Intelligence — **35/40**
-10. **CLT-COLLAB-0003** Viral Document Sharing & Graduated Identity — **35/40** ★ NEW
+10. **CLT-COLLAB-0003** Viral Document Sharing & Graduated Identity — **35/40**
 
 ---
 
@@ -577,7 +579,7 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 
 → [Full CAM](./CLT-COLLAB-0002-dual-user-portal-routing.md)
 
-#### CLT-COLLAB-0003 — Viral Document Sharing & Graduated Identity System ★ NEW
+#### CLT-COLLAB-0003 — Viral Document Sharing & Graduated Identity System
 *"Every document shared is a seed. Every viewer who registers is a root. Every marketplace participant is a branch."*
 
 **Problem**: NCC documents are either fully public or behind full auth. No middle ground — no way for viewers to share, no referral chain, no progressive path from anonymous visitor to marketplace participant.
@@ -585,6 +587,15 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 **Score**: 35/40 (U:9 V:9 D:9 Def:8) | Consumer-grade growth mechanics applied to B2B construction.
 
 → [Full CAM](./CLT-COLLAB-0003-viral-document-sharing.md)
+
+#### CLT-COLLAB-0004 — CAM Portal Viral Referral System ★ NEW
+*"Every viewer becomes a recruiter. Every referral is a tracked, attributable link in a self-propagating chain."*
+
+**Problem**: CAM content is locked behind admin-only invites with no way for viewers to share. No organic distribution, no referral attribution, no network effect on IP distribution.
+**NCC Advantage**: Embedded referral mechanics inside the CNDA+-gated CAM portal. Floating button + CTA banner + modal in content view. Creates child tokens with parent-chain ancestry (max depth 5), sends branded emails, prevents duplicates. Full referral analytics: viral coefficient, chain depth distribution, conversion by depth, top referrers.
+**Score**: 33/40 (U:8 V:9 D:8 Def:8) | Viral referral for IP-protected content.
+
+→ [Full CAM](./CLT-COLLAB-0004-cam-portal-viral-referral.md)
 
 ---
 
@@ -598,6 +609,15 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 **Score**: 34/40 (U:9 V:9 D:9 Def:7) | **NexOP**: ~0.40%
 
 → [Full CAM](./CMP-AUTO-0001-nexcheck-site-compliance.md)
+
+#### CMP-CMP-0001 — CNDA+ Gated Access System ★ NEW
+*"Your IP, their identity, mutual accountability — enforced by code, not by trust."*
+
+**Problem**: Distributing competitive intelligence without identity verification means zero legal recourse. Full NCC accounts are too heavy for prospects. Public URLs are too open. URL forwarding attacks bypass single-layer access.
+**NCC Advantage**: Multi-gate compliance pipeline: CNDA+ acceptance → e-signature → email-based identity verification. Token-based session management with localStorage persistence. Forensic logging of failed attempts. Landing page with auto-redirect for returning viewers. CAM revisit banner for authenticated NCC users. Enumeration-safe access recovery.
+**Score**: 34/40 (U:8 V:9 D:9 Def:8) | IP protection via progressive compliance gates.
+
+→ [Full CAM](./CMP-CMP-0001-cnda-gated-access-system.md)
 
 #### CMP-INTG-0001 — OSHA eCFR Auto-Sync
 *"The official regulations. Always current. Zero manual updates."*
@@ -626,4 +646,5 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 | 1.0 | 2026-03-10 | Initial library — 44 CAMs indexed with TOC, heatmap, and executive summaries |
 | 1.1 | 2026-03-11 | Added CLT-INTG-0001 NCC Sovereign Marketplace (flagship CAM, 37/40) — 45 CAMs total |
 | 1.2 | 2026-03-11 | Added CLT-INTL-0001 NexFIT Module Discovery & ROI Engine (36/40) — 46 CAMs total |
-| 1.3 | 2026-03-11 | Added CLT-COLLAB-0003 Viral Document Sharing & Graduated Identity (35/40) — 47 CAMs total |
+|| 1.3 | 2026-03-11 | Added CLT-COLLAB-0003 Viral Document Sharing & Graduated Identity (35/40) — 47 CAMs total |
+|| 1.4 | 2026-03-11 | Added CLT-COLLAB-0004 CAM Portal Viral Referral (33/40) and CMP-CMP-0001 CNDA+ Gated Access (34/40) — 49 CAMs total |

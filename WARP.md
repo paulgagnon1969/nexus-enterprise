@@ -946,3 +946,91 @@ echo "NEXUS_API_TOKEN=eyJ..." >> .env
 ```
 
 See full CAM system documentation: `docs/sops-staging/cam-competitive-advantage-system-sop.md`
+
+## Feature Development → CAM & Training Documentation Contract — CRITICAL
+
+Every feature development session MUST include a documentation evaluation step. This is a mandatory part of the development workflow, not an afterthought.
+
+### When This Contract Applies
+
+This contract is triggered whenever Warp:
+- Builds a new feature or module
+- Makes significant enhancements to an existing feature
+- Implements a new integration or workflow
+- Fixes a bug that reveals a competitive advantage (e.g., a novel error-handling pattern)
+
+Minor changes (typo fixes, config tweaks, dependency bumps) do NOT trigger this contract.
+
+### Step 1: CAM Evaluation (Mandatory)
+
+After completing the feature code, Warp MUST score it against the four CAM criteria:
+
+| Criterion | Question | Score Range |
+|-----------|----------|-------------|
+| **Uniqueness** | Do competitors have this? | 1 (common) → 10 (unique) |
+| **Value** | How much does this help users? | 1 (minor) → 10 (critical) |
+| **Demonstrable** | Can we show this in a demo? | 1 (hard) → 10 (easy) |
+| **Defensible** | Is this hard to copy? | 1 (easy) → 10 (hard) |
+
+**Decision matrix:**
+- **Score ≥ 24/40** → Proceed to Step 2 (create/update CAM)
+- **Score 16–23/40** → Note the feature as a potential future CAM; skip Steps 2–4
+- **Score < 16/40** → No CAM action needed
+
+Report the score to the user: *"Feature scored [N]/40 on the CAM scale (U:[x] V:[x] D:[x] Def:[x]). [Qualifies/Does not qualify] as a CAM."*
+
+### Step 2: Create or Update CAM Document
+
+If the feature qualifies (≥ 24/40):
+
+**New CAM:** Create a markdown file in `docs/cams/` following the naming convention `{MODE}-{CATEGORY}-{NNNN}-descriptive-name.md`. Use the standard CAM frontmatter schema (see existing CAMs for reference). Assign the next available sequence number within the MODE-CATEGORY pair.
+
+**Existing CAM:** If the feature enhances a capability already documented in a CAM, update the existing CAM document:
+- Bump the revision (minor for enhancements, major for architectural changes)
+- Update the `updated` date
+- Add a Revision History entry
+- Update technical implementation sections to reflect new code
+
+### Step 3: Update CAM-LIBRARY.md
+
+After creating or updating a CAM, update `docs/cams/CAM-LIBRARY.md`:
+- Add/update the entry in the appropriate Mode section TOC table
+- Add/update the executive summary in the corresponding section
+- Update the Portfolio Heatmap counts if a new CAM was added
+- Update the Top 10 list if the new CAM's score qualifies
+- Update the total CAM count in the header
+- Add a Revision History entry
+
+### Step 4: Evaluate Training Documentation Impact
+
+For every CAM created or updated, evaluate whether supporting training documentation needs to be created or updated:
+
+**New training doc needed if:**
+- The feature introduces a new user-facing workflow
+- The feature changes an existing workflow that users follow
+- The feature requires admin configuration or setup
+
+**Training doc locations:**
+- SOPs: `docs/sops-staging/` (for operational procedures)
+- Handbooks: Referenced in the CAM's "Related Modules" section
+- The CAM document itself serves as the primary technical training document
+
+**If training updates are needed:**
+- Create/update the SOP in `docs/sops-staging/`
+- Cross-reference the SOP and CAM (each should link to the other)
+- Follow the SOP Production Contract format (see SOP section above)
+
+### Step 5: Report to User
+
+After completing documentation, report:
+> "Documentation updated: [created/updated] CAM [CAM-ID] ([score]/40), [created/updated] [N] training doc(s). CAM-LIBRARY.md updated to [N] total CAMs."
+
+### Quick Reference: The 5-Step Checklist
+
+1. **Score** the feature (4 criteria, 1–10 each)
+2. **Create/update** the CAM document if ≥ 24/40
+3. **Update** `CAM-LIBRARY.md` (TOC, heatmap, summary, Top 10, revision history)
+4. **Evaluate** training documentation impact and create/update as needed
+5. **Report** to the user with CAM ID and score
+
+**NEVER skip this evaluation.** Even features that don't qualify as CAMs should have their score reported so the user has visibility into the evaluation.
