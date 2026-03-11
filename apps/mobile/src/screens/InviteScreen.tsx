@@ -36,6 +36,26 @@ export function InviteScreen({ onBack, preselectedIds }: Props) {
   const [mode, setMode] = useState<InviteMode>("company");
   const [isOwnerPlus, setIsOwnerPlus] = useState(false);
 
+  // Manual entry for CAM/Master Class (external recipients)
+  const [manualEmail, setManualEmail] = useState("");
+  const [manualName, setManualName] = useState("");
+  const [manualRecipients, setManualRecipients] = useState<Array<{ id: string; email: string; name: string }>>([]);
+  let manualIdSeq = 0;
+
+  const addManualRecipient = useCallback(() => {
+    const email = manualEmail.trim().toLowerCase();
+    if (!email) { Alert.alert("Email required"); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { Alert.alert("Invalid email"); return; }
+    if (manualRecipients.some((r) => r.email === email)) { Alert.alert("Already added"); return; }
+    setManualRecipients((prev) => [...prev, { id: `m-${Date.now()}`, email, name: manualName.trim() }]);
+    setManualEmail("");
+    setManualName("");
+  }, [manualEmail, manualName, manualRecipients]);
+
+  const removeManualRecipient = useCallback((id: string) => {
+    setManualRecipients((prev) => prev.filter((r) => r.id !== id));
+  }, []);
+
   useEffect(() => {
     getUserMe()
       .then((me) => {
@@ -85,6 +105,45 @@ export function InviteScreen({ onBack, preselectedIds }: Props) {
   );
 
   const handleSendInvites = useCallback(async () => {
+    const isCamMode = mode === "cam" || mode === "master_class";
+
+    if (isCamMode) {
+      // CAM/Master Class: use manual recipients + selected NCC contacts
+      const allRecipients = [
+        ...manualRecipients.map((r) => ({ email: r.email, name: r.name || undefined, phone: undefined })),
+        ...selectedContacts.filter((c) => c.email).map((c) => ({ email: c.email!, name: c.displayName ?? undefined, phone: c.phone ?? undefined })),
+      ];
+      if (allRecipients.length === 0) {
+        Alert.alert("No recipients", "Add an email or select a contact to invite.");
+        return;
+      }
+      setSending(true);
+      let success = 0;
+      let failed = 0;
+      try {
+        const result = await sendBulkShareInvites({
+          recipients: allRecipients,
+          deliveryMethods: ["email"],
+          inviteType: mode === "master_class" ? "master_class" : "cam",
+        });
+        success = result.sent;
+        failed = result.failed;
+        const label = mode === "cam" ? "CAM invite" : "Master Class invite";
+        if (failed === 0) {
+          Alert.alert("Done", `${success} ${label}(s) sent successfully.`, [
+            { text: "OK", onPress: onBack },
+          ]);
+        } else {
+          Alert.alert("Partial Success", `${success} sent, ${failed} failed.`);
+        }
+      } catch (err: any) {
+        Alert.alert("Error", err?.message || "Failed to send invites.");
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
     if (selectedContacts.length === 0) {
       Alert.alert("No contacts selected", "Select at least one contact to invite.");
       return;
@@ -105,23 +164,7 @@ export function InviteScreen({ onBack, preselectedIds }: Props) {
     let failed = 0;
 
     try {
-      if (mode === "cam" || mode === "master_class") {
-        // CAM / Master Class bulk invite
-        const recipients = selectedContacts
-          .filter((c) => c.email)
-          .map((c) => ({
-            email: c.email!,
-            name: c.displayName ?? undefined,
-            phone: c.phone ?? undefined,
-          }));
-        const result = await sendBulkShareInvites({
-          recipients,
-          deliveryMethods: ["email"],
-          inviteType: mode === "master_class" ? "master_class" : "cam",
-        });
-        success = result.sent;
-        failed = result.failed;
-      } else {
+      {
         for (const contact of selectedContacts) {
           try {
             if (mode === "company") {
@@ -153,7 +196,7 @@ export function InviteScreen({ onBack, preselectedIds }: Props) {
         }
       }
 
-      const label = mode === "cam" ? "CAM invite" : mode === "master_class" ? "Master Class invite" : mode === "company" ? "invite" : "referral";
+      const label = mode === "company" ? "invite" : "referral";
       if (failed === 0) {
         Alert.alert("Done", `${success} ${label}(s) sent successfully.`, [
           { text: "OK", onPress: onBack },
@@ -167,7 +210,7 @@ export function InviteScreen({ onBack, preselectedIds }: Props) {
     } finally {
       setSending(false);
     }
-  }, [selectedContacts, mode, onBack]);
+  }, [selectedContacts, manualRecipients, mode, onBack]);
 
   const handleShareLink = useCallback(async () => {
     if (selectedContacts.length === 0) {
@@ -273,11 +316,51 @@ export function InviteScreen({ onBack, preselectedIds }: Props) {
           : "Send a Master Class invite. Each recipient gets their own unique access link."}
       </Text>
 
+      {/* Manual email entry for CAM/Master Class */}
+      {(mode === "cam" || mode === "master_class") && (
+        <View style={styles.manualEntry}>
+          <TextInput
+            style={styles.manualInput}
+            placeholder="Name (optional)"
+            placeholderTextColor="#9ca3af"
+            value={manualName}
+            onChangeText={setManualName}
+            autoCapitalize="words"
+            returnKeyType="next"
+          />
+          <View style={styles.manualEmailRow}>
+            <TextInput
+              style={[styles.manualInput, { flex: 1 }]}
+              placeholder="Email address *"
+              placeholderTextColor="#9ca3af"
+              value={manualEmail}
+              onChangeText={setManualEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="done"
+              onSubmitEditing={addManualRecipient}
+            />
+            <Pressable style={styles.addBtn} onPress={addManualRecipient}>
+              <Text style={styles.addBtnText}>+ Add</Text>
+            </Pressable>
+          </View>
+          {manualRecipients.map((r) => (
+            <View key={r.id} style={styles.manualChip}>
+              <Text style={styles.manualChipText}>{r.name || r.email}</Text>
+              <Pressable onPress={() => removeManualRecipient(r.id)} hitSlop={8}>
+                <Text style={styles.manualChipRemove}>✕</Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      )}
+
       {/* Search */}
       <View style={styles.searchContainer}>
         <TextInput
           style={styles.searchInput}
-          placeholder="Search contacts to invite..."
+          placeholder={mode === "cam" || mode === "master_class" ? "Or search existing contacts..." : "Search contacts to invite..."}
           placeholderTextColor="#9ca3af"
           value={search}
           onChangeText={setSearch}
@@ -343,7 +426,9 @@ export function InviteScreen({ onBack, preselectedIds }: Props) {
           {/* Action buttons */}
           <View style={styles.footer}>
             <Text style={styles.selectedLabel}>
-              {selected.size} contact{selected.size !== 1 ? "s" : ""} selected
+              {(mode === "cam" || mode === "master_class")
+                ? `${manualRecipients.length + selected.size} recipient${(manualRecipients.length + selected.size) !== 1 ? "s" : ""}`
+                : `${selected.size} contact${selected.size !== 1 ? "s" : ""} selected`}
             </Text>
             <View style={styles.actionRow}>
               <Pressable
@@ -355,7 +440,7 @@ export function InviteScreen({ onBack, preselectedIds }: Props) {
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
                   <Text style={styles.sendBtnText}>
-                    {mode === "company" ? "Send Invites" : "Send Referrals"}
+                    {mode === "cam" ? "Send CAM Invites" : mode === "master_class" ? "Send Class Invites" : mode === "company" ? "Send Invites" : "Send Referrals"}
                   </Text>
                 )}
               </Pressable>
@@ -363,7 +448,7 @@ export function InviteScreen({ onBack, preselectedIds }: Props) {
                 <Pressable
                   style={[styles.shareBtn, (selected.size === 0 || sending) && styles.btnDisabled]}
                   onPress={handleShareLink}
-                  disabled={selected.size === 0 || sending}
+                  disabled={(selected.size === 0 && manualRecipients.length === 0) || sending}
                 >
                   <Text style={styles.shareBtnText}>Share Link</Text>
                 </Pressable>
@@ -392,6 +477,25 @@ const styles = StyleSheet.create({
   backBtn: { paddingVertical: 4, paddingRight: 8 },
   backText: { fontSize: 16, color: "#1e3a8a", fontWeight: "600" },
   title: { fontSize: 20, fontWeight: "700", color: "#1f2937" },
+
+  // Manual email entry
+  manualEntry: { paddingHorizontal: 16, paddingTop: 12, gap: 8 },
+  manualInput: {
+    borderWidth: 1, borderColor: "#d1d5db", borderRadius: 8,
+    paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: "#1f2937",
+  },
+  manualEmailRow: { flexDirection: "row", gap: 8 },
+  addBtn: {
+    backgroundColor: "#1e3a8a", borderRadius: 8,
+    paddingHorizontal: 16, justifyContent: "center",
+  },
+  addBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
+  manualChip: {
+    flexDirection: "row", alignItems: "center", backgroundColor: "#eff6ff",
+    borderRadius: 20, paddingVertical: 6, paddingHorizontal: 14, alignSelf: "flex-start", gap: 8,
+  },
+  manualChipText: { fontSize: 14, color: "#1e3a8a", fontWeight: "500" },
+  manualChipRemove: { fontSize: 14, color: "#6b7280", fontWeight: "700" },
 
   // Mode selector
   modeRow: {
