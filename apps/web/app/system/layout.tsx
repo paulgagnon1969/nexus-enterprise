@@ -748,7 +748,7 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
                 📖 CAM Handbook
               </Link>
               <a
-                href="https://staging-ncc.nfsgrp.com"
+                href="https://staging-ncc.nfsgrp.com/welcome"
                 target="_blank"
                 rel="noreferrer"
                 style={{

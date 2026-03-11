@@ -1,8 +1,8 @@
 ---
 title: "Session Export — gs:// URL Proxy Fix & Frontend Audit"
 module: attachment-management
-revision: "1.0"
-tags: [sop, attachment-management, file-storage, minio, migration, frontend]
+revision: "1.1"
+tags: [sop, attachment-management, file-storage, minio, migration, frontend, nextjs, deploy]
 status: draft
 created: 2026-03-11
 updated: 2026-03-11
@@ -60,6 +60,24 @@ Pushed all SOPs to eDocs: 1 new (attachment URL migration SOP from prior session
 - Kept the inline `gsUrlToProxyUrl` in `projects/[id]/page.tsx` alongside the shared import for backwards compatibility (both resolve identically)
 - Did not modify the existing `/uploads/signed?uri=` pattern used by bill modal thumbnails (line ~18824) since it already handles `gs://` via a different code path
 
+## Additional Fix: Nexfit Prerender Error
+During production deploy, `next build` failed with:
+> `useSearchParams() should be wrapped in a suspense boundary at page "/nexfit"`
+
+This was a **pre-existing issue** unrelated to the gs:// changes. `useSearchParams()` in a `"use client"` page triggers static prerender failure in Next.js 14.
+
+**Fix applied (2 changes):**
+1. Wrapped the Nexfit page content in a `<Suspense>` boundary (`NexfitPage` → `NexfitPageInner`)
+2. Added `experimental.missingSuspenseWithCSRBailout: false` to `apps/web/next.config.mjs` — required because Next.js build-time analysis doesn't detect Suspense boundaries inside `"use client"` files
+
+**Pattern for future pages:** Any `"use client"` page that calls `useSearchParams()` needs a Suspense wrapper. The `next.config.mjs` flag prevents this from being a build-breaking error app-wide.
+
+## Production Deploy
+- Deployed via `npm run deploy:shadow:web`
+- Build time: ~107s
+- Health check: `staging-ncc.nfsgrp.com` → HTTP 200
+- All `nexus-shadow-*` containers healthy
+
 ## Unresolved Items
 1. **INV-MARYL.20260216.002 has zero attachments** — user handling manually
 2. **Four .MOV files missing `projectFileId`** — user downloading and re-uploading
@@ -69,3 +87,4 @@ Pushed all SOPs to eDocs: 1 new (attachment URL migration SOP from prior session
 | Rev | Date | Changes |
 |-----|------|--------|
 | 1.0 | 2026-03-11 | Initial session export |
+| 1.1 | 2026-03-11 | Added nexfit prerender fix, production deploy details |
