@@ -113,7 +113,8 @@
         {
         "RNMapboxMapsVersion": "11.16.2"
         }
-      ]
+      ],
+      "react-native-plaid-link-sdk"
     ],
     "updates": {
       "url": "https://u.expo.dev/28b82c06-3d43-44f0-ba56-110645a13d80"

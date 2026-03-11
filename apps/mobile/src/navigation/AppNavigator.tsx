@@ -40,6 +40,7 @@ import { PlacardScanScreen } from "../screens/PlacardScanScreen";
 import { SelectionsScreen } from "../screens/SelectionsScreen";
 import { SelectionDetailScreen } from "../screens/SelectionDetailScreen";
 import { ProductPickerScreen } from "../screens/ProductPickerScreen";
+import { BankingScreen } from "../screens/BankingScreen";
 import { ScrollableTabBar } from "../components/ScrollableTabBar";
 import { fetchAllTasks } from "../api/tasks";
 import { apiJson } from "../api/client";
@@ -57,6 +58,7 @@ export type RootTabParamList = {
   ScannerTab: undefined;
   InventoryTab: undefined;
   OutboxTab: undefined;
+  BankingTab: undefined;
 };
 
 export type DirectoryStackParamList = {
@@ -497,6 +499,11 @@ function OutboxTabScreen() {
   return <OutboxScreen onBack={() => {}} />;
 }
 
+// Wrapper for BankingScreen
+function BankingTabScreen() {
+  return <BankingScreen onBack={() => {}} />;
+}
+
 // Context for logout callback and company info
 const LogoutContext = React.createContext<() => void>(() => {});
 const CompanyContext = React.createContext<{ name: string | null; id: string | null; refreshKey: number }>({
@@ -633,6 +640,7 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
         <Tab.Screen name="ScannerTab" component={ScannerStackNavigator} />
         <Tab.Screen name="InventoryTab" component={InventoryTabScreen} />
         <Tab.Screen name="OutboxTab" component={OutboxTabScreen} />
+        <Tab.Screen name="BankingTab" component={BankingTabScreen} />
       </Tab.Navigator>
     </SetCompanyContext.Provider>
     </CompanyContext.Provider>
@@ -651,6 +659,7 @@ const TAB_KEYS: Record<string, boolean> = {
   ScannerTab: true,
   InventoryTab: true,
   OutboxTab: true,
+  BankingTab: true,
 };
 
 const navStyles = StyleSheet.create({

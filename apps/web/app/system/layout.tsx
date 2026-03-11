@@ -730,6 +730,40 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
               >
                 Worker registration landing
               </Link>
+              <Link
+                href="/system/documents/cam-manual/handbook"
+                style={{
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  border: "1px solid #059669",
+                  background: pathname?.startsWith("/system/documents/cam-manual/handbook")
+                    ? "#059669"
+                    : "#065f46",
+                  color: "#ecfdf5",
+                  fontSize: 11,
+                  textDecoration: "none",
+                  fontWeight: 600,
+                }}
+              >
+                📖 CAM Handbook
+              </Link>
+              <a
+                href="https://staging-ncc.nfsgrp.com"
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  border: "1px solid #059669",
+                  background: "#065f46",
+                  color: "#ecfdf5",
+                  fontSize: 11,
+                  textDecoration: "none",
+                  fontWeight: 600,
+                }}
+              >
+                🌐 Share NCC Public Link
+              </a>
             </div>
           </div>
         )}

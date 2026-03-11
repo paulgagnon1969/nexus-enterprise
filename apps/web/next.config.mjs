@@ -6,6 +6,9 @@ const withNextIntl = createNextIntlPlugin();
 const nextConfig = {
   output: "standalone",
   reactStrictMode: true,
+  experimental: {
+    missingSuspenseWithCSRBailout: false,
+  },
   // Provide a Turbopack config object so next-intl can register its aliases
   // correctly when using the Turbopack dev server.
   turbopack: {},
