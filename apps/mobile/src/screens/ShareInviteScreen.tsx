@@ -313,10 +313,12 @@ export function ShareInviteScreen({ onBack }: Props) {
     >
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={onBack} style={styles.backBtn}>
-          <Text style={styles.backText}>← Back</Text>
+        <Pressable onPress={onBack} style={styles.backBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <Text style={styles.backChevron}>‹</Text>
+          <Text style={styles.backText}>Back</Text>
         </Pressable>
         <Text style={styles.title}>Share Invite</Text>
+        <View style={{ flex: 1 }} />
       </View>
 
       <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled">
@@ -659,8 +661,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
-  backBtn: { paddingVertical: 4, paddingRight: 8 },
-  backText: { fontSize: 16, color: "#1e3a8a", fontWeight: "600" },
+  backBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginLeft: -12,
+    borderRadius: 8,
+  },
+  backChevron: { fontSize: 28, color: "#1e3a8a", fontWeight: "300", marginRight: 2, marginTop: -2 },
+  backText: { fontSize: 17, color: "#1e3a8a", fontWeight: "600" },
   title: { fontSize: 20, fontWeight: "700", color: "#1f2937" },
   scroll: { flex: 1 },
 

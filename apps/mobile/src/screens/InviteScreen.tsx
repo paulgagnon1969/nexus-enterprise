@@ -12,9 +12,14 @@ import {
 } from "react-native";
 import { apiJson } from "../api/client";
 import { fetchContacts } from "../api/contacts";
-import type { Contact, ContactCategory } from "../types/api";
+import { getUserMe } from "../api/user";
+import { sendBulkShareInvites } from "../api/shareInvite";
+import type { Contact, ContactCategory, ApiRole, ApiGlobalRole } from "../types/api";
 
-type InviteMode = "company" | "referral";
+type InviteMode = "company" | "referral" | "cam" | "master_class";
+
+const OWNER_PLUS_ROLES: Array<ApiRole | string> = ["OWNER"];
+const OWNER_PLUS_GLOBAL: Array<ApiGlobalRole | string> = ["SUPER_ADMIN"];
 
 interface Props {
   onBack: () => void;
@@ -29,6 +34,17 @@ export function InviteScreen({ onBack, preselectedIds }: Props) {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set(preselectedIds ?? []));
   const [mode, setMode] = useState<InviteMode>("company");
+  const [isOwnerPlus, setIsOwnerPlus] = useState(false);
+
+  useEffect(() => {
+    getUserMe()
+      .then((me) => {
+        const globalMatch = OWNER_PLUS_GLOBAL.includes(me.globalRole ?? "");
+        const roleMatch = me.memberships?.some((m) => OWNER_PLUS_ROLES.includes(m.role)) ?? false;
+        setIsOwnerPlus(globalMatch || roleMatch);
+      })
+      .catch(() => setIsOwnerPlus(false));
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -89,37 +105,55 @@ export function InviteScreen({ onBack, preselectedIds }: Props) {
     let failed = 0;
 
     try {
-      for (const contact of selectedContacts) {
-        try {
-          if (mode === "company") {
-            await apiJson("/companies/me/invites", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                email: contact.email,
-                role: "MEMBER",
-                channel: "email",
-              }),
-            });
-          } else {
-            await apiJson("/referrals", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                prospectName: contact.displayName,
-                prospectEmail: contact.email,
-                prospectPhone: contact.phone,
-              }),
-            });
+      if (mode === "cam" || mode === "master_class") {
+        // CAM / Master Class bulk invite
+        const recipients = selectedContacts
+          .filter((c) => c.email)
+          .map((c) => ({
+            email: c.email!,
+            name: c.displayName ?? undefined,
+            phone: c.phone ?? undefined,
+          }));
+        const result = await sendBulkShareInvites({
+          recipients,
+          deliveryMethods: ["email"],
+          inviteType: mode === "master_class" ? "master_class" : "cam",
+        });
+        success = result.sent;
+        failed = result.failed;
+      } else {
+        for (const contact of selectedContacts) {
+          try {
+            if (mode === "company") {
+              await apiJson("/companies/me/invites", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  email: contact.email,
+                  role: "MEMBER",
+                  channel: "email",
+                }),
+              });
+            } else {
+              await apiJson("/referrals", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  prospectName: contact.displayName,
+                  prospectEmail: contact.email,
+                  prospectPhone: contact.phone,
+                }),
+              });
+            }
+            success++;
+          } catch (err) {
+            console.error(`Failed to invite ${contact.email}:`, err);
+            failed++;
           }
-          success++;
-        } catch (err) {
-          console.error(`Failed to invite ${contact.email}:`, err);
-          failed++;
         }
       }
 
-      const label = mode === "company" ? "invite" : "referral";
+      const label = mode === "cam" ? "CAM invite" : mode === "master_class" ? "Master Class invite" : mode === "company" ? "invite" : "referral";
       if (failed === 0) {
         Alert.alert("Done", `${success} ${label}(s) sent successfully.`, [
           { text: "OK", onPress: onBack },
@@ -196,7 +230,7 @@ export function InviteScreen({ onBack, preselectedIds }: Props) {
           onPress={() => setMode("company")}
         >
           <Text style={[styles.modeBtnText, mode === "company" && styles.modeBtnTextActive]}>
-            Company Invite
+            Company
           </Text>
         </Pressable>
         <Pressable
@@ -207,12 +241,36 @@ export function InviteScreen({ onBack, preselectedIds }: Props) {
             Referral
           </Text>
         </Pressable>
+        {isOwnerPlus && (
+          <>
+            <Pressable
+              style={[styles.modeBtn, mode === "cam" && styles.modeBtnActive]}
+              onPress={() => setMode("cam")}
+            >
+              <Text style={[styles.modeBtnText, mode === "cam" && styles.modeBtnTextActive]}>
+                🏆 CAM
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.modeBtn, mode === "master_class" && styles.modeBtnActive]}
+              onPress={() => setMode("master_class")}
+            >
+              <Text style={[styles.modeBtnText, mode === "master_class" && styles.modeBtnTextActive]}>
+                🎓 Class
+              </Text>
+            </Pressable>
+          </>
+        )}
       </View>
 
       <Text style={styles.modeDescription}>
         {mode === "company"
           ? "Invite contacts to join your company on NEXUS. They'll get an email with an accept link."
-          : "Refer contacts to the NEXUS workforce network. Great for finding talent."}
+          : mode === "referral"
+          ? "Refer contacts to the NEXUS workforce network. Great for finding talent."
+          : mode === "cam"
+          ? "Send a private CAM Library invite. Each recipient gets their own unique access link."
+          : "Send a Master Class invite. Each recipient gets their own unique access link."}
       </Text>
 
       {/* Search */}
