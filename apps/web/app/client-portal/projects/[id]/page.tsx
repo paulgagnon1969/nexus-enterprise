@@ -799,7 +799,18 @@ export default function ClientPortalProjectPage() {
               ← Back to Project
             </button>
             <button
-              onClick={() => window.print()}
+              onClick={() => {
+                // Track PRINT event (fire-and-forget)
+                const token = getToken();
+                if (token && activeInvoice) {
+                  fetch(`${API_BASE}/projects/portal/${projectId}/invoices/${activeInvoice.id}/track`, {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+                    body: JSON.stringify({ event: "PRINT" }),
+                  }).catch(() => {});
+                }
+                window.print();
+              }}
               style={{
                 padding: "8px 16px", borderRadius: 6, border: "none",
                 background: "#3b82f6", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer",
@@ -1021,7 +1032,20 @@ export default function ClientPortalProjectPage() {
                     {activeInvoice.attachments.map((a) => (
                     <button
                       key={a.id}
-                      onClick={() => a.fileId && downloadPortalFile(projectId, a.fileId, a.fileName)}
+                      onClick={() => {
+                        if (a.fileId) {
+                          // Track DOWNLOAD event (fire-and-forget)
+                          const token = getToken();
+                          if (token) {
+                            fetch(`${API_BASE}/projects/portal/${projectId}/invoices/${activeInvoice.id}/track`, {
+                              method: "POST",
+                              headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+                              body: JSON.stringify({ event: "DOWNLOAD" }),
+                            }).catch(() => {});
+                          }
+                          downloadPortalFile(projectId, a.fileId, a.fileName);
+                        }
+                      }}
                       style={{
                         display: "inline-flex", alignItems: "center", gap: 6,
                         padding: "6px 12px", borderRadius: 6, background: "rgba(59,130,246,0.1)",

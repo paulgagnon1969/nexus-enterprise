@@ -26,6 +26,10 @@ tags: [cam, financial, accuracy, receipt-capture, loss-prevention, tentative-bil
 
 > *The bill exists before the receipt is even needed. Every purchase is accounted for the moment the bank sees it.*
 
+## Work ↔ Signal
+> **The Work**: The moment a banking transaction is assigned to a project, a bill materializes instantly. The receipt enriches it later — it's evidence, not the trigger. Zero purchases lost.
+> **The Signal**: This company tracks every dollar with zero gaps — financial integrity is verifiable, not claimed. (→ Reputation: completeness, auditability)
+
 ## Elevator Pitch
 
 The entire construction industry runs on a broken model: buy something, hope someone keeps the receipt, manually create an expense report, then pray the bookkeeper turns it into a bill before month-end. Nexus inverts this. The moment a banking transaction is assigned to a project — whether by AI prescreening or human decision — a bill materializes in the project. The receipt isn't the trigger; it's the *attachment*. The bill already exists. The expense is already visible. The PM already knows. Receipts aren't lost because they were never the starting point.
@@ -63,15 +67,15 @@ Even when expense reports are submitted, someone must create a bill in the proje
 
 Lost receipts aren't just a nuisance — they have cascading financial consequences:
 
-|| Impact Category | % of Revenue | Mechanism |
-||-----------------|-------------|-----------|
-|| **IRS disallowance risk** | ~0.40% | Unsubstantiated expenses cannot be deducted; the Cohan rule only provides partial relief |
-|| **Insurance carrier clawbacks** | ~0.35% | Undocumented material costs in restoration claims are disallowed by carriers |
-|| **PM budget blindness** | ~0.25% | Expenses not visible in project → budget decisions made on partial data |
-|| **Expense report labor** | ~0.20% | Field worker and admin time spent compiling, sorting, entering receipts |
-|| **Month-end reconciliation** | ~0.15% | Bookkeeper time matching bank charges to missing receipts |
-|| **Under-billing from invisible costs** | ~0.30% | Billable expenses not invoiced because PM didn't know they existed |
-|| **Total receipt-loss exposure** | **~1.65%** | **Combined financial leakage from the receipt-first model** |
+| Impact Category | % of Revenue | Mechanism |
+|-----------------|-------------|-----------|
+| **IRS disallowance risk** | ~0.40% | Unsubstantiated expenses cannot be deducted; the Cohan rule only provides partial relief |
+| **Insurance carrier clawbacks** | ~0.35% | Undocumented material costs in restoration claims are disallowed by carriers |
+| **PM budget blindness** | ~0.25% | Expenses not visible in project → budget decisions made on partial data |
+| **Expense report labor** | ~0.20% | Field worker and admin time spent compiling, sorting, entering receipts |
+| **Month-end reconciliation** | ~0.15% | Bookkeeper time matching bank charges to missing receipts |
+| **Under-billing from invisible costs** | ~0.30% | Billable expenses not invoiced because PM didn't know they existed |
+| **Total receipt-loss exposure** | **~1.65%** | **Combined financial leakage from the receipt-first model** |
 
 At a $10M firm, that's **~$165,000/year** in recoverable losses. At $50M, it exceeds **$800,000**.
 
@@ -101,11 +105,11 @@ Every credit card charge, every bank debit, every Plaid transaction is captured 
 
 By treating the banking transaction as the trigger for bill creation, Nexus eliminates all three failure points:
 
-|| Failure Point | Traditional | Nexus Bill-First |
-||---------------|------------|-----------------|
-|| Receipt loss | Purchase not recorded | Bill already exists from bank feed |
-|| Expense report | Must compile manually | Not needed — bill exists automatically |
-|| Bill creation | Bookkeeper does it at month-end | Instant — created on assignment |
+| Failure Point | Traditional | Nexus Bill-First |
+|---------------|------------|-----------------|
+| Receipt loss | Purchase not recorded | Bill already exists from bank feed |
+| Expense report | Must compile manually | Not needed — bill exists automatically |
+| Bill creation | Bookkeeper does it at month-end | Instant — created on assignment |
 
 ### Receipt OCR as In-Situ Enrichment
 
@@ -126,12 +130,12 @@ In the Nexus model, receipt capture is a bonus: "There's a bill in my project �
 
 This behavioral inversion dramatically increases actual receipt capture rates:
 
-|| Metric | Traditional Model | Nexus Bill-First |
-||--------|------------------|-----------------|
-|| Receipt capture rate | ~75–85% | ~95%+ |
-|| Time from purchase to project visibility | 5–30 days | <24 hours |
-|| Expense reports needed | Yes | No |
-|| Bills requiring manual creation | 100% | 0% (auto-posted) |
+| Metric | Traditional Model | Nexus Bill-First |
+|--------|------------------|-----------------|
+| Receipt capture rate | ~75–85% | ~95%+ |
+| Time from purchase to project visibility | 5–30 days | <24 hours |
+| Expense reports needed | Yes | No |
+| Bills requiring manual creation | 100% | 0% (auto-posted) |
 
 ## Demo Script
 
@@ -149,13 +153,13 @@ This behavioral inversion dramatically increases actual receipt capture rates:
 
 Every construction PM tool (Procore, Buildertrend, CoConstruct, Sage) follows the receipt-first model:
 
-|| System | Receipt → Bill? | Bank feed → Bill? | Auto-post on assign? | In-situ OCR enrichment? |
-||--------|----------------|------------------|---------------------|------------------------|
-|| Procore | Manual only | No | No | No |
-|| Buildertrend | Manual only | No | No | No |
-|| CoConstruct | Manual only | No | No | No |
-|| QuickBooks | Partial (rules) | Partial (matching) | No | No |
-|| Nexus | OCR enriches existing bill | Yes — instant | Yes — with PM routing | Yes |
+| System | Receipt → Bill? | Bank feed → Bill? | Auto-post on assign? | In-situ OCR enrichment? |
+|--------|----------------|------------------|---------------------|------------------------|
+| Procore | Manual only | No | No | No |
+| Buildertrend | Manual only | No | No | No |
+| CoConstruct | Manual only | No | No | No |
+| QuickBooks | Partial (rules) | Partial (matching) | No | No |
+| Nexus | OCR enriches existing bill | Yes — instant | Yes — with PM routing | Yes |
 
 QuickBooks has bank feed matching, but it matches to manually-created bills — it doesn't auto-create them. And it doesn't route them to PMs for approval.
 
@@ -173,24 +177,24 @@ The full pipeline: **Bank feed → Prescreen → Auto-post bill → OCR enrichme
 
 ## Expected Operational Impact
 
-|| Category | % of Revenue | What It Represents |
-||----------|-------------|---------------------|
-|| **Lost receipt recovery** | ~0.40% | Expenses captured by bank feed that would have been lost in receipt-first model |
-|| **IRS/carrier compliance** | ~0.35% | Expenses now properly substantiated with bank + receipt convergence |
-|| **Under-billing prevention** | ~0.30% | Billable expenses visible to PM before invoicing, not discovered retroactively |
-|| **PM budget accuracy** | ~0.25% | Real-time project cost visibility vs. lagged, incomplete data |
-|| **Expense report elimination** | ~0.20% | Field workers no longer compile expense reports — the bill already exists |
-|| **Month-end acceleration** | ~0.15% | Reconciliation time reduced because bills already match bank charges |
-|| **Total Zero-Loss Impact** | **~1.65%** | **Combined financial recovery from eliminating the receipt-first model** |
+| Category | % of Revenue | What It Represents |
+|----------|-------------|---------------------|
+| **Lost receipt recovery** | ~0.40% | Expenses captured by bank feed that would have been lost in receipt-first model |
+| **IRS/carrier compliance** | ~0.35% | Expenses now properly substantiated with bank + receipt convergence |
+| **Under-billing prevention** | ~0.30% | Billable expenses visible to PM before invoicing, not discovered retroactively |
+| **PM budget accuracy** | ~0.25% | Real-time project cost visibility vs. lagged, incomplete data |
+| **Expense report elimination** | ~0.20% | Field workers no longer compile expense reports — the bill already exists |
+| **Month-end acceleration** | ~0.15% | Reconciliation time reduced because bills already match bank charges |
+| **Total Zero-Loss Impact** | **~1.65%** | **Combined financial recovery from eliminating the receipt-first model** |
 
 ### Real-World Extrapolation by Tenant Size
 
-|| Annual Revenue | Zero-Loss Impact (~1.65%) |
-||---------------|--------------------------|
-|| **$1M** | **~$16,500** |
-|| **$5M** | **~$82,500** |
-|| **$10M** | **~$165,000** |
-|| **$50M** | **~$825,000** |
+| Annual Revenue | Zero-Loss Impact (~1.65%) |
+|---------------|--------------------------|
+| **$1M** | **~$16,500** |
+| **$5M** | **~$82,500** |
+| **$10M** | **~$165,000** |
+| **$50M** | **~$825,000** |
 
 *Note: Some overlap exists with FIN-AUTO-0002 (~0.75%) since auto-posting is the mechanism. The additional ~0.90% represents the receipt-specific loss prevention that goes beyond the posting itself — IRS compliance, carrier clawbacks, and the behavioral shift from burden to bonus.*
 

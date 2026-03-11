@@ -26,6 +26,10 @@ tags: [cam, estimating, accuracy, video-assessment, photogrammetry, nexcad, meas
 
 > *AI tells you what the damage is. NexCAD tells you how much — with actual measurements, not estimates.*
 
+## Work ↔ Signal
+> **The Work**: AI identifies damage from video, then NexCAD runs photogrammetry to build a 3D mesh and measures actual surface area — real dimensions, not AI guesses.
+> **The Signal**: Assessment accuracy backed by photogrammetry-derived measurements creates defensible scope documentation for insurance claims and client disputes. (→ Reputation: estimating precision)
+
 ## Elevator Pitch
 
 When a video assessment identifies severe roof damage, Nexus doesn't just rely on the AI's dimensional guess ("approximately 15 SF"). It burst-extracts full-resolution frames around the damage timestamp, runs photogrammetry reconstruction to build a 3D mesh, then measures the actual surface area using engineering-grade geometry analysis. The result: "AI estimated ~15 SF → NexCAD measured: 17.3 SF" — with the measured value backed by real-world geometry, not a vision model's approximation. This is the first system in construction technology that combines AI damage identification with photogrammetry-derived measurements in a single automated pipeline.

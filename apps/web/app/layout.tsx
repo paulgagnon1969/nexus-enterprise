@@ -57,6 +57,9 @@ export default async function RootLayout({
 
   return (
     <html lang={locale}>
+      <head>
+        <link rel="stylesheet" href="/print.css" media="print" />
+      </head>
       <body>
         <LanguageProvider initialLocale={locale}>
           <Providers>

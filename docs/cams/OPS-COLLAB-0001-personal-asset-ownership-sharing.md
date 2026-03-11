@@ -27,6 +27,10 @@ tags: [cam, ops, collaboration, asset-management, personal-assets, maintenance-p
 
 > *Making visible what's already there.*
 
+## Work ↔ Signal
+> **The Work**: Dual ownership model (company/personal) with owner-controlled privacy. Unified asset list with CSV bulk import makes the phantom fleet visible and schedulable.
+> **The Signal**: Every registered personal asset becomes a discoverable resource in the marketplace — equipment availability is a real-time intent signal. (→ Availability: equipment capacity)
+
 ## Elevator Pitch
 Every GC sits on top of a phantom fleet — vehicles, scaffold sets, generators, and specialty tools owned by their contractors and subs that the company can't see, can't schedule, and can't leverage. Nexus Phantom-Fleet surfaces this hidden inventory with privacy-first controls that let owners decide what the company sees, while maintenance pools decouple "who maintains it" from "who owns it" — turning invisible personal equipment into a discoverable, rentable, trackable resource pool.
 
@@ -66,24 +70,24 @@ In restoration and construction, workers routinely bring personal equipment to j
 
 All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes.
 
-|| Category | % of Revenue | What It Represents |
-||----------|-------------|--------------------|
-|| **Avoided external rentals** | ~0.22% | Equipment already owned by crew members discovered and used instead of rented |
-|| **Rental reimbursement accuracy** | ~0.06% | Personal-asset usage tracked for fair reimbursement instead of going unrecorded |
-|| **Maintenance compliance** | ~0.05% | Equipment failures prevented via pool-based maintenance assignments with resolution chain |
-|| **PM coordination time** | ~0.05% | "Does anyone have a …" calls replaced by searchable phantom fleet inventory |
-|| **Equipment onboarding + insurance** | ~0.01% | CSV bulk import and quarterly insurance documentation automated |
-|| **Total Phantom Fleet Impact** | **~0.39%** | **Combined rental avoidance and equipment visibility as a share of revenue** |
+| Category | % of Revenue | What It Represents |
+|----------|-------------|--------------------|
+| **Avoided external rentals** | ~0.22% | Equipment already owned by crew members discovered and used instead of rented |
+| **Rental reimbursement accuracy** | ~0.06% | Personal-asset usage tracked for fair reimbursement instead of going unrecorded |
+| **Maintenance compliance** | ~0.05% | Equipment failures prevented via pool-based maintenance assignments with resolution chain |
+| **PM coordination time** | ~0.05% | "Does anyone have a …" calls replaced by searchable phantom fleet inventory |
+| **Equipment onboarding + insurance** | ~0.01% | CSV bulk import and quarterly insurance documentation automated |
+| **Total Phantom Fleet Impact** | **~0.39%** | **Combined rental avoidance and equipment visibility as a share of revenue** |
 
 ### Real-World Extrapolation by Tenant Size
 
-|| Annual Revenue | Phantom Fleet Impact (~0.39%) |
-||---------------|-------------------------------|
-|| **$1M** | **~$4,600** |
-|| **$2M** | **~$10,000** |
-|| **$5M** | **~$18,500** |
-|| **$10M** | **~$38,500** |
-|| **$50M** | **~$123,200** |
+| Annual Revenue | Phantom Fleet Impact (~0.39%) |
+|---------------|-------------------------------|
+| **$1M** | **~$4,600** |
+| **$2M** | **~$10,000** |
+| **$5M** | **~$18,500** |
+| **$10M** | **~$38,500** |
+| **$50M** | **~$123,200** |
 
 *The avoided-rental line (~0.22%) dominates — most GCs don’t realize their own crews have generators, scaffolding, and specialty tools sitting idle. Making the phantom fleet visible eliminates rental spend that shouldn’t exist.*
 
@@ -146,5 +150,5 @@ No competitor offers privacy-first personal asset sharing with owner-controlled 
 |-----|------|---------|
 | 1.0 | 2026-02-28 | Initial draft — personal ownership, maintenance pools, sharing controls |
 | 1.1 | 2026-03-01 | Branded as Nexus Phantom-Fleet; added tagline, refined elevator pitch and demo script |
-|| 2.0 | 2026-03-05 | Enriched: operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |
-|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |
+| 2.0 | 2026-03-05 | Enriched: operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |
+| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

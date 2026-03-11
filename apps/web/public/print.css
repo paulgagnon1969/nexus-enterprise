@@ -1,0 +1,49 @@
+/* Nexus global print stylesheet — loaded via <link media="print"> */
+@page { margin: 10mm; }
+
+.app-header,
+header.app-header,
+.app-header-left,
+.app-header-right,
+.app-nav,
+nav.app-nav,
+.system-sidebar,
+aside.system-sidebar,
+.no-print,
+.nexus-nav-dropdown-menu {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  overflow: hidden !important;
+  width: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+}
+
+.app-shell {
+  height: auto !important;
+  overflow: visible !important;
+}
+
+.app-main {
+  overflow: visible !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+}
+
+.app-card {
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.nexint-print-header {
+  display: block !important;
+}
+
+/* Hide any fixed-position elements (badges, floating buttons) */
+[style*="position: fixed"],
+[style*="position:fixed"] {
+  display: none !important;
+}

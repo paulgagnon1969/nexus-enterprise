@@ -26,6 +26,10 @@ tags: [cam, technology, integration, nexbridge, desktop, subscription, billing, 
 
 > *A native desktop app where every feature is a revenue switch.*
 
+## Work ↔ Signal
+> **The Work**: Tauri/Rust desktop app with per-feature subscription gating via the same Stripe entitlement system as the web platform. Tenants pick exactly the capabilities they need.
+> **The Signal**: Desktop feature activation patterns reveal which precision tools are most valued — the marketplace learns what capabilities to prioritize. (→ Demand: desktop tool demand)
+
 ## Elevator Pitch
 
 NexBRIDGE Connect is a Tauri/Rust desktop companion app that gives contractors local-compute superpowers — video AI assessment, document scanning, contact sync, asset management — and now AI-assisted floor plan layout via NexPLAN. Each capability is an independently purchasable module gated by the same Stripe-backed entitlement system that powers the NCC web platform. Tenants pick exactly the features they need, prerequisites enforce logical bundling, and a single `@RequiresModule` decorator on the API protects every endpoint. No competitor in construction/restoration offers a native desktop app with per-feature subscription gating, local Rust processing, and seamless cloud sync.

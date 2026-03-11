@@ -27,6 +27,10 @@ scores:
 
 > *What percentage of your revenue is Nexus recovering? Now you know.*
 
+## Work ↔ Signal
+> **The Work**: NexOP expresses every module's impact as a percentage of annual revenue. Self-scaling, self-evident — '~9% of revenue recovered' is instantly meaningful at any company size.
+> **The Signal**: NexOP is itself a marketplace signal — it tells prospective tenants exactly what operational improvement to expect, denominated in the only metric that matters. (→ Market Intelligence: value quantification)
+
 ## Elevator Pitch
 
 NexOP is the unified metric that expresses every Nexus module's operational impact as a **percentage of annual revenue**. Instead of telling a $2M firm they save "$150K" and a $50M firm they save "$3.75M" — and hoping both numbers land — NexOP says **"~9% of revenue recovered"** and every company on earth immediately knows what that means for them. It's the first construction SaaS metric that makes platform ROI self-evident, self-scaling, and dashboard-ready.
@@ -75,26 +79,26 @@ Module NexOPs are summed to produce the total portfolio NexOP. Cross-module syne
 
 ### The NexOP Stack
 
-|| Module | NexOP | Dominant Driver |
-||--------|-------|-----------------|
-|| **Financial** | ~9.37% | NexVERIFY (7.5%) + Purchase Recon (0.66%) + Prescreen (0.60%) + OCR (0.37%) + NexPRICE (0.24%) |
-|| **Estimating** | ~3.12% | BOM Pricing (2.99%) + Redis Caching (0.13%) |
-|| **Operations** | ~1.81% | Field Qty (0.61%) + NexFIND (0.54%) + Phantom Fleet (0.39%) + Tasks (0.27%) |
-|| **Technology** | ~1.51% | TUCKS (1.19%) + Smart Media (0.24%) + Graceful Fallback (0.08%) |
-|| **Compliance** | ~0.60% | NexCheck (0.40%) + OSHA Sync (0.20%) |
-|| **Total NexOP** | **~16.41%** | **Combined portfolio — conservative, no cross-module synergies counted** |
+| Module | NexOP | Dominant Driver |
+|--------|-------|-----------------|
+| **Financial** | ~9.37% | NexVERIFY (7.5%) + Purchase Recon (0.66%) + Prescreen (0.60%) + OCR (0.37%) + NexPRICE (0.24%) |
+| **Estimating** | ~3.12% | BOM Pricing (2.99%) + Redis Caching (0.13%) |
+| **Operations** | ~1.81% | Field Qty (0.61%) + NexFIND (0.54%) + Phantom Fleet (0.39%) + Tasks (0.27%) |
+| **Technology** | ~1.51% | TUCKS (1.19%) + Smart Media (0.24%) + Graceful Fallback (0.08%) |
+| **Compliance** | ~0.60% | NexCheck (0.40%) + OSHA Sync (0.20%) |
+| **Total NexOP** | **~16.41%** | **Combined portfolio — conservative, no cross-module synergies counted** |
 
 *Effective NexOP ranges from ~6–12% depending on which modules are active, tenant tier, and industry segment. The ~16% theoretical maximum assumes all modules are fully utilized.*
 
 ### NexOP by Tenant Tier
 
-|| Annual Revenue | Effective NexOP | Dollar Equivalent |
-||---------------|-----------------|-------------------|
-|| **$1M** | ~9–12% | ~$90K–$120K |
-|| **$2M** | ~8–10% | ~$160K–$200K |
-|| **$5M** | ~7–9% | ~$350K–$450K |
-|| **$10M** | ~9% | ~$890K |
-|| **$50M** | ~6–8% | ~$3M–$4M |
+| Annual Revenue | Effective NexOP | Dollar Equivalent |
+|---------------|-----------------|-------------------|
+| **$1M** | ~9–12% | ~$90K–$120K |
+| **$2M** | ~8–10% | ~$160K–$200K |
+| **$5M** | ~7–9% | ~$350K–$450K |
+| **$10M** | ~9% | ~$890K |
+| **$50M** | ~6–8% | ~$3M–$4M |
 
 The percentage is higher at lower tiers because compliance savings (fixed OSHA fines) and scope recovery (under-billed work) hit harder as a share of smaller revenue. The percentage compresses at $50M because some categories have fixed components.
 
@@ -125,13 +129,13 @@ NexOP becomes a retention metric:
 
 ## Competitive Landscape
 
-|| Competitor | ROI Metric? | Percentage-Based? | Per-Tenant Live? | Module-Level Breakdown? | Self-Scaling? |
-||------------|-------------|-------------------|------------------|------------------------|---------------|
-|| Procore | Dollar estimates in marketing | No | No | No | No |
-|| Buildertrend | Dollar estimates in sales decks | No | No | No | No |
-|| CoConstruct | None | No | No | No | No |
-|| Sage 300 CRE | Dollar TCO studies | No | No | No | No |
-|| QuickBooks | None | No | No | No | No |
+| Competitor | ROI Metric? | Percentage-Based? | Per-Tenant Live? | Module-Level Breakdown? | Self-Scaling? |
+|------------|-------------|-------------------|------------------|------------------------|---------------|
+| Procore | Dollar estimates in marketing | No | No | No | No |
+| Buildertrend | Dollar estimates in sales decks | No | No | No | No |
+| CoConstruct | None | No | No | No | No |
+| Sage 300 CRE | Dollar TCO studies | No | No | No | No |
+| QuickBooks | None | No | No | No | No |
 
 No competitor has a named, percentage-based, live, per-tenant operational impact metric. NexOP is a category-creating concept.
 
@@ -184,6 +188,6 @@ Every CAM in the portfolio is a related CAM — NexOP is the meta-layer that agg
 
 ## Revision History
 
-|| Rev | Date | Changes |
-||-----|------|---------|
-|| 1.0 | 2026-03-05 | Initial CAM — NexOP concept, methodology, dashboard design, competitive positioning |
+| Rev | Date | Changes |
+|-----|------|---------|
+| 1.0 | 2026-03-05 | Initial CAM — NexOP concept, methodology, dashboard design, competitive positioning |

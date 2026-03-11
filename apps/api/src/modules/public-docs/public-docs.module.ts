@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { PublicDocsService } from "./public-docs.service";
+import { ManualsModule } from "../manuals/manuals.module";
 import {
   PublicPortalController,
   PublicDocsController,
@@ -12,6 +13,7 @@ import {
 } from "./public-docs.controller";
 
 @Module({
+  imports: [ManualsModule],
   controllers: [
     PublicPortalController,
     PublicDocsController,

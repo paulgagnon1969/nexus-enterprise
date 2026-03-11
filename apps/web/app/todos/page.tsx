@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { gsUrlToProxyUrl } from "../lib/uploads";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -716,7 +717,7 @@ export default function TodosPage() {
                   >
                     <span>
                       <a
-                        href={f.storageUrl}
+                        href={gsUrlToProxyUrl(f.storageUrl)}
                         target="_blank"
                         rel="noreferrer"
                         style={{ color: "#2563eb", textDecoration: "none" }}

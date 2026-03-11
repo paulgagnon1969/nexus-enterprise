@@ -26,6 +26,10 @@ tags: [cam, financial, intelligence, prescreen, learning-loop, reconciliation, s
 
 > *Import once. The system learns. Next month, it does the work for you.*
 
+## Work ↔ Signal
+> **The Work**: A 6-signal intelligence engine predicts project assignment for imported transactions. Accepts, rejects, and overrides self-improve accuracy — approaching zero-touch by month 3.
+> **The Signal**: Assignment patterns reveal purchasing behavior per project type and vendor — the system learns which companies buy what, from whom, for which kinds of work. (→ Market Intelligence: purchasing patterns)
+
 ## Elevator Pitch
 Every imported financial transaction is automatically evaluated by a 6-signal intelligence engine that predicts which project it belongs to, creates tentative bills instantly, and gets smarter with every accept, reject, or override. No construction PM software offers predictive project allocation with a self-improving feedback loop.
 
@@ -116,24 +120,24 @@ No competitor offers predictive project-level allocation with a self-improving f
 
 All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes.
 
-|| Category | % of Revenue | What It Represents |
-||----------|-------------|--------------------|
-|| **Transaction allocation automation** | ~0.07% | Bookkeeper time eliminated by predictive project assignment |
-|| **Bulk accept efficiency** | ~0.08% | High-confidence transactions accepted with one click instead of individual review |
-|| **Misattributed cost identification** | ~0.36% | Expenses landing on wrong projects caught by 6-signal scoring before they corrupt financials |
-|| **Store-card discrepancy detection** | ~0.04% | HD store totals vs. CC charge mismatches surfaced before reconciliation close |
-|| **Tentative bill acceleration** | ~0.05% | Cash flow visibility from instant project-level cost recognition on import |
-|| **Total Prescreen Impact** | **~0.60%** | **Combined allocation accuracy and labor recovered as a share of revenue** |
+| Category | % of Revenue | What It Represents |
+|----------|-------------|--------------------|
+| **Transaction allocation automation** | ~0.07% | Bookkeeper time eliminated by predictive project assignment |
+| **Bulk accept efficiency** | ~0.08% | High-confidence transactions accepted with one click instead of individual review |
+| **Misattributed cost identification** | ~0.36% | Expenses landing on wrong projects caught by 6-signal scoring before they corrupt financials |
+| **Store-card discrepancy detection** | ~0.04% | HD store totals vs. CC charge mismatches surfaced before reconciliation close |
+| **Tentative bill acceleration** | ~0.05% | Cash flow visibility from instant project-level cost recognition on import |
+| **Total Prescreen Impact** | **~0.60%** | **Combined allocation accuracy and labor recovered as a share of revenue** |
 
 ### Real-World Extrapolation by Tenant Size
 
-|| Annual Revenue | Prescreen Impact (~0.60%) |
-||---------------|---------------------------|
-|| **$1M** | **~$4,500** |
-|| **$2M** | **~$12,000** |
-|| **$5M** | **~$22,500** |
-|| **$10M** | **~$59,900** |
-|| **$50M** | **~$225,000** |
+| Annual Revenue | Prescreen Impact (~0.60%) |
+|---------------|---------------------------|
+| **$1M** | **~$4,500** |
+| **$2M** | **~$12,000** |
+| **$5M** | **~$22,500** |
+| **$10M** | **~$59,900** |
+| **$50M** | **~$225,000** |
 
 *Scales with CC transaction volume and spend. Accuracy rises from ~60% to ~85% after the first month, approaching zero-touch for routine purchases by month 3.*
 
@@ -167,5 +171,5 @@ All impact figures are expressed as a **percentage of annual revenue** so they s
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-03-04 | Initial draft — 6-signal prescreening with learning loop |
-|| 2.0 | 2026-03-04 | Enriched: elevator pitch, operational savings, scoring rationale, related CAMs |
-|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |
+| 2.0 | 2026-03-04 | Enriched: elevator pitch, operational savings, scoring rationale, related CAMs |
+| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

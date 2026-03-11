@@ -234,21 +234,34 @@ export function DailyLogDetailScreen({
   };
 
   const openAttachment = async (url: string, attachmentId?: string) => {
-    // If we have an attachment ID, fetch a fresh signed URL from the API
+    // If we have an attachment ID, fetch a fresh download URL from the API
     if (attachmentId) {
       try {
         const { downloadUrl } = await fetchAttachmentDownloadUrl(log.id, attachmentId);
         if (downloadUrl) {
-          void Linking.openURL(downloadUrl);
+          const canOpen = await Linking.canOpenURL(downloadUrl);
+          if (canOpen) {
+            await Linking.openURL(downloadUrl);
+          } else {
+            console.warn("[openAttachment] Cannot open URL:", downloadUrl);
+            Alert.alert("Cannot Open", "Unable to open this attachment on this device.");
+          }
           return;
         }
       } catch (err) {
-        console.warn("[openAttachment] Failed to get signed URL, falling back", err);
+        console.warn("[openAttachment] Failed to get download URL, falling back", err);
       }
     }
     // Fallback to the URL as-is
     const resolved = resolveAttachmentUrl(url);
-    if (resolved) void Linking.openURL(resolved);
+    if (resolved) {
+      try {
+        await Linking.openURL(resolved);
+      } catch (err) {
+        console.warn("[openAttachment] Failed to open URL:", resolved, err);
+        Alert.alert("Cannot Open", "Unable to open this attachment.");
+      }
+    }
   };
 
   // Check if attachment is an image

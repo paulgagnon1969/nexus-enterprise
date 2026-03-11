@@ -30,6 +30,10 @@ NexEXTRACT is NEXUS's proprietary video processing technology that intelligently
 
 Combined with NEXUS's **Zoom & Teach** AI learning loop, NexEXTRACT creates a continuously improving assessment pipeline where human expertise trains the AI to recognize materials and damage patterns specific to each company's market.
 
+## Work ↔ Signal
+> **The Work**: Per-company learning loop where every correction improves future extraction accuracy. Adaptive to each tenant's unique vendor naming, terminology, and regional variations.
+> **The Signal**: Extraction accuracy that improves with use is a compounding capability signal — the longer a tenant uses the system, the better it understands their business. (→ Capability: adaptive intelligence)
+
 ## The Problem
 
 Standard video-to-AI assessment tools extract frames at fixed intervals (e.g., one frame every 10 seconds). This creates two failure modes:

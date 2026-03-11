@@ -207,6 +207,10 @@ a:hover {
 
 /* ── Print styles ── */
 @media print {
+  @page {
+    margin: 10mm;
+  }
+
   /* Break out of the viewport-height shell so all content flows naturally */
   .app-shell {
     height: auto !important;
@@ -218,9 +222,111 @@ a:hover {
     padding: 0 !important;
   }
 
-  /* Hide chrome: header, nav, sidebar, fixed badges */
+  /* Hide ALL chrome: header, nav, sidebar, fixed badges, dropdowns */
   .app-header,
-  .no-print {
+  .app-nav,
+  .no-print,
+  .system-sidebar,
+  .nexus-nav-dropdown-menu {
     display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  /* Kill any fixed/sticky positioned elements (badges, help button, etc.) */
+  body [style*="position: fixed"],
+  body [style*="position:fixed"] {
+    display: none !important;
+  }
+
+  /* Remove card borders/shadows in print for clean look */
+  .app-card {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+
+  /* Show print-only elements */
+  .print-only {
+    display: block !important;
+  }
+}
+
+/* Hide print-only elements on screen */
+.print-only {
+  display: none;
+}
+
+/* ── eDocs table styling ── */
+/* Shared table look-and-feel for document-content (viewer), cam-content (handbook),
+   and any future eDocs rendering surface. */
+.document-content table,
+.cam-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 12px 0;
+  font-size: 13px;
+  border: 1px solid #d4e3f5;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.document-content th,
+.cam-content th {
+  background: #dbeafe; /* light blue header — matches --color-primary-soft */
+  color: #1e3a5f;
+  font-weight: 600;
+  padding: 8px 12px;
+  border: 1px solid #c7d9f1;
+  text-align: left;
+  font-size: 13px;
+}
+
+.document-content td,
+.cam-content td {
+  padding: 7px 12px;
+  border: 1px solid #e2ecf7;
+  color: #1e293b;
+}
+
+/* Alternating rows — very subtle blue tint on even rows */
+.document-content tbody tr:nth-child(odd),
+.cam-content tbody tr:nth-child(odd) {
+  background: #ffffff;
+}
+
+.document-content tbody tr:nth-child(even),
+.cam-content tbody tr:nth-child(even) {
+  background: #f0f6ff; /* light blue stripe */
+}
+
+/* Subtle hover for interactivity */
+.document-content tbody tr:hover,
+.cam-content tbody tr:hover {
+  background: #e0edff;
+}
+
+/* Separator lines rendered as markdown "---" inside tables */
+.document-content td hr,
+.cam-content td hr {
+  border: none;
+  border-top: 1px solid #d4e3f5;
+  margin: 0;
+}
+
+/* Print: keep alternating colors, soften borders */
+@media print {
+  .document-content th,
+  .cam-content th {
+    background: #dbeafe !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .document-content tbody tr:nth-child(even),
+  .cam-content tbody tr:nth-child(even) {
+    background: #f0f6ff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }

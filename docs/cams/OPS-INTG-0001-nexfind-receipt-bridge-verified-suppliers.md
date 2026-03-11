@@ -26,6 +26,10 @@ visibility:
 
 > *Scraped directories tell you who exists. Receipts tell you who's actually good.*
 
+## Work ↔ Signal
+> **The Work**: Every receipt OCR automatically builds a verified supplier map — real vendors, real addresses, confirmed by actual purchases. 3-tier deduplication. Zero data entry.
+> **The Signal**: The network's collective purchasing behavior reveals which suppliers are real, where they are, and who uses them — crowdsourced intelligence that grows with every tenant. (→ Market Intelligence: supplier verification)
+
 ## Elevator Pitch
 
 Every receipt your crews scan automatically builds a verified supplier map. No manual data entry, no scraped directories — real vendors, real addresses, real phone numbers, confirmed by actual purchases. The more your team buys, the smarter your supplier network gets. NexFIND Receipt Bridge turns your expense tracking into your most valuable operational asset.

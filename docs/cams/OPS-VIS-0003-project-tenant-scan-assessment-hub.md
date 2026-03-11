@@ -24,6 +24,10 @@ visibility:
 
 # OPS-VIS-0003 — Project & Tenant Scan/Assessment Intelligence Hub
 
+## Work ↔ Signal
+> **The Work**: Unifies NexCAD LiDAR scans and NexBRIDGE video assessments inside the PM workflow — per-project tabs and tenant-wide executive dashboards.
+> **The Signal**: Integrated precision scanning signals investment in measurement technology — projects backed by LiDAR and AI assessment carry higher credibility. (→ Capability: precision assessment)
+
 ## Elevator Pitch
 NCC is the only construction platform that unifies LiDAR precision scans (NexCAD) and AI-powered video assessments (NexBRIDGE) directly inside the project management workflow — with per-project tabs and tenant-wide executive dashboards built in from day one.
 

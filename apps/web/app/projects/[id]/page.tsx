@@ -109,7 +109,9 @@ function CheckboxMultiSelect(props: {
 
   const [open, setOpen] = useState(false);
   const [panelMaxHeight, setPanelMaxHeight] = useState<number>(320);
+  const [searchQuery, setSearchQuery] = useState("");
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -144,7 +146,23 @@ function CheckboxMultiSelect(props: {
     };
   }, [open]);
 
+  // Reset search when dropdown closes
+  useEffect(() => {
+    if (!open) {
+      setSearchQuery("");
+    } else {
+      // Auto-focus search input when dropdown opens
+      setTimeout(() => searchInputRef.current?.focus(), 0);
+    }
+  }, [open]);
+
   const selectedSet = useMemo(() => new Set(selectedValues), [selectedValues]);
+
+  const filteredOptions = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter((o) => o.label.toLowerCase().includes(q));
+  }, [options, searchQuery]);
 
   const buttonLabel = useMemo(() => {
     if (selectedValues.length === 0) return placeholder;
@@ -238,14 +256,34 @@ function CheckboxMultiSelect(props: {
             )}
           </div>
 
+          {/* Search input */}
+          <div style={{ marginBottom: 6 }}>
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Filter…"
+              style={{
+                width: "100%",
+                padding: "4px 6px",
+                borderRadius: 4,
+                border: "1px solid #e5e7eb",
+                fontSize: 11,
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+
           <div
             style={{
               // Expand to the bottom of the viewport, but keep a sensible minimum.
-              maxHeight: Math.max(minListHeight, panelMaxHeight - 44),
+              maxHeight: Math.max(minListHeight, panelMaxHeight - 74),
               overflow: "auto",
             }}
           >
-            {options.map((opt) => {
+            {filteredOptions.map((opt) => {
               const checked = selectedSet.has(opt.value);
               return (
                 <label
@@ -2827,6 +2865,17 @@ export default function ProjectDetailPage({
     }
   };
 
+  /**
+   * Convert a gs://bucket/key storage URI to a browser-loadable proxy URL.
+   * Falls through for URLs that are already HTTP(S).
+   */
+  const gsUrlToProxyUrl = (url: string): string => {
+    if (!url) return url;
+    const m = url.match(/^gs:\/\/([^/]+)\/(.+)$/);
+    if (m) return `${API_BASE}/files/${m[1]}/${m[2]}`;
+    return url;
+  };
+
   const htmlEscape = (value: any) => {
     const s = value === null || value === undefined ? "" : String(value);
     return s
@@ -3644,7 +3693,7 @@ ${htmlBody}
 
       const attachmentItems = displayableAttachments.map((a: any, idx: number) => {
         const fileName = String(a?.fileName ?? `Attachment ${idx + 1}`);
-        const fileUrl = String(a?.fileUrl ?? "");
+        const fileUrl = gsUrlToProxyUrl(String(a?.fileUrl ?? ""));
         // For bill attachments, show vendor name
         const billInfo = a?._billVendor ? `${a._billVendor}${a._billNumber ? ` #${a._billNumber}` : ""}` : null;
         const label = billInfo ? `${billInfo} - ${fileName}` : fileName;
@@ -4719,6 +4768,7 @@ ${htmlBody}
 
   const [petlDiagnosticsModalOpen, setPetlDiagnosticsModalOpen] = useState(false);
 
+
   const deletePetlLineItem = async (item: PetlItem) => {
     // (kept in this file; this is invoked from the PETL UI itself)
     if (!isAdminOrAbove) {
@@ -5041,7 +5091,7 @@ ${htmlBody}
 
   const [reconNote, setReconNote] = useState<string>("");
 
-  type ReconEntryTag = "" | "SUPPLEMENT" | "CHANGE_ORDER" | "OTHER" | "WARRANTY";
+  type ReconEntryTag = "" | "INITIAL" | "SUPPLEMENT" | "CHANGE_ORDER" | "OTHER" | "WARRANTY";
   const [reconEntryTag, setReconEntryTag] = useState<ReconEntryTag>("");
 
   const [reconPlaceholderKind, setReconPlaceholderKind] = useState<string>("NOTE_ONLY");
@@ -5141,9 +5191,9 @@ ${htmlBody}
   const [comparatorPetlLine, setComparatorPetlLine] = useState<any>(null);
   const [comparatorLoading, setComparatorLoading] = useState(false);
 
-  // Auto-fetch comparator lines when reconciliation workflow modal opens (new entries only)
+  // Auto-fetch comparator lines when reconciliation workflow modal opens (new and editing)
   useEffect(() => {
-    if (!reconWorkflowModal?.open || reconWorkflowModal.existingEntry) {
+    if (!reconWorkflowModal?.open) {
       setComparatorLines([]);
       setComparatorPetlLine(null);
       return;
@@ -5174,6 +5224,36 @@ ${htmlBody}
       .finally(() => setComparatorLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reconWorkflowModal?.open, reconWorkflowModal?.sowItemId]);
+
+  // Also fetch comparator lines when the edit panel opens (for editing existing entries)
+  useEffect(() => {
+    if (!reconEntryEdit || reconWorkflowModal?.open) return;
+    const sowItem = petlReconPanel.data?.sowItem;
+    const cLineNo = sowItem?.sourceLineNo ?? sowItem?.lineNo;
+    if (!cLineNo || cLineNo <= 0) {
+      setComparatorLines([]);
+      setComparatorPetlLine(null);
+      return;
+    }
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+
+    setComparatorLoading(true);
+    setComparatorLines([]);
+    setComparatorPetlLine(null);
+
+    fetch(`${API_BASE}/projects/${id}/petl/comparator-lines/${cLineNo}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        setComparatorLines(data?.comparatorLines ?? []);
+        setComparatorPetlLine(data?.petlLine ?? null);
+      })
+      .catch(() => setComparatorLines([]))
+      .finally(() => setComparatorLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reconEntryEdit?.entry?.id]);
 
   const [costBookModalOpen, setCostBookModalOpen] = useState(false);
   const [petlCostBookPickerBusy, setPetlCostBookPickerBusy] = useState(false);
@@ -5719,6 +5799,45 @@ ${htmlBody}
   // General UI transition for toggle buttons, schedule controls, etc.
   // This prevents 2+ second INP issues when clicking buttons that trigger re-renders.
   const [, startUiTransition] = useTransition();
+
+  // ── Invoice Tracker (Admin+ only) ──
+  const [invoiceTrackerData, setInvoiceTrackerData] = useState<any[] | null>(null);
+  const [invoiceTrackerLoading, setInvoiceTrackerLoading] = useState(false);
+  const [invoiceTrackerCollapsed, setInvoiceTrackerCollapsed] = useState(false);
+  const [autoPayReviewNote, setAutoPayReviewNote] = useState<Record<string, string>>({});
+  const [autoPayReviewSaving, setAutoPayReviewSaving] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isAdminOrAbove || !id || activeTab !== "FINANCIAL") return;
+    if (invoiceTrackerData !== null) return;
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+    setInvoiceTrackerLoading(true);
+    fetch(`${API_BASE}/projects/${id}/invoice-tracker`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setInvoiceTrackerData(d); })
+      .catch(() => {})
+      .finally(() => setInvoiceTrackerLoading(false));
+  }, [isAdminOrAbove, id, activeTab, invoiceTrackerData]);
+
+  const handleAutoPayReview = async (reviewId: string, action: "CONFIRMED" | "REJECTED") => {
+    const token = localStorage.getItem("accessToken");
+    if (!token) return;
+    setAutoPayReviewSaving(reviewId);
+    try {
+      const res = await fetch(`${API_BASE}/projects/${id}/auto-pay-review/${reviewId}`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ status: action, note: autoPayReviewNote[reviewId] || undefined }),
+      });
+      if (res.ok) {
+        setInvoiceTrackerData(null); // trigger refetch
+      }
+    } catch { /* ignore */ }
+    finally { setAutoPayReviewSaving(null); }
+  };
 
   // Task dashboard summary (fetched when SUMMARY tab is active)
   const [taskSummary, setTaskSummary] = useState<{ overdue: number; dueNow: number; comingDue: number; total: number } | null>(null);
@@ -6294,21 +6413,27 @@ ${htmlBody}
       if (petlDisplayMode === "RECONCILIATION_ONLY") {
         if (!petlReconActivityIds.has(it.id)) return false;
       }
-      // Soft search: match against description, room, activity, cat, sel
+      // Soft search: multi-term — every space-separated word must match somewhere
+      // across description, room, activity, cat, sel, line#, unit, recon entries
       if (searchLower) {
-        const desc = (it.description ?? "").toLowerCase();
-        const room = (it.projectParticle?.fullLabel ?? it.projectParticle?.name ?? "").toLowerCase();
-        const activity = (it.activity ?? "").toLowerCase();
-        const cat = (it.categoryCode ?? "").toLowerCase();
-        const sel = (it.selectionCode ?? "").toLowerCase();
-        if (
-          !desc.includes(searchLower) &&
-          !room.includes(searchLower) &&
-          !activity.includes(searchLower) &&
-          !cat.includes(searchLower) &&
-          !sel.includes(searchLower)
-        ) {
-          return false;
+        const terms = searchLower.split(/\s+/).filter(Boolean);
+        if (terms.length > 0) {
+          const desc = (it.description ?? "").toLowerCase();
+          const room = (it.projectParticle?.fullLabel ?? it.projectParticle?.name ?? "").toLowerCase();
+          const activity = (it.activity ?? "").toLowerCase();
+          const cat = (it.categoryCode ?? "").toLowerCase();
+          const sel = (it.selectionCode ?? "").toLowerCase();
+          const lineStr = String(it.lineNo ?? "");
+          const unit = (it.unit ?? "").toLowerCase();
+          const note = ((it as any).itemNote ?? "").toLowerCase();
+          // Also search reconciliation entries for this item
+          const reconEntries = reconEntriesBySowItemId.get(it.id) ?? [];
+          const reconText = reconEntries.map((e: any) =>
+            [e?.description ?? "", e?.note ?? "", e?.categoryCode ?? "", e?.selectionCode ?? ""].join(" ")
+          ).join(" ").toLowerCase();
+          const haystack = `${desc} ${room} ${activity} ${cat} ${sel} ${lineStr} ${unit} ${note} ${reconText}`;
+          const allMatch = terms.every((term) => haystack.includes(term));
+          if (!allMatch) return false;
         }
       }
       return true;
@@ -11551,7 +11676,7 @@ ${htmlBody}
   const openReconEntryEdit = (entry: any) => {
     const tag = String(entry?.tag ?? "").trim();
     const draftTag: ReconEntryTag =
-      tag === "SUPPLEMENT" || tag === "CHANGE_ORDER" || tag === "OTHER" || tag === "WARRANTY"
+      tag === "INITIAL" || tag === "SUPPLEMENT" || tag === "CHANGE_ORDER" || tag === "OTHER" || tag === "WARRANTY"
         ? (tag as ReconEntryTag)
         : "";
 
@@ -12061,6 +12186,11 @@ ${htmlBody}
         return;
       }
 
+      // Capture PETL list scroll position before refresh so we can restore it
+      const vlistEl = document.getElementById('petl-vlist');
+      const scrollEl = vlistEl?.children[1] as HTMLElement | undefined;
+      const savedScroll = scrollEl?.scrollTop ?? 0;
+
       // Give backend a moment to process and commit the changes
       await new Promise(resolve => setTimeout(resolve, 200));
       
@@ -12073,6 +12203,17 @@ ${htmlBody}
       await refreshPetlFromServer({ includeGroups: false });
 
       closeReconEntryEdit();
+
+      // Restore scroll position after the transition re-render settles
+      if (savedScroll > 0) {
+        const restore = () => {
+          const el = document.getElementById('petl-vlist')?.children[1] as HTMLElement | undefined;
+          if (el) el.scrollTop = savedScroll;
+        };
+        requestAnimationFrame(() => requestAnimationFrame(restore));
+        // Safety fallback in case transition takes longer
+        setTimeout(restore, 300);
+      }
     } catch (err: any) {
       setReconEntryEdit((prev) =>
         prev ? { ...prev, saving: false, error: err?.message ?? "Save failed" } : prev,
@@ -13660,7 +13801,7 @@ ${htmlBody}
                   {isImageFile(currentAttachment) ? (
                     <img
                       id="gallery-main-image"
-                      src={currentAttachment.fileUrl}
+                      src={gsUrlToProxyUrl(currentAttachment.fileUrl)}
                       alt={currentAttachment.fileName || "Attachment"}
                       style={{
                         maxWidth: "80vw",
@@ -13695,7 +13836,7 @@ ${htmlBody}
                       <div style={{ fontSize: 48, marginBottom: 10 }}>📄</div>
                       <div style={{ fontWeight: 600, wordBreak: "break-word" }}>{currentAttachment.fileName}</div>
                       <a
-                        href={currentAttachment.fileUrl}
+                        href={gsUrlToProxyUrl(currentAttachment.fileUrl)}
                         target="_blank"
                         rel="noopener noreferrer"
                         style={{
@@ -13783,7 +13924,7 @@ ${htmlBody}
                   >
                     {isImageFile(att) ? (
                       <img
-                        src={att.fileUrl}
+                        src={gsUrlToProxyUrl(att.fileUrl)}
                         alt=""
                         style={{ width: "100%", height: "100%", objectFit: "cover" }}
                       />
@@ -19231,6 +19372,218 @@ ${htmlBody}
             </>
           )}
 
+          {/* Invoice Tracker — Admin+ only */}
+          {isAdminOrAbove && (
+            <div
+              style={{
+                marginTop: 16,
+                borderRadius: 8,
+                border: "1px solid #e5e7eb",
+                background: "#ffffff",
+              }}
+            >
+              <div
+                style={{
+                  padding: "6px 10px",
+                  borderBottom: invoiceTrackerCollapsed ? "none" : "1px solid #e5e7eb",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  background: "#f3f4f6",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => startUiTransition(() => setInvoiceTrackerCollapsed((v) => !v))}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    padding: 0,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "#111827",
+                    display: "flex",
+                    alignItems: "baseline",
+                    gap: 8,
+                    textAlign: "left",
+                  }}
+                >
+                  <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                    {invoiceTrackerCollapsed ? "\u25B8" : "\u25BE"}
+                  </span>
+                  <span>Invoice Tracker</span>
+                  {invoiceTrackerData && (
+                    <span style={{ fontSize: 11, fontWeight: 500, color: "#6b7280" }}>
+                      \u00B7 {invoiceTrackerData.length} invoices tracked
+                      {invoiceTrackerData.some((r: any) => r.onlinePayment?.autoPayReviewStatus === "PENDING") && (
+                        <span style={{ color: "#d97706", fontWeight: 600 }}>
+                          {" "}\u00B7 {invoiceTrackerData.filter((r: any) => r.onlinePayment?.autoPayReviewStatus === "PENDING").length} pending review
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </button>
+                {!invoiceTrackerCollapsed && (
+                  <button
+                    type="button"
+                    onClick={() => setInvoiceTrackerData(null)}
+                    disabled={invoiceTrackerLoading}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #d1d5db",
+                      background: "#ffffff",
+                      cursor: invoiceTrackerLoading ? "default" : "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    {invoiceTrackerLoading ? "Loading\u2026" : "Refresh"}
+                  </button>
+                )}
+              </div>
+
+              {!invoiceTrackerCollapsed && (
+                <div style={{ padding: 10, fontSize: 12 }}>
+                  {invoiceTrackerLoading && (
+                    <div style={{ color: "#6b7280" }}>Loading tracker data\u2026</div>
+                  )}
+                  {!invoiceTrackerLoading && invoiceTrackerData && invoiceTrackerData.length === 0 && (
+                    <div style={{ color: "#6b7280" }}>No issued invoices to track yet.</div>
+                  )}
+                  {!invoiceTrackerLoading && invoiceTrackerData && invoiceTrackerData.length > 0 && (
+                    <div style={{ overflowX: "auto" }}>
+                      {/* Pending auto-pay banner */}
+                      {invoiceTrackerData.some((r: any) => r.onlinePayment?.autoPayReviewStatus === "PENDING") && (
+                        <div style={{
+                          padding: "8px 12px", marginBottom: 10, borderRadius: 6,
+                          background: "rgba(217,119,6,0.1)", border: "1px solid rgba(217,119,6,0.3)",
+                          fontSize: 12, fontWeight: 600, color: "#92400e",
+                        }}>
+                          \u26A1 {invoiceTrackerData.filter((r: any) => r.onlinePayment?.autoPayReviewStatus === "PENDING").length} auto-payment(s) need review
+                        </div>
+                      )}
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                        <thead>
+                          <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                            <th style={{ padding: "6px 8px", textAlign: "left", color: "#6b7280", fontWeight: 500, fontSize: 11 }}>Invoice</th>
+                            <th style={{ padding: "6px 8px", textAlign: "center", color: "#6b7280", fontWeight: 500, fontSize: 11 }}>Views</th>
+                            <th style={{ padding: "6px 8px", textAlign: "left", color: "#6b7280", fontWeight: 500, fontSize: 11 }}>Last Viewed</th>
+                            <th style={{ padding: "6px 8px", textAlign: "center", color: "#6b7280", fontWeight: 500, fontSize: 11 }}>Printed</th>
+                            <th style={{ padding: "6px 8px", textAlign: "left", color: "#6b7280", fontWeight: 500, fontSize: 11 }}>Online Payment</th>
+                            <th style={{ padding: "6px 8px", textAlign: "left", color: "#6b7280", fontWeight: 500, fontSize: 11 }}>AutoPay Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {invoiceTrackerData.map((row: any) => {
+                            const isPending = row.onlinePayment?.autoPayReviewStatus === "PENDING";
+                            return (
+                              <tr key={row.invoiceId} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                                <td style={{ padding: "8px", fontWeight: 500 }}>
+                                  {row.invoiceNo ?? "\u2014"}
+                                  <div style={{ fontSize: 10, color: "#9ca3af" }}>{row.status}</div>
+                                </td>
+                                <td style={{ padding: "8px", textAlign: "center" }}>
+                                  {row.viewCount > 0 ? (
+                                    <span>{row.viewCount} <span style={{ color: "#9ca3af" }}>({row.uniqueViewers} unique)</span></span>
+                                  ) : (
+                                    <span style={{ color: "#d1d5db" }}>\u2014</span>
+                                  )}
+                                </td>
+                                <td style={{ padding: "8px", color: "#6b7280" }}>
+                                  {row.lastViewedAt ? new Date(row.lastViewedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "\u2014"}
+                                </td>
+                                <td style={{ padding: "8px", textAlign: "center" }}>
+                                  {row.printCount > 0 ? (
+                                    <span style={{ color: "#16a34a" }}>\u2705 {row.printCount}</span>
+                                  ) : (
+                                    <span style={{ color: "#d1d5db" }}>\u2014</span>
+                                  )}
+                                </td>
+                                <td style={{ padding: "8px" }}>
+                                  {row.onlinePayment ? (
+                                    <span style={{ fontWeight: 600, color: "#16a34a" }}>
+                                      {formatMoney(row.onlinePayment.amount)} via {row.onlinePayment.method === "STRIPE_ACH" ? "ACH" : row.onlinePayment.method === "CARD" ? "CC" : row.onlinePayment.method}
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: "#d1d5db" }}>\u2014</span>
+                                  )}
+                                </td>
+                                <td style={{ padding: "8px" }}>
+                                  {!row.onlinePayment ? (
+                                    <span style={{ color: "#d1d5db" }}>\u2014</span>
+                                  ) : isPending ? (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                      <span style={{
+                                        display: "inline-block", padding: "2px 8px", borderRadius: 12,
+                                        background: "rgba(234,179,8,0.15)", color: "#92400e",
+                                        fontSize: 10, fontWeight: 600, textTransform: "uppercase",
+                                      }}>
+                                        Pending Review
+                                      </span>
+                                      <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+                                        <input
+                                          type="text"
+                                          placeholder="Note (optional)"
+                                          value={autoPayReviewNote[row.onlinePayment.autoPayReviewId] ?? ""}
+                                          onChange={(e) => setAutoPayReviewNote((prev) => ({ ...prev, [row.onlinePayment.autoPayReviewId]: e.target.value }))}
+                                          style={{ padding: "3px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 11, width: 100 }}
+                                        />
+                                        <button
+                                          type="button"
+                                          disabled={autoPayReviewSaving === row.onlinePayment.autoPayReviewId}
+                                          onClick={() => handleAutoPayReview(row.onlinePayment.autoPayReviewId, "CONFIRMED")}
+                                          style={{
+                                            padding: "3px 8px", borderRadius: 4, border: "none",
+                                            background: "#16a34a", color: "#fff", fontSize: 10, fontWeight: 600, cursor: "pointer",
+                                          }}
+                                        >
+                                          Confirm
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={autoPayReviewSaving === row.onlinePayment.autoPayReviewId}
+                                          onClick={() => handleAutoPayReview(row.onlinePayment.autoPayReviewId, "REJECTED")}
+                                          style={{
+                                            padding: "3px 8px", borderRadius: 4, border: "1px solid #dc2626",
+                                            background: "transparent", color: "#dc2626", fontSize: 10, fontWeight: 600, cursor: "pointer",
+                                          }}
+                                        >
+                                          Reject
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <span style={{
+                                      display: "inline-block", padding: "2px 8px", borderRadius: 12,
+                                      background: row.onlinePayment.autoPayReviewStatus === "CONFIRMED"
+                                        ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
+                                      color: row.onlinePayment.autoPayReviewStatus === "CONFIRMED"
+                                        ? "#16a34a" : "#dc2626",
+                                      fontSize: 10, fontWeight: 600, textTransform: "uppercase",
+                                    }}>
+                                      {row.onlinePayment.autoPayReviewStatus === "CONFIRMED" ? "\u2705 Confirmed" : "\u274C Rejected"}
+                                      {row.onlinePayment.reviewNote && (
+                                        <span style={{ fontWeight: 400, marginLeft: 4, textTransform: "none" }}>\u2014 {row.onlinePayment.reviewNote}</span>
+                                      )}
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Payments */}
           <div
             style={{
@@ -23762,7 +24115,7 @@ ${htmlBody}
                             {activeInvoice.attachments.map((a: any) => (
                               <a
                                 key={String(a?.id ?? a?.projectFileId ?? Math.random())}
-                                href={String(a?.fileUrl ?? "#")}
+                                href={gsUrlToProxyUrl(String(a?.fileUrl ?? "#"))}
                                 target="_blank"
                                 rel="noreferrer"
                                 style={{
@@ -25230,7 +25583,7 @@ ${htmlBody}
                                 </div>
                                 <div style={{ fontWeight: 600, fontSize: 13, color: "#92400e" }}>{formatMoney(b?.totalAmount)}</div>
                                 {attachments.length > 0 && (
-                                  <a href={String(attachments[0]?.fileUrl ?? "#")} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#2563eb" }}>🖼️ View</a>
+                                  <a href={gsUrlToProxyUrl(String(attachments[0]?.fileUrl ?? "#"))} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#2563eb" }}>🖼️ View</a>
                                 )}
                                 <div style={{ display: "flex", gap: 4 }}>
                                   <button type="button" onClick={() => quickSetBillBillable(String(b?.id), true, 25)}
@@ -25322,7 +25675,7 @@ ${htmlBody}
                                         </div>
                                         <div style={{ fontWeight: 600, color: "#92400e", whiteSpace: "nowrap" }}>{formatMoney(b?.totalAmount)}</div>
                                         {attachments.length > 0 && (
-                                          <a href={String(attachments[0]?.fileUrl ?? "#")} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: "#2563eb" }}>🖼️</a>
+                                          <a href={gsUrlToProxyUrl(String(attachments[0]?.fileUrl ?? "#"))} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: "#2563eb" }}>🖼️</a>
                                         )}
                                         <div style={{ display: "flex", gap: 3 }}>
                                           <button type="button" onClick={() => quickSetBillBillable(String(b?.id), true, 25)}
@@ -25617,7 +25970,7 @@ ${htmlBody}
                                       {attachments.slice(0, 3).map((a: any) => (
                                         <a
                                           key={String(a?.id ?? a?.projectFileId ?? Math.random())}
-                                          href={String(a?.fileUrl ?? "#")}
+                                          href={gsUrlToProxyUrl(String(a?.fileUrl ?? "#"))}
                                           target="_blank"
                                           rel="noreferrer"
                                           style={{ fontSize: 11, color: "#2563eb", textDecoration: "none" }}
@@ -31888,6 +32241,65 @@ onClick={() => setManageTemplatesOpen(true)}
         </div>
       </div>
 
+      {/* Standalone search bar */}
+      {petlItems.length > 0 && (
+        <div
+          style={{
+            marginBottom: 10,
+            position: "relative",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <div style={{ position: "relative", flex: 1, maxWidth: 520 }}>
+            <input
+              type="text"
+              value={petlTaskSearch}
+              onChange={(e) => setPetlTaskSearch(e.target.value)}
+              placeholder="Search PETL — description, room, line #, cat, sel, activity, notes, recon entries…"
+              style={{
+                width: "100%",
+                padding: "8px 34px 8px 12px",
+                borderRadius: 10,
+                border: petlTaskSearch ? "2px solid #2563eb" : "1px solid #d1d5db",
+                fontSize: 13,
+                outline: "none",
+                background: petlTaskSearch ? "#eff6ff" : "#ffffff",
+                boxSizing: "border-box",
+              }}
+            />
+            {petlTaskSearch && (
+              <button
+                type="button"
+                onClick={() => setPetlTaskSearch("")}
+                style={{
+                  position: "absolute",
+                  right: 10,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  border: "none",
+                  background: "transparent",
+                  cursor: "pointer",
+                  fontSize: 16,
+                  color: "#6b7280",
+                  lineHeight: 1,
+                  padding: 0,
+                }}
+                aria-label="Clear search"
+              >
+                ×
+              </button>
+            )}
+          </div>
+          {petlTaskSearch && (
+            <span style={{ fontSize: 12, color: "#2563eb", fontWeight: 600, whiteSpace: "nowrap" }}>
+              {petlFlatItems.length} match{petlFlatItems.length !== 1 ? "es" : ""}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Progress controls: filters + operation */}
       {petlItems.length > 0 && (
         <div
@@ -31948,45 +32360,6 @@ onClick={() => setManageTemplatesOpen(true)}
             />
           </div>
 
-          <div>
-            <div style={{ fontSize: 11, color: "#4b5563", marginBottom: 2 }}>Search</div>
-            <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
-              <input
-                type="text"
-                value={petlTaskSearch}
-                onChange={(e) => setPetlTaskSearch(e.target.value)}
-                placeholder="Filter by task…"
-                style={{
-                  padding: "5px 28px 5px 8px",
-                  borderRadius: 999,
-                  border: petlTaskSearch ? "2px solid #2563eb" : "1px solid #d1d5db",
-                  fontSize: 12,
-                  width: 170,
-                  outline: "none",
-                }}
-              />
-              {petlTaskSearch && (
-                <button
-                  type="button"
-                  onClick={() => setPetlTaskSearch("")}
-                  style={{
-                    position: "absolute",
-                    right: 6,
-                    border: "none",
-                    background: "transparent",
-                    cursor: "pointer",
-                    fontSize: 14,
-                    color: "#6b7280",
-                    lineHeight: 1,
-                    padding: 0,
-                  }}
-                  aria-label="Clear search"
-                >
-                  ×
-                </button>
-              )}
-            </div>
-          </div>
 
           <div>
             <div style={{ fontSize: 11, color: petlHideNotes ? "#b45309" : "#4b5563", marginBottom: 2, fontWeight: petlHideNotes ? 600 : 400 }}>
@@ -35198,6 +35571,98 @@ onClick={() => setManageTemplatesOpen(true)}
                 </div>
               )}
 
+              {/* FROM COMPARATOR — apply activity-specific pricing to this entry */}
+              {comparatorLines.length > 0 && (
+                <div
+                  style={{
+                    marginBottom: 8,
+                    padding: 12,
+                    borderRadius: 8,
+                    border: "1px solid #05966930",
+                    background: "#f0fdf4",
+                  }}
+                >
+                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 8, color: "#059669", display: "flex", alignItems: "center", gap: 6 }}>
+                    ⚡ FROM COMPARATOR
+                    <span style={{ fontSize: 10, fontWeight: 400, color: "#6b7280" }}>Apply activity-specific pricing</span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {comparatorLines.map((cl: any) => {
+                      const cActivity = String(cl.estimateActivity ?? cl.activity ?? "Unknown").toUpperCase();
+                      const actColor = cActivity.includes("REMOVE") ? "#dc2626" : cActivity.includes("INSTALL") ? "#059669" : cActivity.includes("MATERIAL") ? "#2563eb" : "#6b7280";
+                      const actBg = cActivity.includes("REMOVE") ? "#fef2f2" : cActivity.includes("INSTALL") ? "#ecfdf5" : cActivity.includes("MATERIAL") ? "#eff6ff" : "#f3f4f6";
+                      const cUc = Number(cl.unitCost ?? 0);
+                      const cQty = Number(petlReconPanel.data?.sowItem?.qty ?? cl.qty ?? 1);
+                      const cAmt = cUc * cQty;
+
+                      return (
+                        <button
+                          key={cl.id}
+                          type="button"
+                          onClick={() => {
+                            setReconEntryEdit((prev) => {
+                              if (!prev) return prev;
+                              const nextDraft = { ...prev.draft };
+                              nextDraft.unitCost = String(cUc);
+                              nextDraft.qty = String(cQty);
+                              nextDraft.unit = String(cl.unit ?? petlReconPanel.data?.sowItem?.unit ?? "EA");
+                              nextDraft.itemAmount = String(cUc * cQty);
+                              nextDraft.activity = cActivity;
+                              if (cl.desc) nextDraft.description = String(cl.desc);
+                              if (cl.workersWage != null) nextDraft.workersWage = String(cl.workersWage);
+                              if (cl.laborBurden != null) nextDraft.laborBurden = String(cl.laborBurden);
+                              if (cl.laborOverhead != null) nextDraft.laborOverhead = String(cl.laborOverhead);
+                              if (cl.material != null) nextDraft.materialCost = String(cl.material);
+                              if (cl.equipment != null) nextDraft.equipmentCost = String(cl.equipment);
+                              // Auto-calculate RCV
+                              const tax = parseReconNumber(nextDraft.salesTaxAmount);
+                              const op = parseReconNumber(nextDraft.opAmount);
+                              const rcv = (cUc * cQty) + tax + op;
+                              nextDraft.rcvAmount = rcv > 0 ? String(rcv) : "";
+                              return { ...prev, draft: nextDraft, rcvManuallyEdited: false };
+                            });
+                          }}
+                          style={{
+                            padding: "8px 12px",
+                            borderRadius: 8,
+                            border: `1px solid ${actColor}40`,
+                            background: actBg,
+                            cursor: "pointer",
+                            textAlign: "left",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                          }}
+                        >
+                          <span style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: actColor,
+                            background: `${actColor}18`,
+                            padding: "2px 8px",
+                            borderRadius: 4,
+                            letterSpacing: "0.05em",
+                            flexShrink: 0,
+                          }}>
+                            {cActivity}
+                          </span>
+                          <span style={{ fontSize: 11, color: "#374151", flex: 1 }}>
+                            ${cUc.toFixed(2)}/{cl.unit ?? "EA"} × {cQty} = ${cAmt.toFixed(2)}
+                          </span>
+                          <span style={{ fontSize: 10, fontWeight: 600, color: "#059669" }}>Apply</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {comparatorLoading && (
+                <div style={{ marginBottom: 8, fontSize: 11, color: "#6b7280", display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ display: "inline-block", width: 12, height: 12, border: "2px solid #d1d5db", borderTopColor: "#059669", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                  Loading comparator estimates…
+                </div>
+              )}
+
               <div style={{ marginBottom: 8 }}>
                 <button
                   type="button"
@@ -35389,30 +35854,38 @@ onClick={() => setManageTemplatesOpen(true)}
                 {(() => {
                   const tag = reconEntryEdit.draft.tag;
                   const isStandalone = reconEntryEdit.entry?.isStandaloneChangeOrder;
-                  const tagLabel = tag === "SUPPLEMENT" 
-                    ? "Supplement" 
-                    : tag === "CHANGE_ORDER" 
-                      ? isStandalone ? "Change Order (Standalone)" : "Change Order (Attached)"
-                      : tag === "OTHER" 
-                        ? "Other"
-                        : tag === "WARRANTY"
-                          ? "Warranty"
-                          : "Not set";
-                  const tagBg = tag === "SUPPLEMENT" 
-                    ? "#eff6ff" 
-                    : tag === "CHANGE_ORDER" 
-                      ? "#f5f3ff"
-                      : "#f9fafb";
-                  const tagColor = tag === "SUPPLEMENT" 
-                    ? "#1d4ed8" 
-                    : tag === "CHANGE_ORDER" 
-                      ? "#6d28d9"
-                      : "#6b7280";
-                  const tagIcon = tag === "SUPPLEMENT" 
-                    ? "📊" 
-                    : tag === "CHANGE_ORDER" 
-                      ? "📝"
-                      : "";
+                  const tagLabel = tag === "INITIAL"
+                    ? "Initial Claim"
+                    : tag === "SUPPLEMENT" 
+                      ? "Supplement" 
+                      : tag === "CHANGE_ORDER" 
+                        ? isStandalone ? "Change Order (Standalone)" : "Change Order (Attached)"
+                        : tag === "OTHER" 
+                          ? "Other"
+                          : tag === "WARRANTY"
+                            ? "Warranty"
+                            : "Not set";
+                  const tagBg = tag === "INITIAL"
+                    ? "#f0fdf4"
+                    : tag === "SUPPLEMENT" 
+                      ? "#eff6ff" 
+                      : tag === "CHANGE_ORDER" 
+                        ? "#f5f3ff"
+                        : "#f9fafb";
+                  const tagColor = tag === "INITIAL"
+                    ? "#15803d"
+                    : tag === "SUPPLEMENT" 
+                      ? "#1d4ed8" 
+                      : tag === "CHANGE_ORDER" 
+                        ? "#6d28d9"
+                        : "#6b7280";
+                  const tagIcon = tag === "INITIAL"
+                    ? "📋"
+                    : tag === "SUPPLEMENT" 
+                      ? "📊" 
+                      : tag === "CHANGE_ORDER" 
+                        ? "📝"
+                        : "";
                   return (
                     <div
                       style={{
@@ -35430,6 +35903,7 @@ onClick={() => setManageTemplatesOpen(true)}
                   );
                 })()}
                 <div style={{ fontSize: 10, color: "#6b7280", marginTop: 4 }}>
+                  {reconEntryEdit.draft.tag === "INITIAL" && "Initial claim • Carrier-visible"}
                   {reconEntryEdit.draft.tag === "SUPPLEMENT" && "Carrier-visible • Attached to parent line"}
                   {reconEntryEdit.draft.tag === "CHANGE_ORDER" && "Client-only • Not visible to carrier"}
                   {!reconEntryEdit.draft.tag && "Transaction type set from reconciliation workflow"}
@@ -37361,7 +37835,7 @@ onClick={() => setManageTemplatesOpen(true)}
                     )}
                     
                     {/* FROM COMPARATOR — one-click reconciliation */}
-                    {!isEditing && comparatorLines.length > 0 && (
+                    {comparatorLines.length > 0 && (
                       <div style={{ marginBottom: 20 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: "#059669", display: "flex", alignItems: "center", gap: 6 }}>
                           ⚡ FROM COMPARATOR
@@ -37484,7 +37958,7 @@ onClick={() => setManageTemplatesOpen(true)}
                         </div>
                       </div>
                     )}
-                    {!isEditing && comparatorLoading && (
+                    {comparatorLoading && (
                       <div style={{ marginBottom: 16, fontSize: 11, color: "#6b7280", display: "flex", alignItems: "center", gap: 6 }}>
                         <span style={{ display: "inline-block", width: 12, height: 12, border: "2px solid #d1d5db", borderTopColor: "#059669", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
                         Loading comparator estimates…

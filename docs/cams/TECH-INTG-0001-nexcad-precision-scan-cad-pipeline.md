@@ -26,6 +26,10 @@ tags: [cam, technology, integration, nexcad, nexmesh, precision-scan, lidar, pho
 
 > *Scan any object in the field with an iPhone. Get a SketchUp file, STEP file, and engineering dimensions back in under 5 minutes — no manual measurement, no manual modeling, no cloud compute.*
 
+## Work ↔ Signal
+> **The Work**: iPhone LiDAR → guided orbit capture → PhotogrammetrySession on Mac Studio → 8 industry-standard CAD formats + precise dimensions. Zero cloud compute, zero per-scan fees.
+> **The Signal**: Companies using precision scanning demonstrate a measurably higher standard of documentation — scan data feeds the reputation ledger's quality dimension. (→ Reputation: measurement precision)
+
 ## Elevator Pitch
 
 NexCAD turns every iPhone with LiDAR into a precision field scanner. A crew member walks around an object — a fixture, structural element, piece of equipment — capturing 80-120 photos in a guided orbit. Those images upload to the Nexus API, which dispatches a `precision_photogrammetry` job through the NexMESH distributed compute mesh to the Mac Studio. Apple's PhotogrammetrySession reconstructs the object at `.full` detail (~1mm accuracy), then an automated pipeline converts it to 8 industry-standard formats: SketchUp (.skp), OBJ, Collada (.dae), STEP (.stp), STL, glTF, GLB, and USDZ. A Python mesh analyzer extracts precise dimensions, dominant planes, surface area, and vertex/face counts. Results appear on both mobile and web with download links for every format. The entire pipeline runs on local hardware — zero cloud compute, zero GPU rental, zero per-scan fees.

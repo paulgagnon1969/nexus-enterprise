@@ -534,6 +534,7 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
         {/* System nav bar — visible to all ADMIN+ users, hidden on document detail pages */}
         {isAdminPlus === true && !hideSidebar && (
           <div
+            className="no-print"
             style={{
               marginBottom: 8,
               padding: "6px 12px",
@@ -736,6 +737,7 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
         {/* Tenant workspace menu under the Superuser frame (SUPER_ADMIN only) - hidden on document detail pages */}
         {isSuperAdmin === true && !hideSidebar && (
         <div
+          className="no-print"
           style={{
             marginBottom: 12,
             padding: "6px 10px",

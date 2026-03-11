@@ -26,6 +26,10 @@ tags: [cam, ops, intelligence, supplier, nexfind, map, network-effect, crowdsour
 
 > *Every crew that uses Nexus makes the supplier map smarter for every other crew.*
 
+## Work ↔ Signal
+> **The Work**: Living crowdsourced supplier map grows from receipts, searches, navigation events, and project creation. Enter a new market and see verified suppliers from the network instantly.
+> **The Signal**: Every crew that uses Nexus makes the supplier map smarter for every other crew — the strongest network-effect data moat in the platform. (→ Market Intelligence: supplier discovery)
+
 ## Elevator Pitch
 NexFIND builds a living, crowdsourced supplier map that grows automatically from every tenant's daily activity — receipt captures, product searches, driving directions, and project creation. When a crew enters a new market, they instantly see verified suppliers from the network. The more companies on Nexus, the richer the intelligence. No competitor has anything like it.
 
@@ -107,24 +111,24 @@ Supplier pins render on the existing Mapbox map alongside project pins:
 
 All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes.
 
-|| Category | % of Revenue | What It Represents |
-||----------|-------------|--------------------|
-|| **Better pricing through supplier options** | ~0.27% | Material cost savings from comparing local suppliers instead of defaulting to the nearest big-box |
-|| **Field time saved on material runs** | ~0.18% | Crews spend less time calling around and driving to wrong stores |
-|| **Fuel cost reduction** | ~0.06% | Shorter routes to the right supplier on every material run |
-|| **Avoided unnecessary rentals** | ~0.02% | Local specialty suppliers discovered before resorting to rental |
-|| **New-market ramp-up** | ~0.01% | Network-seeded supplier map eliminates research in unfamiliar cities |
-|| **Total NexFIND Impact** | **~0.54%** | **Combined material savings and field efficiency as a share of revenue** |
+| Category | % of Revenue | What It Represents |
+|----------|-------------|--------------------|
+| **Better pricing through supplier options** | ~0.27% | Material cost savings from comparing local suppliers instead of defaulting to the nearest big-box |
+| **Field time saved on material runs** | ~0.18% | Crews spend less time calling around and driving to wrong stores |
+| **Fuel cost reduction** | ~0.06% | Shorter routes to the right supplier on every material run |
+| **Avoided unnecessary rentals** | ~0.02% | Local specialty suppliers discovered before resorting to rental |
+| **New-market ramp-up** | ~0.01% | Network-seeded supplier map eliminates research in unfamiliar cities |
+| **Total NexFIND Impact** | **~0.54%** | **Combined material savings and field efficiency as a share of revenue** |
 
 ### Real-World Extrapolation by Tenant Size
 
-|| Annual Revenue | NexFIND Impact (~0.54%) |
-||---------------|------------------------|
-|| **$1M** | **~$5,400** |
-|| **$2M** | **~$12,000** |
-|| **$5M** | **~$22,000** |
-|| **$10M** | **~$54,100** |
-|| **$50M** | **~$180,000** |
+| Annual Revenue | NexFIND Impact (~0.54%) |
+|---------------|------------------------|
+| **$1M** | **~$5,400** |
+| **$2M** | **~$12,000** |
+| **$5M** | **~$22,000** |
+| **$10M** | **~$54,100** |
+| **$50M** | **~$180,000** |
 
 *Savings scale dramatically with the network effect — as more tenants contribute data, supplier coverage and pricing intelligence improve for everyone. The value at $50M significantly exceeds linear extrapolation.*
 
@@ -187,5 +191,5 @@ No competitor has any form of supplier intelligence, let alone a multi-tenant cr
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-03-02 | Initial draft — NexFIND concept and architecture |
-|| 2.0 | 2026-03-04 | Enriched: elevator pitch, operational savings, competitive landscape table, related CAMs, revision history |
-|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |
+| 2.0 | 2026-03-04 | Enriched: elevator pitch, operational savings, competitive landscape table, related CAMs, revision history |
+| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

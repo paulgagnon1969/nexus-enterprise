@@ -26,6 +26,10 @@ tags: [cam, estimating, automation, selections, planning, ai, floor-plan, vendor
 
 > *Upload a floor plan. Describe what you want. Get a professional selection package in 5 minutes.*
 
+## Work ↔ Signal
+> **The Work**: Upload a floor plan, describe what you want in plain English, get a professional selection package — SVG layout, product gallery, vendor quote sheet — in 5 minutes.
+> **The Signal**: Selection packages with real vendor products and validated dimensions demonstrate professional rigor that clients and adjusters can trust. (→ Reputation: estimating quality)
+
 ## Elevator Pitch
 
 NexPLAN lets a PM upload a floor plan image, describe layout constraints in plain English ("peninsula off the third cabinet, fridge at the end"), and receive a complete selection package — SVG floor plan with numbered positions, product image gallery with real vendor photos, vendor-formatted quote sheet, and a print-ready eDoc — in a single AI-assisted conversation. No other construction or restoration platform offers AI-driven floor plan analysis with automatic vendor product fitting and professional document generation. The output is a self-contained HTML eDoc that auto-imports into Nexus Documents, creating a fully traceable selection record from concept to installation.

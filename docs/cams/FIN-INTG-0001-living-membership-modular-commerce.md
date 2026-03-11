@@ -26,6 +26,10 @@ tags: [cam, financial, integration, billing, subscription, stripe, membership, e
 
 > *Pay for what you use. Unlock what you need. No wasted seats, no locked tiers.*
 
+## Work ↔ Signal
+> **The Work**: Tenants activate per-module subscriptions and per-project feature unlocks via Stripe. Self-service billing with real-time proration. Billing outages never block field work.
+> **The Signal**: Which modules each tenant activates reveals real-time demand signals for platform capabilities — the marketplace knows what tools are valued most. (→ Demand: feature demand intelligence)
+
 ## Elevator Pitch
 Nexus replaces flat-tier SaaS pricing with a modular commerce engine. Companies subscribe to individual NCC modules (Estimating, Scheduling, Financials, etc.) and toggle them on/off from a self-service billing page — Stripe prorates instantly. Premium features like Xactimate Import or Drawings→BOM are unlocked per-project with a one-time charge. A Redis-cached entitlement layer enforces access across every API route using decorator-based guards, with a fail-open safety net so billing outages never block field work. No construction PM tool offers this level of pricing granularity.
 
@@ -105,34 +109,34 @@ Every major construction PM tool — Procore, Buildertrend, CoConstruct, Jobber 
 
 All impact figures expressed as **percentage of annual revenue**.
 
-|| Category | % of Revenue | What It Represents |
-||----------|-------------|-------------------|
-|| **Reduced plan-mismatch churn** | ~0.25% | Tenants who would have churned from oversized/undersized plans stay longer |
-|| **Per-project capture** | ~0.15% | Revenue from occasional premium features that flat plans can't monetize |
-|| **Self-service admin savings** | ~0.05% | Support tickets for plan changes eliminated |
-|| **Trial-to-paid conversion lift** | ~0.20% | Full module access during trial increases conversion vs. feature-limited trials |
-|| **Total Living Membership Impact** | **~0.65%** | **Combined revenue retention and expansion** |
+| Category | % of Revenue | What It Represents |
+|----------|-------------|-------------------|
+| **Reduced plan-mismatch churn** | ~0.25% | Tenants who would have churned from oversized/undersized plans stay longer |
+| **Per-project capture** | ~0.15% | Revenue from occasional premium features that flat plans can't monetize |
+| **Self-service admin savings** | ~0.05% | Support tickets for plan changes eliminated |
+| **Trial-to-paid conversion lift** | ~0.20% | Full module access during trial increases conversion vs. feature-limited trials |
+| **Total Living Membership Impact** | **~0.65%** | **Combined revenue retention and expansion** |
 
 ### Real-World Extrapolation by Platform Revenue
 
-|| NCC Platform ARR | Living Membership Impact (~0.65%) |
-||-----------------|----------------------------------|
-|| **$500K** | **~$3,250** |
-|| **$1M** | **~$6,500** |
-|| **$5M** | **~$32,500** |
-|| **$10M** | **~$65,000** |
+| NCC Platform ARR | Living Membership Impact (~0.65%) |
+|-----------------|----------------------------------|
+| **$500K** | **~$3,250** |
+| **$1M** | **~$6,500** |
+| **$5M** | **~$32,500** |
+| **$10M** | **~$65,000** |
 
 *Impact increases as tenant base grows — modular pricing attracts a wider range of company sizes than tier-locked plans.*
 
 ## Competitive Landscape
 
-|| Competitor | Modular Pricing? | Per-Project? | Self-Service Toggle? | Entitlement Guards? | Trial Auto-Unlock? |
-||------------|-----------------|-------------|---------------------|--------------------|--------------------|
-|| Procore | No — tiered | No | No | N/A | Partial |
-|| Buildertrend | No — tiered | No | No | N/A | No |
-|| CoConstruct | No — tiered | No | No | N/A | No |
-|| Jobber | No — tiered | No | Partial (add-ons) | N/A | No |
-|| Nexus NCC | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
+| Competitor | Modular Pricing? | Per-Project? | Self-Service Toggle? | Entitlement Guards? | Trial Auto-Unlock? |
+|------------|-----------------|-------------|---------------------|--------------------|--------------------|
+| Procore | No — tiered | No | No | N/A | Partial |
+| Buildertrend | No — tiered | No | No | N/A | No |
+| CoConstruct | No — tiered | No | No | N/A | No |
+| Jobber | No — tiered | No | Partial (add-ons) | N/A | No |
+| Nexus NCC | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
 
 ## Scoring Rationale
 

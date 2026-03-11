@@ -24,6 +24,10 @@ visibility:
 
 # CLT-COLLAB-0002 — Dual-User Portal Routing & Cross-Company Project Access
 
+## Work ↔ Signal
+> **The Work**: Single user identity spans client and internal roles across companies. Automatic portal routing, one-click context switching, per-project role enforcement.
+> **The Signal**: Cross-company identity persistence is the strongest switching-cost signal — the more roles a user holds across companies, the more embedded they are in the Nexus. (→ Reputation: network embeddedness)
+
 ## Elevator Pitch
 A single user identity can span both client and internal roles across multiple companies. Nexus detects this at login and always routes portal-eligible users to the client-first experience, while giving them one click to access the full internal project workspace — with per-project role enforcement.
 

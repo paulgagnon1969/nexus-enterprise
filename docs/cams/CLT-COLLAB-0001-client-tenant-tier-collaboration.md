@@ -27,6 +27,10 @@ visibility:
 
 > *Your clients don't just view projects — they become your next subscribers.*
 
+## Work ↔ Signal
+> **The Work**: One checkbox during project creation invites the client to the platform. They get a real login, a portal showing every project across every contractor on Nexus, and a clear upgrade path.
+> **The Signal**: Every client invite is a marketplace acquisition signal — the system knows which contractors actively bring clients onto the platform, driving the viral flywheel. (→ Demand: acquisition activity)
+
 ## Elevator Pitch
 
 When a contractor creates a project and enters a client email, the client is on the platform — one checkbox, zero extra steps. The client gets their own login, a portal showing every project they're on (across any contractor using Nexus), and a clear upgrade path to a full CONTRACTOR subscription. Every project invite is a product demo running on real data. The more contractors use Nexus, the more clients exist on the platform, and the more of those clients convert to paying subscribers when they realize they need the full toolset for their own construction division.

@@ -2,6 +2,17 @@ export type UploadedImageLink = { url: string; label: string };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
+/**
+ * Convert a gs://bucket/key storage URI to a browser-loadable proxy URL.
+ * Falls through for URLs that are already HTTP(S) or empty.
+ */
+export function gsUrlToProxyUrl(url: string): string {
+  if (!url) return url;
+  const m = url.match(/^gs:\/\/([^/]+)\/(.+)$/);
+  if (m) return `${API_BASE}/files/${m[1]}/${m[2]}`;
+  return url;
+}
+
 export function extractImageFilesFromClipboard(
   clipboard: DataTransfer | null | undefined,
 ): File[] {

@@ -95,6 +95,7 @@ services:
       MINIO_USE_SSL: "false"
       MINIO_EXTERNAL_ENDPOINT: localhost
       MINIO_EXTERNAL_PORT: "9000"
+      MINIO_PUBLIC_URL: https://staging-api.nfsgrp.com/files
       TURN_SECRET: ${TURN_SECRET}
       TURN_HOST: coturn
       TURN_PORT: "3478"

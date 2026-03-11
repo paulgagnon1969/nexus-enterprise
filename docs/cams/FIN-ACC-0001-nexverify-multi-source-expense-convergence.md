@@ -27,6 +27,10 @@ scores:
 
 > *Two sources. One truth. Zero duplicates. Every dollar verified.*
 
+## Work ↔ Signal
+> **The Work**: When a receipt and a CC charge describe the same purchase, NexVERIFY detects the convergence, keeps both records, and zeros out the duplicate via a GAAP-clean offset — preserving a complete audit trail with zero phantom costs.
+> **The Signal**: This company's financial records are corroborated by multiple independent sources. Expense accuracy is mathematically verified, not claimed. (→ Reputation: financial integrity)
+
 ## Elevator Pitch
 
 Construction companies capture expenses from multiple sources — a crew member snaps an HD receipt on their phone, and three days later the same $485 purchase appears as a credit card charge in the bank feed. Every other system either misses the duplicate (inflating project costs by 2×) or deletes it (losing the audit trail). NexVERIFY is the only platform that **detects the convergence, keeps both records, and uses a GAAP-clean verification offset** to zero out the duplicate's financial impact while preserving an unbreakable multi-source audit chain. The receipt stays as the source of truth with full line-item detail. The CC charge becomes a verification card — proof that the expense was corroborated by the bank. Two sources, one truth, zero phantom costs.
@@ -60,14 +64,14 @@ This scenario repeats across every active project, every month. The frequency sc
 
 Duplicate expense exposure scales with company size. A firm running $1M/year and a firm running $50M/year both lose the same *percentage* of revenue to phantom duplicates — because CC spend, receipt volume, and project count all scale proportionally. Expressing the impact as a percentage makes it universally comparable:
 
-|| Impact Category | % of Annual Revenue |
-||----------------|---------------------|
-|| **Phantom expense distortion** — duplicated bills inflating active project costs | ~6.0% |
-|| **PM decision corruption** — budget calls made on inflated numbers (delayed purchases, held invoices, false escalations) | ~1.0% |
-|| **Manual duplicate hunting** — bookkeeper/PM hours spent finding and reconciling duplicates | ~0.2% |
-|| **Bookkeeper reconciliation labor** — monthly close-out time verifying CC vs receipt alignment | ~0.15% |
-|| **Audit finding resolution** — duplicate-related findings and remediation | ~0.1% |
-|| **Total unmitigated exposure** | **~7.5%** |
+| Impact Category | % of Annual Revenue |
+|----------------|---------------------|
+| **Phantom expense distortion** — duplicated bills inflating active project costs | ~6.0% |
+| **PM decision corruption** — budget calls made on inflated numbers (delayed purchases, held invoices, false escalations) | ~1.0% |
+| **Manual duplicate hunting** — bookkeeper/PM hours spent finding and reconciling duplicates | ~0.2% |
+| **Bookkeeper reconciliation labor** — monthly close-out time verifying CC vs receipt alignment | ~0.15% |
+| **Audit finding resolution** — duplicate-related findings and remediation | ~0.1% |
+| **Total unmitigated exposure** | **~7.5%** |
 
 The phantom distortion (~6%) is the headline, but the **decision-making corruption** (~1%) is arguably worse. A PM who sees a project running 15% over budget makes different choices — delays purchases, escalates to the owner, holds invoicing — all because of phantom costs that don't actually exist. That downstream damage compounds across every project, every month.
 
@@ -94,12 +98,12 @@ Every time a bill is about to be created — whether from the prescreen engine (
 **Detection signals:**
 
 | Signal | Tolerance | Weight |
-||--------|-----------|--------|
-|| Vendor match | Fuzzy alias groups (11 merchant families, 60+ aliases) + store-number stripping | Required |
-|| Amount match | ±1% of bill amount (absolute floor $0.50 for micro-purchases) | Required |
-|| Date proximity | ±3 calendar days | Required |
-|| Amount precision | < 0.1% variance → +0.30 confidence; < 0.5% → +0.20; < 1% → +0.10 | Bonus |
-|| Date precision | Same day → +0.15; ±1 day → +0.10; ±2–3 days → +0.05 | Bonus |
+|--------|-----------|--------|
+| Vendor match | Fuzzy alias groups (11 merchant families, 60+ aliases) + store-number stripping | Required |
+| Amount match | ±1% of bill amount (absolute floor $0.50 for micro-purchases) | Required |
+| Date proximity | ±3 calendar days | Required |
+| Amount precision | < 0.1% variance → +0.30 confidence; < 0.5% → +0.20; < 1% → +0.10 | Bonus |
+| Date precision | Same day → +0.15; ±1 day → +0.10; ±2–3 days → +0.05 | Bonus |
 
 **Vendor alias map** (11 merchant families):
 
@@ -238,27 +242,27 @@ The NCC Financial dashboard can show a **verification coverage score** for each 
 
 All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes. A 2-person shop and a 200-person GC experience the same proportional exposure — and the same proportional recovery when NexVERIFY is active.
 
-|| Category | % of Revenue | What It Represents |
-||----------|-------------|--------------------|
-|| **Phantom duplicate prevention** | ~6.0% | Elimination of duplicated bills inflating project costs across all active jobs |
-|| **PM decision accuracy** | ~1.0% | Avoided downstream damage from budget decisions made on phantom-inflated data |
-|| **Manual duplicate hunting** | ~0.2% | Bookkeeper/PM labor hours no longer spent finding and reconciling duplicates |
-|| **Bookkeeper reconciliation** | ~0.15% | Monthly close-out time saved on CC-vs-receipt verification |
-|| **Audit finding resolution** | ~0.1% | Duplicate-related audit findings and remediation eliminated |
-|| **Verification coverage (audit evidence)** | ~0.03% | Reduced external audit hours via multi-source verification proof |
-|| **Total NexVERIFY Impact** | **~7.5%** | **Combined financial clarity recovered as a share of revenue** |
+| Category | % of Revenue | What It Represents |
+|----------|-------------|--------------------|
+| **Phantom duplicate prevention** | ~6.0% | Elimination of duplicated bills inflating project costs across all active jobs |
+| **PM decision accuracy** | ~1.0% | Avoided downstream damage from budget decisions made on phantom-inflated data |
+| **Manual duplicate hunting** | ~0.2% | Bookkeeper/PM labor hours no longer spent finding and reconciling duplicates |
+| **Bookkeeper reconciliation** | ~0.15% | Monthly close-out time saved on CC-vs-receipt verification |
+| **Audit finding resolution** | ~0.1% | Duplicate-related audit findings and remediation eliminated |
+| **Verification coverage (audit evidence)** | ~0.03% | Reduced external audit hours via multi-source verification proof |
+| **Total NexVERIFY Impact** | **~7.5%** | **Combined financial clarity recovered as a share of revenue** |
 
 ### Real-World Extrapolation by Tenant Size
 
 The percentages above are abstract by design. Here’s what they look like in real dollars across five company profiles:
 
-|| Annual Revenue | Est. CC Spend | Phantom Distortion (~6%) | Total NexVERIFY Impact (~7.5%) |
-||---------------|---------------|--------------------------|-------------------------------|
-|| **$1M** | ~$240K | ~$60K | **~$75K** |
-|| **$2M** | ~$480K | ~$120K | **~$150K** |
-|| **$5M** | ~$1.2M | ~$300K | **~$375K** |
-|| **$10M** | ~$2.4M | ~$600K | **~$750K** |
-|| **$50M** | ~$12M | ~$3.0M | **~$3.75M** |
+| Annual Revenue | Est. CC Spend | Phantom Distortion (~6%) | Total NexVERIFY Impact (~7.5%) |
+|---------------|---------------|--------------------------|-------------------------------|
+| **$1M** | ~$240K | ~$60K | **~$75K** |
+| **$2M** | ~$480K | ~$120K | **~$150K** |
+| **$5M** | ~$1.2M | ~$300K | **~$375K** |
+| **$10M** | ~$2.4M | ~$600K | **~$750K** |
+| **$50M** | ~$12M | ~$3.0M | **~$3.75M** |
 
 *CC spend estimated at ~24% of revenue (typical for restoration firms with heavy materials purchasing). Phantom distortion assumes multi-source capture is active (receipts + bank/card imports).*
 
@@ -331,11 +335,11 @@ Strong receipt OCR and expense categorization. Has basic duplicate detection (sa
 
 All thresholds are **percentage-based** — they scale with the bill and project size so a $300K/year firm and a $3M/year firm use the same logic without reconfiguration.
 
-|| Variance | Action |
-||----------|--------|
-|| ≤2% of primary bill amount | Auto-verify (`VERIFIED`) — no human intervention |
-|| >2% of primary bill amount | Flag (`PENDING_VERIFICATION`) — accounting review required |
-|| User disputes | `DISPUTED` — bills unlinked, both remain as standalone |
+| Variance | Action |
+|----------|--------|
+| ≤2% of primary bill amount | Auto-verify (`VERIFIED`) — no human intervention |
+| >2% of primary bill amount | Flag (`PENDING_VERIFICATION`) — accounting review required |
+| User disputes | `DISPUTED` — bills unlinked, both remain as standalone |
 
 Examples: a $50 receipt auto-verifies with up to $1.00 variance; a $5,000 PO auto-verifies up to $100 — same percentage, no configuration needed.
 
@@ -414,6 +418,6 @@ NexVERIFY automatically detects when the same expense is captured from multiple 
 
 | Rev | Date | Changes |
 |-----|------|---------|
-|| 1.0 | 2026-03-05 | Initial CAM — NexVERIFY multi-source expense convergence with GAAP-clean verification offset |
-|| 1.1 | 2026-03-05 | Refactored all detection and auto-verify thresholds from fixed dollar amounts to percentage-of-bill-amount — scales fairly across firms of any size |
-|| 1.2 | 2026-03-05 | Rewrote financial impact sections as % of revenue instead of fixed dollars; added tenant scaling table at $1M/$2M/$5M/$10M/$50M revenue |
+| 1.0 | 2026-03-05 | Initial CAM — NexVERIFY multi-source expense convergence with GAAP-clean verification offset |
+| 1.1 | 2026-03-05 | Refactored all detection and auto-verify thresholds from fixed dollar amounts to percentage-of-bill-amount — scales fairly across firms of any size |
+| 1.2 | 2026-03-05 | Rewrote financial impact sections as % of revenue instead of fixed dollars; added tenant scaling table at $1M/$2M/$5M/$10M/$50M revenue |

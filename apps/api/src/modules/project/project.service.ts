@@ -7808,6 +7808,24 @@ export class ProjectService {
 
     const comparatorActivity = comparatorRow.estimateVersion.description ?? comparatorRow.activity ?? null;
 
+    // Map raw comparator activity text to PetlActivity enum value.
+    const mapToPetlActivity = (raw: string | null): PetlActivity | null => {
+      if (!raw) return null;
+      const upper = raw.trim().toUpperCase();
+      if (upper === "REMOVE" || upper === "DEMO" || upper === "DEMOLITION" || upper === "-") return PetlActivity.REMOVE;
+      if (upper === "REPLACE" || upper === "INSTALL NEW" || upper === "+") return PetlActivity.REPLACE;
+      if (upper === "R&R" || upper === "RNR" || upper === "REMOVE AND REPLACE" || upper === "REMOVE & REPLACE" || upper === "&") return PetlActivity.REMOVE_AND_REPLACE;
+      if (upper === "D&R" || upper === "DNR" || upper === "DETACH AND RESET" || upper === "DETACH & RESET" || upper === "RESET" || upper === "R") return PetlActivity.DETACH_AND_RESET;
+      if (upper === "MATERIALS" || upper === "MATERIAL" || upper === "MATERIAL ONLY" || upper === "MATERIALS ONLY" || upper === "MAT" || upper === "M") return PetlActivity.MATERIALS;
+      if (upper === "REPAIR" || upper === "FIX" || upper === "F") return PetlActivity.REPAIR;
+      if (upper === "INSTALL ONLY" || upper === "INSTALL" || upper === "LABOR ONLY" || upper === "LABOR" || upper === "I") return PetlActivity.INSTALL_ONLY;
+      // Check if it's already a valid enum value
+      if ((Object.values(PetlActivity) as string[]).includes(upper)) return upper as PetlActivity;
+      return null;
+    };
+
+    const petlActivity = mapToPetlActivity(comparatorActivity);
+
     const entry = await this.prisma.petlReconciliationEntry.create({
       data: {
         projectId,
@@ -7839,7 +7857,7 @@ export class ProjectService {
         laborOverhead: comparatorRow.laborOverhead,
         materialCost: comparatorRow.material,
         equipmentCost: comparatorRow.equipment,
-        activity: comparatorActivity as any,
+        activity: petlActivity,
         sourceActivity: comparatorActivity,
         // Provenance: track exactly which comparator row was used.
         sourceSnapshotJson: {

@@ -26,6 +26,10 @@ tags: [cam, financial, automation, banking, transactions, tentative-bill, dual-r
 
 > *Every dollar assigned to a project becomes a bill — instantly. If you're the PM, it's already approved.*
 
+## Work ↔ Signal
+> **The Work**: Assignment = bill creation, automatically. If the assigner is also the PM, the bill skips the approval queue. Zero gap between banking transactions and project financials.
+> **The Signal**: This company has real-time expense visibility on every project — no lag, no unbilled gaps. Budget decisions are made on complete data. (→ Reputation: financial discipline)
+
 ## Elevator Pitch
 
 When an admin assigns a banking transaction to a project, Nexus instantly creates a bill in the project financials — no manual bill creation, no separate workflow. If the assigning admin also happens to be the PM for that project, the bill skips the approval queue and goes straight to draft. Two roles, one click, zero delay. PMs who aren't admins only see transactions when they materialize as tentative bills in their project — nothing to miss, nothing to chase.
@@ -50,12 +54,12 @@ PMs don't have access to the banking transaction screen — that's an admin/fina
 
 This creates a cascade of downstream problems:
 
-|| Problem | Impact |
-||---------|--------|
-|| PM doesn't know about the expense | Budget decisions made on incomplete data |
-|| PM submits invoice without the expense | Under-billing, margin erosion |
-|| Bookkeeper catches it at month-end | Retroactive corrections, delayed close |
-|| Auditor finds unbilled expenses | Compliance findings, client disputes |
+| Problem | Impact |
+|---------|--------|
+| PM doesn't know about the expense | Budget decisions made on incomplete data |
+| PM submits invoice without the expense | Under-billing, margin erosion |
+| Bookkeeper catches it at month-end | Retroactive corrections, delayed close |
+| Auditor finds unbilled expenses | Compliance findings, client disputes |
 
 ### The Dual-Role Friction
 
@@ -148,22 +152,22 @@ Re-assigning a transaction to the same project doesn't create duplicate bills. T
 
 All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes.
 
-|| Category | % of Revenue | What It Represents |
-||----------|-------------|---------------------|
-|| **Unbilled expense elimination** | ~0.35% | Transactions assigned but never billed, caught only at month-end or audit |
-|| **PM decision accuracy** | ~0.20% | Budget decisions made on complete cost data vs. partial data |
-|| **Bill creation labor saved** | ~0.12% | Admin/bookkeeper time manually creating bills from banking transactions |
-|| **Month-end reconciliation reduction** | ~0.08% | Less time spent matching transactions to bills during close |
-|| **Total Auto-Posting Impact** | **~0.75%** | **Combined accuracy improvement and labor recovered** |
+| Category | % of Revenue | What It Represents |
+|----------|-------------|---------------------|
+| **Unbilled expense elimination** | ~0.35% | Transactions assigned but never billed, caught only at month-end or audit |
+| **PM decision accuracy** | ~0.20% | Budget decisions made on complete cost data vs. partial data |
+| **Bill creation labor saved** | ~0.12% | Admin/bookkeeper time manually creating bills from banking transactions |
+| **Month-end reconciliation reduction** | ~0.08% | Less time spent matching transactions to bills during close |
+| **Total Auto-Posting Impact** | **~0.75%** | **Combined accuracy improvement and labor recovered** |
 
 ### Real-World Extrapolation by Tenant Size
 
-|| Annual Revenue | Auto-Posting Impact (~0.75%) |
-||---------------|------------------------------|
-|| **$1M** | **~$7,500** |
-|| **$5M** | **~$37,500** |
-|| **$10M** | **~$75,000** |
-|| **$50M** | **~$375,000** |
+| Annual Revenue | Auto-Posting Impact (~0.75%) |
+|---------------|------------------------------|
+| **$1M** | **~$7,500** |
+| **$5M** | **~$37,500** |
+| **$10M** | **~$75,000** |
+| **$50M** | **~$375,000** |
 
 ## Technical Differentiators
 
@@ -175,13 +179,13 @@ All impact figures are expressed as a **percentage of annual revenue** so they s
 
 ## Competitive Landscape
 
-|| Competitor | Auto-bill on assign? | PM visibility? | Dual-role detection? | Bulk assign+bill? |
-||-----------|---------------------|---------------|---------------------|-------------------|
-|| Procore | No | Partial (manual) | No | No |
-|| Buildertrend | No | No | No | No |
-|| CoConstruct | No | No | No | No |
-|| QuickBooks | No | N/A | N/A | No |
-|| Sage 100 Contractor | No | No | No | No |
+| Competitor | Auto-bill on assign? | PM visibility? | Dual-role detection? | Bulk assign+bill? |
+|-----------|---------------------|---------------|---------------------|-------------------|
+| Procore | No | Partial (manual) | No | No |
+| Buildertrend | No | No | No | No |
+| CoConstruct | No | No | No | No |
+| QuickBooks | No | N/A | N/A | No |
+| Sage 100 Contractor | No | No | No | No |
 
 No competitor auto-creates project bills from banking transaction assignment. The dual-role PM detection is unique to Nexus.
 

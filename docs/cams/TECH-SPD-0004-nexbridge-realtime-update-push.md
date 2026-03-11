@@ -24,6 +24,10 @@ visibility:
 
 # NexBRIDGE Real-Time Update Push via Compute Mesh
 
+## Work ↔ Signal
+> **The Work**: API broadcasts update:available through the Distributed Compute Mesh to all connected desktops instantly. Offline devices catch up via standard polling.
+> **The Signal**: Fleet-wide update freshness signals platform health and operator engagement — the mesh knows which installations are current and active. (→ Capability: fleet currency)
+
 ## Elevator Pitch
 When a new NexBRIDGE Connect build is published, the API server instantly broadcasts an `update:available` event through the existing Distributed Compute Mesh to every connected desktop app. All online devices begin downloading the update within seconds — no waiting for the next 30-minute poll cycle. Offline devices still catch up via standard polling.
 

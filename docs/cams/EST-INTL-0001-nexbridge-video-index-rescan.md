@@ -24,6 +24,10 @@ visibility:
 
 # NexBRIDGE Video Index — Local Evidence Library & Assessment Re-scan
 
+## Work ↔ Signal
+> **The Work**: Persistent local video index stores every assessment's video path + server frame URIs. One-click re-scan preserves all existing findings while extracting new ones.
+> **The Signal**: The ability to revisit and refine assessments without losing prior work signals thorough, iterative quality control. (→ Reputation: assessment diligence)
+
 ## Elevator Pitch
 NexBRIDGE Connect maintains a persistent local index of every video used for property assessments. Saved assessments store both the server-side frame URIs and the local video path, enabling users to reopen any past assessment and instantly re-extract high-resolution frames — or fall back to server-stored images when the video has been moved. A one-click "Re-scan" lets adjusters refine assessments with fresh frames without losing existing findings.
 

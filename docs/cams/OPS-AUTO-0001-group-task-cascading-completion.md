@@ -24,6 +24,10 @@ visibility:
 
 # OPS-AUTO-0001 — Group Task Assignment with Cascading Completion
 
+## Work ↔ Signal
+> **The Work**: Single task with group member join table — any member completes it, everyone is cleared. Up to 66% task volume reduction on multi-PM projects.
+> **The Signal**: Efficient multi-PM coordination signals operational maturity — fewer orphaned tasks means cleaner project execution. (→ Reputation: operational discipline)
+
 ## Problem Statement
 
 Restoration projects run on crews, not individuals. When a task like "Review PETL quantity discrepancy" needs PM attention, the system previously created **one separate task per PM** on the project. If three PMs were assigned, three identical tasks appeared. When one PM resolved the issue, the other two were left with orphaned tasks that could never be closed — leading to ever-growing todo lists, alert fatigue, and missed real work buried under noise.

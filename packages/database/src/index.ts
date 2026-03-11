@@ -18,3 +18,4 @@ export { learnRegionalFactors } from "./learn-regional-factors";
 export { extrapolateCostBookItem, extrapolateCostBookItems } from "./extrapolate-cost-book-item";
 export * from "./sop-sync";
 export * from "./catalog/spec-hash";
+export * from "./nexfit";

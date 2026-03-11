@@ -9,6 +9,7 @@ import {
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { EmailService } from "../../common/email.service";
 import * as crypto from "crypto";
+import { ManualPdfService } from "../manuals/manual-pdf.service";
 import {
   CreateShareLinkDto,
   UpdatePublicSettingsDto,
@@ -25,6 +26,7 @@ export class PublicDocsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
+    private readonly pdfService: ManualPdfService,
   ) {}
 
   private generateToken(): string {
@@ -41,6 +43,48 @@ export class PublicDocsService {
 
   private hashPasscode(passcode: string): string {
     return crypto.createHash("sha256").update(passcode).digest("hex");
+  }
+
+  /**
+   * Generate a unique forensic serial number for document access tracking.
+   * Format: NXS-{YYYYMMDD}-{6-char-hex}
+   */
+  private generateSerialNumber(): string {
+    const now = new Date();
+    const date = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+    const hex = crypto.randomBytes(3).toString("hex");
+    return `NXS-${date}-${hex}`;
+  }
+
+  /**
+   * Log a share link access event for IP protection and audit trail.
+   */
+  async logShareAccess(opts: {
+    shareLinkId: string;
+    accessType: string;
+    serialNumber?: string;
+    ipAddress?: string;
+    userAgent?: string;
+    recipientEmail?: string;
+    recipientName?: string;
+    metadata?: Record<string, any>;
+  }) {
+    try {
+      await this.prisma.shareLinkAccessLog.create({
+        data: {
+          shareLinkId: opts.shareLinkId,
+          accessType: opts.accessType,
+          serialNumber: opts.serialNumber || null,
+          ipAddress: opts.ipAddress || null,
+          userAgent: opts.userAgent || null,
+          recipientEmail: opts.recipientEmail || null,
+          recipientName: opts.recipientName || null,
+          metadata: opts.metadata || undefined,
+        },
+      });
+    } catch (err: any) {
+      this.logger.warn(`Failed to log share access: ${err?.message}`);
+    }
   }
 
   // =========================================================================
@@ -257,7 +301,11 @@ export class PublicDocsService {
   // Share Link Access (Token Required)
   // =========================================================================
 
-  async accessShareLink(token: string, passcode?: string) {
+  async accessShareLink(
+    token: string,
+    passcode?: string,
+    requestContext?: { ipAddress?: string; userAgent?: string },
+  ) {
     const link = await this.prisma.documentShareLink.findUnique({
       where: { accessToken: token },
       include: {
@@ -328,6 +376,9 @@ export class PublicDocsService {
       }
     }
 
+    // Generate serial number for this access session
+    const serialNumber = this.generateSerialNumber();
+
     // Update access stats
     await this.prisma.documentShareLink.update({
       where: { id: link.id },
@@ -336,6 +387,25 @@ export class PublicDocsService {
         lastAccessedAt: new Date(),
       },
     });
+
+    // Log access event
+    await this.logShareAccess({
+      shareLinkId: link.id,
+      accessType: "VIEW",
+      serialNumber,
+      ipAddress: requestContext?.ipAddress,
+      userAgent: requestContext?.userAgent,
+      recipientEmail: link.recipientEmail || undefined,
+      recipientName: link.recipientName || undefined,
+    });
+
+    // Recipient tracking metadata (sent to viewer for watermarking)
+    const _shareContext = {
+      recipientName: link.recipientName || null,
+      recipientEmail: link.recipientEmail || null,
+      serialNumber,
+      accessedAt: new Date().toISOString(),
+    };
 
     // Return document or manual content
     if (link.systemDocument) {
@@ -349,6 +419,7 @@ export class PublicDocsService {
         versionNo: link.systemDocument.currentVersion?.versionNo,
         htmlContent: link.systemDocument.currentVersion?.htmlContent,
         updatedAt: link.systemDocument.currentVersion?.createdAt,
+        _shareContext,
       };
     }
 
@@ -381,6 +452,7 @@ export class PublicDocsService {
           versionNo: d.systemDocument.currentVersion?.versionNo,
           htmlContent: d.systemDocument.currentVersion?.htmlContent,
         })),
+        _shareContext,
       };
     }
 
@@ -715,7 +787,12 @@ export class PublicDocsService {
    * Verify a secure share link using email + password.
    * Returns document/manual content on success.
    */
-  async accessSecureShareLink(token: string, email: string, password: string) {
+  async accessSecureShareLink(
+    token: string,
+    email: string,
+    password: string,
+    requestContext?: { ipAddress?: string; userAgent?: string },
+  ) {
     const link = await this.prisma.documentShareLink.findUnique({
       where: { accessToken: token },
       include: {
@@ -777,15 +854,36 @@ export class PublicDocsService {
 
     // Validate email matches recipient
     if (link.recipientEmail && link.recipientEmail.toLowerCase() !== email.toLowerCase()) {
+      // Log failed attempt
+      await this.logShareAccess({
+        shareLinkId: link.id,
+        accessType: "VERIFY_FAIL",
+        ipAddress: requestContext?.ipAddress,
+        userAgent: requestContext?.userAgent,
+        recipientEmail: email,
+        metadata: { reason: "email_mismatch" },
+      });
       throw new ForbiddenException("Invalid credentials");
     }
 
     // Validate password
     if (link.passcode) {
       if (this.hashPasscode(password) !== link.passcode) {
+        // Log failed attempt
+        await this.logShareAccess({
+          shareLinkId: link.id,
+          accessType: "VERIFY_FAIL",
+          ipAddress: requestContext?.ipAddress,
+          userAgent: requestContext?.userAgent,
+          recipientEmail: email,
+          metadata: { reason: "password_mismatch" },
+        });
         throw new ForbiddenException("Invalid credentials");
       }
     }
+
+    // Generate serial number for this session
+    const serialNumber = this.generateSerialNumber();
 
     // Update access stats
     await this.prisma.documentShareLink.update({
@@ -796,7 +894,26 @@ export class PublicDocsService {
       },
     });
 
-    // Return content (reuse same response shape as accessShareLink)
+    // Log successful access
+    await this.logShareAccess({
+      shareLinkId: link.id,
+      accessType: "VERIFY",
+      serialNumber,
+      ipAddress: requestContext?.ipAddress,
+      userAgent: requestContext?.userAgent,
+      recipientEmail: link.recipientEmail || email,
+      recipientName: link.recipientName || undefined,
+    });
+
+    // Recipient tracking metadata
+    const _shareContext = {
+      recipientName: link.recipientName || null,
+      recipientEmail: link.recipientEmail || email,
+      serialNumber,
+      accessedAt: new Date().toISOString(),
+    };
+
+    // Return content with share context for viewer watermarking
     if (link.systemDocument) {
       return {
         type: "document",
@@ -808,6 +925,7 @@ export class PublicDocsService {
         versionNo: link.systemDocument.currentVersion?.versionNo,
         htmlContent: link.systemDocument.currentVersion?.htmlContent,
         updatedAt: link.systemDocument.currentVersion?.createdAt,
+        _shareContext,
       };
     }
 
@@ -840,6 +958,7 @@ export class PublicDocsService {
           versionNo: d.systemDocument.currentVersion?.versionNo,
           htmlContent: d.systemDocument.currentVersion?.htmlContent,
         })),
+        _shareContext,
       };
     }
 
@@ -1024,5 +1143,94 @@ export class PublicDocsService {
 
     await this.prisma.readerGroup.delete({ where: { id } });
     return { success: true };
+  }
+
+  // =========================================================================
+  // Secure PDF Generation (Share Link)
+  // =========================================================================
+
+  /**
+   * Generate a DRM-protected PDF for a share link recipient.
+   * Validates token + credentials, generates watermarked/encrypted PDF,
+   * and logs the download event.
+   */
+  async generateSharePdf(
+    token: string,
+    email: string,
+    password: string,
+    requestContext?: { ipAddress?: string; userAgent?: string },
+  ): Promise<{ buffer: Buffer; filename: string }> {
+    const link = await this.prisma.documentShareLink.findUnique({
+      where: { accessToken: token },
+    });
+
+    if (!link || !link.isActive) {
+      throw new NotFoundException("Share link not found or has been revoked");
+    }
+
+    if (link.expiresAt && new Date(link.expiresAt) < new Date()) {
+      throw new ForbiddenException("This share link has expired");
+    }
+
+    // Validate email
+    if (link.recipientEmail && link.recipientEmail.toLowerCase() !== email.toLowerCase()) {
+      await this.logShareAccess({
+        shareLinkId: link.id,
+        accessType: "VERIFY_FAIL",
+        ipAddress: requestContext?.ipAddress,
+        userAgent: requestContext?.userAgent,
+        recipientEmail: email,
+        metadata: { reason: "email_mismatch", context: "pdf_download" },
+      });
+      throw new ForbiddenException("Invalid credentials");
+    }
+
+    // Validate password
+    if (link.passcode && this.hashPasscode(password) !== link.passcode) {
+      await this.logShareAccess({
+        shareLinkId: link.id,
+        accessType: "VERIFY_FAIL",
+        ipAddress: requestContext?.ipAddress,
+        userAgent: requestContext?.userAgent,
+        recipientEmail: email,
+        metadata: { reason: "password_mismatch", context: "pdf_download" },
+      });
+      throw new ForbiddenException("Invalid credentials");
+    }
+
+    if (!link.manualId) {
+      throw new BadRequestException("PDF download is only available for manuals");
+    }
+
+    // Get manual title for the filename
+    const manual = await this.prisma.manual.findUnique({
+      where: { id: link.manualId },
+      select: { title: true },
+    });
+
+    const serialNumber = this.generateSerialNumber();
+
+    const result = await this.pdfService.generateSecurePdf(link.manualId, {
+      name: link.recipientName || email,
+      email: link.recipientEmail || email,
+      serialNumber,
+      userPassword: password,
+    }, {
+      title: manual?.title || "Nexus Document",
+    });
+
+    // Log the download
+    await this.logShareAccess({
+      shareLinkId: link.id,
+      accessType: "PDF_DOWNLOAD",
+      serialNumber,
+      ipAddress: requestContext?.ipAddress,
+      userAgent: requestContext?.userAgent,
+      recipientEmail: link.recipientEmail || email,
+      recipientName: link.recipientName || undefined,
+      metadata: { filename: result.filename },
+    });
+
+    return result;
   }
 }

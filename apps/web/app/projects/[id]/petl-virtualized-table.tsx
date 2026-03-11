@@ -1385,7 +1385,7 @@ export const PetlVirtualizedTable = memo(function PetlVirtualizedTable({
   );
 
   return (
-    <div style={{ borderRadius: 8, border: "1px solid #e5e7eb", backgroundColor: "#ffffff", overflow: "hidden" }}>
+    <div id="petl-vlist" style={{ borderRadius: 8, border: "1px solid #e5e7eb", backgroundColor: "#ffffff", overflow: "hidden" }}>
       {/* Sticky header */}
       <div style={{ position: "sticky", top: 0, zIndex: 2, backgroundColor: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, tableLayout: "fixed" }}>

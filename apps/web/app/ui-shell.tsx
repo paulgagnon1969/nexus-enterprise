@@ -36,6 +36,24 @@ interface UserMeResponse {
   }[];
 }
 
+/* ── Global print styles ── */
+const PRINT_CSS = [
+  "@media print {",
+  "  @page { margin: 10mm; }",
+  "  .app-shell { height: auto !important; overflow: visible !important; }",
+  "  .app-main { overflow: visible !important; min-height: 0 !important; padding: 0 !important; }",
+  "  .app-header, header.app-header { display: none !important; height: 0 !important; visibility: hidden !important; overflow: hidden !important; }",
+  "  .app-header-left, .app-header-right { display: none !important; }",
+  "  .app-nav, nav.app-nav { display: none !important; height: 0 !important; visibility: hidden !important; }",
+  "  .system-sidebar, aside.system-sidebar { display: none !important; height: 0 !important; visibility: hidden !important; }",
+  "  .no-print { display: none !important; }",
+  "  .app-card { border: none !important; box-shadow: none !important; padding: 0 !important; }",
+  "  .nexint-print-header { display: block !important; }",
+  "  [style*='position: fixed'], [style*='position:fixed'] { display: none !important; }",
+  "}",
+  ".nexint-print-header { display: none; }",
+].join("\n");
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const {messages} = useLanguage();
@@ -61,7 +79,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     path === "/welcome" ||
     path === "/security" ||
     path.startsWith("/client-portal") ||
-    path.startsWith("/register/client");
+    path.startsWith("/register/client") ||
+    path === "/nexfit" ||
+    path.startsWith("/nexfit/");
   const isReferralRoute = path === "/referrals" || path.startsWith("/referrals/");
 
   // On first load in this browser tab, clear any stale tokens and send the
@@ -659,8 +679,49 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const logoHref = isAuthRoute || isPublicRoute ? "/" : "/projects";
 
+  // Belt-and-suspenders: physically hide elements before print via DOM manipulation
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    function onBeforePrint() {
+      document.querySelectorAll<HTMLElement>(
+        ".app-header, .system-sidebar, .no-print, .app-nav"
+      ).forEach(el => {
+        el.setAttribute("data-pre-print", el.style.cssText);
+        el.style.cssText = "display:none!important;height:0!important;overflow:hidden!important;visibility:hidden!important;";
+      });
+      // fixed-position elements
+      document.querySelectorAll<HTMLElement>("*").forEach(el => {
+        if (getComputedStyle(el).position === "fixed") {
+          el.setAttribute("data-pre-print-fixed", el.style.cssText);
+          el.style.cssText += ";display:none!important;";
+        }
+      });
+    }
+
+    function onAfterPrint() {
+      document.querySelectorAll<HTMLElement>("[data-pre-print]").forEach(el => {
+        el.style.cssText = el.getAttribute("data-pre-print") || "";
+        el.removeAttribute("data-pre-print");
+      });
+      document.querySelectorAll<HTMLElement>("[data-pre-print-fixed]").forEach(el => {
+        el.style.cssText = el.getAttribute("data-pre-print-fixed") || "";
+        el.removeAttribute("data-pre-print-fixed");
+      });
+    }
+
+    window.addEventListener("beforeprint", onBeforePrint);
+    window.addEventListener("afterprint", onAfterPrint);
+    return () => {
+      window.removeEventListener("beforeprint", onBeforePrint);
+      window.removeEventListener("afterprint", onAfterPrint);
+    };
+  }, []);
+
   return (
     <div className="app-shell">
+      {/* Print: hide header + nav. Inline JSX <style> = always in the HTML, no JS needed */}
+      <style>{`@media print{.app-header,.app-nav,.app-header-left,.app-header-right,.system-sidebar,.no-print{display:none!important;visibility:hidden!important;height:0!important;overflow:hidden!important}.app-shell{height:auto!important;overflow:visible!important}.app-main{overflow:visible!important;min-height:0!important;padding:0!important}.app-card{border:none!important;box-shadow:none!important;padding:0!important}.nexint-print-header{display:block!important}[style*="position: fixed"],[style*="position:fixed"]{display:none!important}}@page{margin:10mm}.nexint-print-header{display:none}`}</style>
       <header className="app-header">
         <div className="app-header-left">
           <Link href={logoHref} className="app-logo">

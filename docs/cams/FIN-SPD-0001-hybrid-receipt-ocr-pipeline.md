@@ -26,6 +26,10 @@ tags: [cam, financial, speed, ocr, tesseract, hybrid, receipt, performance, pdf]
 
 > *3 seconds, not 30. Local text extraction + AI structuring — with vision fallback for damaged receipts.*
 
+## Work ↔ Signal
+> **The Work**: Tesseract.js extracts text locally in ~1 second, then a fast AI model structures it — total ~3 seconds per receipt. 10× faster, 10× cheaper than cloud-only OCR.
+> **The Signal**: Faster OCR means higher capture rates in the field — more receipts processed means more supplier data, more pricing data, and a more complete financial record. (→ Reputation: documentation throughput)
+
 ## Elevator Pitch
 Nexus uses a two-stage hybrid OCR pipeline that delivers receipt extraction results in ~3 seconds instead of 30–45. Stage 1 runs Tesseract.js locally to extract raw text from the receipt image — no external API call. Stage 2 sends that text to a fast AI model (Grok) for structured parsing. If the image is too damaged for Tesseract, it falls back to GPT-4o vision. The result: instant-feeling receipt capture that doesn't block field workers, with accuracy that handles crumpled thermal paper, Home Depot multi-item formats, and PDF digital receipts.
 

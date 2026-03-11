@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <!-- Document Metadata -->
+  <meta name="ncc:code" content="CAM-LIBRARY-2026" />
+  <meta name="ncc:title" content="Nexus CAM Library — Competitive Advantage Modules" />
+  <meta name="ncc:description" content="Master index of 45 Competitive Advantage Modules across 7 functional areas — portfolio heatmap, executive summaries, scoring, and NexOP impact analysis" />
+  <meta name="ncc:category" content="CAM Library" />
+  <meta name="ncc:version" content="1.0" />
+
+  <!-- Manual Placement -->
+  <meta name="ncc:manual-code" content="CAM-LIBRARY" />
+  <meta name="ncc:manual-title" content="Nexus CAM Library" />
+  <meta name="ncc:manual-icon" content="🏆" />
+  <meta name="ncc:library" content="Strategy" />
+  <meta name="ncc:public" content="false" />
+
+  <style>
+    :root {
+      --blue-900: #0d47a1;
+      --blue-800: #1565c0;
+      --blue-700: #1976d2;
+      --blue-100: #bbdefb;
+      --blue-50: #e3f2fd;
+      --gold-100: #fff8e1;
+      --gold-300: #ffd54f;
+      --gold-700: #f9a825;
+      --green-50: #e8f5e9;
+      --green-700: #2e7d32;
+      --orange-50: #fff3e0;
+      --orange-700: #ef6c00;
+      --red-50: #ffebee;
+      --red-700: #c62828;
+      --gray-100: #f5f5f5;
+      --gray-300: #e0e0e0;
+      --gray-600: #757575;
+    }
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.7; color: #333; max-width: 960px; margin: 0 auto; padding: 20px 15px; background: #f9f9f9; }
+    h1, h2, h3, h4 { color: var(--blue-900); }
+    h1 { border-bottom: 3px solid var(--blue-900); padding-bottom: 12px; margin-bottom: 32px; font-size: 1.8em; }
+    h2 { margin-top: 48px; border-bottom: 1px solid var(--gray-300); padding-bottom: 8px; }
+    h3 { margin-top: 32px; color: var(--blue-800); }
+    h4 { margin-top: 24px; font-size: 1.05em; }
+
+    /* Callouts */
+    .callout { background: var(--blue-50); border-left: 6px solid var(--blue-900); padding: 24px; margin: 32px 0; border-radius: 6px; font-size: 1.05em; }
+    .callout-gold { background: var(--gold-100); border-left: 6px solid var(--gold-700); padding: 24px; margin: 32px 0; border-radius: 6px; font-size: 1.05em; }
+    .callout-green { background: var(--green-50); border-left: 6px solid var(--green-700); padding: 24px; margin: 32px 0; border-radius: 6px; }
+
+    /* Tables */
+    table { width: 100%; border-collapse: collapse; margin: 24px 0; font-size: 0.92em; }
+    th, td { border: 1px solid #ccc; padding: 12px 14px; text-align: left; }
+    th { background: var(--blue-900); color: white; font-weight: 600; }
+    tr:nth-child(even) { background: #fafafa; }
+    tr:hover { background: var(--blue-50); }
+
+    /* Heatmap table */
+    .heatmap th { background: var(--blue-900); color: white; text-align: center; font-size: 0.85em; padding: 8px 6px; }
+    .heatmap td { text-align: center; font-weight: bold; padding: 10px 6px; }
+    .heatmap td.h5 { background: #c62828; color: white; }
+    .heatmap td.h4 { background: #e65100; color: white; }
+    .heatmap td.h3 { background: var(--gold-700); color: #333; }
+    .heatmap td.h2 { background: #fff9c4; color: #333; }
+    .heatmap td.h1 { background: #e8f5e9; color: #333; }
+    .heatmap td.h0 { background: var(--gray-100); color: #bbb; }
+    .heatmap .row-label { background: var(--blue-50); color: var(--blue-900); font-weight: 700; text-align: left; padding-left: 12px; }
+    .heatmap .total-cell { background: var(--blue-50); color: var(--blue-900); font-weight: 800; }
+
+    /* Score badges */
+    .score { display: inline-block; background: var(--blue-900); color: white; padding: 2px 10px; border-radius: 12px; font-weight: 700; font-size: 0.85em; }
+    .score-top { background: var(--gold-700); color: #333; }
+    .nexop { display: inline-block; background: var(--green-700); color: white; padding: 2px 10px; border-radius: 12px; font-weight: 700; font-size: 0.85em; }
+    .status-badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.8em; font-weight: 600; }
+    .status-draft { background: #e0e0e0; color: #555; }
+    .status-validated { background: #c8e6c9; color: #2e7d32; }
+    .status-implemented { background: #bbdefb; color: #0d47a1; }
+
+    /* CAM cards */
+    .cam-card { border: 1px solid var(--gray-300); border-radius: 8px; padding: 20px 24px; margin: 20px 0; background: white; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+    .cam-card h4 { margin-top: 0; margin-bottom: 8px; font-size: 1.1em; color: var(--blue-900); }
+    .cam-card .tagline { font-style: italic; color: var(--blue-700); margin-bottom: 12px; font-size: 0.95em; }
+    .cam-card .meta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    .cam-card p { margin: 6px 0; }
+    .cam-card strong { color: #444; }
+
+    /* Mermaid diagrams */
+    .mermaid { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin: 30px 0; overflow-x: auto; }
+    .caption { font-style: italic; color: #555; text-align: center; font-size: 0.9em; margin-top: 8px; }
+
+    /* TOC */
+    .toc { background: #f0f7ff; padding: 24px 28px; border-radius: 8px; margin: 0 0 48px; }
+    .toc h2 { margin-top: 0; border-bottom: none; }
+    .toc ul { list-style: none; padding-left: 0; }
+    .toc li { margin: 6px 0; }
+    .toc li a { text-decoration: none; color: var(--blue-800); }
+    .toc li a:hover { text-decoration: underline; }
+    .toc .section-header { font-weight: 700; margin-top: 14px; color: var(--blue-900); font-size: 0.95em; }
+
+    /* Navigation */
+    .nav { display: flex; justify-content: space-between; margin: 48px 0 32px; font-weight: bold; font-size: 1.05em; }
+    .nav a { text-decoration: none; color: var(--blue-800); }
+
+    /* Chapter structure */
+    .chapter { margin-bottom: 80px; padding-bottom: 40px; border-bottom: 1px solid #ddd; }
+    .chapter:last-child { border-bottom: none; }
+
+    /* Stat grid */
+    .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 24px 0; }
+    .stat-box { background: white; border: 1px solid var(--gray-300); border-radius: 8px; padding: 16px; text-align: center; }
+    .stat-box .number { font-size: 2em; font-weight: 800; color: var(--blue-900); }
+    .stat-box .label { font-size: 0.85em; color: var(--gray-600); margin-top: 4px; }
+
+    /* Ranking list */
+    .ranking { counter-reset: rank; list-style: none; padding-left: 0; }
+    .ranking li { padding: 10px 14px; margin: 6px 0; background: white; border-radius: 6px; border-left: 4px solid var(--gold-700); counter-increment: rank; }
+    .ranking li::before { content: "#" counter(rank); font-weight: 800; color: var(--gold-700); margin-right: 10px; }
+
+    /* Print */
+    @media print {
+      body { background: white; max-width: none; }
+      .nav { display: none; }
+      .chapter { page-break-after: always; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ================================================================== -->
+  <!-- CHAPTER 1: OVERVIEW                                                 -->
+  <!-- ================================================================== -->
+  <div id="ch1" class="chapter">
+    <h1>Nexus CAM Library</h1>
+    <p><strong>Competitive Advantage Modules — Master Index &amp; Executive Summary</strong><br>
+    Version 1.0 &nbsp;|&nbsp; March 2026<br>
+    Audience: Investors, Executive Team, Strategic Partners</p>
+
+    <div class="callout-gold">
+      <strong>45 modules. 7 functional areas. NexOP ~6–12% of revenue recovered. NexINT 72% → 95% operational integrity.</strong>
+      Every module listed here represents a <strong>defensible, measurable competitive advantage</strong> — scored on Uniqueness, Value, Demonstrability, and Defensibility. Together they form the most comprehensive operational intelligence platform in construction technology.
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-box">
+        <div class="number">45</div>
+        <div class="label">Total CAMs</div>
+      </div>
+      <div class="stat-box">
+        <div class="number">7</div>
+        <div class="label">Functional Areas</div>
+      </div>
+      <div class="stat-box">
+        <div class="number">~9%</div>
+        <div class="label">Avg. NexOP Recovery</div>
+      </div>
+      <div class="stat-box">
+        <div class="number">95%</div>
+        <div class="label">NexINT Target</div>
+      </div>
+    </div>
+
+    <h2>What is a CAM?</h2>
+    <p>A <strong>Competitive Advantage Module (CAM)</strong> is a distinct capability within the Nexus platform that no competitor offers — or offers only partially. Each CAM is evaluated on four dimensions (1–10 scale each, 40 max):</p>
+    <table>
+      <tr><th>Dimension</th><th>Question</th></tr>
+      <tr><td><strong>Uniqueness</strong></td><td>Do competitors have this? (1 = common, 10 = unique to Nexus)</td></tr>
+      <tr><td><strong>Value</strong></td><td>How much does this help users? (1 = minor, 10 = critical)</td></tr>
+      <tr><td><strong>Demonstrability</strong></td><td>Can we show this in a live demo? (1 = hard, 10 = easy)</td></tr>
+      <tr><td><strong>Defensibility</strong></td><td>Is this hard to replicate? (1 = easy, 10 = hard)</td></tr>
+    </table>
+
+    <h2>Key Metrics</h2>
+    <ul>
+      <li><strong>NexOP</strong> — Operating Percentage: the share of a contractor's annual revenue that a module recovers, protects, or avoids losing. Expressed as a percentage for instant comparability at any company size.</li>
+      <li><strong>NexINT</strong> — Operational Integrity: a composite index measuring financial accuracy, process completion, compliance, and data quality. Industry baseline ~72%; Nexus target ~95%.</li>
+    </ul>
+
+    <div class="nav">
+      <span>← Start</span>
+      <a href="#ch2">Next: Portfolio Heatmap →</a>
+    </div>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- CHAPTER 2: HEATMAP & TOC                                            -->
+  <!-- ================================================================== -->
+  <div id="ch2" class="chapter">
+    <h1>Portfolio Heatmap &amp; Table of Contents</h1>
+
+    <h2>CAM Distribution — Mode × Category</h2>
+    <p>Each cell shows the number of CAMs at the intersection. Warmer colors indicate higher concentration.</p>
+
+    <table class="heatmap">
+      <tr>
+        <th></th><th>AUTO</th><th>INTL</th><th>INTG</th><th>VIS</th><th>SPD</th><th>ACC</th><th>COLLAB</th><th>CMP</th><th>Total</th>
+      </tr>
+      <tr>
+        <td class="row-label">FIN</td>
+        <td class="h2">2</td><td class="h2">2</td><td class="h1">1</td><td class="h2">2</td><td class="h1">1</td><td class="h5">5</td><td class="h0">—</td><td class="h0">—</td><td class="total-cell">13</td>
+      </tr>
+      <tr>
+        <td class="row-label">EST</td>
+        <td class="h1">1</td><td class="h1">1</td><td class="h1">1</td><td class="h0">—</td><td class="h1">1</td><td class="h2">2</td><td class="h0">—</td><td class="h0">—</td><td class="total-cell">6</td>
+      </tr>
+      <tr>
+        <td class="row-label">OPS</td>
+        <td class="h1">1</td><td class="h1">1</td><td class="h1">1</td><td class="h4">4</td><td class="h0">—</td><td class="h1">1</td><td class="h1">1</td><td class="h0">—</td><td class="total-cell">9</td>
+      </tr>
+      <tr>
+        <td class="row-label">TECH</td>
+        <td class="h1">1</td><td class="h2">2</td><td class="h3">3</td><td class="h2">2</td><td class="h2">2</td><td class="h1">1</td><td class="h0">—</td><td class="h0">—</td><td class="total-cell">11</td>
+      </tr>
+      <tr>
+        <td class="row-label">CLT</td>
+        <td class="h0">—</td><td class="h1">1</td><td class="h1">1</td><td class="h0">—</td><td class="h0">—</td><td class="h0">—</td><td class="h2">2</td><td class="h0">—</td><td class="total-cell">4</td>
+      </tr>
+      <tr>
+        <td class="row-label">CMP</td>
+        <td class="h1">1</td><td class="h0">—</td><td class="h1">1</td><td class="h0">—</td><td class="h0">—</td><td class="h0">—</td><td class="h0">—</td><td class="h0">—</td><td class="total-cell">2</td>
+      </tr>
+      <tr>
+        <td class="row-label"><strong>Total</strong></td>
+        <td class="total-cell">6</td><td class="total-cell">7</td><td class="total-cell">8</td><td class="total-cell">8</td><td class="total-cell">4</td><td class="total-cell">9</td><td class="total-cell">3</td><td class="total-cell">0</td><td class="total-cell"><strong>46</strong></td>
+      </tr>
+    </table>
+    <p class="caption">Densest cells: FIN-ACC (5), OPS-VIS (4), TECH-INTG (3)</p>
+
+    <div class="mermaid">
+graph TD
+    subgraph "Financial — 13 CAMs"
+        FIN["FIN<br/>NexOP ~12.22%"]:::fin
+    end
+    subgraph "Estimating — 6 CAMs"
+        EST["EST<br/>NexOP ~3.12%"]:::est
+    end
+    subgraph "Operations — 9 CAMs"
+        OPS["OPS<br/>NexOP ~1.81%"]:::ops
+    end
+    subgraph "Technology — 11 CAMs"
+        TECH["TECH<br/>NexOP ~1.51%"]:::tech
+    end
+    subgraph "Client Relations — 5 CAMs"
+        CLT["CLT<br/>Sovereign Marketplace<br/>+ NexFIT + Viral Sharing"]:::clt
+    end
+    subgraph "Compliance — 2 CAMs"
+        CMP["CMP<br/>NexOP ~0.60%"]:::cmp
+    end
+
+    FIN -->|"expense verification<br/>receipt capture"| EST
+    EST -->|"BOM pricing<br/>material data"| OPS
+    OPS -->|"supplier intelligence<br/>field data"| FIN
+    TECH -->|"infrastructure<br/>compute mesh"| FIN
+    TECH -->|"scan pipeline<br/>video assessment"| EST
+    CLT -->|"client portal<br/>acquisition"| OPS
+    CMP -->|"compliance data<br/>site safety"| OPS
+
+    classDef fin fill:#bbdefb,stroke:#0d47a1,color:#0d47a1,stroke-width:2px
+    classDef est fill:#c8e6c9,stroke:#2e7d32,color:#2e7d32,stroke-width:2px
+    classDef ops fill:#fff9c4,stroke:#f9a825,color:#6d4c00,stroke-width:2px
+    classDef tech fill:#e1bee7,stroke:#7b1fa2,color:#7b1fa2,stroke-width:2px
+    classDef clt fill:#fff3e0,stroke:#ef6c00,color:#ef6c00,stroke-width:2px
+    classDef cmp fill:#ffcdd2,stroke:#c62828,color:#c62828,stroke-width:2px
+    </div>
+    <p class="caption">CAM module inter-dependencies — each mode reinforces the others</p>
+
+    <div class="toc">
+      <h2>Table of Contents</h2>
+      <ul>
+        <li><a href="#ch1">1. Overview &amp; Key Metrics</a></li>
+        <li><a href="#ch2">2. Portfolio Heatmap &amp; Table of Contents</a></li>
+        <li><a href="#ch3">3. Top 10 CAMs by Score</a></li>
+        <li class="section-header">Executive Summaries</li>
+        <li><a href="#ch4">4. Financial (FIN) — 13 CAMs | NexOP ~12.22%</a></li>
+        <li><a href="#ch5">5. Estimating (EST) — 6 CAMs | NexOP ~3.12%</a></li>
+        <li><a href="#ch6">6. Operations (OPS) — 9 CAMs | NexOP ~1.81%</a></li>
+        <li><a href="#ch7">7. Technology (TECH) — 11 CAMs | NexOP ~1.51%</a></li>
+        <li><a href="#ch8">8. Client Relations (CLT) — 5 CAMs | ★ Flagship + NexFIT + Viral Sharing</a></li>
+        <li><a href="#ch9">9. Compliance (CMP) — 2 CAMs | NexOP ~0.60%</a></li>
+        <li><a href="#ch10">10. Portfolio Impact &amp; References</a></li>
+      </ul>
+    </div>
+
+    <div class="nav">
+      <a href="#ch1">← Previous: Overview</a>
+      <a href="#ch3">Next: Top 10 CAMs →</a>
+    </div>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- CHAPTER 3: TOP 10 CAMS                                              -->
+  <!-- ================================================================== -->
+  <div id="ch3" class="chapter">
+    <h1>Top 10 CAMs by Score</h1>
+
+    <p>The highest-scoring modules by combined Uniqueness + Value + Demonstrability + Defensibility (out of 40).</p>
+
+    <table>
+      <tr><th>#</th><th>CAM ID</th><th>Title</th><th>Score</th><th>NexOP</th><th>Standout</th></tr>
+      <tr><td>1</td><td>CLT-INTG-0001</td><td>NCC Sovereign Marketplace ★</td><td><span class="score score-top">37/40</span></td><td>—</td><td>Flagship — U:10, V:10</td></tr>
+      <tr><td>2</td><td>EST-ACC-0002</td><td>NexCAD Enhanced Video Assessment</td><td><span class="score score-top">37/40</span></td><td>—</td><td>Highest uniqueness (10/10)</td></tr>
+      <tr><td>3</td><td>TECH-AUTO-0001</td><td>NexBRIDGE Distributed Compute Mesh</td><td><span class="score score-top">37/40</span></td><td>—</td><td>Zero cloud compute bills</td></tr>
+      <tr style="background:#f0fdf4;"><td>4</td><td>CLT-INTL-0001</td><td>NexFIT Module Discovery &amp; ROI Engine <span style="color:#16a34a;font-weight:700;">★ NEW</span></td><td><span class="score score-top">36/40</span></td><td>—</td><td>Highest demo score (10/10), lead capture</td></tr>
+      <tr><td>5</td><td>FIN-ACC-0002</td><td>Zero-Loss Receipt Capture</td><td><span class="score score-top">36/40</span></td><td><span class="nexop">~1.65%</span></td><td>Highest value score (10/10)</td></tr>
+      <tr><td>6</td><td>EST-AUTO-0002</td><td>NexPLAN AI-Assisted Selections</td><td><span class="score score-top">36/40</span></td><td><span class="nexop">~0.60%</span></td><td>Tied highest demo score</td></tr>
+      <tr><td>7</td><td>TECH-INTG-0001b</td><td>NexCAD Precision Scan → CAD</td><td><span class="score score-top">36/40</span></td><td>—</td><td>iPhone LiDAR → 8 CAD formats</td></tr>
+      <tr><td>8</td><td>TECH-VIS-0002</td><td>NexINT Operational Integrity</td><td><span class="score score-top">36/40</span></td><td>—</td><td>System-wide accuracy index</td></tr>
+      <tr><td>9</td><td>FIN-INTL-0003</td><td>NexPRICE Regional Pricing Intelligence</td><td><span class="score">35/40</span></td><td><span class="nexop">~0.24%</span></td><td>Network-effect data moat</td></tr>
+      <tr style="background:#f0fdf4;"><td>10</td><td>CLT-COLLAB-0003</td><td>Viral Document Sharing &amp; Graduated Identity <span style="color:#16a34a;font-weight:700;">★ NEW</span></td><td><span class="score">35/40</span></td><td>—</td><td>Consumer-grade viral growth</td></tr>
+    </table>
+
+    <div class="callout">
+      <strong>Investor Insight:</strong> 6 of the top 10 CAMs score 9+ on Defensibility — they rely on proprietary data, network effects, or infrastructure patterns that competitors cannot replicate by copying features alone.
+    </div>
+
+    <h2>Top 5 by NexOP (Revenue Impact)</h2>
+    <table>
+      <tr><th>#</th><th>CAM ID</th><th>Title</th><th>NexOP</th></tr>
+      <tr><td>1</td><td>FIN-ACC-0001</td><td>NexVERIFY — Multi-Source Expense Convergence</td><td><span class="nexop">~7.50%</span></td></tr>
+      <tr><td>2</td><td>EST-INTG-0001</td><td>Multi-Provider BOM Pricing Pipeline</td><td><span class="nexop">~2.99%</span></td></tr>
+      <tr><td>3</td><td>FIN-ACC-0002</td><td>Zero-Loss Receipt Capture</td><td><span class="nexop">~1.65%</span></td></tr>
+      <tr><td>4</td><td>TECH-INTL-0001b</td><td>TUCKS Telemetry &amp; KPI System</td><td><span class="nexop">~1.19%</span></td></tr>
+      <tr><td>5</td><td>FIN-AUTO-0002</td><td>Transaction-to-Bill Auto-Posting</td><td><span class="nexop">~0.75%</span></td></tr>
+    </table>
+
+    <div class="nav">
+      <a href="#ch2">← Previous: Heatmap &amp; TOC</a>
+      <a href="#ch4">Next: Financial (FIN) →</a>
+    </div>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- CHAPTER 4: FINANCIAL (FIN)                                          -->
+  <!-- ================================================================== -->
+  <div id="ch4" class="chapter">
+    <h1>Financial (FIN) — 13 CAMs</h1>
+    <p><strong>Module NexOP: ~12.22% of revenue</strong> — the largest impact mode in the portfolio.</p>
+
+    <table>
+      <tr><th>CAM ID</th><th>Title</th><th>Score</th><th>NexOP</th><th>Status</th></tr>
+      <tr><td>FIN-ACC-0001</td><td>NexVERIFY — Multi-Source Expense Convergence</td><td><span class="score">34/40</span></td><td><span class="nexop">~7.50%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>FIN-ACC-0002</td><td>Zero-Loss Receipt Capture</td><td><span class="score score-top">36/40</span></td><td><span class="nexop">~1.65%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>FIN-ACC-0003</td><td>Cross-Project Duplicate Expense Scanner</td><td><span class="score">31/40</span></td><td><span class="nexop">~0.45%</span></td><td><span class="status-badge status-validated">validated</span></td></tr>
+      <tr><td>FIN-ACC-0004</td><td>Client Rate Adjustment System</td><td><span class="score">31/40</span></td><td>—</td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>FIN-ACC-0005</td><td>Bidirectional Invoice Pricing Engine</td><td><span class="score">26/40</span></td><td><span class="nexop">~0.15%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>FIN-AUTO-0001</td><td>Inline Receipt OCR</td><td><span class="score">30/40</span></td><td><span class="nexop">~0.37%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>FIN-AUTO-0002</td><td>Transaction-to-Bill Auto-Posting</td><td><span class="score">32/40</span></td><td><span class="nexop">~0.75%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>FIN-INTG-0001</td><td>Living Membership — Modular Commerce</td><td><span class="score">30/40</span></td><td><span class="nexop">~0.65%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>FIN-INTL-0002</td><td>Smart Prescreen Learning Loop</td><td><span class="score">33/40</span></td><td><span class="nexop">~0.60%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>FIN-INTL-0003</td><td>NexPRICE — Regional Pricing Intelligence</td><td><span class="score">35/40</span></td><td><span class="nexop">~0.24%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>FIN-SPD-0001</td><td>Hybrid Receipt OCR Pipeline</td><td><span class="score">31/40</span></td><td>—</td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>FIN-VIS-0001</td><td>Purchase Reconciliation Audit Chain</td><td><span class="score">33/40</span></td><td><span class="nexop">~0.66%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>FIN-VIS-0002</td><td>Invoice Retail Transparency Display</td><td><span class="score">24/40</span></td><td><span class="nexop">~0.12%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+    </table>
+
+    <!-- FIN Executive Summaries -->
+    <h2>Executive Summaries</h2>
+
+    <div class="cam-card">
+      <h4>FIN-ACC-0001 — NexVERIFY: Multi-Source Expense Convergence</h4>
+      <div class="tagline">"Two sources. One truth. Zero duplicates. Every dollar verified."</div>
+      <p><strong>Problem:</strong> When the same purchase is captured from multiple sources (receipt + CC charge), every other system either misses the duplicate (inflating costs by 2×) or deletes it (losing the audit trail).</p>
+      <p><strong>NCC Advantage:</strong> Detects convergence via fuzzy vendor matching (11 merchant families), keeps both records in a linked sibling group, applies a GAAP-clean verification offset that zeros out the duplicate's financial impact while preserving an unbreakable audit chain. Arrival-order-agnostic.</p>
+      <div class="meta">
+        <span class="score">34/40</span> <span class="nexop">~7.50%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>FIN-ACC-0002 — Zero-Loss Receipt Capture</h4>
+      <div class="tagline">"The bill exists before the receipt is even needed."</div>
+      <p><strong>Problem:</strong> The receipt-first model is structurally broken — 15–25% of legitimate receipts are never captured. Three failure points: receipt loss, expense report abandonment, bill creation neglect.</p>
+      <p><strong>NCC Advantage:</strong> Inverts the model. The moment a banking transaction is assigned to a project, a bill materializes instantly. The receipt enriches it later — it's evidence, not the trigger.</p>
+      <div class="meta">
+        <span class="score score-top">36/40</span> <span class="nexop">~1.65%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>FIN-ACC-0003 — Cross-Project Duplicate Expense Scanner</h4>
+      <div class="tagline">"One click catches double-billing that manual review misses."</div>
+      <p><strong>Problem:</strong> Same receipt posted to multiple projects inflates costs and distorts profitability. Traditional accounting only checks within a single job.</p>
+      <p><strong>NCC Advantage:</strong> Dual-strategy scanner (exact transaction ID + fuzzy vendor/amount/date) across the entire company. Side-by-side comparison with full receipt images, OCR data, and line items.</p>
+      <div class="meta">
+        <span class="score">31/40</span> <span class="nexop">~0.45%</span> <span class="status-badge status-validated">validated</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>FIN-ACC-0004 — Client Rate Adjustment System</h4>
+      <div class="tagline">"Full price on record. Agreed rate in practice. Every discount tracked and remembered."</div>
+      <p><strong>Problem:</strong> Negotiated client rates create invisible discounts — reasoning is lost, consistency across projects is impossible, and margin exposure is unknowable.</p>
+      <p><strong>NCC Advantage:</strong> Automatically generates dual invoice lines (full cost book price + companion credit) with reason codes. Client rate memory pre-populates agreed rates on future projects.</p>
+      <div class="meta">
+        <span class="score">31/40</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>FIN-ACC-0005 — Bidirectional Invoice Pricing Engine</h4>
+      <div class="tagline">"Edit any pricing field — everything else recalculates instantly."</div>
+      <p><strong>Problem:</strong> Manual markup/discount calculations on invoices are error-prone and time-consuming. No audit trail from cost book rate to final billed amount.</p>
+      <p><strong>NCC Advantage:</strong> Six interdependent pricing fields (original, edited, markup%, final, discount$, discount%) that stay in sync bidirectionally. Edit any one, the rest recalculate.</p>
+      <div class="meta">
+        <span class="score">26/40</span> <span class="nexop">~0.15%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>FIN-AUTO-0001 — Inline Receipt OCR</h4>
+      <div class="tagline">"Snap a receipt. Every line item extracted. Personal purchases excluded. Net total instant."</div>
+      <p><strong>Problem:</strong> Field crews capture dozens of receipts per week. No construction PM tool offers line-item-level receipt control with AI-powered OCR.</p>
+      <p><strong>NCC Advantage:</strong> GPT-4 Vision extracts every line item. Multi-receipt merge, per-item checkboxes to exclude personal purchases, credit deductions, live net total — all inline in the daily log form.</p>
+      <div class="meta">
+        <span class="score">30/40</span> <span class="nexop">~0.37%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>FIN-AUTO-0002 — Transaction-to-Bill Auto-Posting</h4>
+      <div class="tagline">"Every dollar assigned to a project becomes a bill — instantly."</div>
+      <p><strong>Problem:</strong> Assigning a transaction to a project and creating a bill are two separate actions in every system. Users do one and forget the other.</p>
+      <p><strong>NCC Advantage:</strong> Assignment = bill creation, automatically. Dual-role PM detection — if the assigner is also the PM, the bill skips the approval queue.</p>
+      <div class="meta">
+        <span class="score">32/40</span> <span class="nexop">~0.75%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>FIN-INTG-0001 — Living Membership: Modular Commerce</h4>
+      <div class="tagline">"Pay for what you use. Unlock what you need. No wasted seats, no locked tiers."</div>
+      <p><strong>Problem:</strong> Flat-tier SaaS pricing forces tenants to pay for modules they don't need or locks out modules they do.</p>
+      <p><strong>NCC Advantage:</strong> Per-module subscriptions + per-project feature unlocks via Stripe. Self-service billing with real-time proration. Redis-cached entitlement guards with fail-open safety.</p>
+      <div class="meta">
+        <span class="score">30/40</span> <span class="nexop">~0.65%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>FIN-INTL-0002 — Smart Prescreen Learning Loop</h4>
+      <div class="tagline">"Import once. The system learns. Next month, it does the work for you."</div>
+      <p><strong>Problem:</strong> Every imported transaction must be manually assigned to a project. Bookkeeper time sink.</p>
+      <p><strong>NCC Advantage:</strong> 6-signal intelligence engine predicts project assignment with a self-improving feedback loop. Approaches zero-touch for routine purchases by month 3.</p>
+      <div class="meta">
+        <span class="score">33/40</span> <span class="nexop">~0.60%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>FIN-INTL-0003 — NexPRICE: Regional Pricing Intelligence</h4>
+      <div class="tagline">"Crowd-sourced. Regionally normalized. Real purchase prices — not estimates."</div>
+      <p><strong>Problem:</strong> Material prices vary dramatically by region. No centralized, real-time, SKU-level pricing database exists for construction.</p>
+      <p><strong>NCC Advantage:</strong> Every tenant's purchases passively feed an anonymized Master Cost Book. Prices normalized by geographic cost-of-living index (ZIP-level). Network effect data moat — each new tenant makes the data more valuable.</p>
+      <div class="meta">
+        <span class="score">35/40</span> <span class="nexop">~0.24%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>FIN-SPD-0001 — Hybrid Receipt OCR Pipeline</h4>
+      <div class="tagline">"3 seconds, not 30. Local text extraction + AI structuring."</div>
+      <p><strong>Problem:</strong> Cloud-only OCR takes 30–45 seconds per receipt. Unacceptable friction for field workers.</p>
+      <p><strong>NCC Advantage:</strong> Tesseract.js extracts text locally in ~1s, then a fast AI model structures it — total ~3 seconds. Vision fallback for damaged receipts. 10× speed improvement, 10× cost reduction.</p>
+      <div class="meta">
+        <span class="score">31/40</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>FIN-VIS-0001 — Purchase Reconciliation Audit Chain</h4>
+      <div class="tagline">"Every dollar traced from checking account to receipt line item."</div>
+      <p><strong>Problem:</strong> A $14K credit card payment is one lump sum on the bank statement. Nobody can drill into the 247 individual charges it covers.</p>
+      <p><strong>NCC Advantage:</strong> 5-layer audit chain: checking outflow → CC payment → individual charges → OCR receipt line items → PM-approved project allocation.</p>
+      <div class="meta">
+        <span class="score">33/40</span> <span class="nexop">~0.66%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>FIN-VIS-0002 — Invoice Retail Transparency Display</h4>
+      <div class="tagline">"Clients see the value of every discount — on every line."</div>
+      <p><strong>Problem:</strong> Discounted invoices show only the final price. Clients don't see the value; internal teams can't verify accuracy.</p>
+      <p><strong>NCC Advantage:</strong> Four-column invoice table showing original retail rate, billed amount, and discount sub-lines. Footer breaks down Retail → Discounts → Amount Due.</p>
+      <div class="meta">
+        <span class="score">24/40</span> <span class="nexop">~0.12%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="nav">
+      <a href="#ch3">← Previous: Top 10</a>
+      <a href="#ch5">Next: Estimating (EST) →</a>
+    </div>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- CHAPTER 5: ESTIMATING (EST)                                         -->
+  <!-- ================================================================== -->
+  <div id="ch5" class="chapter">
+    <h1>Estimating (EST) — 6 CAMs</h1>
+    <p><strong>Module NexOP: ~3.12% of revenue</strong></p>
+
+    <table>
+      <tr><th>CAM ID</th><th>Title</th><th>Score</th><th>NexOP</th><th>Status</th></tr>
+      <tr><td>EST-ACC-0001</td><td>NexDupE — Cross-Project Duplicate Expense Detection</td><td><span class="score">32/40</span></td><td><span class="nexop">~0.35%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>EST-ACC-0002</td><td>NexCAD Enhanced Video Assessment</td><td><span class="score score-top">37/40</span></td><td>—</td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>EST-AUTO-0002</td><td>NexPLAN — AI-Assisted Selections &amp; Planning</td><td><span class="score score-top">36/40</span></td><td><span class="nexop">~0.60%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>EST-INTG-0001</td><td>Multi-Provider BOM Pricing Pipeline</td><td><span class="score">32/40</span></td><td><span class="nexop">~2.99%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>EST-INTL-0001</td><td>NexBRIDGE Video Index &amp; Re-scan</td><td><span class="score">32/40</span></td><td><span class="nexop">~0.18%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>EST-SPD-0001</td><td>Redis Price List Caching</td><td><span class="score">29/40</span></td><td><span class="nexop">~0.13%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+    </table>
+
+    <h2>Executive Summaries</h2>
+
+    <div class="cam-card">
+      <h4>EST-ACC-0001 — NexDupE: Cross-Project Duplicate Expense Detection</h4>
+      <div class="tagline">"Caught, documented, and permanently resolved in 30 seconds."</div>
+      <p><strong>Problem:</strong> Same receipt assigned to multiple projects goes undetected. Double-billing inflates costs.</p>
+      <p><strong>NCC Advantage:</strong> Automated cross-project scanner with side-by-side comparison, permanent PNG snapshots, and GAAP-compliant SibE archival that preserves audit trail while zeroing financial impact.</p>
+      <div class="meta">
+        <span class="score">32/40</span> <span class="nexop">~0.35%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>EST-ACC-0002 — NexCAD Enhanced Video Assessment</h4>
+      <div class="tagline">"AI tells you what the damage is. NexCAD tells you how much — with actual measurements."</div>
+      <p><strong>Problem:</strong> AI vision models identify damage well but can't measure dimensions accurately. A 15% quantity error means thousands in claim disputes.</p>
+      <p><strong>NCC Advantage:</strong> Burst-extracts full-res frames around damage timestamps, runs photogrammetry to build a 3D mesh, then measures actual surface area. First system combining AI damage ID with photogrammetry-derived measurements.</p>
+      <div class="meta">
+        <span class="score score-top">37/40</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>EST-AUTO-0002 — NexPLAN: AI-Assisted Selections &amp; Planning</h4>
+      <div class="tagline">"Upload a floor plan. Describe what you want. Get a professional selection package in 5 minutes."</div>
+      <p><strong>Problem:</strong> Material selections take 2–4 hours per room — scattered across WhatsApp, spreadsheets, vendor websites, and hand-drawn plans.</p>
+      <p><strong>NCC Advantage:</strong> AI floor plan analysis + natural language layout design + real vendor product fitting + automated eDoc generation. SVG floor plan, product image gallery, vendor-formatted quote sheet — all from a conversation.</p>
+      <div class="meta">
+        <span class="score score-top">36/40</span> <span class="nexop">~0.60%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>EST-INTG-0001 — Multi-Provider BOM Pricing Pipeline</h4>
+      <div class="tagline">"200 materials. Two suppliers. Live prices. Three minutes."</div>
+      <p><strong>Problem:</strong> Manual price lookup across HD and Lowe's takes 3–5 hours for a 200-line BOM.</p>
+      <p><strong>NCC Advantage:</strong> Simultaneous HD + Lowe's search with SSE streaming, store-level results (name, address, phone), and timestamped price snapshots for insurance supplement evidence.</p>
+      <div class="meta">
+        <span class="score">32/40</span> <span class="nexop">~2.99%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>EST-INTL-0001 — NexBRIDGE Video Index &amp; Re-scan</h4>
+      <div class="tagline">"Reopen any past assessment. Re-extract frames. Refine findings — without starting over."</div>
+      <p><strong>Problem:</strong> Video assessments are one-shot — revisiting findings means creating an entirely new assessment and losing all prior work.</p>
+      <p><strong>NCC Advantage:</strong> Persistent local video index stores every assessment's video path + server frame URIs. Two-tier fallback (local video → server frames). One-click re-scan preserves all existing findings.</p>
+      <div class="meta">
+        <span class="score">32/40</span> <span class="nexop">~0.18%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>EST-SPD-0001 — Redis Price List Caching</h4>
+      <div class="tagline">"54,000 prices in 50ms."</div>
+      <p><strong>Problem:</strong> Loading large price lists from the database takes 500–800ms per request.</p>
+      <p><strong>NCC Advantage:</strong> Full price list cached in Redis with 1-hour TTL. Auto-invalidated on every PETL import. Graceful DB fallback. 16× speed improvement.</p>
+      <div class="meta">
+        <span class="score">29/40</span> <span class="nexop">~0.13%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="nav">
+      <a href="#ch4">← Previous: Financial (FIN)</a>
+      <a href="#ch6">Next: Operations (OPS) →</a>
+    </div>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- CHAPTER 6: OPERATIONS (OPS)                                         -->
+  <!-- ================================================================== -->
+  <div id="ch6" class="chapter">
+    <h1>Operations (OPS) — 9 CAMs</h1>
+    <p><strong>Module NexOP: ~1.81% of revenue</strong></p>
+
+    <table>
+      <tr><th>CAM ID</th><th>Title</th><th>Score</th><th>NexOP</th><th>Status</th></tr>
+      <tr><td>OPS-ACC-0001</td><td>NEXI Capture — Other Category Disposition</td><td><span class="score">26/40</span></td><td><span class="nexop">~0.08%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>OPS-AUTO-0001</td><td>Group Task Cascading Completion</td><td><span class="score">26/40</span></td><td>—</td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>OPS-COLLAB-0001</td><td>Phantom Fleet — Personal Asset Sharing</td><td><span class="score">31/40</span></td><td><span class="nexop">~0.39%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>OPS-INTG-0001</td><td>NexFIND Receipt Bridge — Verified Suppliers</td><td><span class="score">30/40</span></td><td><span class="nexop">~0.26%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>OPS-INTL-0001</td><td>NexFIND — Supplier Intelligence Network</td><td><span class="score">35/40</span></td><td><span class="nexop">~0.54%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>OPS-VIS-0001a</td><td>Field Qty Discrepancy Pipeline</td><td><span class="score">28/40</span></td><td><span class="nexop">~0.61%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>OPS-VIS-0001b</td><td>Intelligent Feature Discovery</td><td><span class="score">33/40</span></td><td>—</td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>OPS-VIS-0002</td><td>Urgency-Based Task Dashboard</td><td><span class="score">29/40</span></td><td><span class="nexop">~0.27%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>OPS-VIS-0003</td><td>Project &amp; Tenant Scan/Assessment Hub</td><td><span class="score">32/40</span></td><td>—</td><td><span class="status-badge status-draft">draft</span></td></tr>
+    </table>
+
+    <h2>Executive Summaries</h2>
+
+    <div class="cam-card">
+      <h4>OPS-ACC-0001 — NEXI Capture: Other Category Disposition</h4>
+      <div class="tagline">"Nothing gets lost. Every observation feeds the next project."</div>
+      <p><strong>Problem:</strong> Field items that don't fit existing categories get mis-categorized or skipped entirely.</p>
+      <p><strong>NCC Advantage:</strong> Structured "Other" category with auto-flag, PM review workflow, and reclassification pipeline. Turns uncategorized field data into a continuous taxonomy improvement loop.</p>
+      <div class="meta">
+        <span class="score">26/40</span> <span class="nexop">~0.08%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>OPS-AUTO-0001 — Group Task Cascading Completion</h4>
+      <div class="tagline">"One task, any member completes, everyone is cleared."</div>
+      <p><strong>Problem:</strong> Multi-PM projects create N identical tasks per issue. When one PM resolves it, N-1 orphaned tasks remain.</p>
+      <p><strong>NCC Advantage:</strong> Single task with group member join table. Any member completes → done for everyone, with attribution. Up to 66% task volume reduction.</p>
+      <div class="meta">
+        <span class="score">26/40</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>OPS-COLLAB-0001 — Phantom Fleet: Personal Asset Sharing</h4>
+      <div class="tagline">"Making visible what's already there."</div>
+      <p><strong>Problem:</strong> Every GC sits on a phantom fleet of personal equipment they can't see, schedule, or leverage.</p>
+      <p><strong>NCC Advantage:</strong> Dual ownership model (company/personal) with owner-controlled privacy. Maintenance pools decouple "who maintains" from "who owns." Unified asset list with CSV bulk import.</p>
+      <div class="meta">
+        <span class="score">31/40</span> <span class="nexop">~0.39%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>OPS-INTG-0001 — NexFIND Receipt Bridge: Verified Suppliers</h4>
+      <div class="tagline">"Scraped directories tell you who exists. Receipts tell you who's actually good."</div>
+      <p><strong>Problem:</strong> Supplier directories are unreliable. Manual entry doesn't scale. Institutional knowledge walks out the door.</p>
+      <p><strong>NCC Advantage:</strong> Every receipt OCR automatically builds a verified supplier map — real vendors, real addresses, confirmed by actual purchases. 3-tier deduplication. Zero data entry overhead.</p>
+      <div class="meta">
+        <span class="score">30/40</span> <span class="nexop">~0.26%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>OPS-INTL-0001 — NexFIND: Supplier Intelligence Network</h4>
+      <div class="tagline">"Every crew that uses Nexus makes the supplier map smarter for every other crew."</div>
+      <p><strong>Problem:</strong> Crews waste 30–60 minutes per material run figuring out where to buy. New markets start from zero.</p>
+      <p><strong>NCC Advantage:</strong> Living crowdsourced supplier map that grows from receipts, searches, navigation, and project creation. Multi-tenant network intelligence — enter a new market and see verified suppliers from the network instantly.</p>
+      <div class="meta">
+        <span class="score">35/40</span> <span class="nexop">~0.54%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>OPS-VIS-0001a — Field Qty Discrepancy Pipeline</h4>
+      <div class="tagline">"Field flags it. PM sees it. Supplement filed the same day."</div>
+      <p><strong>Problem:</strong> Estimate quantities don't match field reality. Discrepancies communicated verbally get lost → under-billed scope.</p>
+      <p><strong>NCC Advantage:</strong> Field crews flag incorrect quantities directly on PETL line items. Discrepancy banner surfaces instantly in the PM's Reconciliation Panel with field qty, note, and review status.</p>
+      <div class="meta">
+        <span class="score">28/40</span> <span class="nexop">~0.61%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>OPS-VIS-0001b — Intelligent Feature Discovery</h4>
+      <div class="tagline">"Every new feature finds the people who can buy it."</div>
+      <p><strong>Problem:</strong> Modular SaaS has a silent killer: feature invisibility. Admins don't check changelogs. Revenue sits dormant.</p>
+      <p><strong>NCC Advantage:</strong> Auto-redirects tenant admins to a "What's New" page on login (max 3 times). Per-user tracking, role-scoped targeting, direct billing page links. Revenue multiplier for every other module.</p>
+      <div class="meta">
+        <span class="score">33/40</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>OPS-VIS-0002 — Urgency-Based Task Dashboard</h4>
+      <div class="tagline">"Red means overdue. Yellow means today. Green means you're ahead."</div>
+      <p><strong>Problem:</strong> Tasks and daily logs are separate silos. Nothing links field observations to follow-up actions.</p>
+      <p><strong>NCC Advantage:</strong> Color-coded urgency buckets with red badge count. Tasks from daily log observations auto-link back to the originating log. 60-second refresh.</p>
+      <div class="meta">
+        <span class="score">29/40</span> <span class="nexop">~0.27%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>OPS-VIS-0003 — Project &amp; Tenant Scan/Assessment Hub</h4>
+      <div class="tagline">"LiDAR scans and AI video assessments — inside the project, not in a separate app."</div>
+      <p><strong>Problem:</strong> Precision scans and video assessments live in disconnected tools with no project context.</p>
+      <p><strong>NCC Advantage:</strong> Unifies NexCAD LiDAR scans and NexBRIDGE video assessments inside the PM workflow — per-project tabs and tenant-wide executive dashboards built in from day one.</p>
+      <div class="meta">
+        <span class="score">32/40</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="nav">
+      <a href="#ch5">← Previous: Estimating (EST)</a>
+      <a href="#ch7">Next: Technology (TECH) →</a>
+    </div>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- CHAPTER 7: TECHNOLOGY (TECH)                                        -->
+  <!-- ================================================================== -->
+  <div id="ch7" class="chapter">
+    <h1>Technology (TECH) — 11 CAMs</h1>
+    <p><strong>Module NexOP: ~1.51% of revenue</strong> — infrastructure and intelligence layer enabling all other modes.</p>
+
+    <table>
+      <tr><th>CAM ID</th><th>Title</th><th>Score</th><th>NexOP</th><th>Status</th></tr>
+      <tr><td>TECH-ACC-0001</td><td>Graceful Sync Fallback</td><td><span class="score">28/40</span></td><td><span class="nexop">~0.08%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>TECH-AUTO-0001</td><td>NexBRIDGE Distributed Compute Mesh</td><td><span class="score score-top">37/40</span></td><td>—</td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>TECH-INTG-0001a</td><td>NexBRIDGE Modular Subscription</td><td><span class="score">34/40</span></td><td>—</td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>TECH-INTG-0001b</td><td>NexCAD Precision Scan → CAD Pipeline</td><td><span class="score score-top">36/40</span></td><td>—</td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>TECH-INTG-0002</td><td>NexPLAN Distributed Pipeline</td><td><span class="score">32/40</span></td><td>—</td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>TECH-INTL-0001a</td><td>NexEXTRACT Adaptive Intelligence</td><td><span class="score">35/40</span></td><td>—</td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>TECH-INTL-0001b</td><td>TUCKS Telemetry &amp; KPI System</td><td><span class="score">33/40</span></td><td><span class="nexop">~1.19%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>TECH-SPD-0003</td><td>Smart Media Upload</td><td><span class="score">29/40</span></td><td><span class="nexop">~0.24%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>TECH-SPD-0004</td><td>NexBRIDGE Real-Time Update Push</td><td><span class="score">28/40</span></td><td>—</td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>TECH-VIS-0001</td><td>NexOP — Operating Percentage Metric</td><td><span class="score">35/40</span></td><td>—</td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>TECH-VIS-0002</td><td>NexINT — Operational Integrity Dashboard</td><td><span class="score score-top">36/40</span></td><td>—</td><td><span class="status-badge status-draft">draft</span></td></tr>
+    </table>
+
+    <h2>Executive Summaries</h2>
+
+    <div class="cam-card">
+      <h4>TECH-ACC-0001 — Graceful Sync Fallback</h4>
+      <div class="tagline">"Your data, always safe. Even when the infrastructure isn't."</div>
+      <p><strong>Problem:</strong> When Redis/BullMQ goes down, most SaaS apps silently drop jobs and lose user data.</p>
+      <p><strong>NCC Advantage:</strong> Real-time outage detection + transparent switch to synchronous processing. Slower, but every import completes. When infrastructure recovers, the fast path resumes automatically.</p>
+      <div class="meta">
+        <span class="score">28/40</span> <span class="nexop">~0.08%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>TECH-AUTO-0001 — NexBRIDGE Distributed Compute Mesh</h4>
+      <div class="tagline">"Every NexBRIDGE installation is a server. The more customers install, the faster the platform gets."</div>
+      <p><strong>Problem:</strong> Compute-heavy tasks (OCR, vision, video processing) are expensive to run in the cloud and slow to scale.</p>
+      <p><strong>NCC Advantage:</strong> Every desktop installation becomes a compute node. API coordinator dispatches jobs by CPU, bandwidth, power state, and proximity. 5-second server fallback. Zero cloud compute bills.</p>
+      <div class="meta">
+        <span class="score score-top">37/40</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>TECH-INTG-0001a — NexBRIDGE Modular Subscription</h4>
+      <div class="tagline">"A native desktop app where every feature is a revenue switch."</div>
+      <p><strong>Problem:</strong> Desktop companion apps are monolithic — you get everything or nothing.</p>
+      <p><strong>NCC Advantage:</strong> Tauri/Rust desktop app with per-feature subscription gating via the same Stripe entitlement system as the web platform. Prerequisites enforce logical bundling.</p>
+      <div class="meta">
+        <span class="score">34/40</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>TECH-INTG-0001b — NexCAD Precision Scan → CAD Pipeline</h4>
+      <div class="tagline">"Scan any object with an iPhone. Get a SketchUp file and engineering dimensions in under 5 minutes."</div>
+      <p><strong>Problem:</strong> Field measurement and manual CAD modeling take hours. Professional scanning requires expensive equipment.</p>
+      <p><strong>NCC Advantage:</strong> iPhone LiDAR → guided orbit capture → PhotogrammetrySession on Mac → 8 industry-standard formats (SKP, OBJ, STEP, STL, glTF, GLB, USDZ, DAE) + precise dimensions. Runs through the Distributed Compute Mesh. Zero cloud compute, zero per-scan fees.</p>
+      <div class="meta">
+        <span class="score score-top">36/40</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>TECH-INTG-0002 — NexPLAN Distributed Pipeline</h4>
+      <div class="tagline">"Start selections on your phone in the field, refine them at your desk, approve them from anywhere."</div>
+      <p><strong>Problem:</strong> Material selections happen across disconnected surfaces — no system tracks which device, which stage, or what's left.</p>
+      <p><strong>NCC Advantage:</strong> Device-aware, multi-surface coordination (mobile → desktop → web) with unified pipeline tracking. Every action tagged by device origin, pipeline stage, and user.</p>
+      <div class="meta">
+        <span class="score">32/40</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>TECH-INTL-0001a — NexEXTRACT Adaptive Intelligence</h4>
+      <div class="tagline">"AI that learns your company's patterns — not just generic models."</div>
+      <p><strong>Problem:</strong> Generic AI models don't understand company-specific terminology, vendor naming, or regional variations.</p>
+      <p><strong>NCC Advantage:</strong> Per-company learning loop where every correction improves future extraction accuracy. Adaptive to each tenant's unique data patterns.</p>
+      <div class="meta">
+        <span class="score">35/40</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>TECH-INTL-0001b — TUCKS Telemetry &amp; KPI System</h4>
+      <div class="tagline">"Is your team using the tool? Is the tool making them better? Now you know."</div>
+      <p><strong>Problem:</strong> No construction PM tool tells you whether users are actually using the system — or gaming it.</p>
+      <p><strong>NCC Advantage:</strong> Full telemetry tracking every meaningful action. Workforce efficiency KPIs, personal dashboards with anonymous benchmarking, and gaming detection. No competitor offers integrated gaming detection or individual benchmarking.</p>
+      <div class="meta">
+        <span class="score">33/40</span> <span class="nexop">~1.19%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>TECH-SPD-0003 — Smart Media Upload</h4>
+      <div class="tagline">"Capture everything. Upload smart. Never lose a photo."</div>
+      <p><strong>Problem:</strong> Field crews on spotty cellular either upload full-res (slow, expensive) or lose media entirely.</p>
+      <p><strong>NCC Advantage:</strong> Network-tier detection with automatic compression, concurrency, and video gating adjustments. Metadata syncs instantly; heavy files queue intelligently.</p>
+      <div class="meta">
+        <span class="score">29/40</span> <span class="nexop">~0.24%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>TECH-SPD-0004 — NexBRIDGE Real-Time Update Push</h4>
+      <div class="tagline">"Update available → every connected desktop starts downloading in seconds."</div>
+      <p><strong>Problem:</strong> Desktop apps rely on polling for updates — users may run stale builds for 30+ minutes.</p>
+      <p><strong>NCC Advantage:</strong> API broadcasts <code>update:available</code> through the Distributed Compute Mesh to all connected desktops instantly. Offline devices catch up via standard polling.</p>
+      <div class="meta">
+        <span class="score">28/40</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>TECH-VIS-0001 — NexOP: Operating Percentage Metric</h4>
+      <div class="tagline">"What percentage of your revenue is Nexus recovering? Now you know."</div>
+      <p><strong>Problem:</strong> Dollar-based ROI figures don't scale — "$150K saved" means different things to a $2M firm and a $50M firm.</p>
+      <p><strong>NCC Advantage:</strong> NexOP expresses every module's impact as a % of annual revenue. "~9% of revenue recovered" is instantly meaningful at any company size. Dashboard-ready, self-scaling, self-evident.</p>
+      <div class="meta">
+        <span class="score">35/40</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>TECH-VIS-0002 — NexINT: Operational Integrity Dashboard</h4>
+      <div class="tagline">"The gap between how you think you operate and how you actually operate."</div>
+      <p><strong>Problem:</strong> Companies assume they're running tight operations. Reality: industry baseline is ~72% integrity across financial accuracy, process completion, compliance, and data quality.</p>
+      <p><strong>NCC Advantage:</strong> System-wide accuracy index measuring 4 dimensions. Each CAM contributes to one or more integrity dimensions. Composite score rises from ~72% to ~95% with Nexus active. The metric that proves operational discipline to clients and insurers.</p>
+      <div class="meta">
+        <span class="score score-top">36/40</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="nav">
+      <a href="#ch6">← Previous: Operations (OPS)</a>
+      <a href="#ch8">Next: Client Relations (CLT) →</a>
+    </div>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- CHAPTER 8: CLIENT RELATIONS (CLT)                                   -->
+  <!-- ================================================================== -->
+  <div id="ch8" class="chapter">
+    <h1>Client Relations (CLT) — 4 CAMs | ★ Flagship + NexFIT</h1>
+    <p><strong>Sovereign marketplace, NexFIT discovery engine, acquisition flywheel, and dual-identity portal.</strong></p>
+
+    <table>
+      <tr><th>CAM ID</th><th>Title</th><th>Score</th><th>NexOP</th><th>Status</th></tr>
+      <tr style="background: #fff8e1;"><td><strong>CLT-INTG-0001</strong></td><td><strong>NCC Sovereign Marketplace — The Integrated Contractor Economy ★</strong></td><td><span class="score score-top">37/40</span></td><td>—</td><td><span class="status-badge" style="background:#fff3e0;color:#ef6c00;">flagship</span></td></tr>
+      <tr style="background: #f0fdf4;"><td><strong>CLT-INTL-0001</strong></td><td><strong>NexFIT — Personalized Module Discovery &amp; ROI Engine</strong> <span style="color:#16a34a;font-weight:700;">★ NEW</span></td><td><span class="score score-top">36/40</span></td><td>—</td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>CLT-COLLAB-0001</td><td>Client Tenant Tier — Acquisition Flywheel</td><td><span class="score">30/40</span></td><td>—</td><td><span class="status-badge status-implemented">implemented</span></td></tr>
+      <tr><td>CLT-COLLAB-0002</td><td>Dual-User Portal Routing</td><td><span class="score">29/40</span></td><td><span class="nexop">~0.15%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+    </table>
+
+    <h2>Executive Summaries</h2>
+
+    <div class="cam-card" style="border: 2px solid #f9a825; background: #fffde7;">
+      <h4>CLT-INTG-0001 — NCC Sovereign Marketplace: The Integrated Contractor Economy ★ Flagship</h4>
+      <div class="tagline">"You don't list on NCC. You exist on NCC."</div>
+      <p><strong>Problem:</strong> Construction is a $2T industry where the people who build everything own nothing digital. Existing marketplaces sell leads, not relationships. PM tools capture data but strand it in silos. No platform connects a contractor's identity, operations, and reputation into a self-reinforcing system.</p>
+      <p><strong>NCC Advantage:</strong> Sovereign identity model — every entity owns a capability portfolio, asset registry, availability surface, and reputation ledger built automatically from project execution data. The marketplace discovers contractors by verified capabilities and proven performance, not purchased rank. The integrated lifecycle (Discover → Estimate → Schedule → Execute → Track → Invoice → Reputation → Discover) creates a data flywheel that no single-function competitor can replicate. All 45 CAMs are nodes in this connected system — the marketplace is the reason they all exist.</p>
+      <p><strong>The Moat:</strong> A competitor must simultaneously build a marketplace, estimating engine, scheduling system, daily logging, financial tracking, reputation system, and connect all seven into a coherent platform. Missing any one breaks the flywheel.</p>
+      <div class="meta">
+        <span class="score score-top">37/40</span> <span style="display:inline-block;background:#ef6c00;color:white;padding:2px 10px;border-radius:12px;font-weight:700;font-size:0.85em;">★ Flagship</span> <span class="status-badge" style="background:#fff3e0;color:#ef6c00;">U:10 V:10 D:8 Def:9</span>
+      </div>
+    </div>
+
+    <div class="cam-card" style="border: 2px solid #16a34a; background: #f0fdf4;">
+      <h4>CLT-INTL-0001 — NexFIT: Personalized Module Discovery &amp; ROI Engine <span style="color:#16a34a;font-weight:700;">★ NEW</span></h4>
+      <div class="tagline">"You don't know what you don't know — until the system shows you what you're losing."</div>
+      <p><strong>Problem:</strong> Contractors face 18+ modules and have no idea which ones matter for their business. The flat price list leads to low activation and missed value.</p>
+      <p><strong>NCC Advantage:</strong> An 8-question interactive wizard analyzes the contractor's profile and returns three-tier recommendations (Essential / Discovery / Growth) with personalized dollar-ROI projections. Inference rules surface modules the user didn't ask for — "you don't know what you don't know" delivered as actionable intelligence. Lead capture converts visitors into profiled prospects. Live at <code>/nexfit</code>.</p>
+      <div class="meta">
+        <span class="score score-top">36/40</span> <span style="display:inline-block;background:#16a34a;color:white;padding:2px 10px;border-radius:12px;font-weight:700;font-size:0.85em;">★ NEW</span> <span class="status-badge status-draft">U:9 V:9 D:10 Def:8</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>CLT-COLLAB-0001 — Client Tenant Tier: Acquisition Flywheel</h4>
+      <div class="tagline">"Your clients don't just view projects — they become your next subscribers."</div>
+      <p><strong>Problem:</strong> Client portals are dead ends. No viral distribution, no conversion opportunity, no client identity on the platform.</p>
+      <p><strong>NCC Advantage:</strong> One checkbox during project creation invites the client. They get a real login, a portal showing every project across every contractor on Nexus, and a clear upgrade path. Every project invite is a product demo on real data. Zero friction.</p>
+      <div class="meta">
+        <span class="score">30/40</span> <span class="status-badge status-implemented">implemented</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>CLT-COLLAB-0002 — Dual-User Portal Routing</h4>
+      <div class="tagline">"One login. One identity. The right view for every project."</div>
+      <p><strong>Problem:</strong> Traditional PM tools force rigid role silos — you're either a client or an internal user. Breaks for dual-role users.</p>
+      <p><strong>NCC Advantage:</strong> Single user identity spans client and internal roles across companies. Client-first login routing, one-click project portal bridge, per-project role enforcement. Seamless context switching.</p>
+      <div class="meta">
+        <span class="score">29/40</span> <span class="nexop">~0.15%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card" style="border: 2px solid #16a34a; background: #f0fdf4;">
+      <h4>CLT-COLLAB-0003 — Viral Document Sharing &amp; Graduated Identity System <span style="color:#16a34a;font-weight:700;">★ NEW</span></h4>
+      <div class="tagline">"Every document shared is a seed. Every viewer who registers is a root. Every marketplace participant is a branch."</div>
+      <p><strong>Problem:</strong> NCC documents are either fully public or behind full auth. No middle ground — no way for viewers to share, no referral chain, no progressive path from anonymous visitor to marketplace participant.</p>
+      <p><strong>NCC Advantage:</strong> Token-gated document sharing with viewer-invites-viewer viral mechanics. Four-tier graduated identity (Anonymous → VIEWER → Marketplace → Subscriber). Self-referential referral chain tracks propagation depth, viral coefficient, and conversion attribution. Marketplace opt-in dialog with dismissal countdown — patient, non-intrusive, inevitable. Every share is free distribution; every viewer a potential node in the network.</p>
+      <div class="meta">
+        <span class="score">35/40</span> <span style="display:inline-block;background:#16a34a;color:white;padding:2px 10px;border-radius:12px;font-weight:700;font-size:0.85em;">★ NEW</span> <span class="status-badge status-draft">U:9 V:9 D:9 Def:8</span>
+      </div>
+    </div>
+
+    <div class="nav">
+      <a href="#ch7">← Previous: Technology (TECH)</a>
+      <a href="#ch9">Next: Compliance (CMP) →</a>
+    </div>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- CHAPTER 9: COMPLIANCE (CMP)                                         -->
+  <!-- ================================================================== -->
+  <div id="ch9" class="chapter">
+    <h1>Compliance (CMP) — 2 CAMs</h1>
+    <p><strong>Module NexOP: ~0.60% of revenue</strong></p>
+
+    <table>
+      <tr><th>CAM ID</th><th>Title</th><th>Score</th><th>NexOP</th><th>Status</th></tr>
+      <tr><td>CMP-AUTO-0001</td><td>NexCheck — Site Compliance Kiosk</td><td><span class="score">34/40</span></td><td><span class="nexop">~0.40%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+      <tr><td>CMP-INTG-0001</td><td>OSHA eCFR Auto-Sync</td><td><span class="score">33/40</span></td><td><span class="nexop">~0.20%</span></td><td><span class="status-badge status-draft">draft</span></td></tr>
+    </table>
+
+    <h2>Executive Summaries</h2>
+
+    <div class="cam-card">
+      <h4>CMP-AUTO-0001 — NexCheck: Site Compliance Kiosk</h4>
+      <div class="tagline">"Tap in. Sign off. Stay compliant."</div>
+      <p><strong>Problem:</strong> Paper sign-in sheets, printed JSAs, and missing sign-out records. No real-time visibility into who's on site or what they acknowledged.</p>
+      <p><strong>NCC Advantage:</strong> NFC-powered kiosk on any phone/tablet. Identifies workers with a tap, walks through required documents (frequency engine: ONCE/DAILY/ON_CHANGE), captures finger signature, builds real-time digital roster. Three-tier sign-out with geo-fence integration.</p>
+      <div class="meta">
+        <span class="score">34/40</span> <span class="nexop">~0.40%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="cam-card">
+      <h4>CMP-INTG-0001 — OSHA eCFR Auto-Sync</h4>
+      <div class="tagline">"The official regulations. Always current. Zero manual updates."</div>
+      <p><strong>Problem:</strong> OSHA compliance requires current regulations, but nobody maintains them in the PM system.</p>
+      <p><strong>NCC Advantage:</strong> Auto-imports the complete 29 CFR 1926 from the official eCFR API. Change detection, content-hash versioning, structured manual with subparts as chapters. Planned: OSHA section badges on PETL line items.</p>
+      <div class="meta">
+        <span class="score">33/40</span> <span class="nexop">~0.20%</span> <span class="status-badge status-draft">draft</span>
+      </div>
+    </div>
+
+    <div class="nav">
+      <a href="#ch8">← Previous: Client Relations (CLT)</a>
+      <a href="#ch10">Next: Portfolio Impact →</a>
+    </div>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- CHAPTER 10: PORTFOLIO IMPACT & REFERENCES                           -->
+  <!-- ================================================================== -->
+  <div id="ch10" class="chapter">
+    <h1>Portfolio Impact &amp; Strategic Summary</h1>
+
+    <div class="callout-gold">
+      <strong>The Nexus platform's 46 CAMs collectively recover ~6–12% of a contractor's annual revenue while lifting operational integrity from an industry baseline of ~72% to a target of ~95%.</strong>
+    </div>
+
+    <h2>NexOP Revenue Impact by Mode</h2>
+    <table>
+      <tr><th>Mode</th><th>CAMs</th><th>NexOP</th><th>Key Drivers</th></tr>
+      <tr><td><strong>FIN</strong> — Financial</td><td>13</td><td>~12.22%</td><td>NexVERIFY (~7.50%), BOM Pricing (~2.99%), Receipt Capture (~1.65%)</td></tr>
+      <tr><td><strong>EST</strong> — Estimating</td><td>6</td><td>~3.12%</td><td>BOM Pipeline (~2.99%), NexPLAN (~0.60%)</td></tr>
+      <tr><td><strong>OPS</strong> — Operations</td><td>9</td><td>~1.81%</td><td>Field Qty (~0.61%), NexFIND (~0.54%), Phantom Fleet (~0.39%)</td></tr>
+      <tr><td><strong>TECH</strong> — Technology</td><td>11</td><td>~1.51%</td><td>TUCKS (~1.19%), Smart Media (~0.24%)</td></tr>
+      <tr><td><strong>CLT</strong> — Client Relations</td><td>5</td><td>~0.15%</td><td>Sovereign Marketplace (flagship), NexFIT (discovery), Viral Sharing (network growth), Dual Portal (~0.15%)</td></tr>
+      <tr><td><strong>CMP</strong> — Compliance</td><td>2</td><td>~0.60%</td><td>NexCheck (~0.40%), OSHA eCFR (~0.20%)</td></tr>
+    </table>
+
+    <h2>NexINT Integrity Dimensions</h2>
+    <table>
+      <tr><th>Dimension</th><th>Baseline</th><th>Target</th><th>Key Contributing CAMs</th></tr>
+      <tr><td><strong>Financial Accuracy</strong></td><td>~70%</td><td>~97%</td><td>NexVERIFY, Zero-Loss, Duplicate Scanner, Audit Chain</td></tr>
+      <tr><td><strong>Process Completion</strong></td><td>~75%</td><td>~95%</td><td>Auto-Posting, Group Tasks, Smart Prescreen</td></tr>
+      <tr><td><strong>Compliance</strong></td><td>~68%</td><td>~94%</td><td>NexCheck, OSHA eCFR, TUCKS Gaming Detection</td></tr>
+      <tr><td><strong>Data Quality</strong></td><td>~74%</td><td>~96%</td><td>NexEXTRACT, NexPRICE, Receipt Bridge, Field Qty</td></tr>
+    </table>
+
+    <div class="mermaid">
+graph LR
+    subgraph "Without Nexus"
+        B1["Financial<br/>~70%"]:::low
+        B2["Process<br/>~75%"]:::low
+        B3["Compliance<br/>~68%"]:::low
+        B4["Data Quality<br/>~74%"]:::low
+    end
+
+    subgraph "With Nexus (46 CAMs)"
+        A1["Financial<br/>~97%"]:::high
+        A2["Process<br/>~95%"]:::high
+        A3["Compliance<br/>~94%"]:::high
+        A4["Data Quality<br/>~96%"]:::high
+    end
+
+    B1 -->|"+27pp"| A1
+    B2 -->|"+20pp"| A2
+    B3 -->|"+26pp"| A3
+    B4 -->|"+22pp"| A4
+
+    classDef low fill:#ffcdd2,stroke:#c62828,color:#c62828,stroke-width:2px
+    classDef high fill:#c8e6c9,stroke:#2e7d32,color:#2e7d32,stroke-width:2px
+    </div>
+    <p class="caption">NexINT composite: ~72% industry baseline → ~95% with Nexus active</p>
+
+    <h2>Defensibility Moats</h2>
+    <div class="callout-green">
+      <strong>Five structural moats protect the Nexus CAM portfolio:</strong>
+      <ol>
+        <li><strong>Network Effects</strong> — NexPRICE, NexFIND, and Receipt Bridge grow more valuable with every tenant.</li>
+        <li><strong>Edge Compute</strong> — Distributed Compute Mesh makes the platform faster as adoption grows — inverted cost curve.</li>
+        <li><strong>Data Compounding</strong> — NexEXTRACT and Smart Prescreen improve per-tenant over time. Switching means starting from zero.</li>
+        <li><strong>Workflow Lock-in</strong> — 5-layer audit chain, GAAP-clean offsets, and NFC compliance create operational dependency.</li>
+        <li><strong>Metric Ownership</strong> — NexOP and NexINT are proprietary metrics that only Nexus can compute. They become the language of operational excellence.</li>
+        <li><strong>Sovereign Marketplace</strong> — The integrated lifecycle creates a data flywheel where every project strengthens reputation, which drives discovery, which generates more projects. Non-portable by design.</li>
+      </ol>
+    </div>
+
+    <h2>Revenue Tier Extrapolations</h2>
+    <table>
+      <tr><th>Annual Revenue</th><th>NexOP at ~9%</th><th>Context</th></tr>
+      <tr><td>$2M (solo GC)</td><td>~$180K recovered</td><td>Equivalent to 1 additional crew's annual output</td></tr>
+      <tr><td>$5M (small firm)</td><td>~$450K recovered</td><td>Equivalent to an entire project profit margin</td></tr>
+      <tr><td>$15M (mid-market)</td><td>~$1.35M recovered</td><td>Funds a full-time estimator + PM</td></tr>
+      <tr><td>$50M (enterprise)</td><td>~$4.5M recovered</td><td>Offsets an entire department's overhead</td></tr>
+    </table>
+
+    <h2>Reference Documents</h2>
+    <table>
+      <tr><th>Document</th><th>Purpose</th></tr>
+      <tr><td>CAM-PORTFOLIO-IMPACT.md</td><td>Detailed aggregate NexOP + NexINT analysis with revenue tier extrapolations</td></tr>
+      <tr><td>CAM Competitive Advantage System SOP</td><td>SOP for CAM creation, evaluation, taxonomy, and lifecycle management</td></tr>
+    </table>
+
+    <h2>Document Info</h2>
+    <table>
+      <tr><th>Field</th><th>Value</th></tr>
+      <tr><td>Revision</td><td>1.0</td></tr>
+      <tr><td>Created</td><td>March 10, 2026</td></tr>
+      <tr><td>Total CAMs</td><td>47</td></tr>
+      <tr><td>Status</td><td>Active — indexed from individual CAM documents</td></tr>
+      <tr><td>Last Updated</td><td>March 11, 2026 — Added CLT-COLLAB-0003 Viral Document Sharing &amp; Graduated Identity (35/40)</td></tr>
+    </table>
+
+    <div class="nav">
+      <a href="#ch9">← Previous: Compliance (CMP)</a>
+      <a href="#ch1">↑ Back to Top</a>
+    </div>
+  </div>
+
+  <!-- Mermaid.js — renders <div class="mermaid"> blocks into SVG diagrams -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'default',
+      securityLevel: 'loose',
+      flowchart: { useMaxWidth: true, htmlLabels: true },
+    });
+  </script>
+</body>
+</html>

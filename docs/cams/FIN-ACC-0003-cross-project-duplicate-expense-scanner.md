@@ -24,6 +24,10 @@ visibility:
 
 # FIN-ACC-0003 — Cross-Project Duplicate Expense Scanner
 
+## Work ↔ Signal
+> **The Work**: One-click scan detects when the same expense is posted to multiple projects, with side-by-side comparison for instant resolution.
+> **The Signal**: This company actively polices cross-project billing integrity — double-billing is structurally impossible, not just discouraged. (→ Reputation: billing accuracy)
+
 ## Elevator Pitch
 
 One-click scan detects when the same receipt or expense is posted to more than one project — then lets you compare the bills side-by-side with full receipt images, OCR data, and line items. Catches double-billing that manual review misses.

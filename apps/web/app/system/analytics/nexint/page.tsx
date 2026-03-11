@@ -278,8 +278,14 @@ export default function NexIntDashboardPage() {
   return (
     <PageCard>
       <div>
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 4 }}>
+        {/* Print-only branded header — hidden on screen, shown in print via head-injected CSS */}
+        <div className="nexint-print-header" style={{ textAlign: "center", marginBottom: 16, paddingBottom: 12, borderBottom: "2px solid #0f172a" }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", letterSpacing: 2 }}>NEXUS SYSTEM NCC</div>
+          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>Nexus Impact Dashboard &middot; {new Date().toLocaleDateString()}</div>
+        </div>
+
+        {/* Screen header */}
+        <div className="no-print" style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 4 }}>
           <h2 style={{ marginTop: 0, marginBottom: 0, fontSize: 20, fontWeight: 700 }}>
             Nexus Impact Dashboard
           </h2>

@@ -27,6 +27,10 @@ visibility:
 ## CAM ID
 `FIN-ACC-0005`
 
+## Work ↔ Signal
+> **The Work**: Edit any pricing field — original rate, markup %, final rate, discount — and every other field recalculates instantly. Zero manual math, full audit trail from cost book to billed amount.
+> **The Signal**: Every invoice line carries a complete pricing chain from cost book origin to final amount — pricing accuracy is provable, not assumed. (→ Reputation: pricing rigor)
+
 ## Elevator Pitch
 Edit any pricing field on an invoice line item — original rate, edited rate, markup %, final bill rate, discount amount, or discount % — and every other field recalculates instantly. No spreadsheets, no manual math, no pricing errors.
 

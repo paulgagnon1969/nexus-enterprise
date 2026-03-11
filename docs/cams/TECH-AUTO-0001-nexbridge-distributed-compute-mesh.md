@@ -26,6 +26,10 @@ tags: [cam, technology, automation, distributed-compute, mesh, nexbridge, scalin
 
 > *Every NexBRIDGE installation is a server. The more customers install, the faster the platform gets — for everyone.*
 
+## Work ↔ Signal
+> **The Work**: Every NexBRIDGE desktop installation becomes a compute node. API coordinator dispatches jobs to the best available node by CPU, bandwidth, power state, and proximity.
+> **The Signal**: The mesh's total compute capacity grows with every installation — each new customer makes the platform faster for every other customer. (→ Market Intelligence: compute network density)
+
 ## Elevator Pitch
 
 Nexus turns every NexBRIDGE desktop installation into a compute node in a distributed mesh. The API server acts as a coordinator — it maintains a real-time registry of every connected desktop, scores each by CPU availability, bandwidth, power state, and proximity, then dispatches compute-heavy jobs (OCR, vision analysis, PDF generation, video processing, CSV parsing) to the best available node. If no client node responds within 5 seconds, the server processes the job itself. The result: zero-cost horizontal scaling that gets faster with every installation, with no cloud compute bills, no infrastructure provisioning, and no user configuration. The mesh is invisible to end users — they just experience a faster platform.

@@ -21,6 +21,7 @@ import {
 import { CostBookPickerModal } from "../components/cost-book-picker-modal";
 import { RawDetailModal } from "../components/RawDataTable";
 import { ColumnCustomizer, useColumnPrefs } from "../components/ColumnCustomizer";
+import { gsUrlToProxyUrl } from "../lib/uploads";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -5285,11 +5286,11 @@ export default function FinancialPage() {
                           ) : bill.attachments.map((att: any) => (
                             <div key={att.id} style={{ marginBottom: 8 }}>
                               {att.mimeType?.startsWith("image/") ? (
-                                <a href={att.fileUrl} target="_blank" rel="noopener noreferrer">
-                                  <img src={att.fileUrl} alt={att.fileName || "Receipt"} style={{ width: "100%", maxHeight: 300, objectFit: "contain", borderRadius: 6, border: "1px solid #e5e7eb" }} />
+                                <a href={gsUrlToProxyUrl(att.fileUrl)} target="_blank" rel="noopener noreferrer">
+                                  <img src={gsUrlToProxyUrl(att.fileUrl)} alt={att.fileName || "Receipt"} style={{ width: "100%", maxHeight: 300, objectFit: "contain", borderRadius: 6, border: "1px solid #e5e7eb" }} />
                                 </a>
                               ) : (
-                                <a href={att.fileUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "#2563eb" }}>
+                                <a href={gsUrlToProxyUrl(att.fileUrl)} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "#2563eb" }}>
                                   {att.fileName || "Attachment"}
                                 </a>
                               )}

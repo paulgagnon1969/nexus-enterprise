@@ -25,6 +25,10 @@ scores:
 
 # NexPRICE — Regional Pricing Intelligence
 
+## Work ↔ Signal
+> **The Work**: Every tenant's purchases passively feed an anonymized Master Cost Book with real, SKU-level material prices normalized by geographic region.
+> **The Signal**: The network's collective purchasing data creates a living pricing database that no individual company could build alone — the more tenants, the more accurate the prices. (→ Market Intelligence: regional pricing)
+
 ## Elevator Pitch
 
 NexPRICE is a regionally-normalized, crowd-sourced pricing engine built into the Nexus ecosystem. Every tenant's real-world purchases — Home Depot receipts, credit card statements, vendor quotes, Xactimate estimates — feed an anonymized global Master Cost Book where prices are normalized by geographic cost-of-living indices. New tenants get instant, localized material pricing for their market. Existing tenants see price drift alerts and regional trend data. No competitor has this because no competitor has the multi-tenant purchase data flywheel.
@@ -99,24 +103,24 @@ Traditional cost databases (RS Means, Craftsman) update annually. NexPRICE updat
 
 All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes.
 
-|| Category | % of Revenue | What It Represents |
-||----------|-------------|--------------------|
-|| **Cost book maintenance eliminated** | ~0.05% | Manual price list updates replaced by passive collection from receipts, CSVs, and OCR |
-|| **New-market onboarding acceleration** | ~0.04% | Cost book bootstrap via NexPRICE Seed instead of weeks of manual research |
-|| **Price drift detection** | ~0.06% | Mid-project material spikes caught early via network-wide trend alerts |
-|| **Insurance supplement evidence** | ~0.08% | Price trend data supporting supplement negotiations with carriers |
-|| **Direct NexPRICE Savings** | **~0.24%** | **Combined labor and cost avoidance as a share of revenue** |
-|| **Bid accuracy exposure reduction** | **~2.25%** | **Material pricing error narrowed on annual materials spend — margin protection, not direct savings** |
+| Category | % of Revenue | What It Represents |
+|----------|-------------|--------------------|
+| **Cost book maintenance eliminated** | ~0.05% | Manual price list updates replaced by passive collection from receipts, CSVs, and OCR |
+| **New-market onboarding acceleration** | ~0.04% | Cost book bootstrap via NexPRICE Seed instead of weeks of manual research |
+| **Price drift detection** | ~0.06% | Mid-project material spikes caught early via network-wide trend alerts |
+| **Insurance supplement evidence** | ~0.08% | Price trend data supporting supplement negotiations with carriers |
+| **Direct NexPRICE Savings** | **~0.24%** | **Combined labor and cost avoidance as a share of revenue** |
+| **Bid accuracy exposure reduction** | **~2.25%** | **Material pricing error narrowed on annual materials spend — margin protection, not direct savings** |
 
 ### Real-World Extrapolation by Tenant Size
 
-|| Annual Revenue | Direct Savings (~0.24%) | Bid Accuracy Exposure (~2.25%) |
-||---------------|------------------------|-------------------------------|
-|| **$1M** | **~$4,000** | ~$22K |
-|| **$2M** | **~$7,000** | ~$45K |
-|| **$5M** | **~$11,900** | ~$113K |
-|| **$10M** | **~$23,700** | ~$225K |
-|| **$50M** | **~$79,000** | ~$1.1M |
+| Annual Revenue | Direct Savings (~0.24%) | Bid Accuracy Exposure (~2.25%) |
+|---------------|------------------------|-------------------------------|
+| **$1M** | **~$4,000** | ~$22K |
+| **$2M** | **~$7,000** | ~$45K |
+| **$5M** | **~$11,900** | ~$113K |
+| **$10M** | **~$23,700** | ~$225K |
+| **$50M** | **~$79,000** | ~$1.1M |
 
 *The bid accuracy exposure is the headline number — a 5% material pricing error on a $500K project is $25K of margin at risk. NexPRICE narrows the variance; the actual capture rate depends on estimator engagement with the data.*
 
@@ -197,5 +201,5 @@ All impact figures are expressed as a **percentage of annual revenue** so they s
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-03-04 | Initial CAM — NexPRICE regional pricing intelligence engine |
-|| 1.1 | 2026-03-04 | Added operational savings section, aligned frontmatter to `scores:` key |
-|| 1.2 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |
+| 1.1 | 2026-03-04 | Added operational savings section, aligned frontmatter to `scores:` key |
+| 1.2 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

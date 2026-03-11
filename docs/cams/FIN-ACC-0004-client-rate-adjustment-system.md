@@ -27,6 +27,10 @@ scores:
 
 > *Full price on record. Agreed rate in practice. Every discount tracked, remembered, and defensible.*
 
+## Work ↔ Signal
+> **The Work**: When a PM adjusts a cost book price, the system generates dual invoice lines (full price + companion credit) with reason codes. Client rate memory pre-populates agreed rates on future projects.
+> **The Signal**: This company honors pricing agreements consistently across PMs and projects — institutional knowledge survives turnover. (→ Reputation: pricing transparency)
+
 ## Elevator Pitch
 
 Restoration companies routinely negotiate client-specific rates — loyalty discounts, contract terms, special corrections — but every platform forces them to choose: bill at the agreed rate (hiding the real cost) or bill at full price (ignoring the agreement). NexNCC is the first platform that does both. When a PM adjusts a cost book line item downward, the system automatically generates two invoice lines: the **full cost book price** and a **companion credit** showing exactly what was discounted and why. The client sees the full value of the work performed, the agreed discount, and the final amount due — all on one invoice. And when the same client's next project starts, the system **remembers the rate** and pre-populates the same discount, ensuring pricing consistency across every job without the PM having to look up what was agreed to last time.

@@ -30,6 +30,10 @@ tags: [cam, nexint, integrity, accuracy, compliance, dashboard, operational-exce
 
 NexINT measures what competitors cannot: **the gap between how a company thinks it operates and how it actually operates.** The industry baseline integrity rate is ~65–72%. Nexus-active companies consistently reach ~92–97%.
 
+## Work ↔ Signal
+> **The Work**: System-wide accuracy index measuring 4 dimensions: financial accuracy, process completion, compliance, and data quality. Composite score rises from ~72% to ~95% with Nexus active.
+> **The Signal**: NexINT is the meta-reputation signal — the single number that proves operational discipline to clients, insurers, and auditors. (→ Reputation: operational integrity)
+
 ## The Problem
 
 Contractors can't improve what they can't measure. Every restoration and construction firm believes their processes are tight — receipts get matched, tasks get closed, checklists get completed, data gets categorized. But without system-enforced workflows, the reality is:

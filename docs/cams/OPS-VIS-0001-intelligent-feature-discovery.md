@@ -26,6 +26,10 @@ tags: [cam, operations, visibility, feature-discovery, onboarding, admin, adopti
 
 > *Every new feature finds the people who can buy it.*
 
+## Work ↔ Signal
+> **The Work**: Auto-redirects tenant admins to a 'What's New' page on login (max 3 times). Per-user tracking, role-scoped targeting, direct billing page links.
+> **The Signal**: Feature engagement telemetry reveals which capabilities drive the most interest — the marketplace learns what to build next from actual admin behavior. (→ Demand: feature interest signals)
+
 ## Elevator Pitch
 
 When NCC ships a new module or major capability, the platform automatically identifies tenant admins who haven't seen it yet and redirects them to a "What's New" page for their next 3 logins. The page highlights unseen features with glowing cards, links directly to the billing page to enable them, and tracks acknowledgment per user. Once the admin clicks "Got it" or has been redirected 3 times, the nudge stops. This closes the critical gap between "feature shipped" and "admin knows it exists" — the #1 blocker to module adoption in a modular SaaS product.

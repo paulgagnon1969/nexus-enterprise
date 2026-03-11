@@ -482,17 +482,40 @@ export class DailyLogService {
   }
 
   /**
-   * Try to generate a signed read URL for a storage-hosted file.
-   * Handles gs:// URIs (MinIO/GCS), public HTTP URLs from the storage
-   * provider, and returns anything else as-is.
+   * Try to generate a readable URL for a storage-hosted file.
+   *
+   * When MINIO_PUBLIC_URL is set (e.g. https://staging-api.nfsgrp.com/files)
+   * the method returns a proxy URL through the API's FileProxyController.
+   * This makes URLs reachable from mobile devices and any external client
+   * that can reach the API via Cloudflare Tunnel.
+   *
+   * Falls back to presigned MinIO/GCS URLs when the proxy is not configured.
    */
   private async signFileUrl(fileUrl: string): Promise<string> {
     if (!fileUrl) return fileUrl;
 
-    // Sign gs:// or s3:// storage URIs directly
+    // Rewrite URLs with the dead legacy domain to the correct public API domain.
+    // These are baked into existing DB records from when MINIO_PUBLIC_URL pointed
+    // to the wrong domain (ncc-nexus-contractor-connect.com doesn't resolve).
+    if (fileUrl.includes('ncc-nexus-contractor-connect.com')) {
+      fileUrl = fileUrl.replace(
+        /https:\/\/api-staging\.ncc-nexus-contractor-connect\.com/g,
+        'https://staging-api.nfsgrp.com',
+      );
+    }
+
+    const publicBase = process.env.MINIO_PUBLIC_URL; // e.g. https://staging-api.nfsgrp.com/files
+
+    // Resolve gs:// or s3:// storage URIs
     if (fileUrl.startsWith("gs://") || fileUrl.startsWith("s3://")) {
       const match = fileUrl.match(/^(?:gs|s3):\/\/([^/]+)\/(.+)$/);
       if (!match) return fileUrl;
+
+      // Prefer proxy URL — works from mobile, desktop, and web
+      if (publicBase) {
+        return `${publicBase}/${match[1]}/${match[2]}`;
+      }
+
       try {
         return await this.gcs.createSignedReadUrl({
           bucket: match[1]!,
@@ -510,6 +533,9 @@ export class DailyLogService {
       /^https:\/\/storage\.googleapis\.com\/([^/]+)\/(.+)$/,
     );
     if (gcsMatch) {
+      if (publicBase) {
+        return `${publicBase}/${gcsMatch[1]}/${gcsMatch[2]}`;
+      }
       try {
         return await this.gcs.createSignedReadUrl({
           bucket: gcsMatch[1]!,

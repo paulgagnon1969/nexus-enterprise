@@ -27,6 +27,10 @@ visibility:
 ## CAM ID
 `FIN-VIS-0002`
 
+## Work ↔ Signal
+> **The Work**: Four-column invoice table shows original retail rate, billed amount, and discount sub-lines. Clients see the full value of every discount on every line.
+> **The Signal**: This company presents pricing with full transparency — clients see what they're getting, not just what they owe. Trust is built into the invoice format. (→ Reputation: client transparency)
+
 ## Elevator Pitch
 Every invoice line item shows the original retail rate alongside the actual billed amount, with discount sub-lines and a Retail → Discounts → Amount Due totals breakdown — giving both internal teams and clients full pricing transparency at a glance.
 

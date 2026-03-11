@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import StarRating from "../../../../components/star-rating";
 import { formatPhone } from "../../../../lib/phone";
+import { gsUrlToProxyUrl } from "../../../../lib/uploads";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -763,7 +764,7 @@ export default function CandidateDetailPage() {
   const primaryGovId =
     govIds.find(d => docAvailable[d.id] !== false) || (govIds.length > 0 ? govIds[0] : null);
 
-  const candidatePhotoUrl = primaryPhoto?.fileUrl || "/people-icon-users.jpg";
+  const candidatePhotoUrl = primaryPhoto?.fileUrl ? gsUrlToProxyUrl(primaryPhoto.fileUrl) : "/people-icon-users.jpg";
   const hasCandidatePhoto = !!primaryPhoto;
 
   async function handleSaveHrComp() {
@@ -1184,7 +1185,7 @@ export default function CandidateDetailPage() {
                 <div>
                   <span>Government ID </span>
                   <a
-                    href={primaryGovId.fileUrl}
+                    href={gsUrlToProxyUrl(primaryGovId.fileUrl)}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{ color: "#2563eb", textDecoration: "none", fontSize: 11 }}
@@ -2293,7 +2294,7 @@ export default function CandidateDetailPage() {
                               }}
                             >
                               <img
-                                src={doc.fileUrl}
+                                src={gsUrlToProxyUrl(doc.fileUrl)}
                                 alt={label}
                                 style={{
                                   width: 56,
@@ -2310,7 +2311,7 @@ export default function CandidateDetailPage() {
                                   Profile photo
                                 </div>
                                 <a
-                                  href={doc.fileUrl}
+                                  href={gsUrlToProxyUrl(doc.fileUrl)}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   style={{
@@ -2372,7 +2373,7 @@ export default function CandidateDetailPage() {
                                   Government ID
                                 </div>
                                 <a
-                                  href={doc.fileUrl}
+                                  href={gsUrlToProxyUrl(doc.fileUrl)}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   style={{
@@ -2433,7 +2434,7 @@ export default function CandidateDetailPage() {
                                   {label}
                                 </div>
                                 <a
-                                  href={doc.fileUrl}
+                                  href={gsUrlToProxyUrl(doc.fileUrl)}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   style={{

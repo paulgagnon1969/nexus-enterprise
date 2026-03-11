@@ -5,8 +5,9 @@ import { PlaidApi, Products, CountryCode } from "plaid";
 import { STRIPE_CLIENT } from "../billing/stripe.provider";
 import { PLAID_CLIENT } from "../billing/plaid.provider";
 import { PrismaService } from "../../infra/prisma/prisma.service";
-import { ProjectInvoiceStatus, ProjectPaymentMethod, ProjectPaymentStatus } from "@prisma/client";
+import { ProjectInvoiceStatus, ProjectPaymentMethod, ProjectPaymentStatus, InvoiceActivityActor, InvoiceActivityEvent } from "@prisma/client";
 import crypto from "node:crypto";
+import { InvoiceActivityService } from "./invoice-activity.service";
 
 // ── Payment Processing Fee Rates ──────────────────────────────────
 const CC_FEE_RATE = 0.035; // 3.5% credit card surcharge
@@ -19,6 +20,7 @@ export class InvoicePaymentService {
     @Inject(PLAID_CLIENT) private readonly plaid: PlaidApi,
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly invoiceActivity: InvoiceActivityService,
   ) {}
 
   private requireStripe(): Stripe {
@@ -438,7 +440,7 @@ export class InvoicePaymentService {
       : ProjectPaymentMethod.CARD;
 
     // Record the payment
-    await this.prisma.projectPayment.create({
+    const payment = await this.prisma.projectPayment.create({
       data: {
         companyId,
         projectId,
@@ -472,6 +474,56 @@ export class InvoicePaymentService {
         where: { id: invoiceId },
         data: { status: nextStatus },
       });
+    }
+
+    // ── Invoice Tracker: record activity + create AutoPayReview ──
+    try {
+      await this.invoiceActivity.recordActivity({
+        invoiceId,
+        companyId,
+        projectId,
+        actorType: InvoiceActivityActor.SYSTEM,
+        eventType: InvoiceActivityEvent.PAYMENT_SUCCEEDED,
+        metadata: { paymentMethod, amount: amountDollars, stripePaymentIntentId: paymentIntent.id },
+      });
+
+      // Create AutoPayReview flag for Admin+ to review
+      await this.prisma.autoPayReview.create({
+        data: {
+          companyId,
+          projectId,
+          invoiceId,
+          paymentId: payment.id,
+          method: paymentMethod ?? method,
+          amount: amountDollars,
+        },
+      });
+
+      // Notify Admin+ users in this company
+      const adminMembers = await this.prisma.companyMembership.findMany({
+        where: {
+          companyId,
+          role: { in: ["OWNER", "ADMIN"] },
+        },
+        select: { userId: true },
+      });
+
+      if (adminMembers.length > 0) {
+        await this.prisma.notification.createMany({
+          data: adminMembers.map((m) => ({
+            userId: m.userId,
+            companyId,
+            projectId,
+            kind: "AUTO_PAY_UPDATE" as any,
+            title: `Online payment received — $${amountDollars.toFixed(2)}`,
+            body: `Invoice ${invoice.invoiceNo ?? invoiceId} received a ${method === ProjectPaymentMethod.CARD ? "credit card" : "ACH"} payment of $${amountDollars.toFixed(2)}. Review and confirm in the Invoice Tracker.`,
+            metadata: { invoiceId, paymentId: payment.id, method: paymentMethod, amount: amountDollars },
+          })),
+        });
+      }
+    } catch (err: any) {
+      // Non-critical — don't fail the payment recording
+      console.error("[invoice-payment] Failed to create auto-pay review/notification:", err.message);
     }
 
     console.log(

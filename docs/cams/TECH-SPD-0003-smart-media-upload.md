@@ -26,6 +26,10 @@ tags: [cam, technology, speed, media, upload, compression, video, bandwidth, mob
 
 > *Capture everything. Upload smart. Never lose a photo.*
 
+## Work ↔ Signal
+> **The Work**: Network-tier detection with automatic compression, concurrency, and video gating adjustments. Metadata syncs instantly; heavy files queue intelligently.
+> **The Signal**: Higher media upload success rates mean more complete project documentation — the system ensures field evidence is captured regardless of connectivity. (→ Reputation: documentation completeness)
+
 ## Elevator Pitch
 Field crews capture hundreds of photos and videos per week on job sites with spotty cellular. Nexus automatically detects the network tier and adjusts image compression, upload concurrency, and video gating in real time — no settings, no manual quality selection, no lost media. Metadata syncs instantly on any connection; heavy files queue intelligently and upload when bandwidth allows. Competing apps either upload full-resolution images (slow, expensive data) or force manual quality choices that field workers ignore.
 
@@ -53,24 +57,24 @@ Construction sites have notoriously unreliable connectivity — steel structures
 
 All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes.
 
-|| Category | % of Revenue | What It Represents |
-||----------|-------------|--------------------|
-|| **Field time saved** | ~0.14% | Upload waits eliminated — crews document and move on instead of watching progress bars |
-|| **PM time saved** | ~0.03% | PMs no longer chasing missing photos from field workers |
-|| **Video documentation enabled** | ~0.03% | Rework prevented by video evidence that was previously impossible to upload from the field |
-|| **Cellular data cost reduction** | ~0.03% | ~60% compression savings on metered data plans across all field devices |
-|| **Prevented lost media** | ~0.01% | Upload failures with no retry eliminated — every photo and video arrives |
-|| **Total Smart Media Impact** | **~0.24%** | **Combined field efficiency and documentation reliability as a share of revenue** |
+| Category | % of Revenue | What It Represents |
+|----------|-------------|--------------------|
+| **Field time saved** | ~0.14% | Upload waits eliminated — crews document and move on instead of watching progress bars |
+| **PM time saved** | ~0.03% | PMs no longer chasing missing photos from field workers |
+| **Video documentation enabled** | ~0.03% | Rework prevented by video evidence that was previously impossible to upload from the field |
+| **Cellular data cost reduction** | ~0.03% | ~60% compression savings on metered data plans across all field devices |
+| **Prevented lost media** | ~0.01% | Upload failures with no retry eliminated — every photo and video arrives |
+| **Total Smart Media Impact** | **~0.24%** | **Combined field efficiency and documentation reliability as a share of revenue** |
 
 ### Real-World Extrapolation by Tenant Size
 
-|| Annual Revenue | Smart Media Impact (~0.24%) |
-||---------------|----------------------------|
-|| **$1M** | **~$3,200** |
-|| **$2M** | **~$7,000** |
-|| **$5M** | **~$12,000** |
-|| **$10M** | **~$23,700** |
-|| **$50M** | **~$89,000** |
+| Annual Revenue | Smart Media Impact (~0.24%) |
+|---------------|----------------------------|
+| **$1M** | **~$3,200** |
+| **$2M** | **~$7,000** |
+| **$5M** | **~$12,000** |
+| **$10M** | **~$23,700** |
+| **$50M** | **~$89,000** |
 
 *Scales with field crew size and photo volume. The video documentation savings compound over time — insurance carriers increasingly accept video evidence for supplement support, and a single video walkthrough can prevent $5K+ in disputed scope.*
 
@@ -135,5 +139,5 @@ No competitor offers the full stack: adaptive compression + WiFi-gated video + r
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-02-21 | Initial draft — smart media upload concept |
-|| 2.0 | 2026-03-04 | Full rewrite: standardized format, elevator pitch, operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |
-|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |
+| 2.0 | 2026-03-04 | Full rewrite: standardized format, elevator pitch, operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |
+| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

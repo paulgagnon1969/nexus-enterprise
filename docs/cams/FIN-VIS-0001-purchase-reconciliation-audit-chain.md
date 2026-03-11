@@ -25,6 +25,10 @@ scores:
 
 # Purchase Reconciliation — Full Audit Chain with PM Compliance
 
+## Work ↔ Signal
+> **The Work**: 5-layer audit chain traces every dollar from checking account → CC payment → individual charges → OCR receipt line items → PM-approved project allocation.
+> **The Signal**: This company can demonstrate end-to-end financial traceability to any auditor, insurer, or client — operational integrity is a navigable chain, not a claim. (→ Reputation: auditability)
+
 ## Elevator Pitch
 
 Nexus is the only construction platform that traces every dollar from the checking account outflow → credit card payment → individual CC charges → OCR receipt line items → project cost allocation, with forced PM review at every assignment. No more hundreds of unexplained credit card transactions for auditors. No more personal Starbucks runs hiding in project expenses. Every line item on every receipt is dispositioned, every project assignment is PM-approved, and the entire chain is auditable in one click.
@@ -119,24 +123,24 @@ Every dollar is traced. Every classification is recorded. Every PM decision is t
 
 All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes.
 
-|| Category | % of Revenue | What It Represents |
-||----------|-------------|--------------------|
-|| **Reconciliation time saved** | ~0.11% | Monthly CC reconciliation reduced from hours per card to minutes |
-|| **Personal expense identification** | ~0.36% | Misattributed personal spending on company cards surfaced via PM review gate |
-|| **Audit prep acceleration** | ~0.05% | Quarterly audit prep reduced from days to minutes with full drill-down chain |
-|| **PM surprise cost prevention** | ~0.12% | Expenses caught and corrected before they corrupt project budget decisions |
-|| **Year-end audit trail** | ~0.02% | Complete checking → CC → receipt → line-item chain eliminates audit reconstruction |
-|| **Total Purchase Recon Impact** | **~0.66%** | **Combined financial visibility and labor recovered as a share of revenue** |
+| Category | % of Revenue | What It Represents |
+|----------|-------------|--------------------|
+| **Reconciliation time saved** | ~0.11% | Monthly CC reconciliation reduced from hours per card to minutes |
+| **Personal expense identification** | ~0.36% | Misattributed personal spending on company cards surfaced via PM review gate |
+| **Audit prep acceleration** | ~0.05% | Quarterly audit prep reduced from days to minutes with full drill-down chain |
+| **PM surprise cost prevention** | ~0.12% | Expenses caught and corrected before they corrupt project budget decisions |
+| **Year-end audit trail** | ~0.02% | Complete checking → CC → receipt → line-item chain eliminates audit reconstruction |
+| **Total Purchase Recon Impact** | **~0.66%** | **Combined financial visibility and labor recovered as a share of revenue** |
 
 ### Real-World Extrapolation by Tenant Size
 
-|| Annual Revenue | Purchase Recon Impact (~0.66%) |
-||---------------|-------------------------------|
-|| **$1M** | **~$6,600** |
-|| **$2M** | **~$14,000** |
-|| **$5M** | **~$26,200** |
-|| **$10M** | **~$65,600** |
-|| **$50M** | **~$262,400** |
+| Annual Revenue | Purchase Recon Impact (~0.66%) |
+|---------------|-------------------------------|
+| **$1M** | **~$6,600** |
+| **$2M** | **~$14,000** |
+| **$5M** | **~$26,200** |
+| **$10M** | **~$65,600** |
+| **$50M** | **~$262,400** |
 
 *The personal expense line (~0.36%) dominates — most firms don't realize how much personal spending leaks into project costs until they have line-item visibility with forced PM review.*
 
@@ -224,5 +228,5 @@ Enterprise construction accounting with receipt scanning, but no auto-classifica
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-03-04 | Initial CAM — Purchase Reconciliation full audit chain with PM compliance |
-|| 1.1 | 2026-03-04 | Added operational savings section, aligned frontmatter to `scores:` key |
-|| 1.2 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |
+| 1.1 | 2026-03-04 | Added operational savings section, aligned frontmatter to `scores:` key |
+| 1.2 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

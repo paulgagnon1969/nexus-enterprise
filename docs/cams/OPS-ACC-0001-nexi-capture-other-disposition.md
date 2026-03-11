@@ -24,6 +24,10 @@ visibility:
 
 # OPS-ACC-0001 — NEXI Capture: Other Category Disposition
 
+## Work ↔ Signal
+> **The Work**: Structured 'Other' category with auto-flag, PM review workflow, and reclassification pipeline. Turns uncategorized field data into continuous taxonomy improvement.
+> **The Signal**: Nothing gets lost or miscategorized — the system learns from every edge case, and data quality improves continuously. (→ Reputation: data completeness)
+
 ## Problem
 Field crews cataloging materials, equipment, or site conditions often encounter items that don't fit any existing category. Without a structured catch-all, these items are either mis-categorized (polluting data) or skipped entirely (data loss).
 

@@ -111,6 +111,16 @@ function markdownToHtml(markdown: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
+  // Mermaid code blocks → <div class="mermaid"> for client-side rendering
+  html = html.replace(/```mermaid\n([\s\S]*?)```/g, (_, code) => {
+    // Un-escape HTML entities inside mermaid blocks so the renderer gets raw syntax
+    const raw = code.trim()
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">");
+    return `<div class="mermaid">${raw}</div>`;
+  });
+
   // Code blocks (``` ... ```)
   html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
     return `<pre><code class="language-${lang || "text"}">${code.trim()}</code></pre>`;
@@ -147,13 +157,61 @@ function markdownToHtml(markdown: string): string {
   // Horizontal rules
   html = html.replace(/^---+$/gm, "<hr>");
 
-  // Tables (basic support)
-  html = html.replace(/^\|(.+)\|$/gm, (_, row) => {
-    const cells = row.split("|").map((c: string) => c.trim());
-    const cellHtml = cells.map((c: string) => `<td>${c}</td>`).join("");
-    return `<tr>${cellHtml}</tr>`;
+  // Tables — detect header row, separator, and body rows.
+  // Produces <table><thead><tr><th>…</th></tr></thead><tbody><tr><td>…</td></tr>…</tbody></table>
+  const tableBlockRegex = /((?:^\|.+\|\s*$\n?)+)/gm;
+  html = html.replace(tableBlockRegex, (block) => {
+    const rows = block.trim().split("\n").filter(Boolean);
+    if (rows.length < 2) return block; // Not a real table
+
+    // Parse cells from a pipe-delimited row, dropping empty leading/trailing cells
+    const parseCells = (row: string): string[] =>
+      row.replace(/^\|/, "").replace(/\|$/, "").split("|").map((c: string) => c.trim());
+
+    // Detect separator row (all cells are dashes like ---, :--:, ---:, etc.)
+    const isSeparator = (row: string): boolean =>
+      parseCells(row).every((c) => /^:?-+:?$/.test(c));
+
+    let headerRow: string | null = null;
+    const dataRows: string[] = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      if (isSeparator(rows[i])) {
+        // The row before the separator is the header (if it exists and we haven't set one)
+        if (i === 1 && !headerRow) {
+          headerRow = rows[0];
+        }
+        continue; // Skip separator row entirely
+      }
+      if (i === 0 && rows.length > 1 && isSeparator(rows[1])) {
+        continue; // Header row already captured above
+      }
+      dataRows.push(rows[i]);
+    }
+
+    let tableHtml = "<table>";
+
+    if (headerRow) {
+      const headerCells = parseCells(headerRow)
+        .map((c) => `<th>${c}</th>`)
+        .join("");
+      tableHtml += `<thead><tr>${headerCells}</tr></thead>`;
+    }
+
+    if (dataRows.length > 0) {
+      tableHtml += "<tbody>";
+      for (const row of dataRows) {
+        const cells = parseCells(row)
+          .map((c) => `<td>${c}</td>`)
+          .join("");
+        tableHtml += `<tr>${cells}</tr>`;
+      }
+      tableHtml += "</tbody>";
+    }
+
+    tableHtml += "</table>";
+    return tableHtml;
   });
-  html = html.replace(/((?:<tr>.*<\/tr>\s*)+)/g, "<table>$1</table>");
 
   // Links
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');

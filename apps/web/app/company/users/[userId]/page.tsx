@@ -3,6 +3,7 @@
 import { FormEvent, Fragment, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { formatPhone } from "../../../lib/phone";
+import { gsUrlToProxyUrl } from "../../../lib/uploads";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -3847,7 +3848,7 @@ export default function CompanyUserProfilePage() {
                                   >
                                     <strong>Photo:</strong>{" "}
                                     <a
-                                      href={doc.fileUrl}
+                                      href={gsUrlToProxyUrl(doc.fileUrl)}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       style={{
@@ -3868,7 +3869,7 @@ export default function CompanyUserProfilePage() {
                                   >
                                     <strong>Government ID:</strong>{" "}
                                     <a
-                                      href={doc.fileUrl}
+                                      href={gsUrlToProxyUrl(doc.fileUrl)}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       style={{
@@ -3890,7 +3891,7 @@ export default function CompanyUserProfilePage() {
                                 >
                                   <strong>Attachment:</strong>{" "}
                                   <a
-                                    href={doc.fileUrl}
+                                    href={gsUrlToProxyUrl(doc.fileUrl)}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     style={{

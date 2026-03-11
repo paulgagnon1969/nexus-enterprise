@@ -26,6 +26,10 @@ tags: [cam, estimating, integration, bom, pricing, serpapi, home-depot, lowes, m
 
 > *200 materials. Two suppliers. Live prices. Three minutes.*
 
+## Work ↔ Signal
+> **The Work**: Simultaneous HD + Lowe's search with SSE streaming returns live store-level prices for 200+ materials in minutes, with timestamped snapshots for insurance evidence.
+> **The Signal**: Competitive, evidence-backed estimates built from real-time vendor pricing signal estimating accuracy and market awareness. (→ Reputation: bid competitiveness)
+
 ## Elevator Pitch
 NCC prices an entire Xactimate BOM against Home Depot and Lowe's simultaneously, streaming results to the browser in real time via SSE. Each result includes the store name, address, and phone number — so POs reference the exact pickup location. Snapshots are timestamped and never overwritten, giving PMs historical price evidence for insurance supplement negotiations. No competitor offers live multi-supplier pricing with streaming, store locations, and snapshot history.
 
@@ -54,24 +58,24 @@ NCC's BOM Pricing Pipeline solves all four problems in a single workflow:
 
 All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes. BOM Pricing is the highest-impact individual CAM in the portfolio because material cost savings scale directly with spend.
 
-|| Category | % of Revenue | What It Represents |
-||----------|-------------|--------------------|
-|| **Material cost savings** | ~1.80% | Supplier delta identified by comparing HD vs. Lowe’s prices side-by-side; captured through better purchasing decisions |
-|| **Estimator productivity** | ~0.80% | Additional estimates per week enabled by eliminating manual multi-tab price lookup |
-|| **Insurance supplement wins** | ~0.24% | Timestamped price snapshots supporting supplement negotiations with carriers |
-|| **PM time saved** | ~0.13% | 3–4 hours per project of manual lookup eliminated |
-|| **Wrong-store delivery avoided** | ~0.02% | POs reference the correct pickup location from store-level results |
-|| **Total BOM Pricing Impact** | **~2.99%** | **Combined material savings, productivity, and evidence value as a share of revenue** |
+| Category | % of Revenue | What It Represents |
+|----------|-------------|--------------------|
+| **Material cost savings** | ~1.80% | Supplier delta identified by comparing HD vs. Lowe’s prices side-by-side; captured through better purchasing decisions |
+| **Estimator productivity** | ~0.80% | Additional estimates per week enabled by eliminating manual multi-tab price lookup |
+| **Insurance supplement wins** | ~0.24% | Timestamped price snapshots supporting supplement negotiations with carriers |
+| **PM time saved** | ~0.13% | 3–4 hours per project of manual lookup eliminated |
+| **Wrong-store delivery avoided** | ~0.02% | POs reference the correct pickup location from store-level results |
+| **Total BOM Pricing Impact** | **~2.99%** | **Combined material savings, productivity, and evidence value as a share of revenue** |
 
 ### Real-World Extrapolation by Tenant Size
 
-|| Annual Revenue | Est. Materials Budget | BOM Pricing Impact (~2.99%) |
-||---------------|----------------------|----------------------------|
-|| **$1M** | ~$96K | **~$15,000** |
-|| **$2M** | ~$200K | **~$49,000** |
-|| **$5M** | ~$420K | **~$100,000** |
-|| **$10M** | ~$900K | **~$299,000** |
-|| **$50M** | ~$3.6M | **~$950,000** |
+| Annual Revenue | Est. Materials Budget | BOM Pricing Impact (~2.99%) |
+|---------------|----------------------|----------------------------|
+| **$1M** | ~$96K | **~$15,000** |
+| **$2M** | ~$200K | **~$49,000** |
+| **$5M** | ~$420K | **~$100,000** |
+| **$10M** | ~$900K | **~$299,000** |
+| **$50M** | ~$3.6M | **~$950,000** |
 
 *Material cost savings dominate at every tier. A 5–15% supplier delta on annual materials spend is transformative — even capturing half of it through better purchasing decisions represents six-figure annual savings for firms above $5M.*
 
@@ -134,5 +138,5 @@ Normalization: Unicode-aware regex for Xactimate dimension markers
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-02-26 | Initial draft — BOM pricing pipeline concept |
-|| 2.0 | 2026-03-04 | Enriched: standardized frontmatter, elevator pitch, operational savings, scoring rationale, related CAMs, expansion opportunities |
-|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |
+| 2.0 | 2026-03-04 | Enriched: standardized frontmatter, elevator pitch, operational savings, scoring rationale, related CAMs, expansion opportunities |
+| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

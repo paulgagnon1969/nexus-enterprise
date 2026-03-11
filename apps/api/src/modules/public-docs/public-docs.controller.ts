@@ -7,6 +7,7 @@ import {
   Param,
   Body,
   Req,
+  Res,
   UseGuards,
   Query,
   Headers,
@@ -103,9 +104,13 @@ export class ShareLinksController {
   @Get(":token")
   async accessShareLink(
     @Param("token") token: string,
+    @Req() req: any,
     @Query("passcode") passcode?: string
   ) {
-    return this.service.accessShareLink(token, passcode);
+    return this.service.accessShareLink(token, passcode, {
+      ipAddress: req.ip,
+      userAgent: req.headers?.["user-agent"],
+    });
   }
 
   /**
@@ -114,9 +119,13 @@ export class ShareLinksController {
   @Post(":token")
   async accessShareLinkWithPasscode(
     @Param("token") token: string,
+    @Req() req: any,
     @Body() dto: AccessShareLinkDto
   ) {
-    return this.service.accessShareLink(token, dto.passcode);
+    return this.service.accessShareLink(token, dto.passcode, {
+      ipAddress: req.ip,
+      userAgent: req.headers?.["user-agent"],
+    });
   }
 
   /**
@@ -126,9 +135,34 @@ export class ShareLinksController {
   @Post(":token/verify")
   async verifySecureShareLink(
     @Param("token") token: string,
+    @Req() req: any,
     @Body() dto: AccessSecureShareDto
   ) {
-    return this.service.accessSecureShareLink(token, dto.email, dto.password);
+    return this.service.accessSecureShareLink(token, dto.email, dto.password, {
+      ipAddress: req.ip,
+      userAgent: req.headers?.["user-agent"],
+    });
+  }
+
+  /**
+   * Download a DRM-protected PDF of shared content.
+   * Validates credentials, generates watermarked + encrypted PDF.
+   */
+  @Post(":token/pdf")
+  async downloadSecurePdf(
+    @Param("token") token: string,
+    @Req() req: any,
+    @Res() res: any,
+    @Body() dto: AccessSecureShareDto
+  ) {
+    const result = await this.service.generateSharePdf(token, dto.email, dto.password, {
+      ipAddress: req.ip,
+      userAgent: req.headers?.["user-agent"],
+    });
+    res.header("Content-Type", "application/pdf");
+    res.header("Content-Disposition", `attachment; filename="${result.filename}"`);
+    res.header("Content-Length", result.buffer.length);
+    res.send(result.buffer);
   }
 }
 

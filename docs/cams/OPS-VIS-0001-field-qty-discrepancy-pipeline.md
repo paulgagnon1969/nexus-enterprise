@@ -25,6 +25,10 @@ tags: [cam, ops, visibility, petl, field-petl, reconciliation, qty-discrepancy]
 
 # OPS-VIS-0001: Field Qty Discrepancy Pipeline
 
+## Work ↔ Signal
+> **The Work**: Field crews flag incorrect quantities directly on PETL line items from the daily log. Discrepancy banner surfaces instantly in the PM's Reconciliation Panel.
+> **The Signal**: Field-to-PM discrepancy reporting signals a culture of measurement accuracy — estimates are verified against reality, not assumed correct. (→ Reputation: estimating accuracy)
+
 ## Elevator Pitch
 Field crews flag incorrect estimate quantities in real time from the job site. The discrepancy—along with the field-reported quantity and an explanatory note—surfaces instantly in the PM's PETL Reconciliation Panel as a prominent alert banner, enabling faster, more accurate supplement and change order decisions without switching views or chasing down verbal reports.
 
@@ -57,23 +61,23 @@ In restoration, estimate quantities frequently don't match field reality. Drywal
 
 All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes.
 
-|| Category | % of Revenue | What It Represents |
-||----------|-------------|--------------------|
-|| **Captured under-billed scope** | ~0.48% | Field-reported qty discrepancies that would otherwise be missed — scope that was done but never billed |
-|| **Faster supplement filing** | ~0.06% | Cash flow acceleration from supplements filed the same day the field flags the discrepancy |
-|| **Carrier disputes won** | ~0.05% | Audit-trailed field flags supporting supplement disputes with carriers |
-|| **PM cross-reference time saved** | ~0.02% | PM time freed from manually comparing field notes against estimate line items |
-|| **Total Field Qty Impact** | **~0.61%** | **Combined scope recovery and labor saved as a share of revenue** |
+| Category | % of Revenue | What It Represents |
+|----------|-------------|--------------------|
+| **Captured under-billed scope** | ~0.48% | Field-reported qty discrepancies that would otherwise be missed — scope that was done but never billed |
+| **Faster supplement filing** | ~0.06% | Cash flow acceleration from supplements filed the same day the field flags the discrepancy |
+| **Carrier disputes won** | ~0.05% | Audit-trailed field flags supporting supplement disputes with carriers |
+| **PM cross-reference time saved** | ~0.02% | PM time freed from manually comparing field notes against estimate line items |
+| **Total Field Qty Impact** | **~0.61%** | **Combined scope recovery and labor saved as a share of revenue** |
 
 ### Real-World Extrapolation by Tenant Size
 
-|| Annual Revenue | Field Qty Impact (~0.61%) |
-||---------------|---------------------------|
-|| **$1M** | **~$10,100** |
-|| **$2M** | **~$18,000** |
-|| **$5M** | **~$30,300** |
-|| **$10M** | **~$60,650** |
-|| **$50M** | **~$202,000** |
+| Annual Revenue | Field Qty Impact (~0.61%) |
+|---------------|---------------------------|
+| **$1M** | **~$10,100** |
+| **$2M** | **~$18,000** |
+| **$5M** | **~$30,300** |
+| **$10M** | **~$60,650** |
+| **$50M** | **~$202,000** |
 
 *The under-billed scope line (~0.48%) dominates — this is real revenue that was earned in the field but lost because the discrepancy wasn’t communicated to the PM in time for the supplement.*
 
@@ -119,5 +123,5 @@ All impact figures are expressed as a **percentage of annual revenue** so they s
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-02-22 | Initial draft — field discrepancy pipeline |
-|| 2.0 | 2026-03-04 | Enriched: operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |
-|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |
+| 2.0 | 2026-03-04 | Enriched: operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |
+| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

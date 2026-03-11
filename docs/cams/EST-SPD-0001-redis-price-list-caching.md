@@ -27,6 +27,10 @@ tags: [cam, estimating, speed, redis, caching, petl, golden-price-list]
 
 > *54,000 prices in 50ms. Estimators spend time estimating, not waiting.*
 
+## Work ↔ Signal
+> **The Work**: 54,000 prices loaded in 50ms via Redis cache with 1-hour TTL and auto-invalidation on every PETL import. Graceful DB fallback if Redis goes down.
+> **The Signal**: Fast price list access means faster estimates, which means more responsive bids — speed is a competitive signal in itself. (→ Capability: estimating velocity)
+
 ## Elevator Pitch
 NCC caches the entire Golden Price List in Redis and serves it in ~50ms — 16× faster than a cold database query. Cache invalidation fires automatically on every PETL import, so data is always fresh. If Redis goes down, a synchronous DB fallback ensures zero downtime. No estimating platform delivers this combination of speed, freshness, and resilience for large-scale price lookups.
 
@@ -52,23 +56,23 @@ Competitors like Xactimate use desktop-app file sync; Buildertrend and CoConstru
 
 All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes.
 
-|| Category | % of Revenue | What It Represents |
-||----------|-------------|--------------------|
-|| **Faster estimate turnaround** | ~0.07% | 15 min saved per estimate from instant price list access |
-|| **Stale-data error elimination** | ~0.03% | Mispriced bids avoided via auto-invalidated cache on every import |
-|| **Estimator time recovered** | ~0.02% | Cumulative latency savings across hundreds of daily lookups |
-|| **IT/support burden reduced** | ~0.01% | "Slow price list" support tickets eliminated |
-|| **Total Redis Caching Impact** | **~0.13%** | **Combined speed and accuracy value as a share of revenue** |
+| Category | % of Revenue | What It Represents |
+|----------|-------------|--------------------|
+| **Faster estimate turnaround** | ~0.07% | 15 min saved per estimate from instant price list access |
+| **Stale-data error elimination** | ~0.03% | Mispriced bids avoided via auto-invalidated cache on every import |
+| **Estimator time recovered** | ~0.02% | Cumulative latency savings across hundreds of daily lookups |
+| **IT/support burden reduced** | ~0.01% | "Slow price list" support tickets eliminated |
+| **Total Redis Caching Impact** | **~0.13%** | **Combined speed and accuracy value as a share of revenue** |
 
 ### Real-World Extrapolation by Tenant Size
 
-|| Annual Revenue | Redis Caching Impact (~0.13%) |
-||---------------|------------------------------|
-|| **$1M** | **~$1,600** |
-|| **$2M** | **~$3,000** |
-|| **$5M** | **~$5,100** |
-|| **$10M** | **~$12,800** |
-|| **$50M** | **~$38,400** |
+| Annual Revenue | Redis Caching Impact (~0.13%) |
+|---------------|------------------------------|
+| **$1M** | **~$1,600** |
+| **$2M** | **~$3,000** |
+| **$5M** | **~$5,100** |
+| **$10M** | **~$12,800** |
+| **$50M** | **~$38,400** |
 
 *The time-saved figure is conservative — the real value compounds when estimators can create more estimates per day, winning more bids. Scales with user count and lookup volume.*
 
@@ -128,5 +132,5 @@ Stack: NestJS → ioredis → PostgreSQL (via Prisma)
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-02-21 | Initial draft — Redis caching concept |
-|| 2.0 | 2026-03-04 | Full rewrite: standardized format, elevator pitch, operational savings, demo script, scoring rationale, related CAMs, expansion opportunities |
-|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |
+| 2.0 | 2026-03-04 | Full rewrite: standardized format, elevator pitch, operational savings, demo script, scoring rationale, related CAMs, expansion opportunities |
+| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

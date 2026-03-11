@@ -26,6 +26,10 @@ tags: [cam, financial, automation, ocr, receipt, line-item, gpt4-vision, daily-l
 
 > *Snap a receipt. Every line item extracted. Personal purchases excluded. Net total instant.*
 
+## Work ↔ Signal
+> **The Work**: Snap a receipt photo — GPT-4 Vision extracts every line item. Exclude personal purchases, apply credits, merge multiple receipts. Net total recalculates live.
+> **The Signal**: Every receipt captured feeds three intelligence systems: supplier verification (NexFIND), regional pricing (NexPRICE), and the company's documentation quality score. (→ Market Intelligence + Reputation)
+
 ## Elevator Pitch
 Nexus uses GPT-4 Vision to instantly read any photographed receipt and auto-fill vendor, amount, date, and every individual line item — right in the daily log form. Users can attach multiple receipts, selectively exclude personal items, and apply credit deductions. The net total recalculates live. No construction PM tool offers line-item-level receipt control with AI-powered OCR.
 
@@ -79,23 +83,23 @@ Field crews capture dozens of receipts per week across job sites. Nexus uses GPT
 
 All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes.
 
-|| Category | % of Revenue | What It Represents |
-||----------|-------------|--------------------|
-|| **Manual entry elimination** | ~0.08% | Field crew time no longer spent typing vendor, amount, date, and line items on a phone |
-|| **Data entry error reduction** | ~0.11% | Incorrect amounts, wrong vendors, and transposed digits caught by AI extraction |
-|| **Personal expense identification** | ~0.14% | Personal purchases on company cards surfaced via line-item visibility |
-|| **PM re-entry time saved** | ~0.03% | PMs no longer re-keying receipt data from photos or paper |
-|| **Total Receipt OCR Impact** | **~0.37%** | **Combined financial accuracy and labor recovered as a share of revenue** |
+| Category | % of Revenue | What It Represents |
+|----------|-------------|--------------------|
+| **Manual entry elimination** | ~0.08% | Field crew time no longer spent typing vendor, amount, date, and line items on a phone |
+| **Data entry error reduction** | ~0.11% | Incorrect amounts, wrong vendors, and transposed digits caught by AI extraction |
+| **Personal expense identification** | ~0.14% | Personal purchases on company cards surfaced via line-item visibility |
+| **PM re-entry time saved** | ~0.03% | PMs no longer re-keying receipt data from photos or paper |
+| **Total Receipt OCR Impact** | **~0.37%** | **Combined financial accuracy and labor recovered as a share of revenue** |
 
 ### Real-World Extrapolation by Tenant Size
 
-|| Annual Revenue | Receipt OCR Impact (~0.37%) |
-||---------------|----------------------------|
-|| **$1M** | **~$3,700** |
-|| **$2M** | **~$8,000** |
-|| **$5M** | **~$14,800** |
-|| **$10M** | **~$37,000** |
-|| **$50M** | **~$148,000** |
+| Annual Revenue | Receipt OCR Impact (~0.37%) |
+|---------------|----------------------------|
+| **$1M** | **~$3,700** |
+| **$2M** | **~$8,000** |
+| **$5M** | **~$14,800** |
+| **$10M** | **~$37,000** |
+| **$50M** | **~$148,000** |
 
 *Scales with receipt volume and CC spend. Firms with more field workers and more cards see proportionally greater impact.*
 
@@ -139,5 +143,5 @@ All impact figures are expressed as a **percentage of annual revenue** so they s
 |-----|------|---------|
 | 1.0 | 2026-02-21 | Initial draft |
 | 1.1 | 2026-03-03 | Multi-receipt merge, line item selection, credit deductions |
-|| 2.0 | 2026-03-04 | Enriched: elevator pitch, operational savings, competitive landscape, scoring rationale, related CAMs |
-|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |
+| 2.0 | 2026-03-04 | Enriched: elevator pitch, operational savings, competitive landscape, scoring rationale, related CAMs |
+| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

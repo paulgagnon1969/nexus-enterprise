@@ -78,6 +78,10 @@ visibility:
 
 # [CAM Title]
 
+## Work ↔ Signal
+> **The Work**: [What operational task this module performs — the thing the user came here to do.]
+> **The Signal**: [What marketplace intelligence this work produces — the intent data the Nexus reads.]
+
 ## The Problem
 What pain point does this solve? What do competitors do (or not do)?
 
@@ -90,12 +94,12 @@ How does NCC solve this differently/better?
 - Revenue enabled: $Z
 
 ## Competitive Landscape
-| Competitor | Has This? | Notes |
-|------------|-----------|-------|
-| Buildertrend | No/Partial/Yes | ... |
-| CoConstruct | No/Partial/Yes | ... |
-| Procore | No/Partial/Yes | ... |
-| Xactimate | No/Partial/Yes | ... |
+|| Competitor | Has This? | Notes |
+||------------|-----------|-------|
+|| Buildertrend | No/Partial/Yes | ... |
+|| CoConstruct | No/Partial/Yes | ... |
+|| Procore | No/Partial/Yes | ... |
+|| Xactimate | No/Partial/Yes | ... |
 
 ## Use Cases
 1. Scenario A...
@@ -107,6 +111,52 @@ How does NCC solve this differently/better?
 ## Session Origin
 Discovered in: [session-file.md]
 ```
+
+## The Work ↔ Signal Pattern — MANDATORY
+
+Every CAM in the portfolio MUST include a **Work ↔ Signal** block immediately after the title or elevator pitch. This is the most important section of every CAM.
+
+### Why This Exists
+
+NCC's defining architectural property is that **every operational action is simultaneously work AND a marketplace signal.** No other construction platform has this property. PM tools do work but generate no marketplace value. Marketplaces generate discovery but do no work. Only NCC connects the two.
+
+The Work ↔ Signal block forces every CAM to articulate both sides of this duality. If a CAM cannot identify its signal, it may still be a good feature — but it is not contributing to the Nexus of Intent.
+
+### Format
+
+```markdown
+## Work ↔ Signal
+> **The Work**: [1-2 sentences. What does the user accomplish? What operational pain is solved?]
+> **The Signal**: [1-2 sentences. What does the marketplace learn? What intent is expressed or verified?]
+```
+
+### Examples
+
+**FIN-ACC-0002 (Zero-Loss Receipt Capture)**
+> **The Work**: The moment a banking transaction is assigned to a project, a bill materializes instantly. No receipt required to trigger it.
+> **The Signal**: This company tracks every dollar with zero gaps — financial integrity is verifiable, not claimed.
+
+**CMP-AUTO-0001 (NexCheck Site Compliance)**
+> **The Work**: Crew taps NFC, signs off on safety docs, builds a real-time digital roster. Paper eliminated.
+> **The Signal**: This company has a timestamped, verifiable compliance record for every worker on every site — a marketplace credential no competitor can fake.
+
+**OPS-INTL-0001 (NexFIND Supplier Intelligence)**
+> **The Work**: Every receipt OCR automatically builds a verified supplier map. Zero data entry.
+> **The Signal**: The network's collective purchasing behavior reveals which suppliers are real, where they are, and who actually uses them — crowdsourced intelligence that grows with every tenant.
+
+### Signal Categories
+
+Signals fall into five types. Most CAMs produce one; some produce multiple:
+
+| Signal Type | What It Reveals | Example CAMs |
+|------------|----------------|-------------|
+| **Reputation** | How well this entity performs | NexVERIFY, Zero-Loss, NexINT |
+| **Capability** | What this entity can do | NexCheck, skill ratings, certifications |
+| **Availability** | What/who is available right now | Phantom Fleet, scheduling, NexNet pool |
+| **Market Intelligence** | Aggregate patterns across tenants | NexFIND, NexPRICE, TUCKS |
+| **Demand** | What this entity needs | CandidateInterest, module activation, collaboration requests |
+
+See [The Nexus of Intent](../architecture/nexus-of-intent.md) for the full system definition.
 
 ## CAM ID Convention
 

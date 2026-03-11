@@ -82,6 +82,8 @@ import { FeaturesModule } from "./modules/features/features.module";
 import { ComputeMeshModule } from "./modules/compute-mesh/compute-mesh.module";
 import { PrecisionScanModule } from "./modules/precision-scan/precision-scan.module";
 import { UpdatesModule } from "./modules/updates/updates.module";
+import { NexfitModule } from "./modules/nexfit/nexfit.module";
+import { CamAccessModule } from "./modules/cam-access/cam-access.module";
 
 @Module({
   imports: [
@@ -169,6 +171,8 @@ import { UpdatesModule } from "./modules/updates/updates.module";
     ComputeMeshModule,
     PrecisionScanModule,
     UpdatesModule,
+    NexfitModule,
+    CamAccessModule,
   ],
   controllers: [DevController],
   providers: [

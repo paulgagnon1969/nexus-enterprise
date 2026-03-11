@@ -26,6 +26,10 @@ visibility:
 
 > *Is your team using the tool? Is the tool making them better? Now you know.*
 
+## Work ↔ Signal
+> **The Work**: Full telemetry tracking every meaningful action. Workforce efficiency KPIs, personal dashboards with anonymous benchmarking, and gaming detection.
+> **The Signal**: Usage telemetry IS the intent signal layer — every tracked action feeds the marketplace's understanding of who uses the platform effectively and who doesn't. (→ Reputation: operational engagement)
+
 ## Elevator Pitch
 TUCKS is a full telemetry and analytics platform that tracks every meaningful user action, computes workforce efficiency metrics, provides personal KPI dashboards with anonymous benchmarking, and detects users who game the system. No competing construction PM offers integrated gaming detection, individual benchmarking, or crew-level efficiency correlation.
 
@@ -80,24 +84,24 @@ Raw telemetry lives in Postgres for 2 weeks (for debugging and real-time queries
 
 All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes. TUCKS is the #2 value driver in the portfolio because workforce efficiency gains scale directly with labor spend.
 
-|| Category | % of Revenue | What It Represents |
-||----------|-------------|--------------------|
-|| **Workforce efficiency improvement** | ~1.00% | Visibility and benchmarking drive measurable productivity gains across all crews |
-|| **Software adoption ROI** | ~0.08% | Usage analytics identify underutilized modules, directing training where it has the most impact |
-|| **Management decision time** | ~0.06% | Exec/PM hours freed from manual performance tracking |
-|| **Gaming/fraud detection** | ~0.05% | Inflated activity flagged before it corrupts workforce analytics |
-|| **Training targeting** | ~0.01% | Broad training replaced by data-driven, role-specific coaching |
-|| **Total TUCKS Impact** | **~1.19%** | **Combined workforce efficiency and analytics value as a share of revenue** |
+| Category | % of Revenue | What It Represents |
+|----------|-------------|--------------------|
+| **Workforce efficiency improvement** | ~1.00% | Visibility and benchmarking drive measurable productivity gains across all crews |
+| **Software adoption ROI** | ~0.08% | Usage analytics identify underutilized modules, directing training where it has the most impact |
+| **Management decision time** | ~0.06% | Exec/PM hours freed from manual performance tracking |
+| **Gaming/fraud detection** | ~0.05% | Inflated activity flagged before it corrupts workforce analytics |
+| **Training targeting** | ~0.01% | Broad training replaced by data-driven, role-specific coaching |
+| **Total TUCKS Impact** | **~1.19%** | **Combined workforce efficiency and analytics value as a share of revenue** |
 
 ### Real-World Extrapolation by Tenant Size
 
-|| Annual Revenue | Est. Labor Spend | TUCKS Impact (~1.19%) |
-||---------------|------------------|-----------------------|
-|| **$1M** | ~$350K | **~$11,900** |
-|| **$2M** | ~$700K | **~$26,000** |
-|| **$5M** | ~$1.5M | **~$47,600** |
-|| **$10M** | ~$2M | **~$119,100** |
-|| **$50M** | ~$8M | **~$476,400** |
+| Annual Revenue | Est. Labor Spend | TUCKS Impact (~1.19%) |
+|---------------|------------------|-----------------------|
+| **$1M** | ~$350K | **~$11,900** |
+| **$2M** | ~$700K | **~$26,000** |
+| **$5M** | ~$1.5M | **~$47,600** |
+| **$10M** | ~$2M | **~$119,100** |
+| **$50M** | ~$8M | **~$476,400** |
 
 *The ~1% workforce efficiency line dominates because even small productivity gains on a $2M+ labor budget produce six-figure returns. Scales super-linearly — larger firms have more process waste for analytics to surface.*
 
@@ -129,5 +133,5 @@ All impact figures are expressed as a **percentage of annual revenue** so they s
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-02-28 | Initial draft — TUCKS telemetry concept |
-|| 2.0 | 2026-03-04 | Enriched: elevator pitch, operational savings, competitive landscape, related CAMs, revision history |
-|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |
+| 2.0 | 2026-03-04 | Enriched: elevator pitch, operational savings, competitive landscape, related CAMs, revision history |
+| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

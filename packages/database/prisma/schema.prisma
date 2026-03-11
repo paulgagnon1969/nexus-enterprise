@@ -371,6 +371,10 @@ model Company {
 
   // NexINT — Operational Integrity Snapshots
   nexIntSnapshots NexIntSnapshot[]
+
+  // Invoice Tracker — activity + auto-pay reviews
+  invoiceActivities InvoiceActivity[]
+  autoPayReviews    AutoPayReview[]
 }
 
 model OrganizationTemplate {
@@ -526,6 +530,10 @@ model User {
   updatedAt                 DateTime   @updatedAt
   globalRole                GlobalRole @default(NONE)
   userType                  UserType   @default(INTERNAL)
+
+  /// Whether this VIEWER user has opted into the Nexus Marketplace.
+  marketplaceOptIn          Boolean    @default(false)
+
   reputationOverallAvg      Float      @default(2)
   reputationOverallCount    Int        @default(0)
   reputationOverallOverride Int?
@@ -837,6 +845,13 @@ model User {
 
   // NexCAD — Precision Object Scanning
   precisionScansCreated PrecisionScan[] @relation("PrecisionScanCreatedBy")
+
+  // Document Sharing — Viral Token-Gated Access
+  shareTokensAsInviter DocumentShareToken[] @relation("ShareTokenInviter")
+  shareTokensAsInvitee DocumentShareToken[] @relation("ShareTokenInvitee")
+
+  // Invoice Tracker — auto-pay reviews
+  autoPayReviews AutoPayReview[] @relation("AutoPayReviewReviewer")
 }
 
 /// Notification delivered to a single user
@@ -1589,6 +1604,10 @@ model Project {
   // Cross-tenant project collaborations (orgs collaborating on this project)
   collaborations ProjectCollaboration[] @relation("CollaborationProject")
 
+  // Invoice Tracker — activity + auto-pay reviews
+  invoiceActivities InvoiceActivity[]
+  autoPayReviews    AutoPayReview[]
+
   @@index([companyId, groupId], map: "Project_company_group_idx")
   @@index([tenantClientId], map: "Project_tenant_client_idx")
 }
@@ -2297,6 +2316,8 @@ model ProjectInvoice {
   invoiceApplicationsAsTarget ProjectInvoiceApplication[] @relation("InvoiceApplicationsTarget")
   billsTargeting              ProjectBill[]               @relation("BillTargetInvoice")
   invoicePaymentIntents       InvoicePaymentIntent[]
+  activities                  InvoiceActivity[]
+  autoPayReviews              AutoPayReview[]
 
   @@unique([companyId, invoiceSequenceNo], name: "ProjectInvoice_company_invoice_seq_key")
   @@index([companyId, projectId, status], map: "ProjectInvoice_company_project_status_idx")
@@ -2330,6 +2351,78 @@ enum InvoicePaymentIntentStatus {
   PENDING
   SUCCEEDED
   FAILED
+}
+
+// ===================================================================
+// Invoice Tracker — Activity Tracking + AutoPay Review
+// ===================================================================
+
+enum InvoiceActivityActor {
+  CLIENT
+  SYSTEM
+}
+
+enum InvoiceActivityEvent {
+  VIEW
+  PRINT
+  DOWNLOAD
+  PAYMENT_INITIATED
+  PAYMENT_SUCCEEDED
+  PAYMENT_FAILED
+}
+
+/// Tracks client engagement with invoices: views, prints, downloads, payment events.
+/// VIEW events are deduped per actor per hour to avoid inflating counts.
+model InvoiceActivity {
+  id        String               @id @default(cuid())
+  invoiceId String
+  companyId String
+  projectId String
+  actorType InvoiceActivityActor @default(CLIENT)
+  actorId   String?              // userId if authenticated, null for token-based access
+  eventType InvoiceActivityEvent
+  metadata  Json?                // { ip, userAgent, paymentMethod, amount, etc. }
+  createdAt DateTime             @default(now())
+
+  invoice ProjectInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId, eventType, createdAt], map: "InvoiceActivity_invoice_event_created_idx")
+  @@index([companyId, projectId], map: "InvoiceActivity_company_project_idx")
+}
+
+enum AutoPayReviewStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
+/// Workflow flag created when an online payment (ACH/CC) arrives via Stripe.
+/// Admin+ must review and confirm before the payment is considered final.
+model AutoPayReview {
+  id           String             @id @default(cuid())
+  companyId    String
+  projectId    String
+  invoiceId    String
+  paymentId    String             @unique
+  method       String             // CARD | STRIPE_ACH
+  amount       Float              // dollars
+  status       AutoPayReviewStatus @default(PENDING)
+  reviewedById String?
+  reviewedAt   DateTime?
+  reviewNote   String?
+  createdAt    DateTime           @default(now())
+
+  company  Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project  Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  invoice  ProjectInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  payment  ProjectPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  reviewer User?          @relation("AutoPayReviewReviewer", fields: [reviewedById], references: [id])
+
+  @@index([companyId, status], map: "AutoPayReview_company_status_idx")
+  @@index([projectId, status], map: "AutoPayReview_project_status_idx")
+  @@index([invoiceId], map: "AutoPayReview_invoice_idx")
 }
 
 /// Admin-managed lookup table for client rate adjustment reasons.
@@ -2576,6 +2669,7 @@ model ProjectPayment {
   invoice      ProjectInvoice?             @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
   createdBy    User?                       @relation("ProjectPaymentCreatedBy", fields: [createdByUserId], references: [id])
   applications ProjectPaymentApplication[]
+  autoPayReview AutoPayReview?
 
   @@index([companyId, projectId, paidAt], map: "ProjectPayment_company_project_paid_idx")
   @@index([invoiceId], map: "ProjectPayment_invoice_idx")
@@ -4398,6 +4492,8 @@ enum NotificationKind {
   TASK_DUE
   TASK_DISPOSITION
   SCHEDULE_ALERT
+  INVOICE_ACTIVITY
+  AUTO_PAY_UPDATE
 }
 
 /// Delivery channel used for a notification. IN_APP is always recorded; EMAIL
@@ -4552,6 +4648,7 @@ enum UserType {
   INTERNAL
   CLIENT
   APPLICANT
+  VIEWER // Lightweight account for document viewers (graduated identity tier 1)
 }
 
 enum ImportJobType {
@@ -7387,11 +7484,35 @@ model DocumentShareLink {
   systemDocument SystemDocument? @relation(fields: [systemDocumentId], references: [id], onDelete: Cascade)
   manual         Manual?         @relation(fields: [manualId], references: [id], onDelete: Cascade)
   createdBy      User            @relation("ShareLinkCreatedBy", fields: [createdByUserId], references: [id])
+  accessLogs     ShareLinkAccessLog[]
 
   @@index([accessToken], map: "DocShareLink_token_idx")
   @@index([systemDocumentId], map: "DocShareLink_doc_idx")
   @@index([manualId], map: "DocShareLink_manual_idx")
   @@index([recipientEmail], map: "DocShareLink_recipient_email_idx")
+}
+
+/// Audit log for every access event on a share link — IP, user agent, serial, and type
+model ShareLinkAccessLog {
+  id             String   @id @default(cuid())
+  shareLinkId    String
+  serialNumber   String?  // Unique serial for this access session (e.g., NXS-CAM-20260310-a1b2c3)
+  accessType     String   // VIEW, PDF_DOWNLOAD, VERIFY, VERIFY_FAIL
+  ipAddress      String?
+  userAgent      String?  @db.Text
+  country        String?
+  city           String?
+  recipientEmail String?
+  recipientName  String?
+  metadata       Json?    // Additional context (e.g., PDF serial, viewer dimensions)
+  createdAt      DateTime @default(now())
+
+  shareLink DocumentShareLink @relation(fields: [shareLinkId], references: [id], onDelete: Cascade)
+
+  @@index([shareLinkId, createdAt], map: "ShareAccessLog_link_created_idx")
+  @@index([serialNumber], map: "ShareAccessLog_serial_idx")
+  @@index([recipientEmail], map: "ShareAccessLog_email_idx")
+  @@index([createdAt], map: "ShareAccessLog_created_idx")
 }
 
 // =============================================================================
@@ -10533,4 +10654,101 @@ model NexIntSnapshot {
 
   @@unique([companyId, date], name: "NexIntSnapshot_company_date_key")
   @@index([companyId, date], map: "NexIntSnapshot_company_date_idx")
+}
+
+// =============================================================================
+// Document Sharing — Viral Token-Gated Access & Referral Chain
+// =============================================================================
+
+enum ShareDocumentType {
+  NEXFIT_REPORT
+  CAM_LIBRARY
+  CAM_DOCUMENT
+}
+
+/// Tracks every shared document link and the viewer-invites-viewer referral chain.
+/// Each token represents one share action: person A shares with person B.
+/// Self-referential `parentTokenId` builds the viral tree.
+model DocumentShareToken {
+  id              String            @id @default(cuid())
+  token           String            @unique
+  documentType    ShareDocumentType
+  documentRef     String?           /// e.g. CAM ID for CAM_DOCUMENT type
+
+  /// Who created this share link
+  inviterEmail    String
+  inviterName     String?
+  inviterUserId   String?           /// FK to User if the inviter has an account
+
+  /// Who received the share (populated when they register or enter email)
+  inviteeEmail    String?
+  inviteeName     String?
+  inviteeUserId   String?           /// FK to User if the invitee registers
+
+  /// Referral chain — self-referential tree
+  parentTokenId   String?           /// The share token that led to this one
+  depth           Int               @default(0) /// 0 = original share, 1+ = viral chain
+
+  /// View tracking
+  viewCount       Int               @default(0)
+  firstViewedAt   DateTime?
+  lastViewedAt    DateTime?
+
+  /// When the viewer shared onward (null = hasn't shared yet)
+  sharedAt        DateTime?
+
+  /// CNDA+ acceptance gate
+  cndaAcceptedAt  DateTime?         /// When the CNDA+ was accepted
+  cndaAcceptedIp  String?           /// IP address at acceptance
+  cndaAcceptedUa  String?  @db.Text /// User agent at acceptance
+
+  /// Questionnaire gate
+  questionnaireCompletedAt DateTime? /// When questionnaire was submitted
+  questionnaireData        Json?     /// NexFIT answers for lead intelligence
+
+  createdAt       DateTime          @default(now())
+
+  /// Relations
+  inviterUser     User?             @relation("ShareTokenInviter", fields: [inviterUserId], references: [id])
+  inviteeUser     User?             @relation("ShareTokenInvitee", fields: [inviteeUserId], references: [id])
+  parentToken     DocumentShareToken? @relation("ShareTokenChain", fields: [parentTokenId], references: [id])
+  childTokens     DocumentShareToken[] @relation("ShareTokenChain")
+  accessLogs      DocumentShareAccessLog[]
+
+  @@index([token], map: "DocShareToken_token_idx")
+  @@index([inviterEmail], map: "DocShareToken_inviter_email_idx")
+  @@index([inviteeEmail], map: "DocShareToken_invitee_email_idx")
+  @@index([parentTokenId], map: "DocShareToken_parent_idx")
+  @@index([documentType], map: "DocShareToken_doctype_idx")
+}
+
+// =============================================================================
+// Document Share Access Log — Per-Visit Tracking for Token-Gated Documents
+// =============================================================================
+
+enum ShareAccessType {
+  VIEW                    /// Initial page load / token validation
+  CNDA_ACCEPT             /// CNDA+ accepted
+  QUESTIONNAIRE_COMPLETE  /// Questionnaire submitted
+  CONTENT_VIEW            /// CAM Manual content served
+  RETURN_VISIT            /// Subsequent content views
+}
+
+/// Granular per-visit log for DocumentShareToken access.
+/// Tracks every interaction through the gated access flow.
+model DocumentShareAccessLog {
+  id           String          @id @default(cuid())
+  tokenId      String
+  accessType   ShareAccessType
+  serialNumber String?         /// Forensic serial for content views (e.g., NXS-20260311-a1b2c3)
+  ipAddress    String?
+  userAgent    String?         @db.Text
+  metadata     Json?           /// Additional context per event
+  createdAt    DateTime        @default(now())
+
+  token DocumentShareToken @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+
+  @@index([tokenId, createdAt], map: "DocShareAccessLog_token_created_idx")
+  @@index([serialNumber], map: "DocShareAccessLog_serial_idx")
+  @@index([accessType], map: "DocShareAccessLog_type_idx")
 }

@@ -26,6 +26,10 @@ tags: [cam, technology, accuracy, reliability, fallback, redis, queue, resilienc
 
 > *Your data, always safe. Even when the infrastructure isn't.*
 
+## Work ↔ Signal
+> **The Work**: Real-time outage detection + transparent switch to synchronous processing when Redis/BullMQ goes down. Slower, but every import completes. Fast path resumes automatically on recovery.
+> **The Signal**: Zero data loss under any infrastructure condition signals platform reliability — the system's resilience is itself a trust signal to tenants. (→ Capability: infrastructure reliability)
+
 ## Elevator Pitch
 When Redis, BullMQ, or any background-processing layer goes down, most SaaS apps silently drop jobs and lose user data. NCC detects the outage in real time and transparently switches to synchronous processing — slower, but every import completes, every file processes, every user sees success. When infrastructure recovers, the fast path resumes automatically. Zero lost data, zero user-visible errors, zero support tickets.
 
@@ -62,23 +66,23 @@ async function processImport(file) {
 
 All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes. This CAM has the smallest direct percentage but the **highest trust multiplier** — a single lost import can permanently damage platform confidence.
 
-|| Category | % of Revenue | What It Represents |
-||----------|-------------|--------------------|
-|| **User trust / retention** | ~0.04% | Avoided churn from "lost my data" frustration (LTV protection) |
-|| **Prevented data loss** | ~0.02% | Queue failures transparently handled — imports complete even when Redis is down |
-|| **Infrastructure maintenance freedom** | ~0.01% | Redis restarts and upgrades without scheduling around active imports |
-|| **Support ticket + rework elimination** | ~0.01% | "Lost import" tickets and manual re-imports eliminated |
-|| **Total Graceful Fallback Impact** | **~0.08%** | **Combined reliability and trust value as a share of revenue** |
+| Category | % of Revenue | What It Represents |
+|----------|-------------|--------------------|
+| **User trust / retention** | ~0.04% | Avoided churn from "lost my data" frustration (LTV protection) |
+| **Prevented data loss** | ~0.02% | Queue failures transparently handled — imports complete even when Redis is down |
+| **Infrastructure maintenance freedom** | ~0.01% | Redis restarts and upgrades without scheduling around active imports |
+| **Support ticket + rework elimination** | ~0.01% | "Lost import" tickets and manual re-imports eliminated |
+| **Total Graceful Fallback Impact** | **~0.08%** | **Combined reliability and trust value as a share of revenue** |
 
 ### Real-World Extrapolation by Tenant Size
 
-|| Annual Revenue | Fallback Impact (~0.08%) |
-||---------------|-------------------------|
-|| **$1M** | **~$2,100** |
-|| **$2M** | **~$3,000** |
-|| **$5M** | **~$4,200** |
-|| **$10M** | **~$8,400** |
-|| **$50M** | **~$16,800** |
+| Annual Revenue | Fallback Impact (~0.08%) |
+|---------------|-------------------------|
+| **$1M** | **~$2,100** |
+| **$2M** | **~$3,000** |
+| **$5M** | **~$4,200** |
+| **$10M** | **~$8,400** |
+| **$50M** | **~$16,800** |
 
 *The percentage is small but the impact is binary — one lost import erodes trust in a way that no feature can repair. This is infrastructure-level insurance.*
 
@@ -149,5 +153,5 @@ Applied at: PETL imports, HD CSV processing, Apple Card imports, receipt OCR que
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-02-21 | Initial draft — graceful fallback concept |
-|| 2.0 | 2026-03-04 | Full rewrite: standardized format, elevator pitch, operational savings, demo script, scoring rationale, related CAMs, expansion opportunities |
-|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |
+| 2.0 | 2026-03-04 | Full rewrite: standardized format, elevator pitch, operational savings, demo script, scoring rationale, related CAMs, expansion opportunities |
+| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

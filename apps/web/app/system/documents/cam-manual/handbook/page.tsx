@@ -138,6 +138,37 @@ export default function CamHandbookPage() {
   // Build a flat section index for the TOC
   let sectionCounter = 0;
 
+  // ── Aggregate computations for Executive Summary ──
+  const allCams = data.modules.flatMap(m => m.cams);
+
+  // Tier distribution
+  const eliteCount = allCams.filter(c => c.scores.total >= 35).length;
+  const strongCount = allCams.filter(c => c.scores.total >= 30 && c.scores.total < 35).length;
+  const qualifiedCount = allCams.filter(c => c.scores.total >= 24 && c.scores.total < 30).length;
+
+  // Average score dimensions
+  const avgU = +(allCams.reduce((s, c) => s + c.scores.uniqueness, 0) / allCams.length).toFixed(1);
+  const avgV = +(allCams.reduce((s, c) => s + c.scores.value, 0) / allCams.length).toFixed(1);
+  const avgD = +(allCams.reduce((s, c) => s + c.scores.demonstrable, 0) / allCams.length).toFixed(1);
+  const avgDf = +(allCams.reduce((s, c) => s + c.scores.defensible, 0) / allCams.length).toFixed(1);
+
+  // Category counts
+  const categoryCounts: Record<string, number> = {};
+  allCams.forEach(c => {
+    categoryCounts[c.category] = (categoryCounts[c.category] || 0) + 1;
+  });
+  const maxCatCount = Math.max(...Object.values(categoryCounts), 1);
+
+  // Overall tier
+  const totalScore = data.overallAvgScore;
+  const overallTierLabel = totalScore >= 35 ? "Elite" : totalScore >= 30 ? "Strong" : totalScore >= 24 ? "Qualified" : "—";
+  const overallTierIcon = totalScore >= 35 ? "🏆" : totalScore >= 30 ? "⭐" : totalScore >= 24 ? "✅" : "";
+  const overallTierColor = totalScore >= 35 ? "#059669" : totalScore >= 30 ? "#0284c7" : totalScore >= 24 ? "#b45309" : "#6b7280";
+
+  // Ring math: circumference of r=64 circle
+  const RING_C = 2 * Math.PI * 64; // ~402.12
+  const ringFilled = (totalScore / 40) * RING_C;
+
   return (
     <>
       {/* Print Styles */}
@@ -162,9 +193,7 @@ export default function CamHandbookPage() {
         .cam-content p { margin: 6px 0; line-height: 1.6; }
         .cam-content ul, .cam-content ol { margin: 6px 0; padding-left: 24px; }
         .cam-content li { margin: 3px 0; line-height: 1.5; }
-        .cam-content table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 13px; }
-        .cam-content th, .cam-content td { padding: 6px 10px; border: 1px solid #e5e7eb; text-align: left; }
-        .cam-content th { background: #f9fafb; font-weight: 600; }
+        /* Table styles (th, td, alternating rows) are in globals.css under .cam-content */
         .cam-content pre { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; overflow-x: auto; font-size: 12px; }
         .cam-content code { font-size: 12px; background: #f1f5f9; padding: 1px 4px; border-radius: 3px; }
         .cam-content pre code { background: none; padding: 0; }
@@ -204,6 +233,143 @@ export default function CamHandbookPage() {
         </div>
 
         <hr style={{ border: "none", borderTop: "2px solid #0f172a", margin: "0 0 32px" }} />
+
+        {/* ── Executive Summary Dashboard ── */}
+        <div style={{ marginBottom: 40 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 24, color: "#0f172a", textAlign: "center" }}>
+            Executive Summary
+          </h2>
+
+          {/* Row 1: Score Ring + Module Strength Bars */}
+          <div style={{ display: "flex", gap: 32, alignItems: "flex-start", marginBottom: 28 }}>
+            {/* Overall Package Score Ring */}
+            <div style={{ textAlign: "center", flexShrink: 0 }}>
+              <svg width="160" height="160" viewBox="0 0 160 160">
+                <circle cx="80" cy="80" r="64" fill="none" stroke="#e5e7eb" strokeWidth="12" />
+                <circle
+                  cx="80" cy="80" r="64" fill="none" stroke={overallTierColor} strokeWidth="12"
+                  strokeDasharray={`${ringFilled} ${RING_C - ringFilled}`}
+                  strokeLinecap="round" transform="rotate(-90 80 80)"
+                />
+                <text x="80" y="68" textAnchor="middle" fontSize="26" fontWeight="700" fill="#0f172a">
+                  {totalScore.toFixed(1)}
+                </text>
+                <text x="80" y="88" textAnchor="middle" fontSize="12" fill="#6b7280">/40 avg</text>
+                <text x="80" y="112" textAnchor="middle" fontSize="13" fontWeight="600" fill={overallTierColor}>
+                  {overallTierIcon} {overallTierLabel}
+                </text>
+              </svg>
+              <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>Package Score</div>
+            </div>
+
+            {/* Module Strength Bars */}
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: "#0f172a" }}>Module Strength</div>
+              {data.modules.map(mod => {
+                const pct = (mod.aggregateScore / 40) * 100;
+                const barColor = mod.aggregateScore >= 35 ? "#059669" : mod.aggregateScore >= 30 ? "#0284c7" : mod.aggregateScore >= 24 ? "#b45309" : "#6b7280";
+                return (
+                  <div key={mod.mode} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ width: 24, textAlign: "center", fontSize: 16 }}>{MODE_ICONS[mod.mode] || "📦"}</span>
+                    <span style={{ width: 100, fontSize: 12, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {mod.modeLabel}
+                    </span>
+                    <div style={{ flex: 1, height: 16, background: "#f3f4f6", borderRadius: 8, overflow: "hidden" }}>
+                      <div style={{ width: `${pct}%`, height: "100%", background: barColor, borderRadius: 8 }} />
+                    </div>
+                    <span style={{ width: 48, textAlign: "right", fontSize: 12, fontWeight: 600, color: barColor }}>
+                      {mod.aggregateScore}/40
+                    </span>
+                    <span style={{ width: 28, fontSize: 11, color: "#6b7280", textAlign: "right" }}>({mod.camCount})</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Row 2: Tier Distribution */}
+          <div style={{ display: "flex", gap: 16, justifyContent: "center", marginBottom: 28 }}>
+            {[
+              { label: "Elite", icon: "🏆", count: eliteCount, range: "35–40", color: "#059669", bg: "#ecfdf5" },
+              { label: "Strong", icon: "⭐", count: strongCount, range: "30–34", color: "#0284c7", bg: "#f0f9ff" },
+              { label: "Qualified", icon: "✅", count: qualifiedCount, range: "24–29", color: "#b45309", bg: "#fffbeb" },
+            ].map(tier => (
+              <div key={tier.label} style={{
+                textAlign: "center", padding: "14px 28px", borderRadius: 10,
+                background: tier.bg, border: `1px solid ${tier.color}22`, minWidth: 140,
+              }}>
+                <div style={{ fontSize: 32, fontWeight: 700, color: tier.color }}>{tier.count}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: tier.color }}>{tier.icon} {tier.label}</div>
+                <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2 }}>score {tier.range}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Row 3: Score Dimensions Radar + Category Coverage */}
+          <div style={{ display: "flex", gap: 32, alignItems: "flex-start" }}>
+            {/* Radar Chart */}
+            <div style={{ textAlign: "center", flexShrink: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: "#0f172a" }}>Score Dimensions</div>
+              <svg width="200" height="200" viewBox="0 0 200 200">
+                {/* Grid diamonds */}
+                {[0.25, 0.5, 0.75, 1].map(p => (
+                  <polygon
+                    key={p}
+                    points={`100,${100 - 80 * p} ${100 + 80 * p},100 100,${100 + 80 * p} ${100 - 80 * p},100`}
+                    fill="none" stroke="#e5e7eb" strokeWidth="0.75"
+                  />
+                ))}
+                {/* Axes */}
+                <line x1="100" y1="20" x2="100" y2="180" stroke="#e5e7eb" strokeWidth="0.5" />
+                <line x1="20" y1="100" x2="180" y2="100" stroke="#e5e7eb" strokeWidth="0.5" />
+                {/* Data polygon */}
+                <polygon
+                  points={`100,${100 - avgU * 8} ${100 + avgV * 8},100 100,${100 + avgD * 8} ${100 - avgDf * 8},100`}
+                  fill="rgba(37,99,235,0.12)" stroke="#2563eb" strokeWidth="2"
+                />
+                {/* Data dots */}
+                <circle cx={100} cy={100 - avgU * 8} r="4" fill="#2563eb" />
+                <circle cx={100 + avgV * 8} cy={100} r="4" fill="#2563eb" />
+                <circle cx={100} cy={100 + avgD * 8} r="4" fill="#2563eb" />
+                <circle cx={100 - avgDf * 8} cy={100} r="4" fill="#2563eb" />
+                {/* Labels */}
+                <text x="100" y="12" textAnchor="middle" fontSize="11" fontWeight="600" fill="#0f172a">U {avgU}</text>
+                <text x="192" y="104" textAnchor="end" fontSize="11" fontWeight="600" fill="#0f172a">V {avgV}</text>
+                <text x="100" y="198" textAnchor="middle" fontSize="11" fontWeight="600" fill="#0f172a">D {avgD}</text>
+                <text x="8" y="104" textAnchor="start" fontSize="11" fontWeight="600" fill="#0f172a">Df {avgDf}</text>
+              </svg>
+              <div style={{ fontSize: 10, color: "#6b7280" }}>Avg across {allCams.length} CAMs (max 10/axis)</div>
+            </div>
+
+            {/* Category Coverage */}
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: "#0f172a" }}>Category Coverage</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+                {Object.entries(CATEGORY_LABELS)
+                  .filter(([key]) => (categoryCounts[key] || 0) > 0)
+                  .sort((a, b) => (categoryCounts[b[0]] || 0) - (categoryCounts[a[0]] || 0))
+                  .map(([key, label]) => {
+                    const count = categoryCounts[key] || 0;
+                    return (
+                      <div key={key} style={{
+                        display: "flex", alignItems: "center", gap: 8,
+                        padding: "8px 10px", borderRadius: 6,
+                        background: "#f9fafb", border: "1px solid #f3f4f6",
+                      }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 12, fontWeight: 500, color: "#1e293b" }}>{label}</div>
+                          <div style={{ height: 4, background: "#e5e7eb", borderRadius: 2, marginTop: 4 }}>
+                            <div style={{ width: `${(count / maxCatCount) * 100}%`, height: "100%", background: "#2563eb", borderRadius: 2 }} />
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: "#0f172a", minWidth: 24, textAlign: "right" }}>{count}</div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* ── Score Guide ── */}
         <div className="score-guide" style={{ marginBottom: 32, padding: 20, background: "#f0f9ff", borderRadius: 8, border: "1px solid #bae6fd" }}>

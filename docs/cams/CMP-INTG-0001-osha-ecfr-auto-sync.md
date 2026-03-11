@@ -24,6 +24,10 @@ visibility:
 
 # CMP-INTG-0001 — Live OSHA Construction Standards Auto-Sync
 
+## Work ↔ Signal
+> **The Work**: Auto-imports the complete 29 CFR 1926 from the official eCFR API. Change detection, content-hash versioning, structured manual with subparts as chapters.
+> **The Signal**: Companies operating with always-current regulatory data signal compliance seriousness — the system proves they're working from the latest standards. (→ Capability: regulatory currency)
+
 ## Elevator Pitch
 NEXUS is the only construction management platform that automatically imports and continuously synchronizes the complete OSHA Construction Safety Standards (29 CFR Part 1926) directly from the official U.S. Government Electronic Code of Federal Regulations. Every section, every subpart, always current — with zero manual data entry.
 
@@ -86,24 +90,24 @@ The eCFR API is public, so the data source isn't proprietary. However, the XML p
 
 All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes. Like NexCheck, OSHA-related savings have a **partially fixed floor** because regulatory fines don’t scale with revenue.
 
-|| Category | % of Revenue | What It Represents |
-||----------|-------------|--------------------|
-|| **Compliance research time** | ~0.10% | PM hours freed from manual OSHA regulation lookup — standards embedded in platform |
-|| **Regulatory change detection** | ~0.06% | OSHA amendments auto-detected via eCFR sync before they create compliance gaps |
-|| **OSHA fine risk reduction** | ~0.02% | Violation probability reduced by having provable, current regulations on file |
-|| **Safety meeting prep** | ~0.01% | Pre-built OSHA sections eliminate meeting prep research |
-|| **Audit readiness** | ~0.01% | Manual safety manual updates eliminated by auto-sync |
-|| **Total OSHA Sync Impact** | **~0.20%** | **Combined compliance labor and risk avoidance as a share of revenue** |
+| Category | % of Revenue | What It Represents |
+|----------|-------------|--------------------|
+| **Compliance research time** | ~0.10% | PM hours freed from manual OSHA regulation lookup — standards embedded in platform |
+| **Regulatory change detection** | ~0.06% | OSHA amendments auto-detected via eCFR sync before they create compliance gaps |
+| **OSHA fine risk reduction** | ~0.02% | Violation probability reduced by having provable, current regulations on file |
+| **Safety meeting prep** | ~0.01% | Pre-built OSHA sections eliminate meeting prep research |
+| **Audit readiness** | ~0.01% | Manual safety manual updates eliminated by auto-sync |
+| **Total OSHA Sync Impact** | **~0.20%** | **Combined compliance labor and risk avoidance as a share of revenue** |
 
 ### Real-World Extrapolation by Tenant Size
 
-|| Annual Revenue | OSHA Sync Impact (~0.20%) |
-||---------------|---------------------------|
-|| **$1M** | **~$5,900** |
-|| **$2M** | **~$8,000** |
-|| **$5M** | **~$9,900** |
-|| **$10M** | **~$19,700** |
-|| **$50M** | **~$49,300** |
+| Annual Revenue | OSHA Sync Impact (~0.20%) |
+|---------------|---------------------------|
+| **$1M** | **~$5,900** |
+| **$2M** | **~$8,000** |
+| **$5M** | **~$9,900** |
+| **$10M** | **~$19,700** |
+| **$50M** | **~$49,300** |
 
 *The curve is flatter than most CAMs because OSHA fines and PM research time have a significant fixed component. A $1M firm saves nearly as much in absolute terms as a $5M firm.*
 
@@ -143,5 +147,5 @@ All impact figures are expressed as a **percentage of annual revenue** so they s
 |-----|------|---------|
 | 1.0 | 2026-02-21 | Initial draft — OSHA eCFR auto-sync concept |
 | 2.0 | 2026-03-04 | Enriched: operational savings, competitive landscape, related CAMs, revision history |
-|| 2.1 | 2026-03-05 | Added expansion opportunities section |
-|| 2.2 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |
+| 2.1 | 2026-03-05 | Added expansion opportunities section |
+| 2.2 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

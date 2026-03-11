@@ -26,6 +26,10 @@ tags: [cam, technology, integration, distributed-pipeline, cross-surface, mobile
 
 > *Start selections on your phone in the field, refine them at your desk, approve them from anywhere.*
 
+## Work ↔ Signal
+> **The Work**: Device-aware, multi-surface coordination (mobile → desktop → web) with unified pipeline tracking. Every action tagged by device origin, pipeline stage, and user.
+> **The Signal**: Cross-device workflow completion patterns reveal operational sophistication — the system knows which teams use field-to-desk coordination effectively. (→ Reputation: workflow maturity)
+
 ## Elevator Pitch
 
 The NexPLAN Distributed Pipeline enables material selections to flow seamlessly across three surfaces — mobile (field capture), desktop (NexBRIDGE design), and web (review/approval) — with every action tracked by device origin, pipeline stage, and user. A PM walks through a jobsite, creates a planning room from their phone, photographs the space, and picks initial products from the vendor catalog. Back at the office, they refine the layout in NexBRIDGE's desktop tools with full-resolution plan sheets. The estimator reviews and approves from the web dashboard. At every step, the system knows which device initiated each action, where each selection sits in the pipeline, and what's left to complete — across all three surfaces simultaneously. No other construction platform offers device-aware, multi-surface material selection coordination with unified pipeline tracking.

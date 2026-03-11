@@ -28,6 +28,10 @@ visibility:
 
 NexDupE is an automated cross-project duplicate expense detection system that identifies when the same purchase appears on multiple projects. It provides a side-by-side comparison workflow, permanent visual snapshots of findings, and a GAAP-compliant archival mechanism (SibE — Sibling Expense) that preserves audit trail integrity while preventing double-billing.
 
+## Work ↔ Signal
+> **The Work**: Automated cross-project scanner detects when the same receipt is posted to multiple projects. Side-by-side comparison with permanent PNG snapshots and GAAP-compliant SibE archival.
+> **The Signal**: Duplicate detection across the entire portfolio proves billing integrity at scale — every disposition is documented with frozen evidence. (→ Reputation: billing accuracy)
+
 ## Problem Statement
 
 In multi-project restoration and construction operations, the same receipt or credit card transaction can accidentally be assigned to more than one project. This happens frequently when:

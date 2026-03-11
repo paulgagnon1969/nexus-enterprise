@@ -17,6 +17,7 @@ import type { FastifyRequest } from "fastify";
 import { readSingleFileFromMultipart } from "../../infra/uploads/multipart";
 import { ProjectService } from "./project.service";
 import { InvoicePaymentService } from "./invoice-payment.service";
+import { InvoiceActivityService } from "./invoice-activity.service";
 import { JwtAuthGuard, CombinedAuthGuard, Roles, Role } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateProjectDto, AddProjectMemberDto, ImportXactDto, ImportXactComponentsDto, UpdateProjectDto } from "./dto/project.dto";
@@ -66,6 +67,7 @@ export class ProjectController {
   constructor(
     private readonly projects: ProjectService,
     private readonly invoicePayment: InvoicePaymentService,
+    private readonly invoiceActivity: InvoiceActivityService,
     private readonly importJobs: ImportJobsService,
     private readonly gcs: ObjectStorageService,
     private readonly taxJurisdictions: TaxJurisdictionService,
@@ -133,6 +135,14 @@ export class ProjectController {
     const user = req.user as AuthenticatedUser;
     // Reconcile pending Stripe payments before returning invoice data
     await this.invoicePayment.reconcilePendingPayments(invoiceId).catch(() => {});
+    // Record VIEW activity (fire-and-forget)
+    this.invoiceActivity.recordActivity({
+      invoiceId,
+      companyId: user.companyId,
+      projectId,
+      actorId: user.userId,
+      eventType: "VIEW" as any,
+    }).catch(() => {});
     return this.projects.getPortalInvoiceDetail(projectId, invoiceId, user.userId);
   }
 
@@ -157,6 +167,58 @@ export class ProjectController {
       .header("Content-Type", file.mimeType)
       .header("Content-Disposition", `attachment; filename="${file.fileName.replace(/"/g, "'")}"`)
       .send(file.buffer);
+  }
+
+  // ── Portal Invoice Activity Tracking ───────────────────────────────
+
+  /** POST /projects/portal/:id/invoices/:invoiceId/track — Track PRINT/DOWNLOAD events */
+  @UseGuards(JwtAuthGuard)
+  @Post("portal/:id/invoices/:invoiceId/track")
+  async portalTrackInvoiceEvent(
+    @Req() req: any,
+    @Param("id") projectId: string,
+    @Param("invoiceId") invoiceId: string,
+    @Body() body: { event: string },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    const allowed = ["PRINT", "DOWNLOAD"];
+    const eventType = String(body?.event ?? "").toUpperCase();
+    if (!allowed.includes(eventType)) {
+      return { ok: true }; // silently ignore unknown events
+    }
+    await this.invoiceActivity.recordActivity({
+      invoiceId,
+      companyId: user.companyId,
+      projectId,
+      actorId: user.userId,
+      eventType: eventType as any,
+    });
+    return { ok: true };
+  }
+
+  // ── Invoice Tracker (Admin+) ──────────────────────────────────────
+
+  /** GET /projects/:id/invoice-tracker — Per-invoice activity summary */
+  @UseGuards(CombinedAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Get(":id/invoice-tracker")
+  getInvoiceTracker(@Req() req: any, @Param("id") projectId: string) {
+    const user = req.user as AuthenticatedUser;
+    return this.invoiceActivity.getInvoiceTracker(projectId, user.companyId);
+  }
+
+  /** PATCH /projects/:id/auto-pay-review/:reviewId — Confirm or reject auto-pay */
+  @UseGuards(CombinedAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Patch(":id/auto-pay-review/:reviewId")
+  updateAutoPayReview(
+    @Req() req: any,
+    @Param("id") _projectId: string,
+    @Param("reviewId") reviewId: string,
+    @Body() body: { status: "CONFIRMED" | "REJECTED"; note?: string },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.invoiceActivity.updateAutoPayReview(reviewId, user.userId, body.status, body.note);
   }
 
   // ── Portal Invoice Payment ──────────────────────────────────────────

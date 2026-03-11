@@ -27,6 +27,10 @@ tags: [cam, compliance, automation, kiosk, nfc, check-in, jsa, safety, roster, s
 
 > *Tap in. Sign off. Stay compliant.*
 
+## Work ↔ Signal
+> **The Work**: NFC-powered kiosk on any phone/tablet. Identifies workers with a tap, walks through required documents, captures finger signature, builds real-time digital roster.
+> **The Signal**: Timestamped, verifiable compliance records for every worker on every site become a marketplace credential — safety history is provable, not claimed. (→ Capability: compliance verification)
+
 ## Elevator Pitch
 Every job site needs a sign-in sheet, a JSA acknowledgment, and an audit trail — and every GC still does it on paper. NexCheck turns any phone or tablet into an NFC-powered compliance kiosk that identifies workers with a tap, walks them through required safety documents, captures a legal finger signature, and builds a real-time digital roster. Combined with Nexus's existing geo-fence time tracking, NexCheck delivers a complete accountability chain: who's on site, what they acknowledged, when they arrived and left, and a signed record proving it.
 
@@ -70,26 +74,26 @@ Construction and restoration job sites face daily compliance friction:
 
 All impact figures are expressed as a **percentage of annual revenue** so they scale naturally across company sizes. Compliance savings have a **higher floor** at smaller firms because OSHA fines are the same regardless of company size.
 
-|| Category | % of Revenue | What It Represents |
-||----------|-------------|--------------------|
-|| **Paper sign-in elimination** | ~0.17% | PM/foreman time freed from daily paper-based attendance tracking across all sites |
-|| **Sign-out tracking labor** | ~0.07% | End-of-day roster reconciliation automated via three-tier sign-out |
-|| **JSA/safety document distribution** | ~0.06% | Printed safety docs replaced by digital queue with one-time acknowledgment |
-|| **Compliance gap fine avoidance** | ~0.05% | Reduced OSHA violation probability via provable, timestamped digital compliance trail |
-|| **Visitor/sub documentation** | ~0.03% | External workers captured in the same workflow as employees |
-|| **OSHA audit prep** | ~0.02% | Audit-ready rosters with embedded signatures produced in seconds, not hours |
-|| **PM kiosk delegation** | ~0.01% | PM commutes to activate kiosk eliminated via remote delegation |
-|| **Total NexCheck Impact** | **~0.40%** | **Combined compliance labor and fine avoidance as a share of revenue** |
+| Category | % of Revenue | What It Represents |
+|----------|-------------|--------------------|
+| **Paper sign-in elimination** | ~0.17% | PM/foreman time freed from daily paper-based attendance tracking across all sites |
+| **Sign-out tracking labor** | ~0.07% | End-of-day roster reconciliation automated via three-tier sign-out |
+| **JSA/safety document distribution** | ~0.06% | Printed safety docs replaced by digital queue with one-time acknowledgment |
+| **Compliance gap fine avoidance** | ~0.05% | Reduced OSHA violation probability via provable, timestamped digital compliance trail |
+| **Visitor/sub documentation** | ~0.03% | External workers captured in the same workflow as employees |
+| **OSHA audit prep** | ~0.02% | Audit-ready rosters with embedded signatures produced in seconds, not hours |
+| **PM kiosk delegation** | ~0.01% | PM commutes to activate kiosk eliminated via remote delegation |
+| **Total NexCheck Impact** | **~0.40%** | **Combined compliance labor and fine avoidance as a share of revenue** |
 
 ### Real-World Extrapolation by Tenant Size
 
-|| Annual Revenue | NexCheck Impact (~0.40%) |
-||---------------|-------------------------|
-|| **$1M** | **~$6,700** |
-|| **$2M** | **~$13,000** |
-|| **$5M** | **~$23,200** |
-|| **$10M** | **~$39,600** |
-|| **$50M** | **~$148,500** |
+| Annual Revenue | NexCheck Impact (~0.40%) |
+|---------------|-------------------------|
+| **$1M** | **~$6,700** |
+| **$2M** | **~$13,000** |
+| **$5M** | **~$23,200** |
+| **$10M** | **~$39,600** |
+| **$50M** | **~$148,500** |
 
 *OSHA fines are fixed regardless of revenue, so the compliance-related percentage is higher for smaller firms. A single willful violation can exceed $150K — the digital compliance trail is the strongest defense at any tier.*
 
@@ -153,5 +157,5 @@ No competitor unifies NFC identification + document queue + signature capture + 
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-03-02 | Initial draft — NexCheck concept, architecture, demo script |
-|| 2.0 | 2026-03-05 | Enriched: operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |
-|| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |
+| 2.0 | 2026-03-05 | Enriched: operational savings, competitive landscape, scoring rationale, related CAMs, expansion opportunities |
+| 2.1 | 2026-03-05 | Converted financial impact to NexOP (% of revenue) format with tenant scaling table |

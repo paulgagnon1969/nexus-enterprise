@@ -38,6 +38,12 @@ interface SharedContent {
     htmlContent: string;
   }[];
   updatedAt?: string;
+  _shareContext?: {
+    recipientName: string | null;
+    recipientEmail: string | null;
+    serialNumber: string;
+    accessedAt: string;
+  };
 }
 
 export default function ShareLinkPage() {
@@ -55,6 +61,8 @@ export default function ShareLinkPage() {
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [authCredentials, setAuthCredentials] = useState<{ email: string; password: string } | null>(null);
+  const [pdfDownloading, setPdfDownloading] = useState(false);
 
   // For manual navigation
   const [selectedDoc, setSelectedDoc] = useState<string | null>(null);
@@ -67,6 +75,37 @@ export default function ShareLinkPage() {
       loadContent();
     }
   }, [token, urlPasscode]);
+
+  // IP protection: block copy, print, right-click, keyboard shortcuts
+  useEffect(() => {
+    if (!content) return;
+    const handleContextMenu = (e: Event) => { e.preventDefault(); };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && ["c", "s", "a", "p", "u"].includes(e.key.toLowerCase())) {
+        e.preventDefault();
+      }
+      if (e.key === "PrintScreen") e.preventDefault();
+    };
+    const handleDragStart = (e: Event) => { e.preventDefault(); };
+
+    // Inject print-blocking CSS
+    const printStyle = document.createElement("style");
+    printStyle.id = "nexus-print-block";
+    printStyle.textContent = `@media print { body * { display: none !important; } body::after { content: "Printing is disabled for this document."; display: block !important; text-align: center; padding: 40px; font-size: 18px; color: #dc2626; } }`;
+    document.head.appendChild(printStyle);
+
+    document.addEventListener("contextmenu", handleContextMenu);
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("dragstart", handleDragStart);
+
+    return () => {
+      document.removeEventListener("contextmenu", handleContextMenu);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("dragstart", handleDragStart);
+      const el = document.getElementById("nexus-print-block");
+      if (el) el.remove();
+    };
+  }, [content]);
 
   async function loadContent(passCodeToUse?: string) {
     setLoading(true);
@@ -156,6 +195,7 @@ export default function ShareLinkPage() {
 
       const data = await res.json();
       setContent(data);
+      setAuthCredentials({ email: authEmail, password: authPassword });
       setNeedsPasscode(false);
       setNeedsEmailAuth(false);
     } catch (err: any) {
@@ -165,7 +205,36 @@ export default function ShareLinkPage() {
     }
   }
 
-  // Get the currently selected document for manual view
+  async function handlePdfDownload() {
+    if (!authCredentials || !token || pdfDownloading) return;
+    setPdfDownloading(true);
+    try {
+      const res = await fetch(`${API_BASE}/share/${token}/pdf`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: authCredentials.email, password: authCredentials.password }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Failed to generate PDF");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${content?.title || "document"}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError("PDF download failed: " + (err.message || "Unknown error"));
+    } finally {
+      setPdfDownloading(false);
+    }
+  }
+
+  // Get the currently selected document
   const currentManualDoc = content?.type === "manual" && selectedDoc
     ? [...(content.chapters?.flatMap(c => c.documents) || []), ...(content.rootDocuments || [])].find(d => d.id === selectedDoc)
     : null;
@@ -272,145 +341,188 @@ export default function ShareLinkPage() {
 
   if (!content) return null;
 
-  // Render Document
-  if (content.type === "document") {
-    return (
-      <div style={styles.pageWrapper}>
-        <header style={styles.header}>
-          <div style={styles.headerContent}>
-            <Link href="/" style={styles.logo}>NEXUS</Link>
-            <span style={styles.headerDivider}>|</span>
-            <span style={styles.headerLabel}>Shared Document</span>
-          </div>
-        </header>
+  const shareCtx = content._shareContext;
 
-        <main style={styles.main}>
-          <article style={styles.article}>
-            <div style={styles.docHeader}>
-              {content.category && (
-                <div style={styles.breadcrumb}>
-                  <span style={styles.breadcrumbItem}>{content.category}</span>
-                </div>
-              )}
-              <h1 style={styles.title}>{content.title}</h1>
-              {content.description && (
-                <p style={styles.description}>{content.description}</p>
-              )}
-              <div style={styles.meta}>
-                <span>Code: {content.code}</span>
-                <span style={styles.metaDivider}>•</span>
-                <span>Version {content.versionNo}</span>
-              </div>
-            </div>
-            <div
-              style={styles.content}
-              dangerouslySetInnerHTML={{ __html: content.htmlContent || "" }}
-            />
-          </article>
-        </main>
-
-        <footer style={styles.footer}>
-          <div style={styles.footerContent}>
-            <span>Shared via NEXUS</span>
-          </div>
-        </footer>
+  // Shared header with optional PDF download button
+  const renderHeader = (label: React.ReactNode) => (
+    <header style={styles.header}>
+      <div style={styles.headerContent}>
+        <Link href="/" style={styles.logo}>NEXUS</Link>
+        <span style={styles.headerDivider}>|</span>
+        <span style={styles.headerLabel}>{label}</span>
+        {shareCtx && authCredentials && content.type === "manual" && (
+          <button
+            onClick={handlePdfDownload}
+            disabled={pdfDownloading}
+            style={styles.pdfButton}
+          >
+            {pdfDownloading ? "Generating..." : "Download PDF"}
+          </button>
+        )}
       </div>
-    );
-  }
+    </header>
+  );
 
-  // Render Manual
   return (
-    <div style={styles.pageWrapper}>
-      <header style={styles.header}>
-        <div style={styles.headerContent}>
-          <Link href="/" style={styles.logo}>NEXUS</Link>
-          <span style={styles.headerDivider}>|</span>
-          <span style={styles.headerLabel}>
-            {content.iconEmoji || "📚"} {content.title}
-          </span>
+    <div
+      style={{ ...styles.pageWrapper, userSelect: "none" } as any}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {/* CONFIDENTIAL banner */}
+      {shareCtx && (
+        <div style={styles.confidentialBanner}>
+          CONFIDENTIAL — Licensed to{" "}
+          {shareCtx.recipientName || shareCtx.recipientEmail || "Viewer"} —{" "}
+          {shareCtx.serialNumber}
         </div>
-      </header>
+      )}
 
-      <div style={styles.manualLayout}>
-        {/* Sidebar TOC */}
-        <aside style={styles.sidebar}>
-          <div style={styles.sidebarHeader}>
-            <h2 style={styles.sidebarTitle}>Table of Contents</h2>
-          </div>
-          <nav style={styles.tocNav}>
-            {content.rootDocuments && content.rootDocuments.length > 0 && (
-              <div style={styles.tocSection}>
-                {content.rootDocuments.map((doc) => (
-                  <button
-                    key={doc.id}
-                    onClick={() => setSelectedDoc(doc.id)}
-                    style={{
-                      ...styles.tocItem,
-                      ...(selectedDoc === doc.id ? styles.tocItemActive : {}),
-                    }}
-                  >
-                    {doc.title}
-                  </button>
-                ))}
-              </div>
-            )}
-            {content.chapters?.map((chapter) => (
-              <div key={chapter.id} style={styles.tocSection}>
-                <div style={styles.tocChapter}>{chapter.title}</div>
-                {chapter.documents.map((doc) => (
-                  <button
-                    key={doc.id}
-                    onClick={() => setSelectedDoc(doc.id)}
-                    style={{
-                      ...styles.tocItem,
-                      ...(selectedDoc === doc.id ? styles.tocItemActive : {}),
-                    }}
-                  >
-                    {doc.title}
-                  </button>
-                ))}
-              </div>
-            ))}
-          </nav>
-        </aside>
-
-        {/* Main Content */}
-        <main style={styles.manualMain}>
-          {currentManualDoc ? (
+      {content.type === "document" ? (
+        <>
+          {renderHeader("Shared Document")}
+          <main style={styles.main}>
             <article style={styles.article}>
               <div style={styles.docHeader}>
-                <h1 style={styles.title}>{currentManualDoc.title}</h1>
+                {content.category && (
+                  <div style={styles.breadcrumb}>
+                    <span style={styles.breadcrumbItem}>{content.category}</span>
+                  </div>
+                )}
+                <h1 style={styles.title}>{content.title}</h1>
+                {content.description && (
+                  <p style={styles.description}>{content.description}</p>
+                )}
                 <div style={styles.meta}>
-                  <span>Rev {currentManualDoc.versionNo}</span>
+                  <span>Code: {content.code}</span>
+                  <span style={styles.metaDivider}>•</span>
+                  <span>Version {content.versionNo}</span>
                 </div>
               </div>
               <div
                 style={styles.content}
-                dangerouslySetInnerHTML={{ __html: currentManualDoc.htmlContent }}
+                dangerouslySetInnerHTML={{ __html: content.htmlContent || "" }}
               />
             </article>
-          ) : (
-            <div style={styles.manualIntro}>
-              <div style={styles.manualIcon}>{content.iconEmoji || "📚"}</div>
-              <h1 style={styles.manualTitle}>{content.title}</h1>
-              {content.description && (
-                <p style={styles.manualDescription}>{content.description}</p>
-              )}
-              <p style={styles.manualHint}>
-                Select a document from the table of contents to begin reading.
-              </p>
+          </main>
+          <footer style={styles.footer}>
+            <div style={styles.footerContent}>
+              <span>Shared via NEXUS</span>
             </div>
+          </footer>
+        </>
+      ) : (
+        <>
+          {renderHeader(
+            <>{content.iconEmoji || "\ud83d\udcda"} {content.title}</>
           )}
-        </main>
-      </div>
+          <div style={styles.manualLayout}>
+            {/* Sidebar TOC */}
+            <aside style={styles.sidebar}>
+              <div style={styles.sidebarHeader}>
+                <h2 style={styles.sidebarTitle}>Table of Contents</h2>
+              </div>
+              <nav style={styles.tocNav}>
+                {content.rootDocuments && content.rootDocuments.length > 0 && (
+                  <div style={styles.tocSection}>
+                    {content.rootDocuments.map((doc) => (
+                      <button
+                        key={doc.id}
+                        onClick={() => setSelectedDoc(doc.id)}
+                        style={{
+                          ...styles.tocItem,
+                          ...(selectedDoc === doc.id ? styles.tocItemActive : {}),
+                        }}
+                      >
+                        {doc.title}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {content.chapters?.map((chapter) => (
+                  <div key={chapter.id} style={styles.tocSection}>
+                    <div style={styles.tocChapter}>{chapter.title}</div>
+                    {chapter.documents.map((doc) => (
+                      <button
+                        key={doc.id}
+                        onClick={() => setSelectedDoc(doc.id)}
+                        style={{
+                          ...styles.tocItem,
+                          ...(selectedDoc === doc.id ? styles.tocItemActive : {}),
+                        }}
+                      >
+                        {doc.title}
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </nav>
+            </aside>
 
-      <footer style={styles.footer}>
-        <div style={styles.footerContent}>
-          <span>Shared via NEXUS</span>
-          <span style={styles.footerDivider}>•</span>
-          <span>Manual v{content.version}</span>
+            {/* Main Content */}
+            <main style={styles.manualMain}>
+              {currentManualDoc ? (
+                <article style={styles.article}>
+                  <div style={styles.docHeader}>
+                    <h1 style={styles.title}>{currentManualDoc.title}</h1>
+                    <div style={styles.meta}>
+                      <span>Rev {currentManualDoc.versionNo}</span>
+                    </div>
+                  </div>
+                  <div
+                    style={styles.content}
+                    dangerouslySetInnerHTML={{ __html: currentManualDoc.htmlContent }}
+                  />
+                </article>
+              ) : (
+                <div style={styles.manualIntro}>
+                  <div style={styles.manualIcon}>{content.iconEmoji || "\ud83d\udcda"}</div>
+                  <h1 style={styles.manualTitle}>{content.title}</h1>
+                  {content.description && (
+                    <p style={styles.manualDescription}>{content.description}</p>
+                  )}
+                  <p style={styles.manualHint}>
+                    Select a document from the table of contents to begin reading.
+                  </p>
+                </div>
+              )}
+            </main>
+          </div>
+
+          <footer style={styles.footer}>
+            <div style={styles.footerContent}>
+              <span>Shared via NEXUS</span>
+              <span style={styles.footerDivider}>•</span>
+              <span>Manual v{content.version}</span>
+            </div>
+          </footer>
+        </>
+      )}
+
+      {/* Watermark overlay */}
+      {shareCtx && (
+        <div style={styles.watermarkOverlay}>
+          {Array.from({ length: 20 }).map((_, i) => (
+            <div
+              key={i}
+              style={{
+                position: "absolute" as const,
+                top: `${(i % 5) * 25 - 10}%`,
+                left: `${Math.floor(i / 5) * 30 - 10}%`,
+                transform: "rotate(-30deg)",
+                fontSize: 16,
+                color: "rgba(0, 0, 0, 0.04)",
+                whiteSpace: "nowrap" as const,
+                userSelect: "none" as const,
+                pointerEvents: "none" as const,
+                fontFamily: "system-ui, sans-serif",
+              }}
+            >
+              {shareCtx.recipientName || shareCtx.recipientEmail || "Viewer"}{" "}
+              \u00b7 {shareCtx.serialNumber}
+            </div>
+          ))}
         </div>
-      </footer>
+      )}
     </div>
   );
 }
@@ -687,5 +799,36 @@ const styles: { [key: string]: React.CSSProperties } = {
     margin: 0,
     fontSize: 14,
     color: "#9ca3af",
+  },
+  watermarkOverlay: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    pointerEvents: "none",
+    zIndex: 9998,
+    overflow: "hidden",
+  },
+  confidentialBanner: {
+    background: "#991b1b",
+    color: "#ffffff",
+    textAlign: "center",
+    padding: "6px 16px",
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: "1.5px",
+    textTransform: "uppercase",
+  },
+  pdfButton: {
+    marginLeft: "auto",
+    padding: "6px 14px",
+    borderRadius: 6,
+    border: "1px solid #d1d5db",
+    background: "#ffffff",
+    color: "#374151",
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: "pointer",
   },
 };
