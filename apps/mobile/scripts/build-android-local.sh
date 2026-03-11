@@ -4,6 +4,12 @@
 
 set -e
 
+# Force Node 20 LTS — Node 24 breaks Expo config plugins (typeof syntax error in RN)
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+nvm use 20 --silent
+echo "📌 Node: $(node --version)"
+
 # Force Java 17 for React Native compatibility
 export JAVA_HOME="$(/usr/libexec/java_home -v 17 2>/dev/null || echo '/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home')"
 export PATH="$JAVA_HOME/bin:$PATH"
