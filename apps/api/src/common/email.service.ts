@@ -737,6 +737,66 @@ export class EmailService {
 
     return this.sendMail({ to: params.toEmail, subject, html, text });
   }
+
+  /**
+   * Send a CAM Library invite email with branded CTA.
+   */
+  async sendCamInvite(params: {
+    toEmail: string;
+    recipientName?: string;
+    inviterName: string;
+    message?: string;
+    shareUrl: string;
+  }) {
+    const name = params.recipientName || "there";
+    const personalMessage = params.message
+      ? `<div style="background: #f0f9ff; border-left: 3px solid #3b82f6; padding: 12px 16px; margin: 0 0 20px; border-radius: 0 6px 6px 0; font-style: italic; color: #1e40af; font-size: 13px;">${escapeHtml(params.message)}</div>`
+      : "";
+
+    const subject = `${params.inviterName} has invited you to view the Nexus CAM Library`;
+
+    const html = `
+      <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height: 1.5; max-width: 600px;">
+        <div style="background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%); color: #fff; padding: 24px; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 20px;">\uD83C\uDFC6 You're Invited</h1>
+          <p style="margin: 8px 0 0; opacity: 0.9; font-size: 14px;">Nexus Competitive Advantage Modules</p>
+        </div>
+        <div style="background: #fff; border: 1px solid #e5e7eb; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+          <p style="margin: 0 0 16px;">Hello ${escapeHtml(name)},</p>
+          <p style="margin: 0 0 16px;"><strong>${escapeHtml(params.inviterName)}</strong> has invited you to review the <strong>Nexus CAM Library</strong> \u2014 a curated collection of competitive advantage modules that define how Nexus transforms construction operations.</p>
+
+          ${personalMessage}
+
+          <div style="background: #f9fafb; border-radius: 8px; padding: 16px; margin: 0 0 20px;">
+            <h3 style="margin: 0 0 8px; font-size: 14px; color: #374151;">What to expect:</h3>
+            <ol style="margin: 0; padding-left: 20px; color: #374151; font-size: 13px;">
+              <li style="margin-bottom: 4px;">Review &amp; accept a brief confidentiality agreement (CNDA+)</li>
+              <li style="margin-bottom: 4px;">Complete a 30-second assessment</li>
+              <li>Access the full CAM Library with interactive discussion</li>
+            </ol>
+          </div>
+
+          <p style="margin: 0 0 24px; text-align: center;">
+            <a href="${params.shareUrl}" style="display: inline-block; background: linear-gradient(135deg, #059669 0%, #10b981 100%); color: #fff; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">
+              View the CAM Library
+            </a>
+          </p>
+
+          <p style="margin: 0 0 8px; color: #6b7280; font-size: 12px;">Or copy this link:</p>
+          <p style="margin: 0 0 20px; word-break: break-all; font-size: 12px; color: #2563eb;">
+            <a href="${params.shareUrl}" style="color: #2563eb;">${params.shareUrl}</a>
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">This invitation was sent by NEXUS on behalf of ${escapeHtml(params.inviterName)}. The CAM Library contains confidential and proprietary information protected under the CNDA+ agreement.</p>
+        </div>
+      </div>
+    `.trim();
+
+    const text = `${params.inviterName} has invited you to view the Nexus CAM Library.\n\n${params.message ? `"${params.message}"\n\n` : ""}View the CAM Library: ${params.shareUrl}\n\nYou'll need to accept a brief confidentiality agreement and complete a 30-second assessment before viewing.\n`;
+
+    return this.sendMail({ to: params.toEmail, subject, html, text });
+  }
 }
 
 function escapeHtml(input: string) {

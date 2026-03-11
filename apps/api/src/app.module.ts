@@ -85,6 +85,7 @@ import { PrecisionScanModule } from "./modules/precision-scan/precision-scan.mod
 import { UpdatesModule } from "./modules/updates/updates.module";
 import { NexfitModule } from "./modules/nexfit/nexfit.module";
 import { CamAccessModule } from "./modules/cam-access/cam-access.module";
+import { CamDashboardModule } from "./modules/cam-dashboard/cam-dashboard.module";
 
 @Module({
   imports: [
@@ -174,6 +175,7 @@ import { CamAccessModule } from "./modules/cam-access/cam-access.module";
     UpdatesModule,
     NexfitModule,
     CamAccessModule,
+    CamDashboardModule,
   ],
   controllers: [DevController],
   providers: [

@@ -855,6 +855,12 @@ model User {
   shareTokensAsInviter DocumentShareToken[] @relation("ShareTokenInviter")
   shareTokensAsInvitee DocumentShareToken[] @relation("ShareTokenInvitee")
 
+  // CAM Discussion — Interactive document review
+  camTopicsCreated              CamDiscussionTopic[]       @relation("CamTopicCreatedBy")
+  camThreadsCreated             CamDiscussionThread[]      @relation("CamThreadCreatedBy")
+  camMessagesAuthored           CamDiscussionMessage[]     @relation("CamMessageAuthor")
+  camDiscussionParticipations   CamDiscussionParticipant[] @relation("CamDiscussionParticipant")
+
   // Invoice Tracker — auto-pay reviews
   autoPayReviews AutoPayReview[] @relation("AutoPayReviewReviewer")
 }
@@ -10760,4 +10766,88 @@ model DocumentShareAccessLog {
   @@index([tokenId, createdAt], map: "DocShareAccessLog_token_created_idx")
   @@index([serialNumber], map: "DocShareAccessLog_serial_idx")
   @@index([accessType], map: "DocShareAccessLog_type_idx")
+}
+
+// =============================================================================
+// CAM Discussion — Interactive Document Review & Collaboration
+// =============================================================================
+
+enum CamThreadVisibility {
+  PUBLIC   /// All viewers can see and post
+  PRIVATE  /// Only invited participants
+  NOTE     /// Private note — visible only to author
+}
+
+/// Admin-created topic/category for organizing CAM discussion threads.
+model CamDiscussionTopic {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  sortOrder   Int      @default(0)
+  isPinned    Boolean  @default(false)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  threads   CamDiscussionThread[]
+  createdBy User @relation("CamTopicCreatedBy", fields: [createdById], references: [id])
+
+  @@index([sortOrder], map: "CamDiscTopic_sort_idx")
+}
+
+/// A discussion thread within the CAM review context.
+/// Can be pinned to a specific CAM section, assigned to a topic,
+/// and flagged as FAQ. Visibility controls who can see/post.
+model CamDiscussionThread {
+  id           String              @id @default(cuid())
+  topicId      String?             /// Optional topic grouping
+  camSection   String?             /// e.g. "EST-SPD-0001" — pins to a CAM
+  title        String
+  visibility   CamThreadVisibility @default(PUBLIC)
+  isPinned     Boolean             @default(false)
+  isFaq        Boolean             @default(false)
+  createdById  String
+  shareTokenId String?             /// If created by a VIEWER via their share token
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  topic        CamDiscussionTopic?       @relation(fields: [topicId], references: [id])
+  createdBy    User                      @relation("CamThreadCreatedBy", fields: [createdById], references: [id])
+  messages     CamDiscussionMessage[]
+  participants CamDiscussionParticipant[]
+
+  @@index([topicId, updatedAt], map: "CamDiscThread_topic_updated_idx")
+  @@index([camSection], map: "CamDiscThread_section_idx")
+  @@index([visibility, updatedAt], map: "CamDiscThread_vis_updated_idx")
+  @@index([createdById], map: "CamDiscThread_creator_idx")
+}
+
+/// A single message/reply within a CAM discussion thread.
+model CamDiscussionMessage {
+  id        String   @id @default(cuid())
+  threadId  String
+  authorId  String
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  thread CamDiscussionThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author User                @relation("CamMessageAuthor", fields: [authorId], references: [id])
+
+  @@index([threadId, createdAt], map: "CamDiscMsg_thread_created_idx")
+  @@index([authorId], map: "CamDiscMsg_author_idx")
+}
+
+/// Participant membership in a PRIVATE CAM discussion thread.
+model CamDiscussionParticipant {
+  id       String   @id @default(cuid())
+  threadId String
+  userId   String
+  joinedAt DateTime @default(now())
+
+  thread CamDiscussionThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user   User                @relation("CamDiscussionParticipant", fields: [userId], references: [id])
+
+  @@unique([threadId, userId], map: "CamDiscParticipant_thread_user_uk")
+  @@index([userId], map: "CamDiscParticipant_user_idx")
 }

@@ -731,12 +731,12 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
                 Worker registration landing
               </Link>
               <Link
-                href="/system/documents/cam-manual/handbook"
+                href="/system/cam-dashboard"
                 style={{
                   padding: "2px 8px",
                   borderRadius: 999,
                   border: "1px solid #059669",
-                  background: pathname?.startsWith("/system/documents/cam-manual/handbook")
+                  background: pathname?.startsWith("/system/cam-dashboard")
                     ? "#059669"
                     : "#065f46",
                   color: "#ecfdf5",
@@ -745,7 +745,7 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
                   fontWeight: 600,
                 }}
               >
-                📖 CAM Handbook
+                🏆 CAM Dashboard
               </Link>
               <a
                 href="https://staging-ncc.nfsgrp.com/welcome"

@@ -42,6 +42,9 @@ apps/mobile/.expo/
 *.ipa
 *.apk
 
+# ─── NexCard (standalone consumer app — not dockerized) ──────────────
+apps/nexcard/
+
 # ─── NexBridge Connect (Tauri desktop app — not dockerized) ─────────
 apps/nexbridge-connect/ios/
 apps/nexbridge-connect/src-tauri/target/
