@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -111,6 +111,14 @@ const REVENUE_STOPS = [
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function NexfitPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: 60, textAlign: "center", color: "#6b7280" }}>Loading...</div>}>
+      <NexfitPageInner />
+    </Suspense>
+  );
+}
+
+function NexfitPageInner() {
   // Wizard state
   const [questions, setQuestions] = useState<NexfitQuestion[]>([]);
   const [currentStep, setCurrentStep] = useState(0);
