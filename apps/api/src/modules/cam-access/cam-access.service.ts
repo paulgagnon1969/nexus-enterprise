@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -7,6 +8,7 @@ import {
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { ShareAccessType, ShareDocumentType } from "@prisma/client";
 import { SopSyncService } from "../documents/sop-sync.service";
+import { EmailService } from "../../common/email.service";
 import * as crypto from "crypto";
 
 /* ------------------------------------------------------------------ */
@@ -21,6 +23,12 @@ export interface AcceptCndaDto {
 
 export interface SubmitQuestionnaireDto {
   answers: Record<string, any>;
+}
+
+export interface SubmitReferralDto {
+  recipientName: string;
+  recipientEmail: string;
+  message?: string;
 }
 
 interface RequestContext {
@@ -39,6 +47,7 @@ export class CamAccessService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sopSync: SopSyncService,
+    private readonly email: EmailService,
   ) {}
 
   /* ---------------------------------------------------------------- */
@@ -123,17 +132,36 @@ export class CamAccessService {
 
     const cndaAccepted = !!record.cndaAcceptedAt;
     const questionnaireCompleted = !!record.questionnaireCompletedAt;
+    const accessGranted = cndaAccepted && questionnaireCompleted;
+
+    // Mask the invitee email once gates are passed to prevent URL-sharing
+    // attacks where a third party reads the email from the API and replays it.
+    let maskedEmail: string | null = null;
+    if (record.inviteeEmail) {
+      if (accessGranted) {
+        // j***e@company.com
+        const [local, domain] = record.inviteeEmail.split("@");
+        maskedEmail =
+          local.length <= 2
+            ? `${local[0]}***@${domain}`
+            : `${local[0]}***${local[local.length - 1]}@${domain}`;
+      } else {
+        // Pre-fill for CNDA step (gates not passed yet — harmless)
+        maskedEmail = record.inviteeEmail;
+      }
+    }
 
     return {
       valid: true,
       inviterName: record.inviterName || record.inviterEmail,
-      inviteeEmail: record.inviteeEmail,
+      inviteeEmail: maskedEmail,
       inviteeName: record.inviteeName,
       cndaRequired: true,
       cndaAccepted,
       questionnaireRequired: true,
       questionnaireCompleted,
-      accessGranted: cndaAccepted && questionnaireCompleted,
+      accessGranted,
+      identityVerificationRequired: accessGranted,
     };
   }
 
@@ -264,7 +292,7 @@ export class CamAccessService {
   /*  Content delivery                                                */
   /* ---------------------------------------------------------------- */
 
-  async getContent(token: string, ctx?: RequestContext) {
+  async getContent(token: string, verifyEmail: string | undefined, ctx?: RequestContext) {
     const record = await this.prisma.documentShareToken.findUnique({
       where: { token },
       select: {
@@ -290,6 +318,24 @@ export class CamAccessService {
     }
     if (!record.questionnaireCompletedAt) {
       throw new ForbiddenException("Questionnaire completion is required to view this document.");
+    }
+
+    // Identity verification: the requester must prove they are the CNDA signer.
+    // This prevents URL-sharing attacks where someone forwards the link after
+    // gates are already passed.
+    const normalised = (verifyEmail || "").trim().toLowerCase();
+    if (!normalised) {
+      throw new ForbiddenException(
+        "Identity verification is required. Please provide your email address.",
+      );
+    }
+    if (normalised !== (record.inviteeEmail || "").toLowerCase()) {
+      await this.logAccess(record.id, ShareAccessType.VIEW, ctx, {
+        metadata: { action: "identity_verification_failed", attemptedEmail: normalised },
+      });
+      throw new ForbiddenException(
+        "The email address does not match the CNDA+ signer for this access link.",
+      );
     }
 
     // Generate forensic serial for this content view
@@ -323,6 +369,184 @@ export class CamAccessService {
         accessedAt: new Date().toISOString(),
         visitNumber: existingContentViews + 1,
       },
+    };
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Link recovery — re-send the access link by email                 */
+  /* ---------------------------------------------------------------- */
+
+  async recoverLink(email: string) {
+    const normalised = (email || "").trim().toLowerCase();
+    if (!normalised) {
+      throw new BadRequestException("Email is required");
+    }
+
+    // Find the most recent CAM_LIBRARY token for this email
+    const record = await this.prisma.documentShareToken.findFirst({
+      where: {
+        inviteeEmail: normalised,
+        documentType: ShareDocumentType.CAM_LIBRARY,
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        token: true,
+        inviterName: true,
+        inviterEmail: true,
+        inviteeName: true,
+        inviteeEmail: true,
+      },
+    });
+
+    // Always return success to avoid email enumeration
+    if (!record) {
+      this.logger.log(`Recover link requested for unknown email: ${normalised}`);
+      return { sent: true };
+    }
+
+    const baseUrl =
+      process.env.NEXT_PUBLIC_APP_URL || "https://staging-ncc.nfsgrp.com";
+    const shareUrl = `${baseUrl}/cam-access/${record.token}`;
+
+    try {
+      await this.email.sendCamInvite({
+        toEmail: normalised,
+        recipientName: record.inviteeName ?? undefined,
+        inviterName: record.inviterName || record.inviterEmail,
+        message:
+          "You requested a reminder of your CAM Library access link. Click the button below to continue where you left off.",
+        shareUrl,
+      });
+      this.logger.log(`Recover link email sent to ${normalised}`);
+    } catch (err: any) {
+      this.logger.error(`Recover link email failed for ${normalised}: ${err?.message}`);
+    }
+
+    return { sent: true };
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Viral referral — invitee refers someone else                     */
+  /* ---------------------------------------------------------------- */
+
+  async submitReferral(
+    token: string,
+    dto: SubmitReferralDto,
+    ctx?: RequestContext,
+  ) {
+    const email = (dto.recipientEmail || "").trim().toLowerCase();
+    if (!email) {
+      throw new BadRequestException("Recipient email is required");
+    }
+
+    // Verify the referrer's token exists and has full access
+    const parent = await this.prisma.documentShareToken.findUnique({
+      where: { token },
+      select: {
+        id: true,
+        documentType: true,
+        cndaAcceptedAt: true,
+        questionnaireCompletedAt: true,
+        inviteeName: true,
+        inviteeEmail: true,
+        depth: true,
+      },
+    });
+
+    if (!parent || parent.documentType !== ShareDocumentType.CAM_LIBRARY) {
+      throw new NotFoundException("This access link is invalid or has expired.");
+    }
+    if (!parent.cndaAcceptedAt || !parent.questionnaireCompletedAt) {
+      throw new ForbiddenException(
+        "You must complete the full access flow before referring others.",
+      );
+    }
+
+    // Cap viral depth at 5 levels to prevent unbounded chains
+    if (parent.depth >= 5) {
+      throw new ForbiddenException(
+        "Maximum referral depth reached. Please contact Nexus directly.",
+      );
+    }
+
+    // Prevent duplicate referral to the same email from the same parent
+    const existing = await this.prisma.documentShareToken.findFirst({
+      where: {
+        parentTokenId: parent.id,
+        inviteeEmail: email,
+        documentType: ShareDocumentType.CAM_LIBRARY,
+      },
+    });
+    if (existing) {
+      throw new BadRequestException(
+        "You've already referred this person. They should have received an email.",
+      );
+    }
+
+    // Create the child token
+    const childToken = crypto.randomBytes(24).toString("hex");
+    const referrerName =
+      parent.inviteeName || parent.inviteeEmail || "A Nexus reviewer";
+
+    await this.prisma.documentShareToken.create({
+      data: {
+        token: childToken,
+        documentType: ShareDocumentType.CAM_LIBRARY,
+        inviterEmail: parent.inviteeEmail || "",
+        inviterName: referrerName,
+        inviteeEmail: email,
+        inviteeName: dto.recipientName || null,
+        parentTokenId: parent.id,
+        depth: parent.depth + 1,
+      },
+    });
+
+    // Mark the parent token as having shared onward
+    await this.prisma.documentShareToken.update({
+      where: { id: parent.id },
+      data: { sharedAt: new Date() },
+    });
+
+    // Send invite email
+    const baseUrl =
+      process.env.NEXT_PUBLIC_APP_URL || "https://staging-ncc.nfsgrp.com";
+    const shareUrl = `${baseUrl}/cam-access/${childToken}`;
+
+    let emailSent = false;
+    try {
+      await this.email.sendCamInvite({
+        toEmail: email,
+        recipientName: dto.recipientName,
+        inviterName: referrerName,
+        message: dto.message,
+        shareUrl,
+      });
+      emailSent = true;
+      this.logger.log(
+        `Viral referral email sent: ${parent.inviteeEmail} → ${email} (depth ${parent.depth + 1})`,
+      );
+    } catch (err: any) {
+      this.logger.error(`Viral referral email failed for ${email}: ${err?.message}`);
+    }
+
+    // Log the referral event
+    await this.logAccess(parent.id, ShareAccessType.RETURN_VISIT, ctx, {
+      metadata: {
+        action: "referral",
+        referredEmail: email,
+        referredName: dto.recipientName || null,
+        childToken,
+        depth: parent.depth + 1,
+      },
+    });
+
+    return {
+      success: true,
+      emailSent,
+      recipientEmail: email,
+      recipientName: dto.recipientName || null,
+      shareUrl,
     };
   }
 }

@@ -25,6 +25,7 @@ interface UserMeResponse {
   globalRole?: string;
   userType?: string;
   hasPortalAccess?: boolean;
+  camAccessToken?: string | null;
   memberships: {
     companyId: string;
     role: string;
@@ -65,6 +66,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [companyRole, setCompanyRole] = useState<string | null>(null); // OWNER, ADMIN, PM, MEMBER
   const [helpMode, setHelpMode] = useState(false);
   const [hasPortalAccess, setHasPortalAccess] = useState(false);
+  const [camAccessToken, setCamAccessToken] = useState<string | null>(null);
+  const [camBannerDismissed, setCamBannerDismissed] = useState(false);
 
   const path = pathname ?? "/";
   const isSystemRoute = path.startsWith("/system");
@@ -81,7 +84,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     path.startsWith("/client-portal") ||
     path.startsWith("/register/client") ||
     path === "/nexfit" ||
-    path.startsWith("/nexfit/");
+    path.startsWith("/nexfit/") ||
+    path.startsWith("/cam-access");
   const isReferralRoute = path === "/referrals" || path.startsWith("/referrals/");
 
   // On first load in this browser tab, clear any stale tokens and send the
@@ -262,10 +266,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       const storedUserType = window.localStorage.getItem("userType");
       const storedCompanyRole = window.localStorage.getItem("companyRole");
       const storedPortalAccess = window.localStorage.getItem("hasPortalAccess");
+      const storedCamToken = window.localStorage.getItem("nexus_cam_token");
       if (storedGlobalRole) setGlobalRole(storedGlobalRole);
       if (storedUserType) setUserType(storedUserType);
       if (storedCompanyRole) setCompanyRole(storedCompanyRole);
       setHasPortalAccess(storedPortalAccess === "1");
+      if (storedCamToken) setCamAccessToken(storedCamToken);
+      setCamBannerDismissed(window.sessionStorage.getItem("nexusCamBannerDismissed") === "1");
     } catch {
       // ignore
     }
@@ -324,6 +331,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           } else {
             window.localStorage.removeItem("hasPortalAccess");
             setHasPortalAccess(false);
+          }
+          // Sync CAM access token (server-authoritative)
+          if (json.camAccessToken) {
+            window.localStorage.setItem("nexus_cam_token", json.camAccessToken);
+            setCamAccessToken(json.camAccessToken);
           }
         } catch {
           // best-effort only; ignore storage errors
@@ -490,12 +502,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // nav.
   const hideNavOnThisPage = isAuthRoute;
   const useMarketplaceNavOnly = isReferralRoute;
-
-  if (isPublicRoute) {
-    return (
-      <main style={{ minHeight: "100vh", background: "#ffffff" }}>{children}</main>
-    );
-  }
 
   const renderApplicantNav = () => (
     <nav className="app-nav">
@@ -718,6 +724,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  if (isPublicRoute) {
+    return (
+      <main style={{ minHeight: "100vh", background: "#ffffff" }}>{children}</main>
+    );
+  }
+
   return (
     <div className="app-shell">
       {/* Print: hide header + nav. Inline JSX <style> = always in the HTML, no JS needed */}
@@ -884,6 +896,54 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
+
+      {/* CAM Library revisit banner — shown when logged-in user has a signed CNDA+ */}
+      {camAccessToken && !camBannerDismissed && !isAuthRoute && !isPublicRoute && !isSystemRoute && (
+        <div
+          className="no-print"
+          style={{
+            background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)",
+            padding: "10px 20px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 16,
+          }}
+        >
+          <span style={{ fontSize: 18 }}>🏆</span>
+          <span style={{ color: "#e2e8f0", fontSize: 13, fontWeight: 500 }}>
+            You have access to the <strong style={{ color: "#fff" }}>Nexus CAM Library</strong> — revisit the Competitive Advantage Manual anytime.
+          </span>
+          <Link
+            href={`/cam-access/${camAccessToken}`}
+            style={{
+              padding: "6px 16px",
+              borderRadius: 6,
+              border: "none",
+              background: "#059669",
+              color: "#fff",
+              fontSize: 12,
+              fontWeight: 600,
+              textDecoration: "none",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
+          >
+            Open CAM Library
+          </Link>
+          <button
+            onClick={() => {
+              setCamBannerDismissed(true);
+              try { window.sessionStorage.setItem("nexusCamBannerDismissed", "1"); } catch {}
+            }}
+            style={{ background: "none", border: "none", color: "#94a3b8", fontSize: 16, cursor: "pointer", padding: "0 4px", flexShrink: 0 }}
+            title="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       <main className="app-main" style={noMainScroll ? { overflow: "hidden" } : undefined}>
         {children}
       </main>

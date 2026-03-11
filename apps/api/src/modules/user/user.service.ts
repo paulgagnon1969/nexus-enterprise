@@ -2,7 +2,7 @@ import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/commo
 import { PrismaService } from "../../infra/prisma/prisma.service";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { GlobalRole, Role } from "../auth/auth.guards";
-import { UserType, ProjectParticipantScope } from "@prisma/client";
+import { UserType, ProjectParticipantScope, ShareDocumentType } from "@prisma/client";
 import {
   decryptPortfolioHrJson,
   encryptPortfolioHrJson,
@@ -146,7 +146,25 @@ export class UserService {
       }
     }
 
-    return { ...user, hasPortalAccess };
+    // Check if this user has a signed CNDA+ for the CAM Library.
+    // Returns their access token so the frontend can show a "Revisit CAM" link.
+    let camAccessToken: string | null = null;
+    if (user.email) {
+      const camToken = await this.prisma.documentShareToken.findFirst({
+        where: {
+          inviteeEmail: user.email.toLowerCase(),
+          documentType: ShareDocumentType.CAM_LIBRARY,
+          cndaAcceptedAt: { not: null },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { token: true },
+      });
+      if (camToken) {
+        camAccessToken = camToken.token;
+      }
+    }
+
+    return { ...user, hasPortalAccess, camAccessToken };
   }
 
   private async updateUserNamesAndProfileCompletion(

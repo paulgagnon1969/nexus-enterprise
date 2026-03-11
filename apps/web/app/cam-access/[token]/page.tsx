@@ -203,6 +203,20 @@ export default function CamAccessPage() {
   const [handbook, setHandbook] = useState<HandbookData | null>(null);
   const [contentLoading, setContentLoading] = useState(false);
 
+  // Identity verification
+  const [verifiedEmail, setVerifiedEmail] = useState<string | null>(null);
+  const [verifyInput, setVerifyInput] = useState("");
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+
+  // Referral
+  const [showReferral, setShowReferral] = useState(false);
+  const [refName, setRefName] = useState("");
+  const [refEmail, setRefEmail] = useState("");
+  const [refMessage, setRefMessage] = useState("");
+  const [refSubmitting, setRefSubmitting] = useState(false);
+  const [refResult, setRefResult] = useState<{ success: boolean; message: string } | null>(null);
+
   // ── Load gate status ──────────────────────────────────────────────
   useEffect(() => {
     if (!token) return;
@@ -227,12 +241,35 @@ export default function CamAccessPage() {
     })();
   }, [token]);
 
-  // ── Auto-load content if both gates already passed ────────────────
+  // ── Restore verified email from sessionStorage on mount ────────────
   useEffect(() => {
-    if (gate?.accessGranted && !handbook && !contentLoading) {
-      loadContent();
+    try {
+      const saved = window.sessionStorage.getItem(`nexus_cam_verified_${token}`);
+      if (saved) setVerifiedEmail(saved);
+    } catch {}
+  }, [token]);
+
+  // ── Auto-load content when identity is verified ────────────────────
+  useEffect(() => {
+    if (gate?.accessGranted && verifiedEmail && !handbook && !contentLoading) {
+      loadContent(verifiedEmail);
+      try {
+        window.localStorage.setItem("nexus_cam_token", token);
+      } catch {}
     }
-  }, [gate?.accessGranted]);
+  }, [gate?.accessGranted, verifiedEmail]);
+
+  // ── When user just completed CNDA in this session, auto-verify ─────
+  // The CNDA step captured their email, so they don't need to re-enter it.
+  useEffect(() => {
+    if (gate?.accessGranted && cndaEmail && !verifiedEmail) {
+      const email = cndaEmail.trim().toLowerCase();
+      if (email) {
+        setVerifiedEmail(email);
+        try { window.sessionStorage.setItem(`nexus_cam_verified_${token}`, email); } catch {}
+      }
+    }
+  }, [gate?.accessGranted, cndaEmail, verifiedEmail, token]);
 
   // ── CNDA submission ───────────────────────────────────────────────
   const handleCndaSubmit = useCallback(
@@ -292,11 +329,23 @@ export default function CamAccessPage() {
   );
 
   // ── Content loading ───────────────────────────────────────────────
-  async function loadContent() {
+  async function loadContent(email: string) {
     setContentLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/cam-access/${token}/content`);
-      if (!res.ok) throw new Error("Failed to load content");
+      const res = await fetch(
+        `${API_BASE}/cam-access/${token}/content?email=${encodeURIComponent(email)}`,
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 403) {
+          // Identity mismatch — clear verified state and show form
+          setVerifiedEmail(null);
+          setVerifyError(data.message || "Email verification failed.");
+          try { window.sessionStorage.removeItem(`nexus_cam_verified_${token}`); } catch {}
+          return;
+        }
+        throw new Error("Failed to load content");
+      }
       const data: HandbookData = await res.json();
       setHandbook(data);
     } catch {
@@ -335,15 +384,67 @@ export default function CamAccessPage() {
     };
   }, [handbook]);
 
+  // ── Referral submission ────────────────────────────────────────────
+  const handleReferral = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!refName.trim() || !refEmail.trim()) return;
+      setRefSubmitting(true);
+      setRefResult(null);
+      try {
+        const res = await fetch(`${API_BASE}/cam-access/${token}/refer`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            recipientName: refName.trim(),
+            recipientEmail: refEmail.trim(),
+            message: refMessage.trim() || undefined,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setRefResult({ success: false, message: data.message || "Failed to send referral." });
+        } else {
+          setRefResult({ success: true, message: `Invitation sent to ${data.recipientEmail}!` });
+          setRefName("");
+          setRefEmail("");
+          setRefMessage("");
+        }
+      } catch {
+        setRefResult({ success: false, message: "Network error. Please try again." });
+      } finally {
+        setRefSubmitting(false);
+      }
+    },
+    [token, refName, refEmail, refMessage],
+  );
+
+  // ── Identity verification submission ─────────────────────────────
+  const handleVerifyIdentity = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      const email = verifyInput.trim().toLowerCase();
+      if (!email) return;
+      setVerifying(true);
+      setVerifyError(null);
+      // Attempt to load content with this email — the API will reject if wrong
+      setVerifiedEmail(email);
+      try { window.sessionStorage.setItem(`nexus_cam_verified_${token}`, email); } catch {}
+      setVerifying(false);
+    },
+    [token, verifyInput],
+  );
+
   // ── Determine current step ────────────────────────────────────────
+  const needsVerification = gate?.accessGranted && !verifiedEmail;
   const currentStep = !gate
     ? "loading"
-    : gate.accessGranted
-      ? "content"
-      : !gate.cndaAccepted
-        ? "cnda"
-        : !gate.questionnaireCompleted
-          ? "questionnaire"
+    : !gate.cndaAccepted
+      ? "cnda"
+      : !gate.questionnaireCompleted
+        ? "questionnaire"
+        : needsVerification
+          ? "verify"
           : "content";
 
   // ── Render ────────────────────────────────────────────────────────
@@ -377,9 +478,9 @@ export default function CamAccessPage() {
     <div style={containerStyle}>
       {/* Progress indicator */}
       <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 24 }}>
-        {["CNDA+", "Questionnaire", "Document"].map((label, i) => {
+        {["CNDA+", "Questionnaire", "Verify", "Document"].map((label, i) => {
           const stepIndex = i;
-          const activeIndex = currentStep === "cnda" ? 0 : currentStep === "questionnaire" ? 1 : 2;
+          const activeIndex = currentStep === "cnda" ? 0 : currentStep === "questionnaire" ? 1 : currentStep === "verify" ? 2 : 3;
           const isActive = stepIndex === activeIndex;
           const isDone = stepIndex < activeIndex;
           return (
@@ -560,7 +661,58 @@ export default function CamAccessPage() {
         </div>
       )}
 
-      {/* ── Step 3: Content ──────────────────────────────────────── */}
+      {/* ── Step 3: Identity Verification ────────────────────────── */}
+      {currentStep === "verify" && (
+        <div style={{ ...cardStyle, maxWidth: 480 }}>
+          <div style={{ textAlign: "center", marginBottom: 20 }}>
+            <div style={{ fontSize: 40, marginBottom: 8 }}>🔐</div>
+            <h2 style={{ margin: "0 0 6px", fontSize: 18, fontWeight: 600, color: "#0f172a" }}>Verify Your Identity</h2>
+            <p style={{ margin: 0, fontSize: 13, color: "#6b7280", lineHeight: 1.5 }}>
+              For your protection, please confirm the email address you used<br />when you signed the CNDA+ agreement.
+            </p>
+          </div>
+
+          {verifyError && (
+            <div style={{ padding: "10px 14px", borderRadius: 6, marginBottom: 16, fontSize: 13, background: "#fef2f2", color: "#991b1b", border: "1px solid #fecaca" }}>
+              ⚠ {verifyError}
+            </div>
+          )}
+
+          <form onSubmit={handleVerifyIdentity}>
+            <div style={{ marginBottom: 16 }}>
+              <label style={labelStyle}>Email Address *</label>
+              <input
+                type="email"
+                value={verifyInput}
+                onChange={(e) => setVerifyInput(e.target.value)}
+                required
+                style={inputStyle}
+                placeholder="The email you used for the CNDA+"
+                autoFocus
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={!verifyInput.trim() || verifying}
+              style={{
+                ...btnPrimaryStyle,
+                opacity: !verifyInput.trim() ? 0.5 : 1,
+              }}
+            >
+              {verifying ? "Verifying..." : "Verify & Continue"}
+            </button>
+          </form>
+
+          <div style={{ marginTop: 20, textAlign: "center" }}>
+            <p style={{ margin: 0, fontSize: 12, color: "#9ca3af" }}>
+              Can't remember your email?{" "}
+              <a href="/cam-access" style={{ color: "#2563eb", textDecoration: "none" }}>Recover your access link</a>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Step 4: Content ──────────────────────────────────────── */}
       {currentStep === "content" && !handbook && contentLoading && (
         <div style={cardStyle}>
           <div style={{ textAlign: "center", padding: 40, color: "#6b7280" }}>
@@ -570,7 +722,67 @@ export default function CamAccessPage() {
       )}
 
       {currentStep === "content" && handbook && (
-        <ContentView handbook={handbook} />
+        <ContentView
+          handbook={handbook}
+          onRefer={() => { setRefResult(null); setShowReferral(true); }}
+        />
+      )}
+
+      {/* ── Referral Modal ───────────────────────────────────── */}
+      {showReferral && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowReferral(false); }}
+        >
+          <div style={{ background: "#fff", borderRadius: 12, width: "100%", maxWidth: 480, padding: 28, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#0f172a" }}>🤝 Refer Someone</h2>
+              <button onClick={() => setShowReferral(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#6b7280", padding: 4 }}>✕</button>
+            </div>
+
+            <p style={{ margin: "0 0 16px", fontSize: 13, color: "#6b7280", lineHeight: 1.5 }}>
+              Know someone who'd benefit from seeing the Nexus CAM Library? Send them an invitation.
+              They'll go through the same CNDA+ and questionnaire process you completed.
+            </p>
+
+            {refResult && (
+              <div style={{ padding: "10px 14px", borderRadius: 6, marginBottom: 16, fontSize: 13, background: refResult.success ? "#ecfdf5" : "#fef2f2", color: refResult.success ? "#065f46" : "#991b1b", border: `1px solid ${refResult.success ? "#a7f3d0" : "#fecaca"}` }}>
+                {refResult.success ? "✅" : "⚠"} {refResult.message}
+              </div>
+            )}
+
+            <form onSubmit={handleReferral}>
+              <div style={{ marginBottom: 12 }}>
+                <label style={labelStyle}>Their Name *</label>
+                <input type="text" value={refName} onChange={(e) => setRefName(e.target.value)} required style={inputStyle} placeholder="Jane Smith" />
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={labelStyle}>Their Email *</label>
+                <input type="email" value={refEmail} onChange={(e) => setRefEmail(e.target.value)} required style={inputStyle} placeholder="jane@company.com" />
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={labelStyle}>Personal Message (optional)</label>
+                <textarea
+                  value={refMessage}
+                  onChange={(e) => setRefMessage(e.target.value)}
+                  rows={3}
+                  style={{ ...inputStyle, resize: "vertical" }}
+                  placeholder="Hey Jane, check out this platform — I think it'd be great for our workflow."
+                />
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" onClick={() => setShowReferral(false)} style={{ flex: 1, padding: "10px 16px", borderRadius: 6, border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+                <button
+                  type="submit"
+                  disabled={!refName.trim() || !refEmail.trim() || refSubmitting}
+                  style={{ flex: 2, padding: "10px 16px", borderRadius: 6, border: "none", background: refSubmitting ? "#6b7280" : "#059669", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: !refName.trim() || !refEmail.trim() ? 0.5 : 1 }}
+                >
+                  {refSubmitting ? "Sending..." : "Send Invitation"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -580,7 +792,9 @@ export default function CamAccessPage() {
 /*  CONTENT VIEW — rich handbook layout                               */
 /* ═══════════════════════════════════════════════════════════════════ */
 
-function ContentView({ handbook }: { handbook: HandbookData }) {
+function ContentView({ handbook, onRefer }: { handbook: HandbookData; onRefer: () => void }) {
+  const isReturnVisit = handbook._shareContext.visitNumber > 1;
+  const [bookmarkDismissed, setBookmarkDismissed] = useState(false);
   const allCams = handbook.modules.flatMap((m) => m.cams);
   const totalScore = handbook.overallAvgScore;
 
@@ -642,6 +856,31 @@ function ContentView({ handbook }: { handbook: HandbookData }) {
       `}</style>
 
       <div className="handbook-container" style={{ maxWidth: 900, margin: "0 auto", padding: 0 }}>
+        {/* ── Welcome back banner (return visits only) ── */}
+        {isReturnVisit && (
+          <div className="no-print" style={{ background: "linear-gradient(135deg, #eff6ff 0%, #f0f9ff 100%)", border: "1px solid #93c5fd", borderRadius: 8, padding: "14px 20px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 24 }}>👋</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, color: "#1e40af" }}>Welcome back{handbook._shareContext.recipientName ? `, ${handbook._shareContext.recipientName}` : ""}!</div>
+              <div style={{ fontSize: 12, color: "#3b82f6", marginTop: 2 }}>This is visit #{handbook._shareContext.visitNumber}. Your access link never expires — bookmark this page to return anytime.</div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Bookmark prompt (first content view only) ── */}
+        {!isReturnVisit && !bookmarkDismissed && (
+          <div className="no-print" style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 8, padding: "14px 20px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 24 }}>🔖</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, color: "#065f46" }}>Bookmark this page</div>
+              <div style={{ fontSize: 12, color: "#047857", marginTop: 2 }}>
+                Press <strong>{typeof navigator !== "undefined" && /Mac/i.test(navigator.userAgent) ? "⌘+D" : "Ctrl+D"}</strong> to bookmark this page. Your personal access link lets you return anytime without re-registering.
+              </div>
+            </div>
+            <button onClick={() => setBookmarkDismissed(true)} style={{ background: "none", border: "none", fontSize: 16, cursor: "pointer", color: "#6b7280", padding: 4, flexShrink: 0 }}>✕</button>
+          </div>
+        )}
+
         {/* ── Watermark bar ── */}
         <div className="no-print" style={{ background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 6, padding: "8px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, color: "#92400e" }}>
           <span>🔒 CONFIDENTIAL — Serial: <strong>{handbook._shareContext.serialNumber}</strong> | Shared by: {handbook._shareContext.inviterName} | Visit #{handbook._shareContext.visitNumber}</span>
@@ -859,6 +1098,22 @@ function ContentView({ handbook }: { handbook: HandbookData }) {
           );
         })}
 
+        {/* ── Refer CTA Banner ── */}
+        <div className="no-print" style={{ margin: "48px 0 0", padding: "24px 28px", background: "linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%)", borderRadius: 10, border: "1px solid #a7f3d0", textAlign: "center" }}>
+          <div style={{ fontSize: 28, marginBottom: 8 }}>🤝</div>
+          <h3 style={{ margin: "0 0 6px", fontSize: 17, fontWeight: 700, color: "#065f46" }}>Know someone who should see this?</h3>
+          <p style={{ margin: "0 0 16px", fontSize: 13, color: "#047857", lineHeight: 1.5 }}>
+            If you know a contractor, project manager, or business owner who could benefit from Nexus,<br />
+            send them a personal invitation. They'll get their own secure access link.
+          </p>
+          <button
+            onClick={onRefer}
+            style={{ padding: "12px 32px", borderRadius: 8, border: "none", background: "#059669", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer", boxShadow: "0 2px 8px rgba(5,150,105,0.3)" }}
+          >
+            Refer Someone →
+          </button>
+        </div>
+
         {/* ── Footer ── */}
         <hr style={{ border: "none", borderTop: "2px solid #0f172a", margin: "48px 0 16px" }} />
         <div style={{ textAlign: "center", fontSize: 11, color: "#9ca3af", userSelect: "none", paddingBottom: 40 }}>
@@ -867,6 +1122,16 @@ function ContentView({ handbook }: { handbook: HandbookData }) {
           {handbook.totalCams} CAMs · {handbook.modules.length} Module Groups · {new Date(handbook._shareContext.accessedAt).toLocaleDateString()}
         </div>
       </div>
+
+      {/* ── Floating Refer Button ── */}
+      <button
+        className="no-print"
+        onClick={onRefer}
+        style={{ position: "fixed", bottom: 24, right: 24, padding: "12px 20px", borderRadius: 999, border: "none", background: "#059669", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", boxShadow: "0 4px 16px rgba(0,0,0,0.2)", display: "flex", alignItems: "center", gap: 8, zIndex: 100 }}
+        title="Refer someone to the CAM Library"
+      >
+        🤝 Refer Someone
+      </button>
     </>
   );
 }
