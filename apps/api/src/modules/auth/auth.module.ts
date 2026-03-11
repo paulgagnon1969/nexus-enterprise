@@ -8,6 +8,7 @@ import { RolesGuard, GlobalRolesGuard } from "./auth.guards";
 import { SandboxGuard } from "./sandbox.guard";
 import { SandboxCleanupService } from "./sandbox-cleanup.service";
 import { LicenseService } from "./license.service";
+import { DeviceTrustService } from "./device-trust.service";
 import { Reflector } from "@nestjs/core";
 import { FeaturesModule } from "../features/features.module";
 
@@ -23,6 +24,7 @@ import { FeaturesModule } from "../features/features.module";
   providers: [
     AuthService,
     LicenseService,
+    DeviceTrustService,
     JwtStrategy,
     DeviceSyncStrategy,
     RolesGuard,
@@ -32,6 +34,6 @@ import { FeaturesModule } from "../features/features.module";
     Reflector,
   ],
   controllers: [AuthController],
-  exports: [AuthService, LicenseService, SandboxGuard]
+  exports: [AuthService, LicenseService, DeviceTrustService, SandboxGuard]
 })
 export class AuthModule {}

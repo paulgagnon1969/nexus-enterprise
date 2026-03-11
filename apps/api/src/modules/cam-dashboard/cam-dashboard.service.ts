@@ -39,6 +39,7 @@ export interface BulkInviteDto {
   recipients: BulkInviteRecipient[];
   deliveryMethods: Array<"email" | "sms">;
   message?: string;
+  inviteType?: "cam" | "master_class";
 }
 
 export interface CreateTopicDto {
@@ -341,6 +342,85 @@ export class CamDashboardService {
     };
   }
 
+  async sendMasterClassInvite(actor: AuthenticatedUser, dto: SendInviteDto) {
+    const email = (dto.recipientEmail || "").trim().toLowerCase();
+    if (!email) throw new BadRequestException("Recipient email is required");
+    if (!dto.deliveryMethods || dto.deliveryMethods.length === 0) {
+      throw new BadRequestException("At least one delivery method is required");
+    }
+
+    const inviter = await this.prisma.user.findUnique({
+      where: { id: actor.userId },
+      select: { firstName: true, lastName: true, email: true },
+    });
+    const inviterName =
+      `${inviter?.firstName ?? ""} ${inviter?.lastName ?? ""}`.trim() ||
+      actor.email;
+
+    const token = crypto.randomBytes(24).toString("hex");
+    await this.prisma.documentShareToken.create({
+      data: {
+        token,
+        documentType: ShareDocumentType.CAM_DOCUMENT,
+        documentRef: "MASTER_CLASS",
+        inviterEmail: actor.email,
+        inviterName,
+        inviterUserId: actor.userId,
+        inviteeEmail: email,
+        inviteeName: dto.recipientName ?? null,
+        depth: 0,
+      },
+    });
+
+    const baseUrl =
+      process.env.NEXT_PUBLIC_APP_URL || "https://staging-ncc.nfsgrp.com";
+    const shareUrl = `${baseUrl}/cam-access/${token}?doc=master-class`;
+
+    const deliveryResults: Record<string, any> = {};
+
+    if (dto.deliveryMethods.includes("email")) {
+      try {
+        const result = await this.email.sendMasterClassInvite({
+          toEmail: email,
+          recipientName: dto.recipientName,
+          inviterName,
+          message: dto.message,
+          shareUrl,
+        });
+        deliveryResults.email = { sent: true, ...result };
+        this.logger.log(`Master Class invite email sent to ${email}`);
+      } catch (err: any) {
+        deliveryResults.email = { sent: false, error: err?.message };
+        this.logger.error(`Master Class invite email failed for ${email}: ${err?.message}`);
+      }
+    }
+
+    if (dto.deliveryMethods.includes("sms")) {
+      const phone = (dto.recipientPhone || "").trim();
+      if (!phone) {
+        deliveryResults.sms = { sent: false, error: "No phone number provided" };
+      } else {
+        try {
+          const smsBody = `${inviterName} invited you to the Nexus Master Class. Start here: ${shareUrl}`;
+          await this.sms.sendSms(phone, smsBody);
+          deliveryResults.sms = { sent: true };
+          this.logger.log(`Master Class invite SMS sent to ${phone}`);
+        } catch (err: any) {
+          deliveryResults.sms = { sent: false, error: err?.message };
+          this.logger.error(`Master Class invite SMS failed for ${phone}: ${err?.message}`);
+        }
+      }
+    }
+
+    return {
+      token,
+      shareUrl,
+      recipientEmail: email,
+      recipientName: dto.recipientName ?? null,
+      delivery: deliveryResults,
+    };
+  }
+
   async sendBulkInvites(actor: AuthenticatedUser, dto: BulkInviteDto) {
     if (!dto.recipients?.length) {
       throw new BadRequestException("At least one recipient is required");
@@ -358,9 +438,14 @@ export class CamDashboardService {
       error?: string;
     }> = [];
 
+    const sendFn =
+      dto.inviteType === "master_class"
+        ? this.sendMasterClassInvite.bind(this)
+        : this.sendInvite.bind(this);
+
     for (const r of dto.recipients) {
       try {
-        const res = await this.sendInvite(actor, {
+        const res = await sendFn(actor, {
           recipientEmail: r.email,
           recipientName: r.name,
           recipientPhone: r.phone,
@@ -459,6 +544,49 @@ export class CamDashboardService {
       cndaAccepted: !!t.cndaAcceptedAt,
       questionnaireCompleted: !!t.questionnaireCompletedAt,
       accessGranted: !!t.cndaAcceptedAt && !!t.questionnaireCompletedAt,
+      status: t.cndaAcceptedAt
+        ? t.questionnaireCompletedAt
+          ? "viewing"
+          : "cnda_accepted"
+        : t.viewCount > 0
+          ? "opened"
+          : "pending",
+      createdAt: t.createdAt,
+    }));
+  }
+
+  async getInvitesBySender(userId: string) {
+    const tokens = await this.prisma.documentShareToken.findMany({
+      where: {
+        inviterUserId: userId,
+        documentType: {
+          in: [ShareDocumentType.CAM_LIBRARY, ShareDocumentType.CAM_DOCUMENT],
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        documentType: true,
+        documentRef: true,
+        inviteeEmail: true,
+        inviteeName: true,
+        viewCount: true,
+        cndaAcceptedAt: true,
+        questionnaireCompletedAt: true,
+        createdAt: true,
+      },
+    });
+
+    return tokens.map((t) => ({
+      id: t.id,
+      type:
+        t.documentType === ShareDocumentType.CAM_DOCUMENT &&
+        t.documentRef === "MASTER_CLASS"
+          ? "master_class"
+          : "cam_library",
+      recipientEmail: t.inviteeEmail,
+      recipientName: t.inviteeName,
+      viewCount: t.viewCount,
       status: t.cndaAcceptedAt
         ? t.questionnaireCompletedAt
           ? "viewing"

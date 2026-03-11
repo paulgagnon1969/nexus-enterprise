@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
-type SopType = "CAM" | "Session Log" | "Feature SOP" | "Infrastructure" | "Admin SOP" | "Policy" | "Orphan SOP";
+type SopType = "CAM" | "Session Log" | "Feature SOP" | "Infrastructure" | "Admin SOP" | "Policy" | "Training Manual" | "Orphan SOP";
 
 interface StagedSop {
   code: string;
@@ -269,7 +269,7 @@ export default function SystemSopsStagingPage() {
       {/* Type Filter */}
       <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <span style={{ fontSize: 12, fontWeight: 500, color: "#6b7280" }}>Filter by type:</span>
-        {(["all", "Feature SOP", "CAM", "Session Log", "Infrastructure", "Admin SOP", "Policy", "Orphan SOP"] as const).map((t) => {
+        {(["all", "Feature SOP", "CAM", "Training Manual", "Session Log", "Infrastructure", "Admin SOP", "Policy", "Orphan SOP"] as const).map((t) => {
           const count = t === "all" ? (stagedSops?.length ?? 0) : (typeCounts[t] || 0);
           if (t !== "all" && count === 0) return null;
           const isActive = typeFilter === t;
@@ -716,6 +716,7 @@ function SopTypeBadge({ type }: { type: SopType }) {
     "Infrastructure": { bg: "#fef3c7", color: "#b45309", icon: "🔧" },
     "Admin SOP": { bg: "#fce7f3", color: "#be185d", icon: "🛡️" },
     "Policy": { bg: "#e0e7ff", color: "#4338ca", icon: "📜" },
+    "Training Manual": { bg: "#fff7ed", color: "#c2410c", icon: "📘" },
     "Orphan SOP": { bg: "#f3f4f6", color: "#6b7280", icon: "❓" },
   };
 

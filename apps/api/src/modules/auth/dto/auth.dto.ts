@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength } from "class-validator";
+import { IsEmail, IsString, IsOptional, MinLength } from "class-validator";
 
 export class RegisterDto {
   @IsEmail()
@@ -18,6 +18,18 @@ export class LoginDto {
 
   @IsString()
   password!: string;
+
+  @IsString()
+  @IsOptional()
+  deviceFingerprint?: string;
+
+  @IsString()
+  @IsOptional()
+  devicePlatform?: string;
+
+  @IsString()
+  @IsOptional()
+  deviceName?: string;
 }
 
 export class ChangePasswordDto {

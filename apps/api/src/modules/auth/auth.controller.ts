@@ -1,16 +1,19 @@
-import { Body, Controller, Delete, Get, Param, Post, Req, UseGuards, Query, ForbiddenException, NotFoundException } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards, Query, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { AuthService } from "./auth.service";
 import { LicenseService } from "./license.service";
+import { DeviceTrustService } from "./device-trust.service";
 import { RegisterDto, LoginDto, ChangePasswordDto } from "./dto/auth.dto";
 import { JwtAuthGuard, GlobalRolesGuard, GlobalRoles, GlobalRole, Public } from "./auth.guards";
 import { AuthenticatedUser } from "./jwt.strategy";
 import { AcceptInviteDto } from "./dto/accept-invite.dto";
+import { SecurityEventType, SecurityEventSeverity } from "@prisma/client";
 
 @Controller("auth")
 export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly license: LicenseService,
+    private readonly deviceTrust: DeviceTrustService,
   ) {}
 
   @Public()
@@ -235,5 +238,78 @@ export class AuthController {
     const result = await this.license.adminRevokeDevice(userId, deviceId);
     if (!result) throw new NotFoundException("Device not found");
     return result;
+  }
+
+  // ── Device Trust / 2FA ───────────────────────────────────────
+
+  /**
+   * Verify a device challenge code and complete login.
+   * Called after login() returns { challengeRequired: true }.
+   */
+  @Public()
+  @Post("verify-device-challenge")
+  verifyDeviceChallenge(
+    @Body()
+    body: {
+      email: string;
+      code: string;
+      deviceFingerprint: string;
+      devicePlatform?: string;
+      deviceName?: string;
+    },
+  ) {
+    return this.auth.completeLoginAfterChallenge(
+      body.email,
+      body.deviceFingerprint,
+      body.code,
+      body.devicePlatform,
+      body.deviceName,
+    );
+  }
+
+  // ── Security Events (Admin) ─────────────────────────────────
+
+  @UseGuards(JwtAuthGuard, GlobalRolesGuard)
+  @GlobalRoles(GlobalRole.SUPER_ADMIN)
+  @Get("security-events")
+  getSecurityEvents(
+    @Query("userId") userId?: string,
+    @Query("eventType") eventType?: SecurityEventType,
+    @Query("severity") severity?: SecurityEventSeverity,
+    @Query("status") status?: "PENDING" | "REVIEWED" | "DISMISSED",
+    @Query("since") since?: string,
+    @Query("until") until?: string,
+    @Query("skip") skip?: string,
+    @Query("take") take?: string,
+  ) {
+    return this.deviceTrust.getSecurityEvents({
+      userId,
+      eventType,
+      severity,
+      status,
+      since: since ? new Date(since) : undefined,
+      until: until ? new Date(until) : undefined,
+      skip: skip ? parseInt(skip, 10) : undefined,
+      take: take ? parseInt(take, 10) : undefined,
+    });
+  }
+
+  @UseGuards(JwtAuthGuard, GlobalRolesGuard)
+  @GlobalRoles(GlobalRole.SUPER_ADMIN)
+  @Patch("security-events/:id/review")
+  reviewSecurityEvent(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() body: { status: "REVIEWED" | "DISMISSED"; notes?: string },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.deviceTrust.reviewSecurityEvent(id, actor.userId, body.status, body.notes);
+  }
+
+  @UseGuards(JwtAuthGuard, GlobalRolesGuard)
+  @GlobalRoles(GlobalRole.SUPER_ADMIN)
+  @Get("security-events/flagged-users")
+  getFlaggedUsers() {
+    return this.deviceTrust.getFlaggedUsers();
   }
 }

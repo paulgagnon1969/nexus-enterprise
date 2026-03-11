@@ -1,7 +1,7 @@
 ---
 title: "NEXUS SYSTEM NCC — Module Master Class"
 module: module-master-class
-revision: "1.0"
+revision: "1.1"
 format: full
 tags: [training, operations, handbook, procedures, master-class, all-modules]
 status: published
@@ -19,6 +19,8 @@ visibility:
 # NEXUS SYSTEM NCC — Module Master Class
 
 > **46 training procedures** across **8 module groups** · Format: Full Operations Training
+
+> **Living Documents:** Each section below is now maintained as an individual living document in [`docs/training-manuals/`](../training-manuals/TRAINING-LIBRARY.md). The individual files are the **source of truth** — this compiled version is a convenience snapshot. See the [Training Library Index](../training-manuals/TRAINING-LIBRARY.md) for the full table of contents with links.
 
 ---
 
@@ -1652,3 +1654,4 @@ This table maps every training section to the CAM(s) that power it, making it ea
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-03-11 | Initial release — 46 sections across 8 chapters. Phase 1 (Ch1–Ch3) fully written with step-by-step procedures, flowcharts, and CAM cross-references. Chapters 4–8 structured with CAM references and stubs for Phase 2/3 authoring. |
+| 1.1 | 2026-03-11 | Decomposed into 46 individual living documents in `docs/training-manuals/`. Individual files are now the source of truth. Added Training Library index reference. |

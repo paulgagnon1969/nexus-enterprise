@@ -822,6 +822,7 @@ model User {
 
   // NexBridge Connect — registered devices
   userDevices UserDevice[]
+  securityEvents SecurityEvent[]
 
   // Project Collaboration — invites sent by this user on behalf of their company
   collaborationInvitesSent ProjectCollaboration[] @relation("CollaborationInvitedBy")
@@ -5584,6 +5585,9 @@ model UserDevice {
   licenseExpiresAt  DateTime? /// Null for standalone lifetime
   graceEndsAt       DateTime? /// Set when subscription lapses (now + 14 days)
   exportCompletedAt DateTime? /// Tracks whether user exported their data
+  isTrusted         Boolean   @default(false) /// True after email-code challenge verification
+  trustedAt         DateTime? /// When trust was established
+  trustExpiresAt    DateTime? /// Trust expires after inactivity and requires re-challenge
 
   user    User    @relation(fields: [userId], references: [id])
   company Company @relation(fields: [companyId], references: [id])
@@ -5591,6 +5595,51 @@ model UserDevice {
   @@unique([userId, deviceId], name: "UserDevice_user_device_key")
   @@index([userId])
   @@index([companyId])
+}
+
+enum SecurityEventType {
+  UNRECOGNIZED_DEVICE_LOGIN
+  DEVICE_CHALLENGE_PASSED
+  DEVICE_CHALLENGE_FAILED
+  CONCURRENT_GEO_ANOMALY
+  CREDENTIAL_SHARING_SUSPECTED
+  DEVICE_TRUSTED
+  DEVICE_REVOKED
+}
+
+enum SecurityEventSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum SecurityEventStatus {
+  PENDING
+  REVIEWED
+  DISMISSED
+}
+
+model SecurityEvent {
+  id                String                @id @default(cuid())
+  userId            String
+  eventType         SecurityEventType
+  deviceFingerprint String?
+  ipAddress         String?
+  userAgent         String?
+  metadata          Json?
+  severity          SecurityEventSeverity @default(LOW)
+  status            SecurityEventStatus   @default(PENDING)
+  reviewedById      String?
+  reviewedAt        DateTime?
+  reviewNotes       String?
+  createdAt         DateTime              @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt], map: "SecurityEvent_user_created_idx")
+  @@index([eventType, status, createdAt], map: "SecurityEvent_type_status_created_idx")
+  @@index([severity, status], map: "SecurityEvent_severity_status_idx")
 }
 
 /// Grants visibility of a personal asset to a specific user.

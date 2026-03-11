@@ -20,6 +20,7 @@ import { FieldPetlScreen, type PetlSessionChanges } from "../screens/FieldPetlSc
 import { DirectoryScreen } from "../screens/DirectoryScreen";
 import { PhoneContactsScreen } from "../screens/PhoneContactsScreen";
 import { InviteScreen } from "../screens/InviteScreen";
+import { ShareInviteScreen } from "../screens/ShareInviteScreen";
 import { InventoryScreen } from "../screens/InventoryScreen";
 import { OutboxScreen } from "../screens/OutboxScreen";
 import { TimecardScreen } from "../screens/TimecardScreen";
@@ -65,6 +66,7 @@ export type DirectoryStackParamList = {
   DirectoryList: undefined;
   PhoneContacts: undefined;
   Invite: { preselectedIds?: string[] } | undefined;
+  ShareInvite: undefined;
 };
 
 export type ProjectsStackParamList = {
@@ -346,6 +348,7 @@ function DirectoryStackNavigator() {
       <DirectoryStack.Screen name="DirectoryList" component={DirectoryListWrapper} />
       <DirectoryStack.Screen name="PhoneContacts" component={PhoneContactsWrapper} />
       <DirectoryStack.Screen name="Invite" component={InviteWrapper} />
+      <DirectoryStack.Screen name="ShareInvite" component={ShareInviteWrapper} />
     </DirectoryStack.Navigator>
   );
 }
@@ -356,6 +359,7 @@ function DirectoryListWrapper() {
     <DirectoryScreen
       onImportFromPhone={() => navigation.navigate("PhoneContacts")}
       onInvite={() => navigation.navigate("Invite")}
+      onShareInvite={() => navigation.navigate("ShareInvite")}
     />
   );
 }
@@ -379,6 +383,11 @@ function InviteWrapper() {
       preselectedIds={route.params?.preselectedIds}
     />
   );
+}
+
+function ShareInviteWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<DirectoryStackParamList>>();
+  return <ShareInviteScreen onBack={() => navigation.goBack()} />;
 }
 
 // Projects stack with drill-down to Daily Logs and Field PETL

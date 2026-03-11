@@ -17,9 +17,10 @@ import {
 const STAGING_DIR = path.resolve(__dirname, "../../../../../docs/sops-staging");
 const POLICIES_DIR = path.resolve(__dirname, "../../../../../docs/policies");
 const CAMS_DIR = path.resolve(__dirname, "../../../../../docs/cams");
+const TRAINING_DIR = path.resolve(__dirname, "../../../../../docs/training-manuals");
 
 // All source directories for SOP documents
-const SOURCE_DIRS = [STAGING_DIR, POLICIES_DIR];
+const SOURCE_DIRS = [STAGING_DIR, POLICIES_DIR, TRAINING_DIR];
 
 // NccPM manual code - all SOPs sync into this manual
 const NCCPM_MANUAL_CODE = "nccpm";
@@ -42,6 +43,9 @@ export class SopSyncService {
 
     // Policy: from policies directory
     if (sourceDir === "policies") return "Policy";
+
+    // Training Manual: from training-manuals directory
+    if (sourceDir === "training-manuals") return "Training Manual";
 
     // Session Log: filename starts with session-
     if (code.startsWith("session-")) return "Session Log";

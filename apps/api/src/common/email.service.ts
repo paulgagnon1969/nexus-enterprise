@@ -797,6 +797,117 @@ export class EmailService {
 
     return this.sendMail({ to: params.toEmail, subject, html, text });
   }
+
+  /**
+   * Send a Master Class invite email with branded CTA.
+   */
+  async sendMasterClassInvite(params: {
+    toEmail: string;
+    recipientName?: string;
+    inviterName: string;
+    message?: string;
+    shareUrl: string;
+  }) {
+    const name = params.recipientName || "there";
+    const personalMessage = params.message
+      ? `<div style="background: #fef3c7; border-left: 3px solid #f59e0b; padding: 12px 16px; margin: 0 0 20px; border-radius: 0 6px 6px 0; font-style: italic; color: #92400e; font-size: 13px;">${escapeHtml(params.message)}</div>`
+      : "";
+
+    const subject = `${params.inviterName} has invited you to the Nexus Master Class`;
+
+    const html = `
+      <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height: 1.5; max-width: 600px;">
+        <div style="background: linear-gradient(135deg, #1e3a5f 0%, #0f766e 100%); color: #fff; padding: 24px; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 20px;">\uD83C\uDF93 You're Invited</h1>
+          <p style="margin: 8px 0 0; opacity: 0.9; font-size: 14px;">Nexus Master Class — Construction Operations Training</p>
+        </div>
+        <div style="background: #fff; border: 1px solid #e5e7eb; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+          <p style="margin: 0 0 16px;">Hello ${escapeHtml(name)},</p>
+          <p style="margin: 0 0 16px;"><strong>${escapeHtml(params.inviterName)}</strong> has invited you to the <strong>Nexus Master Class</strong> \u2014 a guided deep-dive into how Nexus transforms construction operations from estimation to close-out.</p>
+
+          ${personalMessage}
+
+          <div style="background: #f9fafb; border-radius: 8px; padding: 16px; margin: 0 0 20px;">
+            <h3 style="margin: 0 0 8px; font-size: 14px; color: #374151;">What to expect:</h3>
+            <ol style="margin: 0; padding-left: 20px; color: #374151; font-size: 13px;">
+              <li style="margin-bottom: 4px;">Review &amp; accept a brief confidentiality agreement (CNDA+)</li>
+              <li style="margin-bottom: 4px;">Complete a 30-second assessment</li>
+              <li>Access the full Master Class with interactive modules</li>
+            </ol>
+          </div>
+
+          <p style="margin: 0 0 24px; text-align: center;">
+            <a href="${params.shareUrl}" style="display: inline-block; background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%); color: #fff; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">
+              Start the Master Class
+            </a>
+          </p>
+
+          <p style="margin: 0 0 8px; color: #6b7280; font-size: 12px;">Or copy this link:</p>
+          <p style="margin: 0 0 20px; word-break: break-all; font-size: 12px; color: #2563eb;">
+            <a href="${params.shareUrl}" style="color: #2563eb;">${params.shareUrl}</a>
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">This invitation was sent by NEXUS on behalf of ${escapeHtml(params.inviterName)}. The Master Class contains confidential and proprietary information protected under the CNDA+ agreement.</p>
+        </div>
+      </div>
+    `.trim();
+
+    const text = `${params.inviterName} has invited you to the Nexus Master Class.\n\n${params.message ? `"${params.message}"\n\n` : ""}Start the Master Class: ${params.shareUrl}\n\nYou'll need to accept a brief confidentiality agreement and complete a 30-second assessment before viewing.\n`;
+
+    return this.sendMail({ to: params.toEmail, subject, html, text });
+  }
+
+  /**
+   * Send device verification code for untrusted device login.
+   */
+  async sendDeviceVerificationCode(params: {
+    toEmail: string;
+    code: string;
+    devicePlatform: string;
+    deviceName?: string;
+  }) {
+    const subject = "Nexus — Verify your device";
+    const deviceLabel = params.deviceName
+      ? `${escapeHtml(params.deviceName)} (${escapeHtml(params.devicePlatform)})`
+      : escapeHtml(params.devicePlatform);
+
+    const html = `
+      <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height: 1.5; max-width: 600px;">
+        <div style="background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%); color: #fff; padding: 24px; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 20px;">🔐 Device Verification Required</h1>
+          <p style="margin: 8px 0 0; opacity: 0.9; font-size: 14px;">A sign-in attempt from an unrecognized device</p>
+        </div>
+        <div style="background: #fff; border: 1px solid #e5e7eb; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+          <p style="margin: 0 0 16px;">Someone is trying to sign in to your Nexus account from a new device:</p>
+
+          <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin: 0 0 20px;">
+            <p style="margin: 0 0 4px; color: #6b7280; font-size: 12px;">Device</p>
+            <p style="margin: 0; font-weight: 600;">${deviceLabel}</p>
+          </div>
+
+          <p style="margin: 0 0 8px;">Enter this code to verify it's you:</p>
+
+          <div style="background: #f9fafb; border: 2px dashed #d1d5db; border-radius: 12px; padding: 20px; margin: 0 0 20px; text-align: center;">
+            <span style="font-family: 'SF Mono', SFMono-Regular, Menlo, monospace; font-size: 36px; font-weight: 700; letter-spacing: 8px; color: #111827;">${params.code}</span>
+          </div>
+
+          <p style="margin: 0 0 16px; color: #6b7280; font-size: 13px;">This code expires in <strong>10 minutes</strong>.</p>
+
+          <div style="background: #fffbeb; border-left: 3px solid #f59e0b; padding: 12px 16px; margin: 0 0 20px; border-radius: 0 6px 6px 0;">
+            <p style="margin: 0; color: #92400e; font-size: 13px;"><strong>Didn't try to sign in?</strong> Someone may have your password. Change it immediately in your Nexus settings.</p>
+          </div>
+
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">This is an automated security email from NEXUS. Do not share this code with anyone.</p>
+        </div>
+      </div>
+    `.trim();
+
+    const text = `Nexus Device Verification\n\nSomeone is trying to sign in from: ${params.deviceName || params.devicePlatform}\n\nYour verification code: ${params.code}\n\nThis code expires in 10 minutes.\n\nIf you didn't try to sign in, change your password immediately.\n`;
+
+    return this.sendMail({ to: params.toEmail, subject, html, text });
+  }
 }
 
 function escapeHtml(input: string) {

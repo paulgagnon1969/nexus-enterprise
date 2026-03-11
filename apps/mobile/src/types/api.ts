@@ -4,6 +4,9 @@ export type ApiGlobalRole = "SUPER_ADMIN" | "SUPPORT" | "NONE";
 export interface LoginRequest {
   email: string;
   password: string;
+  deviceFingerprint?: string;
+  devicePlatform?: string;
+  deviceName?: string;
 }
 
 export interface AuthTokens {
@@ -29,6 +32,10 @@ export interface LoginResponse extends AuthTokens {
   };
   company?: { id: string; name: string };
   syncCredentials?: SyncCredentials;
+  /** True when the device is unrecognized and requires email-code verification */
+  challengeRequired?: boolean;
+  /** Opaque token for the device challenge (the device fingerprint) */
+  challengeToken?: string;
 }
 
 export interface RefreshRequest {

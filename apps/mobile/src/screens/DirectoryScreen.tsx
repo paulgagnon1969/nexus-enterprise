@@ -14,7 +14,8 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { fetchContacts } from "../api/contacts";
-import type { Contact, ContactCategory } from "../types/api";
+import { getUserMe } from "../api/user";
+import type { Contact, ContactCategory, ApiRole, ApiGlobalRole } from "../types/api";
 
 const PERSONAL_TOGGLE_KEY = "directory_includePersonal";
 
@@ -29,9 +30,13 @@ const CATEGORIES: { key: ContactCategory | "all"; label: string }[] = [
 interface DirectoryScreenProps {
   onImportFromPhone?: () => void;
   onInvite?: () => void;
+  onShareInvite?: () => void;
 }
 
-export function DirectoryScreen({ onImportFromPhone, onInvite }: DirectoryScreenProps = {}) {
+const OWNER_PLUS_ROLES: Array<ApiRole | string> = ["OWNER"];
+const OWNER_PLUS_GLOBAL: Array<ApiGlobalRole | string> = ["SUPER_ADMIN"];
+
+export function DirectoryScreen({ onImportFromPhone, onInvite, onShareInvite }: DirectoryScreenProps = {}) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -39,6 +44,18 @@ export function DirectoryScreen({ onImportFromPhone, onInvite }: DirectoryScreen
   const [category, setCategory] = useState<ContactCategory | "all">("all");
   const [includePersonal, setIncludePersonal] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isOwnerPlus, setIsOwnerPlus] = useState(false);
+
+  // Check if user is OWNER+ for Share CAM/Master Class button
+  useEffect(() => {
+    getUserMe()
+      .then((me) => {
+        const globalMatch = OWNER_PLUS_GLOBAL.includes(me.globalRole ?? "");
+        const roleMatch = me.memberships?.some((m) => OWNER_PLUS_ROLES.includes(m.role)) ?? false;
+        setIsOwnerPlus(globalMatch || roleMatch);
+      })
+      .catch(() => setIsOwnerPlus(false));
+  }, []);
 
   // Load persisted personal toggle preference
   useEffect(() => {
@@ -161,6 +178,11 @@ export function DirectoryScreen({ onImportFromPhone, onInvite }: DirectoryScreen
           {onInvite && (
             <Pressable style={[styles.headerBtn, styles.headerBtnPrimary]} onPress={onInvite}>
               <Text style={styles.headerBtnTextPrimary}>+ Invite</Text>
+            </Pressable>
+          )}
+          {isOwnerPlus && onShareInvite && (
+            <Pressable style={[styles.headerBtn, styles.headerBtnCam]} onPress={onShareInvite}>
+              <Text style={styles.headerBtnTextPrimary}>🏆 Share</Text>
             </Pressable>
           )}
         </View>
@@ -366,6 +388,9 @@ const styles = StyleSheet.create({
   },
   headerBtnPrimary: {
     backgroundColor: "#1e3a8a",
+  },
+  headerBtnCam: {
+    backgroundColor: "#059669",
   },
   headerBtnText: {
     fontSize: 13,

@@ -9,6 +9,7 @@ export type SopType =
   | "Infrastructure"
   | "Admin SOP"
   | "Policy"
+  | "Training Manual"
   | "Orphan SOP";
 
 export interface SopFrontmatter {
@@ -16,7 +17,7 @@ export interface SopFrontmatter {
   module: string;
   revision: string;
   tags: string[];
-  status: "draft" | "published" | "archived";
+  status: "draft" | "published" | "archived" | "complete" | "stub" | "active";
   created: string; // YYYY-MM-DD
   updated: string; // YYYY-MM-DD
   author: string;

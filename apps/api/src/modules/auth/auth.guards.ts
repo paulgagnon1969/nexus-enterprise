@@ -175,3 +175,38 @@ export function getEffectiveRoleLevel(opts: {
 
   return Math.max(globalLevel, baseLevel, profileLevel);
 }
+
+// ── @MinRoleLevel() decorator + guard ───────────────────────────────
+// Use this to gate endpoints by *effective* role level (combines
+// globalRole, membership role, and profileCode).  For example
+// `@MinRoleLevel(90)` allows OWNER (90) and SUPER_ADMIN (100).
+
+export const MIN_ROLE_LEVEL_KEY = "minRoleLevel";
+export const MinRoleLevel = (level: number) =>
+  SetMetadata(MIN_ROLE_LEVEL_KEY, level);
+
+@Injectable()
+export class MinRoleLevelGuard implements CanActivate {
+  constructor(private reflector: Reflector) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    const minLevel = this.reflector.getAllAndOverride<number>(
+      MIN_ROLE_LEVEL_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+
+    // No minimum specified → allow through.
+    if (minLevel == null) return true;
+
+    const request = context.switchToHttp().getRequest();
+    const user = request.user as {
+      globalRole?: GlobalRole | null;
+      role?: Role | null;
+      profileCode?: string | null;
+    } | undefined;
+
+    if (!user) return false;
+
+    return getEffectiveRoleLevel(user) >= minLevel;
+  }
+}

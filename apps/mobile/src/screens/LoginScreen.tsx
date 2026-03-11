@@ -14,7 +14,7 @@ import {
   TouchableWithoutFeedback,
 } from "react-native";
 import * as LocalAuthentication from "expo-local-authentication";
-import { login } from "../auth/auth";
+import { login, verifyDeviceChallenge } from "../auth/auth";
 import { getApiBaseUrl } from "../api/config";
 import {
   saveCredentials,
@@ -39,6 +39,11 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [apiStatus, setApiStatus] = useState<string | null>(null);
+
+  // Device challenge state
+  const [challengeMode, setChallengeMode] = useState(false);
+  const [challengeCode, setChallengeCode] = useState("");
+  const [challengeEmail, setChallengeEmail] = useState("");
 
   const apiBase = getApiBaseUrl();
 
@@ -112,13 +117,44 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
     setError(null);
     setLoading(true);
     try {
-      await login({ email, password });
+      const res = await login({ email, password });
+
+      // Device challenge required — switch to code entry mode
+      if (res.challengeRequired) {
+        setChallengeMode(true);
+        setChallengeEmail(email);
+        setChallengeCode("");
+        setLoading(false);
+        return;
+      }
 
       // Save credentials if "Remember me" is checked
       if (rememberMe) {
         await saveCredentials({ email, password });
       }
 
+      onLoggedIn();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitChallengeCode = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      await verifyDeviceChallenge({
+        email: challengeEmail,
+        code: challengeCode.trim(),
+      });
+
+      if (rememberMe) {
+        await saveCredentials({ email, password });
+      }
+
+      setChallengeMode(false);
       onLoggedIn();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -155,78 +191,129 @@ export function LoginScreen({ onLoggedIn }: { onLoggedIn: () => void }) {
           <View style={{ height: height * 0.1 }} />
 
           <View style={[styles.formContainer, isTablet && styles.formContainerTablet]}>
-            <Text style={styles.title}>Nexus Mobile</Text>
-            <Text style={styles.subtitle}>Sign in</Text>
+            {challengeMode ? (
+              /* ── Device Challenge Code Entry ─────────────────── */
+              <>
+                <Text style={styles.title}>🔐 Verify Your Device</Text>
+                <Text style={styles.subtitle}>We sent a 6-digit code to {challengeEmail}</Text>
 
-            <Text style={styles.small}>API: {apiBase}</Text>
-            <Pressable style={styles.smallButton} onPress={testApi}>
-              <Text style={styles.smallButtonText}>Test API (/health)</Text>
-            </Pressable>
-            {apiStatus ? <Text style={styles.small}>{apiStatus}</Text> : null}
+                <View style={styles.challengeBox}>
+                  <Text style={styles.challengeLabel}>Enter verification code</Text>
+                  <TextInput
+                    style={styles.challengeInput}
+                    value={challengeCode}
+                    onChangeText={(t) => setChallengeCode(t.replace(/[^0-9]/g, "").slice(0, 6))}
+                    placeholder="000000"
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    autoFocus
+                    returnKeyType="done"
+                    onSubmitEditing={submitChallengeCode}
+                  />
+                </View>
 
-            <TextInput
-              style={styles.input}
-              value={email}
-              onChangeText={setEmail}
-              placeholder="Email"
-              autoCapitalize="none"
-              keyboardType="email-address"
-              autoComplete="email"
-              returnKeyType="next"
-              onSubmitEditing={() => passwordRef.current?.focus()}
-              blurOnSubmit={false}
-            />
+                <Text style={styles.challengeHint}>
+                  Check your email for the code. It expires in 10 minutes.
+                </Text>
 
-            {/* Password field with show/hide toggle */}
-            <View style={styles.passwordContainer}>
-              <TextInput
-                ref={passwordRef}
-                style={styles.passwordInput}
-                value={password}
-                onChangeText={setPassword}
-                placeholder="Password"
-                secureTextEntry={!showPassword}
-                autoComplete="password"
-                returnKeyType="done"
-                onSubmitEditing={submit}
-              />
-              <Pressable
-                style={styles.eyeButton}
-                onPress={() => setShowPassword(!showPassword)}
-              >
-                <Text style={styles.eyeText}>{showPassword ? "🙈" : "👁️"}</Text>
-              </Pressable>
-            </View>
+                {error ? <Text style={styles.error}>{error}</Text> : null}
 
-            {/* Remember me toggle */}
-            <View style={styles.optionRow}>
-              <Text style={styles.optionLabel}>Remember me</Text>
-              <Switch value={rememberMe} onValueChange={setRememberMe} />
-            </View>
+                <Pressable
+                  style={[styles.button, challengeCode.length < 6 && styles.buttonDisabled]}
+                  onPress={submitChallengeCode}
+                  disabled={loading || challengeCode.length < 6}
+                >
+                  <Text style={styles.buttonText}>{loading ? "Verifying…" : "Verify & Sign In"}</Text>
+                </Pressable>
 
-            {/* Biometric toggle (only show if available) */}
-            {biometricAvailable && (
-              <View style={styles.optionRow}>
-                <Text style={styles.optionLabel}>Use Face ID / Fingerprint</Text>
-                <Switch value={useBiometric} onValueChange={handleBiometricToggle} />
-              </View>
-            )}
+                <Pressable
+                  style={styles.challengeBack}
+                  onPress={() => {
+                    setChallengeMode(false);
+                    setChallengeCode("");
+                    setError(null);
+                  }}
+                >
+                  <Text style={styles.challengeBackText}>← Back to sign in</Text>
+                </Pressable>
+              </>
+            ) : (
+              /* ── Normal Login Form ──────────────────────────── */
+              <>
+                <Text style={styles.title}>Nexus Mobile</Text>
+                <Text style={styles.subtitle}>Sign in</Text>
 
-            {error ? <Text style={styles.error}>{error}</Text> : null}
+                <Text style={styles.small}>API: {apiBase}</Text>
+                <Pressable style={styles.smallButton} onPress={testApi}>
+                  <Text style={styles.smallButtonText}>Test API (/health)</Text>
+                </Pressable>
+                {apiStatus ? <Text style={styles.small}>{apiStatus}</Text> : null}
 
-            <Pressable style={styles.button} onPress={submit} disabled={loading}>
-              <Text style={styles.buttonText}>{loading ? "Signing in…" : "Sign in"}</Text>
-            </Pressable>
+                <TextInput
+                  style={styles.input}
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="Email"
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  autoComplete="email"
+                  returnKeyType="next"
+                  onSubmitEditing={() => passwordRef.current?.focus()}
+                  blurOnSubmit={false}
+                />
 
-            {/* Biometric quick login button */}
-            {biometricAvailable && hasSavedCreds && useBiometric && (
-              <Pressable
-                style={styles.biometricButton}
-                onPress={() => attemptBiometricLogin(email, password)}
-                disabled={loading}
-              >
-                <Text style={styles.biometricButtonText}>🔐 Sign in with Face ID / Fingerprint</Text>
-              </Pressable>
+                {/* Password field with show/hide toggle */}
+                <View style={styles.passwordContainer}>
+                  <TextInput
+                    ref={passwordRef}
+                    style={styles.passwordInput}
+                    value={password}
+                    onChangeText={setPassword}
+                    placeholder="Password"
+                    secureTextEntry={!showPassword}
+                    autoComplete="password"
+                    returnKeyType="done"
+                    onSubmitEditing={submit}
+                  />
+                  <Pressable
+                    style={styles.eyeButton}
+                    onPress={() => setShowPassword(!showPassword)}
+                  >
+                    <Text style={styles.eyeText}>{showPassword ? "🙈" : "👁️"}</Text>
+                  </Pressable>
+                </View>
+
+                {/* Remember me toggle */}
+                <View style={styles.optionRow}>
+                  <Text style={styles.optionLabel}>Remember me</Text>
+                  <Switch value={rememberMe} onValueChange={setRememberMe} />
+                </View>
+
+                {/* Biometric toggle (only show if available) */}
+                {biometricAvailable && (
+                  <View style={styles.optionRow}>
+                    <Text style={styles.optionLabel}>Use Face ID / Fingerprint</Text>
+                    <Switch value={useBiometric} onValueChange={handleBiometricToggle} />
+                  </View>
+                )}
+
+                {error ? <Text style={styles.error}>{error}</Text> : null}
+
+                <Pressable style={styles.button} onPress={submit} disabled={loading}>
+                  <Text style={styles.buttonText}>{loading ? "Signing in…" : "Sign in"}</Text>
+                </Pressable>
+
+                {/* Biometric quick login button */}
+                {biometricAvailable && hasSavedCreds && useBiometric && (
+                  <Pressable
+                    style={styles.biometricButton}
+                    onPress={() => attemptBiometricLogin(email, password)}
+                    disabled={loading}
+                  >
+                    <Text style={styles.biometricButtonText}>🔐 Sign in with Face ID / Fingerprint</Text>
+                  </Pressable>
+                )}
+              </>
             )}
           </View>
 
@@ -329,4 +416,48 @@ const styles = StyleSheet.create({
   },
   biometricButtonText: { color: "#fff", fontWeight: "600" },
   error: { color: "#b91c1c", marginTop: 8 },
+  // Device challenge styles
+  challengeBox: {
+    backgroundColor: "#f9fafb",
+    borderWidth: 2,
+    borderColor: "#d1d5db",
+    borderStyle: "dashed",
+    borderRadius: 12,
+    padding: 20,
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  challengeLabel: {
+    fontSize: 13,
+    color: "#6b7280",
+    marginBottom: 8,
+  },
+  challengeInput: {
+    fontSize: 32,
+    fontWeight: "700",
+    letterSpacing: 8,
+    textAlign: "center",
+    color: "#111827",
+    width: "100%",
+    padding: 8,
+  },
+  challengeHint: {
+    fontSize: 13,
+    color: "#6b7280",
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  challengeBack: {
+    alignItems: "center",
+    marginTop: 16,
+    padding: 8,
+  },
+  challengeBackText: {
+    fontSize: 14,
+    color: "#4f46e5",
+    fontWeight: "500",
+  },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
 });

@@ -10,6 +10,7 @@ import { randomUUID } from "crypto";
 import { AuthenticatedUser } from "./jwt.strategy";
 import { EmailService } from "../../common/email.service";
 import { FeaturesService } from "../features/features.service";
+import { DeviceTrustService } from "./device-trust.service";
 
 const REFRESH_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 const PASSWORD_RESET_TTL_SECONDS = 60 * 15; // 15 minutes
@@ -22,6 +23,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly email: EmailService,
     private readonly features: FeaturesService,
+    private readonly deviceTrust: DeviceTrustService,
   ) {}
 
   private normalizeEmail(email: string): string {
@@ -368,6 +370,34 @@ export class AuthService {
       membership.role,
     );
 
+    // ── Device trust evaluation ────────────────────────────────────
+    // If the client sent a device fingerprint, check whether it's trusted.
+    // Untrusted devices must pass an email-code challenge before tokens
+    // are issued.
+    const deviceEval = await this.deviceTrust.evaluateDevice(
+      user.id,
+      membership.companyId,
+      dto.deviceFingerprint,
+      undefined, // IP — can be extracted from request in controller if needed
+      undefined, // User-Agent
+    );
+
+    if (deviceEval.requiresChallenge) {
+      // Issue a challenge code via email; do NOT return JWT tokens.
+      const { challengeToken } = await this.deviceTrust.issueDeviceChallenge(
+        user.id,
+        user.email,
+        dto.deviceFingerprint!,
+        dto.devicePlatform,
+        dto.deviceName,
+      );
+      return {
+        challengeRequired: true,
+        challengeToken,
+        user: { id: user.id, email: user.email },
+      };
+    }
+
     // ── Sandbox auto-enrollment (fire-and-forget) ────────────────────
     // Every authenticated user gets an ADMIN membership in the sandbox
     // tenant so they can explore all features. Destructive actions are
@@ -385,6 +415,110 @@ export class AuthService {
         companyToken,
       } : undefined,
       // Feature discovery redirect hint (Admin+ only)
+      unseenFeatures: featureInfo.unseenFeatures,
+      featureRedirect: featureInfo.featureRedirect,
+    };
+  }
+
+  /**
+   * Complete login after a successful device challenge verification.
+   * Re-authenticates the user (by email) and issues tokens.
+   */
+  async completeLoginAfterChallenge(email: string, deviceFingerprint: string, code: string, devicePlatform?: string, deviceName?: string) {
+    const normalizedEmail = this.normalizeEmail(email);
+
+    const user = await this.prisma.user.findFirst({
+      where: { email: { equals: normalizedEmail, mode: "insensitive" } },
+      include: {
+        memberships: {
+          where: { isActive: true, company: { deletedAt: null } },
+          select: {
+            isActive: true,
+            companyId: true,
+            role: true,
+            company: { select: { id: true, name: true, workerInviteToken: true } },
+            profile: { select: { code: true } },
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException("Invalid credentials");
+    }
+
+    // Determine the login company (same logic as login())
+    const activeMemberships = ((user as any).memberships || []).filter(
+      (m: any) => m && m.isActive && !m.company?.deletedAt,
+    );
+    if (!activeMemberships.length) {
+      throw new UnauthorizedException("User does not have an active company membership");
+    }
+
+    let membership = activeMemberships[0];
+    if (user.globalRole === GlobalRole.SUPER_ADMIN && activeMemberships.length > 1) {
+      const realCompany = activeMemberships.find(
+        (m: any) => m.company?.name && m.company.name !== "Nexus System",
+      );
+      if (realCompany) membership = realCompany;
+    }
+
+    // Verify the device challenge code
+    const result = await this.deviceTrust.verifyDeviceChallenge(
+      user.id,
+      membership.companyId,
+      deviceFingerprint,
+      code,
+      { platform: devicePlatform, deviceName },
+    );
+
+    if (!result.valid) {
+      throw new UnauthorizedException(result.reason || "Device verification failed");
+    }
+
+    // Challenge passed — issue tokens (same as normal login path)
+    const profileCode =
+      (membership as any).profile?.code ?? this.getDefaultProfileCodeForRole(membership.role);
+
+    const { accessToken, refreshToken } = await this.issueTokens(
+      user.id,
+      membership.companyId,
+      membership.role,
+      user.email,
+      user.globalRole,
+      profileCode,
+    );
+
+    let userSyncToken = user.syncToken;
+    if (!userSyncToken) {
+      userSyncToken = randomUUID();
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { syncToken: userSyncToken },
+      });
+    }
+
+    const companyToken = membership.company.workerInviteToken;
+
+    if (user.globalRole === GlobalRole.SUPER_ADMIN) {
+      await this.ensureSuperAdminMemberships(user.id);
+    }
+    this.ensureSandboxMembership(user.id).catch(() => {});
+
+    const featureInfo = await this.features.getLoginRedirectInfo(
+      user.id,
+      membership.role,
+    );
+
+    return {
+      user: { id: user.id, email: user.email },
+      company: { id: membership.company.id, name: membership.company.name },
+      accessToken,
+      refreshToken,
+      syncCredentials: companyToken ? {
+        userToken: userSyncToken,
+        companyToken,
+      } : undefined,
       unseenFeatures: featureInfo.unseenFeatures,
       featureRedirect: featureInfo.featureRedirect,
     };
