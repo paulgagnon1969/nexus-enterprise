@@ -13,7 +13,7 @@
     "check-types": "tsc --noEmit",
     "build:android": "npx expo run:android --variant debug",
     "build:android:release": "./scripts/build-android-local.sh",
-    "postinstall": "bash patches/fix-expo-updates-rncompat.sh || true"
+"postinstall": "bash patches/fix-expo-updates-rncompat.sh || true; bash patches/fix-plaid-esm-imports.sh || true"
   },
   "dependencies": {
     "@config-plugins/react-native-webrtc": "^13.0.0",

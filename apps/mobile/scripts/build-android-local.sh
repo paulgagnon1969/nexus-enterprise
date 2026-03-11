@@ -65,10 +65,15 @@ fi
 echo "📦 Building workspace dependencies..."
 npm run build:deps
 
-# Run the build
+# Run the build via Gradle directly (avoids emulator launch)
 echo ""
 echo "🔨 Compiling Android ($VARIANT)..."
-npx expo run:android --variant "$VARIANT" --no-install
+export NODE_ENV="production"
+if [ "$VARIANT" = "release" ]; then
+  (cd android && ./gradlew assembleRelease)
+else
+  (cd android && ./gradlew assembleDebug)
+fi
 
 # Find the APK
 if [ "$VARIANT" = "release" ]; then
