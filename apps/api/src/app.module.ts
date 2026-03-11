@@ -1,8 +1,9 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
-import { APP_INTERCEPTOR } from "@nestjs/core";
+import { APP_INTERCEPTOR, APP_GUARD } from "@nestjs/core";
 import { AppVersionInterceptor } from "./common/app-version.interceptor";
 import { LicenseStatusInterceptor } from "./common/license-status.interceptor";
+import { SandboxGuard } from "./modules/auth/sandbox.guard";
 import { ScheduleModule } from "@nestjs/schedule";
 import { HealthModule } from "./modules/health/health.module";
 import { PrismaModule } from "./infra/prisma/prisma.module";
@@ -184,6 +185,12 @@ import { CamAccessModule } from "./modules/cam-access/cam-access.module";
     {
       provide: APP_INTERCEPTOR,
       useClass: LicenseStatusInterceptor,
+    },
+    // Global sandbox guard — blocks @SandboxRestricted() endpoints
+    // when the user's current company is a sandbox tenant.
+    {
+      provide: APP_GUARD,
+      useClass: SandboxGuard,
     },
   ],
 })

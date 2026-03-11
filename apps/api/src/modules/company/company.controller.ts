@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } fro
 import type { FastifyRequest } from "fastify";
 import { CompanyService } from "./company.service";
 import { JwtAuthGuard, Roles, Role, GlobalRole } from "../auth/auth.guards";
+import { SandboxRestricted } from "../auth/sandbox.decorator";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateInviteDto } from "./dto/invite.dto";
 import { UpsertOfficeDto } from "./dto/office.dto";
@@ -29,6 +30,7 @@ export class CompanyController {
 
   @UseGuards(JwtAuthGuard)
   @Roles(Role.OWNER, Role.ADMIN)
+  @SandboxRestricted("New companies cannot be created from the sandbox")
   @Post()
   create(@Req() req: any, @Body("name") name: string) {
     const user = req.user as AuthenticatedUser;
@@ -86,6 +88,7 @@ export class CompanyController {
   // Update a member's role within the company (OWNER/ADMIN only)
   @UseGuards(JwtAuthGuard)
   @Roles(Role.OWNER, Role.ADMIN)
+  @SandboxRestricted("Roles cannot be changed in the sandbox")
   @Post(":id/members/:userId/role")
   updateMemberRole(
     @Param("id") companyId: string,
@@ -100,6 +103,7 @@ export class CompanyController {
   // Activate/deactivate a member within the company (OWNER/ADMIN only)
   @UseGuards(JwtAuthGuard)
   @Roles(Role.OWNER, Role.ADMIN)
+  @SandboxRestricted("Members cannot be deactivated in the sandbox")
   @Post(":id/members/:userId/active")
   updateMemberActive(
     @Param("id") companyId: string,
@@ -115,6 +119,7 @@ export class CompanyController {
   // Black Flag: classified risk marker (OWNER / SUPPORT only)
   @UseGuards(JwtAuthGuard)
   @Roles(Role.OWNER)
+  @SandboxRestricted("Black flags cannot be set in the sandbox")
   @Post(":id/members/:userId/black-flag")
   setBlackFlag(
     @Param("id") companyId: string,
@@ -179,6 +184,7 @@ export class CompanyController {
 
   @UseGuards(JwtAuthGuard)
   @Roles(Role.OWNER, Role.ADMIN)
+  @SandboxRestricted("Offices cannot be deleted in the sandbox")
   @Delete("me/offices/:id")
   deleteMyOffice(@Req() req: any, @Param("id") officeId: string) {
     const actor = req.user as AuthenticatedUser;

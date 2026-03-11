@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Query, Req, Post, UseGuards } from "@nestjs/common";
 import { AdminService } from "./admin.service";
 import { JwtAuthGuard, GlobalRolesGuard, GlobalRoles, GlobalRole } from "../auth/auth.guards";
+import { SandboxRestricted } from "../auth/sandbox.decorator";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { AuthService } from "../auth/auth.service";
 import { NexIntService } from "../analytics/nexint.service";
@@ -197,6 +198,7 @@ export class AdminController {
     return this.admin.moderateReputation(actor, id, "REJECTED");
   }
 
+  @SandboxRestricted("Impersonation is not available in the sandbox")
   @Post("impersonate")
   impersonate(
     @Req() req: any,

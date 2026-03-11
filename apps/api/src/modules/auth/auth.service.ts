@@ -125,6 +125,54 @@ export class AuthService {
     });
   }
 
+  /**
+   * Ensure the user has an ADMIN membership in the sandbox company.
+   * Creates, reactivates, or touches the membership as needed.
+   * Called fire-and-forget from login() so failures never block auth.
+   */
+  private async ensureSandboxMembership(userId: string) {
+    const sandbox = await this.prisma.company.findFirst({
+      where: { isSandbox: true, deletedAt: null },
+      select: { id: true },
+    });
+    if (!sandbox) return;
+
+    const existing = await this.prisma.companyMembership.findUnique({
+      where: {
+        userId_companyId: { userId, companyId: sandbox.id },
+      },
+      select: { isActive: true },
+    });
+
+    if (!existing) {
+      // First time — create an ADMIN membership.
+      await this.prisma.companyMembership.create({
+        data: {
+          userId,
+          companyId: sandbox.id,
+          role: Role.ADMIN,
+          sandboxLastActiveAt: new Date(),
+        },
+      });
+    } else if (!existing.isActive) {
+      // Re-entry — reactivate a previously pruned membership.
+      await this.prisma.companyMembership.update({
+        where: { userId_companyId: { userId, companyId: sandbox.id } },
+        data: {
+          isActive: true,
+          deactivatedAt: null,
+          sandboxLastActiveAt: new Date(),
+        },
+      });
+    } else {
+      // Already active — just touch the activity timestamp.
+      await this.prisma.companyMembership.update({
+        where: { userId_companyId: { userId, companyId: sandbox.id } },
+        data: { sandboxLastActiveAt: new Date() },
+      });
+    }
+  }
+
   async bootstrapSuperAdmin(email: string, password: string) {
     const normalizedEmail = this.normalizeEmail(email);
 
@@ -319,6 +367,12 @@ export class AuthService {
       user.id,
       membership.role,
     );
+
+    // ── Sandbox auto-enrollment (fire-and-forget) ────────────────────
+    // Every authenticated user gets an ADMIN membership in the sandbox
+    // tenant so they can explore all features. Destructive actions are
+    // blocked by the global SandboxGuard.
+    this.ensureSandboxMembership(user.id).catch(() => {});
 
     return {
       user: { id: user.id, email: user.email },
@@ -919,9 +973,34 @@ export class AuthService {
       throw new UnauthorizedException("No access to this company");
     }
 
-    // Tenant membership deactivation enforcement.
-    if (user.globalRole !== GlobalRole.SUPER_ADMIN && (membership as any).isActive === false) {
-      throw new UnauthorizedException("User does not have an active company membership");
+    // Sandbox re-entry: if the user's sandbox membership was deactivated
+    // (idle cleanup), automatically reactivate it instead of blocking.
+    if ((membership as any).isActive === false) {
+      const isSandbox = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: { isSandbox: true },
+      });
+
+      if (isSandbox?.isSandbox) {
+        membership = await this.prisma.companyMembership.update({
+          where: { userId_companyId: { userId, companyId } },
+          data: {
+            isActive: true,
+            deactivatedAt: null,
+            sandboxLastActiveAt: new Date(),
+          },
+          select: {
+            isActive: true,
+            role: true,
+            userId: true,
+            companyId: true,
+            profile: { select: { code: true } },
+          },
+        });
+      } else if (user.globalRole !== GlobalRole.SUPER_ADMIN) {
+        // Non-sandbox: enforce deactivation as before.
+        throw new UnauthorizedException("User does not have an active company membership");
+      }
     }
 
     const profileCode =
@@ -935,6 +1014,18 @@ export class AuthService {
       user.globalRole,
       profileCode
     );
+
+    // Touch sandbox activity timestamp when switching into sandbox.
+    const isSandboxTarget = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { isSandbox: true },
+    });
+    if (isSandboxTarget?.isSandbox) {
+      await this.prisma.companyMembership.update({
+        where: { userId_companyId: { userId, companyId } },
+        data: { sandboxLastActiveAt: new Date() },
+      }).catch(() => {});
+    }
 
     // Audit user-initiated company context switches
     await this.prisma.adminAuditLog.create({

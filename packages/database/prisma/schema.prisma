@@ -116,6 +116,11 @@ model Company {
   /// entitlement checks. Set by SUPER_ADMIN only.
   isInternal Boolean @default(false)
 
+  /// When true, this is the shared sandbox/demo tenant. Every authenticated
+  /// user is auto-enrolled on login and idle members are pruned after 30 days.
+  /// Only one company should have this flag set at a time.
+  isSandbox Boolean @default(false)
+
   templateId            String?
   templateVersionId     String?
   template              OrganizationTemplate?        @relation("CompanyTemplate", fields: [templateId], references: [id])
@@ -1282,6 +1287,10 @@ model CompanyMembership {
   blackFlaggedAt       DateTime? @map("black_flagged_at")
   blackFlaggedByUserId String?   @map("black_flagged_by_user_id")
   blackFlagReason      String?   @map("black_flag_reason")
+
+  /// Tracks the last time this user interacted with a sandbox tenant.
+  /// Used by the sandbox cleanup cron to prune idle memberships after 30 days.
+  sandboxLastActiveAt DateTime? @map("sandbox_last_active_at")
 
   company Company      @relation(fields: [companyId], references: [id])
   profile RoleProfile? @relation(fields: [profileId], references: [id])

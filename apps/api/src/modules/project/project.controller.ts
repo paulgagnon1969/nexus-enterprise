@@ -19,6 +19,7 @@ import { ProjectService } from "./project.service";
 import { InvoicePaymentService } from "./invoice-payment.service";
 import { InvoiceActivityService } from "./invoice-activity.service";
 import { JwtAuthGuard, CombinedAuthGuard, Roles, Role } from "../auth/auth.guards";
+import { SandboxRestricted } from "../auth/sandbox.decorator";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateProjectDto, AddProjectMemberDto, ImportXactDto, ImportXactComponentsDto, UpdateProjectDto } from "./dto/project.dto";
 import {
@@ -535,6 +536,7 @@ export class ProjectController {
 
   @UseGuards(JwtAuthGuard)
   @Roles(Role.OWNER, Role.ADMIN)
+  @SandboxRestricted("Projects cannot be deleted in the sandbox")
   @Delete(":id")
   delete(@Req() req: any, @Param("id") projectId: string) {
     const user = req.user as AuthenticatedUser;
