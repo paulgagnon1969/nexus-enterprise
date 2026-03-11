@@ -500,17 +500,79 @@ function DiscussionTab() {
 /*  TAB: INVITES                                                      */
 /* ═══════════════════════════════════════════════════════════════════ */
 
+const DEFAULT_BLURB = `Hi {name},
+
+I'd like to personally invite you to review the Nexus Competitive Advantage Modules (CAM) Library — a curated collection of the technologies and operational systems that set Nexus apart in restoration and construction.
+
+This isn't a sales pitch. It's a transparent look at the tools and processes we've built to deliver faster, more accurate, and more accountable project outcomes. I think you'll find it valuable whether you're evaluating partners, exploring technology, or just curious about where the industry is headed.
+
+The process is straightforward:
+1. Accept a brief confidentiality agreement (CNDA+)
+2. Complete a quick 30-second assessment
+3. Access the full CAM Library with interactive discussion
+
+I look forward to your feedback.
+
+— Paul Gagnon, Nexus`;
+
+const BLURB_KEY = "cam-invite-blurb";
+
+function loadBlurb(): string {
+  if (typeof window === "undefined") return DEFAULT_BLURB;
+  return localStorage.getItem(BLURB_KEY) || DEFAULT_BLURB;
+}
+
+function saveBlurb(v: string) {
+  if (typeof window !== "undefined") localStorage.setItem(BLURB_KEY, v);
+}
+
+interface CsvRow { name: string; email: string; phone: string }
+
+function parseCsv(text: string): CsvRow[] {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length < 2) return [];
+  const header = lines[0].toLowerCase();
+  const emailIdx = header.split(",").findIndex((h) => h.trim().includes("email"));
+  const nameIdx = header.split(",").findIndex((h) => h.trim().includes("name"));
+  const phoneIdx = header.split(",").findIndex((h) => h.trim().includes("phone"));
+  if (emailIdx < 0) return [];
+  return lines.slice(1).map((line) => {
+    const cols = line.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+    return { email: cols[emailIdx] || "", name: cols[nameIdx] || "", phone: cols[phoneIdx] || "" };
+  }).filter((r) => r.email && r.email.includes("@"));
+}
+
+function downloadCsvTemplate() {
+  const csv = "name,email,phone\nJane Smith,jane@company.com,+15551234567\nJohn Doe,john@example.com,\n";
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "cam-invite-template.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function InvitesTab() {
   const [invites, setInvites] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  // Blurb
+  const [blurb, setBlurb] = useState(loadBlurb);
+  const [blurbSaved, setBlurbSaved] = useState(true);
+  const [blurbEditing, setBlurbEditing] = useState(false);
+  // Single invite
   const [formOpen, setFormOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [message, setMessage] = useState("");
   const [methods, setMethods] = useState<Set<string>>(new Set(["email"]));
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<any>(null);
+  // Bulk CSV
+  const [csvRows, setCsvRows] = useState<CsvRow[]>([]);
+  const [bulkSending, setBulkSending] = useState(false);
+  const [bulkResult, setBulkResult] = useState<any>(null);
+  // Shared
   const [copied, setCopied] = useState<string | null>(null);
 
   const loadInvites = useCallback(() => {
@@ -519,12 +581,29 @@ function InvitesTab() {
 
   useEffect(() => { loadInvites(); }, [loadInvites]);
 
+  const handleSaveBlurb = () => {
+    saveBlurb(blurb);
+    setBlurbSaved(true);
+    setBlurbEditing(false);
+  };
+
+  const handleResetBlurb = () => {
+    setBlurb(DEFAULT_BLURB);
+    saveBlurb(DEFAULT_BLURB);
+    setBlurbSaved(true);
+  };
+
   const toggleMethod = (m: string) => {
     const next = new Set(methods);
     next.has(m) ? next.delete(m) : next.add(m);
     setMethods(next);
   };
 
+  const personalizedBlurb = (recipientName?: string) => {
+    return blurb.replace(/\{name\}/gi, recipientName?.split(" ")[0] || "there");
+  };
+
+  // Single send
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim() || methods.size === 0) return;
@@ -537,7 +616,7 @@ function InvitesTab() {
           recipientName: name.trim() || undefined,
           recipientPhone: phone.trim() || undefined,
           deliveryMethods: Array.from(methods),
-          message: message.trim() || undefined,
+          message: personalizedBlurb(name.trim()),
         }),
       });
       setResult(res);
@@ -546,6 +625,47 @@ function InvitesTab() {
       alert("Failed to send invite");
     } finally {
       setSending(false);
+    }
+  };
+
+  // CSV upload
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const rows = parseCsv(text);
+      setCsvRows(rows);
+      setBulkResult(null);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const removeCsvRow = (idx: number) => {
+    setCsvRows((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  // Bulk send
+  const handleBulkSend = async () => {
+    if (csvRows.length === 0 || methods.size === 0) return;
+    setBulkSending(true);
+    try {
+      const res = await api("/cam-dashboard/invite/bulk", {
+        method: "POST",
+        body: JSON.stringify({
+          recipients: csvRows.map((r) => ({ email: r.email, name: r.name || undefined, phone: r.phone || undefined })),
+          deliveryMethods: Array.from(methods),
+          message: blurb,
+        }),
+      });
+      setBulkResult(res);
+      loadInvites();
+    } catch {
+      alert("Bulk send failed");
+    } finally {
+      setBulkSending(false);
     }
   };
 
@@ -565,7 +685,6 @@ function InvitesTab() {
     setEmail("");
     setName("");
     setPhone("");
-    setMessage("");
     setResult(null);
     setMethods(new Set(["email"]));
   };
@@ -581,19 +700,132 @@ function InvitesTab() {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <SectionTitle>Invites ({invites.length})</SectionTitle>
-        <button onClick={() => setFormOpen(!formOpen)} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "#0f172a", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-          + Send Invite
-        </button>
+      {/* ── Invite Blurb ── */}
+      <div style={{ ...cardStyle, padding: 20, marginBottom: 20, borderLeft: "4px solid #059669" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div>
+            <span style={{ fontWeight: 700, fontSize: 15 }}>📝 Invite Message</span>
+            <span style={{ fontSize: 11, color: "#6b7280", marginLeft: 8 }}>This message is included with every invite (email &amp; single send). Use <code style={{ background: "#f3f4f6", padding: "1px 4px", borderRadius: 3, fontSize: 11 }}>{`{name}`}</code> for personalization.</span>
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {!blurbEditing ? (
+              <button onClick={() => setBlurbEditing(true)} style={{ ...btnSmall, background: "#2563eb", color: "#fff", border: "none" }}>Edit</button>
+            ) : (
+              <>
+                <button onClick={handleSaveBlurb} style={{ ...btnSmall, background: "#059669", color: "#fff", border: "none" }}>Save</button>
+                <button onClick={() => { setBlurb(loadBlurb()); setBlurbEditing(false); }} style={btnSmall}>Cancel</button>
+              </>
+            )}
+            <button onClick={handleResetBlurb} style={btnSmall} title="Reset to default">Reset</button>
+          </div>
+        </div>
+        {blurbEditing ? (
+          <textarea
+            value={blurb}
+            onChange={(e) => { setBlurb(e.target.value); setBlurbSaved(false); }}
+            rows={12}
+            style={{ width: "100%", padding: 12, borderRadius: 6, border: "1px solid #d1d5db", fontSize: 13, lineHeight: 1.6, fontFamily: "inherit", resize: "vertical", outline: "none", boxSizing: "border-box" }}
+          />
+        ) : (
+          <div style={{ padding: 14, background: "#f9fafb", borderRadius: 6, fontSize: 13, lineHeight: 1.7, color: "#374151", whiteSpace: "pre-wrap", maxHeight: 280, overflow: "auto" }}>
+            {blurb}
+          </div>
+        )}
+        {!blurbSaved && <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 6 }}>Unsaved changes</div>}
       </div>
 
-      {/* Send Form */}
+      {/* ── Actions row ── */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button onClick={() => { setFormOpen(!formOpen); setCsvRows([]); setBulkResult(null); }} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "#0f172a", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            + Single Invite
+          </button>
+          <button onClick={downloadCsvTemplate} style={{ ...btnStyle, display: "flex", alignItems: "center", gap: 4 }}>
+            ⬇ CSV Template
+          </button>
+          <label style={{ ...btnStyle, display: "flex", alignItems: "center", gap: 4, cursor: "pointer", background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1e40af" }}>
+            ⬆ Upload CSV
+            <input type="file" accept=".csv" onChange={handleFileUpload} style={{ display: "none" }} />
+          </label>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span style={{ fontSize: 12, fontWeight: 600 }}>Delivery:</span>
+          {["email", "sms"].map((m) => (
+            <label key={m} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 12 }}>
+              <input type="checkbox" checked={methods.has(m)} onChange={() => toggleMethod(m)} />
+              {m === "email" ? "📧 Email" : "📱 Text"}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {/* ── CSV Preview ── */}
+      {csvRows.length > 0 && !bulkResult && (
+        <div style={{ ...cardStyle, marginBottom: 16, padding: 0, overflow: "hidden" }}>
+          <div style={{ padding: "12px 16px", background: "#eff6ff", borderBottom: "1px solid #bfdbfe", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontWeight: 600, fontSize: 13, color: "#1e40af" }}>📋 CSV Preview — {csvRows.length} recipients</span>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={() => setCsvRows([])} style={btnSmall}>Clear</button>
+              <button
+                onClick={handleBulkSend}
+                disabled={bulkSending || methods.size === 0}
+                style={{ ...btnSmall, background: "#059669", color: "#fff", border: "none", padding: "4px 14px", fontWeight: 600, opacity: methods.size === 0 ? 0.5 : 1 }}
+              >
+                {bulkSending ? "Sending..." : `Send All ${csvRows.length} Invites`}
+              </button>
+            </div>
+          </div>
+          <div style={{ maxHeight: 250, overflow: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: "#f9fafb" }}>
+                  {["Name", "Email", "Phone", ""].map((h) => (
+                    <th key={h} style={{ padding: "6px 10px", textAlign: "left", borderBottom: "1px solid #e5e7eb", fontWeight: 600 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {csvRows.map((r, i) => (
+                  <tr key={i}>
+                    <td style={tdStyle}>{r.name || "—"}</td>
+                    <td style={tdStyle}>{r.email}</td>
+                    <td style={tdStyle}>{r.phone || "—"}</td>
+                    <td style={{ ...tdStyle, textAlign: "right" }}>
+                      <button onClick={() => removeCsvRow(i)} style={{ ...btnSmall, color: "#dc2626", border: "none", background: "none", fontSize: 13 }}>×</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Bulk Result ── */}
+      {bulkResult && (
+        <div style={{ ...cardStyle, marginBottom: 16, padding: 16 }}>
+          <h3 style={{ margin: "0 0 8px", fontSize: 15 }}>
+            {bulkResult.failed === 0 ? "✅" : "⚠️"} Bulk Send Complete — {bulkResult.sent}/{bulkResult.total} sent
+          </h3>
+          {bulkResult.failed > 0 && (
+            <div style={{ marginBottom: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "#dc2626" }}>{bulkResult.failed} failed:</span>
+              {bulkResult.results.filter((r: any) => !r.success).map((r: any, i: number) => (
+                <div key={i} style={{ fontSize: 11, color: "#dc2626", marginLeft: 12 }}>• {r.email}: {r.error}</div>
+              ))}
+            </div>
+          )}
+          <button onClick={() => { setBulkResult(null); setCsvRows([]); }} style={btnSmall}>Dismiss</button>
+        </div>
+      )}
+
+      {/* ── Single Invite Form ── */}
       {formOpen && (
         <div style={{ ...cardStyle, marginBottom: 16, padding: 20 }}>
           {!result ? (
             <form onSubmit={handleSend}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 10 }}>Single Invite</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <div>
                   <label style={labelStyle}>Email *</label>
                   <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="jane@company.com" style={inputStyle} />
@@ -602,28 +834,16 @@ function InvitesTab() {
                   <label style={labelStyle}>Name</label>
                   <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Smith" style={inputStyle} />
                 </div>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                 <div>
-                  <label style={labelStyle}>Phone (for SMS)</label>
-                  <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 555-123-4567" style={inputStyle} />
-                </div>
-                <div>
-                  <label style={labelStyle}>Delivery Method</label>
-                  <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                    {["email", "sms"].map((m) => (
-                      <label key={m} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 13 }}>
-                        <input type="checkbox" checked={methods.has(m)} onChange={() => toggleMethod(m)} />
-                        {m === "email" ? "📧 Email" : "📱 Text"}
-                      </label>
-                    ))}
-                  </div>
+                  <label style={labelStyle}>Phone (SMS)</label>
+                  <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+15551234567" style={inputStyle} />
                 </div>
               </div>
-              <div style={{ marginBottom: 12 }}>
-                <label style={labelStyle}>Personal Message</label>
-                <textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Hey, check this out..." rows={2} style={{ ...inputStyle, resize: "vertical" }} />
-              </div>
+              {name.trim() && (
+                <div style={{ padding: 10, background: "#f0fdf4", borderRadius: 6, border: "1px solid #bbf7d0", fontSize: 11, color: "#166534", marginBottom: 12, maxHeight: 100, overflow: "auto", whiteSpace: "pre-wrap" }}>
+                  <strong>Preview:</strong> {personalizedBlurb(name.trim()).slice(0, 200)}...
+                </div>
+              )}
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button type="button" onClick={resetForm} style={btnStyle}>Cancel</button>
                 <button type="submit" disabled={!email.trim() || methods.size === 0 || sending} style={{ ...btnStyle, background: "#0f172a", color: "#fff", border: "none", opacity: !email.trim() || methods.size === 0 ? 0.5 : 1 }}>
@@ -634,9 +854,7 @@ function InvitesTab() {
           ) : (
             <div>
               <h3 style={{ margin: "0 0 8px", fontSize: 15 }}>✅ Invite Sent!</h3>
-              <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>
-                Link created for <strong>{result.recipientEmail}</strong>
-              </p>
+              <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>Link created for <strong>{result.recipientEmail}</strong></p>
               {result.delivery?.email && (
                 <p style={{ fontSize: 12 }}>📧 Email: {result.delivery.email.sent ? <span style={{ color: "#059669" }}>Sent ✓</span> : <span style={{ color: "#dc2626" }}>Failed — {result.delivery.email.error}</span>}</p>
               )}
@@ -655,7 +873,8 @@ function InvitesTab() {
         </div>
       )}
 
-      {/* Invite list */}
+      {/* ── Invite History ── */}
+      <SectionTitle>Invite History ({invites.length})</SectionTitle>
       {invites.length === 0 ? (
         <EmptyState msg="No invites yet — send your first one!" />
       ) : (

@@ -30,7 +30,13 @@
     "plugins": [
       "expo-secure-store",
       "expo-sqlite",
-      "react-native-plaid-link-sdk"
+      "react-native-plaid-link-sdk",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "NexCard uses Face ID to protect your password vault."
+        }
+      ]
     ],
     "extra": {
       "eas": {

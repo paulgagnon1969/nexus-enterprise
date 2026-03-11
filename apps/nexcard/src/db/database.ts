@@ -66,6 +66,20 @@ export async function initDatabase(): Promise<void> {
       last_export_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS vault_credentials (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      username TEXT NOT NULL DEFAULT '',
+      encrypted_password TEXT NOT NULL,
+      url TEXT,
+      notes TEXT,
+      category TEXT NOT NULL DEFAULT 'general',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_vault_category ON vault_credentials(category);
   `);
 }
 
@@ -210,6 +224,83 @@ export async function upsertExportTarget(target: ExportTarget): Promise<void> {
 
 export async function deleteExportTarget(id: string): Promise<void> {
   await getDb().runAsync("DELETE FROM export_targets WHERE id = ?", [id]);
+}
+
+// ── Vault Credentials ──
+
+export interface VaultCredential {
+  id: string;
+  title: string;
+  username: string;
+  encryptedPassword: string;
+  url: string | null;
+  notes: string | null;
+  category: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function getAllVaultCredentials(search?: string): Promise<VaultCredential[]> {
+  if (search) {
+    const term = `%${search}%`;
+    const rows = await getDb().getAllAsync<any>(
+      "SELECT * FROM vault_credentials WHERE title LIKE ? OR username LIKE ? OR url LIKE ? OR category LIKE ? ORDER BY title",
+      [term, term, term, term],
+    );
+    return rows.map(mapVaultCredential);
+  }
+  const rows = await getDb().getAllAsync<any>("SELECT * FROM vault_credentials ORDER BY category, title");
+  return rows.map(mapVaultCredential);
+}
+
+export async function getVaultCredential(id: string): Promise<VaultCredential | null> {
+  const row = await getDb().getFirstAsync<any>("SELECT * FROM vault_credentials WHERE id = ?", [id]);
+  return row ? mapVaultCredential(row) : null;
+}
+
+export async function upsertVaultCredential(cred: VaultCredential): Promise<void> {
+  await getDb().runAsync(
+    `INSERT INTO vault_credentials (id, title, username, encrypted_password, url, notes, category, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       title = excluded.title,
+       username = excluded.username,
+       encrypted_password = excluded.encrypted_password,
+       url = excluded.url,
+       notes = excluded.notes,
+       category = excluded.category,
+       updated_at = excluded.updated_at`,
+    [cred.id, cred.title, cred.username, cred.encryptedPassword, cred.url, cred.notes, cred.category, cred.createdAt, cred.updatedAt],
+  );
+}
+
+export async function deleteVaultCredential(id: string): Promise<void> {
+  await getDb().runAsync("DELETE FROM vault_credentials WHERE id = ?", [id]);
+}
+
+export async function deleteAllVaultCredentials(): Promise<void> {
+  await getDb().runAsync("DELETE FROM vault_credentials");
+}
+
+export async function getVaultCategories(): Promise<string[]> {
+  const rows = await getDb().getAllAsync<{ category: string }>(
+    "SELECT DISTINCT category FROM vault_credentials ORDER BY category",
+  );
+  return rows.map((r) => r.category);
+}
+
+function mapVaultCredential(row: any): VaultCredential {
+  return {
+    id: row.id,
+    title: row.title,
+    username: row.username,
+    encryptedPassword: row.encrypted_password,
+    url: row.url,
+    notes: row.notes,
+    category: row.category,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 // ── Analytics ──

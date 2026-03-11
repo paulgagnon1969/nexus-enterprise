@@ -7,6 +7,7 @@ import { DashboardScreen } from "../screens/DashboardScreen";
 import { AccountsScreen } from "../screens/AccountsScreen";
 import { TransactionsScreen } from "../screens/TransactionsScreen";
 import { SyncScreen } from "../screens/SyncScreen";
+import { VaultScreen } from "../screens/VaultScreen";
 import { SettingsScreen } from "../screens/SettingsScreen";
 
 export type RootTabParamList = {
@@ -14,6 +15,7 @@ export type RootTabParamList = {
   Accounts: undefined;
   Transactions: undefined;
   Sync: undefined;
+  Vault: undefined;
   Settings: undefined;
 };
 
@@ -24,11 +26,16 @@ const TAB_ICONS: Record<keyof RootTabParamList, { active: string; inactive: stri
   Accounts: { active: "▣", inactive: "▢" },
   Transactions: { active: "≡", inactive: "≡" },
   Sync: { active: "⇄", inactive: "⇄" },
+  Vault: { active: "🔒", inactive: "🔓" },
   Settings: { active: "⚙", inactive: "⚙" },
 };
 
-export function AppNavigator() {
+// Context so SettingsScreen can trigger logout
+export const LogoutContext = React.createContext<() => void>(() => {});
+
+export function AppNavigator({ onLogout }: { onLogout: () => void }) {
   return (
+    <LogoutContext.Provider value={onLogout}>
     <Tab.Navigator
       initialRouteName="Dashboard"
       screenOptions={({ route }) => ({
@@ -50,8 +57,10 @@ export function AppNavigator() {
       <Tab.Screen name="Accounts" component={AccountsScreen} />
       <Tab.Screen name="Transactions" component={TransactionsScreen} />
       <Tab.Screen name="Sync" component={SyncScreen} />
+      <Tab.Screen name="Vault" component={VaultScreen} />
       <Tab.Screen name="Settings" component={SettingsScreen} />
     </Tab.Navigator>
+    </LogoutContext.Provider>
   );
 }
 

@@ -29,6 +29,18 @@ export interface SendInviteDto {
   message?: string;
 }
 
+export interface BulkInviteRecipient {
+  email: string;
+  name?: string;
+  phone?: string;
+}
+
+export interface BulkInviteDto {
+  recipients: BulkInviteRecipient[];
+  deliveryMethods: Array<"email" | "sms">;
+  message?: string;
+}
+
 export interface CreateTopicDto {
   title: string;
   description?: string;
@@ -327,6 +339,56 @@ export class CamDashboardService {
       recipientName: dto.recipientName ?? null,
       delivery: deliveryResults,
     };
+  }
+
+  async sendBulkInvites(actor: AuthenticatedUser, dto: BulkInviteDto) {
+    if (!dto.recipients?.length) {
+      throw new BadRequestException("At least one recipient is required");
+    }
+    if (dto.recipients.length > 200) {
+      throw new BadRequestException("Maximum 200 recipients per batch");
+    }
+
+    const results: Array<{
+      email: string;
+      name?: string;
+      success: boolean;
+      shareUrl?: string;
+      delivery?: Record<string, any>;
+      error?: string;
+    }> = [];
+
+    for (const r of dto.recipients) {
+      try {
+        const res = await this.sendInvite(actor, {
+          recipientEmail: r.email,
+          recipientName: r.name,
+          recipientPhone: r.phone,
+          deliveryMethods: dto.deliveryMethods,
+          message: dto.message,
+        });
+        results.push({
+          email: r.email,
+          name: r.name,
+          success: true,
+          shareUrl: res.shareUrl,
+          delivery: res.delivery,
+        });
+      } catch (err: any) {
+        results.push({
+          email: r.email,
+          name: r.name,
+          success: false,
+          error: err?.message || "Unknown error",
+        });
+        this.logger.error(`Bulk invite failed for ${r.email}: ${err?.message}`);
+      }
+    }
+
+    const sent = results.filter((r) => r.success).length;
+    const failed = results.filter((r) => !r.success).length;
+
+    return { total: dto.recipients.length, sent, failed, results };
   }
 
   async resendInvite(actor: AuthenticatedUser, tokenId: string) {

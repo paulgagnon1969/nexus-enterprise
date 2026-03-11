@@ -10,9 +10,13 @@ import {
 } from "react-native";
 import Constants from "expo-constants";
 import { colors } from "../theme/colors";
+import { LogoutContext } from "../navigation/AppNavigator";
+import { destroyVault } from "../services/vault";
+import { deleteAllVaultCredentials } from "../db/database";
 
 export function SettingsScreen() {
   const version = Constants.expoConfig?.version ?? "1.0.0";
+  const onLogout = React.useContext(LogoutContext);
 
   const handleManageSubscription = () => {
     // Opens App Store subscription management on iOS
@@ -30,19 +34,27 @@ export function SettingsScreen() {
   const handleDeleteData = () => {
     Alert.alert(
       "Delete All Data",
-      "This will permanently delete all accounts, transactions, and sync settings from this device. This cannot be undone.",
+      "This will permanently delete all accounts, transactions, vault credentials, and sync settings from this device. This cannot be undone.",
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Delete Everything",
           style: "destructive",
-          onPress: () => {
-            // TODO: Drop and recreate all tables
+          onPress: async () => {
+            await deleteAllVaultCredentials();
+            await destroyVault();
             Alert.alert("Done", "All local data has been deleted.");
           },
         },
       ],
     );
+  };
+
+  const handleLogout = () => {
+    Alert.alert("Sign Out", "You will need to sign in again to sync bank accounts.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Sign Out", style: "destructive", onPress: onLogout },
+    ]);
   };
 
   return (
@@ -65,6 +77,14 @@ export function SettingsScreen() {
         </TouchableOpacity>
         <TouchableOpacity style={[styles.row, styles.destructiveRow]} onPress={handleDeleteData}>
           <Text style={styles.destructiveText}>Delete All Local Data</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Account */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Account</Text>
+        <TouchableOpacity style={[styles.row, styles.destructiveRow]} onPress={handleLogout}>
+          <Text style={styles.destructiveText}>Sign Out</Text>
         </TouchableOpacity>
       </View>
 

@@ -19,6 +19,7 @@ import type { AuthenticatedUser } from "../auth/jwt.strategy";
 import {
   CamDashboardService,
   type SendInviteDto,
+  type BulkInviteDto,
   type CreateTopicDto,
   type CreateThreadDto,
   type PostMessageDto,
@@ -64,6 +65,11 @@ export class CamDashboardController {
   @Post("invite")
   sendInvite(@Req() req: any, @Body() dto: SendInviteDto) {
     return this.svc.sendInvite(req.user as AuthenticatedUser, dto);
+  }
+
+  @Post("invite/bulk")
+  sendBulkInvites(@Req() req: any, @Body() dto: BulkInviteDto) {
+    return this.svc.sendBulkInvites(req.user as AuthenticatedUser, dto);
   }
 
   @Post("invite/:tokenId/resend")
