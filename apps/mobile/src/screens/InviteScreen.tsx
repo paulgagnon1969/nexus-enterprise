@@ -10,6 +10,7 @@ import {
   Alert,
   Share,
 } from "react-native";
+import Constants from "expo-constants";
 import { apiJson } from "../api/client";
 import { fetchContacts } from "../api/contacts";
 import { getUserMe } from "../api/user";
@@ -35,6 +36,7 @@ export function InviteScreen({ onBack, preselectedIds }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set(preselectedIds ?? []));
   const [mode, setMode] = useState<InviteMode>("company");
   const [isOwnerPlus, setIsOwnerPlus] = useState(false);
+  const [debugRole, setDebugRole] = useState<string>("loading...");
 
   // Manual entry for CAM/Master Class (external recipients)
   const [manualEmail, setManualEmail] = useState("");
@@ -61,9 +63,14 @@ export function InviteScreen({ onBack, preselectedIds }: Props) {
       .then((me) => {
         const globalMatch = OWNER_PLUS_GLOBAL.includes(me.globalRole ?? "");
         const roleMatch = me.memberships?.some((m) => OWNER_PLUS_ROLES.includes(m.role)) ?? false;
-        setIsOwnerPlus(globalMatch || roleMatch);
+        const result = globalMatch || roleMatch;
+        setIsOwnerPlus(result);
+        setDebugRole(`g:${me.globalRole ?? "null"} r:${me.memberships?.map(m=>m.role).join(",") ?? "none"} → ${result}`);
       })
-      .catch(() => setIsOwnerPlus(false));
+      .catch((err) => {
+        setIsOwnerPlus(false);
+        setDebugRole(`ERROR: ${err?.message ?? "unknown"}`);
+      });
   }, []);
 
   useEffect(() => {
@@ -264,6 +271,13 @@ export function InviteScreen({ onBack, preselectedIds }: Props) {
           <Text style={styles.backText}>← Back</Text>
         </Pressable>
         <Text style={styles.title}>Invite</Text>
+      </View>
+
+      {/* DEBUG: Remove after testing */}
+      <View style={{ backgroundColor: "#fef3c7", padding: 6, marginHorizontal: 16, marginTop: 4, borderRadius: 6 }}>
+        <Text style={{ fontSize: 10, color: "#92400e", fontFamily: "monospace" }}>
+          v{Constants.expoConfig?.version ?? "?"} b{Constants.expoConfig?.ios?.buildNumber ?? "?"} | {debugRole}
+        </Text>
       </View>
 
       {/* Mode selector */}
