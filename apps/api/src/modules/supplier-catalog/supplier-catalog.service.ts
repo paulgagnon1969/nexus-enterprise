@@ -140,22 +140,38 @@ export class SupplierCatalogService {
     private readonly serpApiLowes: SerpApiLowesProvider,
     private readonly lowes: LowesProvider,
   ) {
-    // SerpAPI is the preferred HD provider (no zip pre-registration needed).
-    // Falls back to BigBox if SERPAPI_KEY is not set.
-    const hdProvider: CatalogProvider = this.serpApi.isEnabled()
-      ? this.serpApi
-      : this.bigBox;
+    // Dual-provider strategy: register BOTH SerpAPI and BigBox for HD when
+    // both keys exist. SerpAPI is best for search, BigBox is best for
+    // localized pricing, availability, aisle data, and lead times.
+    //
+    // - "homedepot"        → SerpAPI (primary search provider)
+    // - "homedepot_bigbox" → BigBox  (pricing/availability enrichment)
+    //
+    // If only one key exists, register it under "homedepot" as before.
+    const providers: Array<[string, CatalogProvider]> = [];
 
-    // SerpAPI Google Shopping is the preferred Lowe's provider (uses same key).
-    // Falls back to Lowe's IMS-based provider if it has credentials.
+    if (this.serpApi.isEnabled() && this.bigBox.isEnabled()) {
+      // Both available — SerpAPI for search under "homedepot", BigBox under
+      // a separate key for enrichment queries.
+      providers.push(['homedepot', this.serpApi]);
+      providers.push(['homedepot_bigbox', this.bigBox]);
+    } else if (this.serpApi.isEnabled()) {
+      providers.push(['homedepot', this.serpApi]);
+    } else if (this.bigBox.isEnabled()) {
+      providers.push(['homedepot', this.bigBox]);
+    }
+
+    // Lowe's — SerpAPI Google Shopping preferred, IMS fallback.
     const lowesProvider: CatalogProvider = this.serpApiLowes.isEnabled()
       ? this.serpApiLowes
       : this.lowes;
+    providers.push([lowesProvider.providerKey, lowesProvider]);
 
-    this.providers = new Map<string, CatalogProvider>([
-      [hdProvider.providerKey, hdProvider],
-      [lowesProvider.providerKey, lowesProvider],
-    ]);
+    this.providers = new Map<string, CatalogProvider>(providers);
+
+    this.logger.log(
+      `Registered providers: ${[...this.providers.keys()].join(', ')}`,
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -208,7 +224,11 @@ export class SupplierCatalogService {
     query: string,
     options?: CatalogSearchOptions,
   ): Promise<CatalogSearchResult[]> {
-    const enabled = Array.from(this.providers.values()).filter((p) => p.isEnabled());
+    // Skip the BigBox enrichment provider — it's used for enrichment only,
+    // not as a primary search source. This avoids duplicate HD results.
+    const enabled = Array.from(this.providers.entries())
+      .filter(([key, p]) => key !== 'homedepot_bigbox' && p.isEnabled())
+      .map(([, p]) => p);
     if (enabled.length === 0) return [];
 
     const results = await Promise.allSettled(
@@ -218,6 +238,95 @@ export class SupplierCatalogService {
     return results
       .filter((r): r is PromiseFulfilledResult<CatalogSearchResult> => r.status === "fulfilled")
       .map((r) => r.value);
+  }
+
+  // -------------------------------------------------------------------------
+  // Enriched Search (SerpAPI search → BigBox pricing/availability)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Search across all providers, then enrich HD results with BigBox data
+   * (local pricing, availability status, aisle info, lead times).
+   *
+   * This is the preferred search method for consumer-facing UIs (mobile map,
+   * product finder) where localized data matters.
+   */
+  async searchWithAvailability(
+    query: string,
+    zipCode?: string,
+    options?: { topN?: number; pageSize?: number },
+  ): Promise<CatalogSearchResult[]> {
+    const topN = options?.topN ?? 5;
+    const pageSize = options?.pageSize ?? 10;
+
+    // 1. Run the normal multi-provider search
+    const baseResults = await this.searchAll(query, { zipCode, pageSize });
+
+    // 2. If BigBox is available as a separate enrichment provider, enrich
+    //    HD results with localized pricing + availability.
+    const bigBoxProvider = this.providers.get('homedepot_bigbox');
+    if (!bigBoxProvider || !bigBoxProvider.isEnabled() || !zipCode) {
+      return baseResults;
+    }
+
+    // Find HD results to enrich
+    const hdResult = baseResults.find((r) => r.provider === 'homedepot');
+    if (!hdResult || hdResult.products.length === 0) {
+      return baseResults;
+    }
+
+    // 3. Enrich top N HD products with BigBox product detail (parallel)
+    const productsToEnrich = hdResult.products.slice(0, topN);
+    const enriched = await Promise.allSettled(
+      productsToEnrich.map(async (product) => {
+        try {
+          const detail = await bigBoxProvider.getProduct(product.productId, zipCode);
+          if (!detail) return product;
+
+          // Merge BigBox enrichment into the SerpAPI product.
+          // BigBox fields take precedence for pricing/availability/store data.
+          return {
+            ...product,
+            price: detail.price ?? product.price,
+            wasPrice: detail.wasPrice ?? product.wasPrice,
+            aisle: detail.aisle ?? product.aisle,
+            inStock: detail.inStock ?? product.inStock,
+            availabilityStatus: detail.availabilityStatus ?? product.availabilityStatus,
+            leadTimeDays: detail.leadTimeDays ?? product.leadTimeDays,
+            storeName: detail.storeName ?? product.storeName,
+            storeAddress: detail.storeAddress ?? product.storeAddress,
+            storeCity: detail.storeCity ?? product.storeCity,
+            storeState: detail.storeState ?? product.storeState,
+            storeZip: detail.storeZip ?? product.storeZip,
+            storePhone: detail.storePhone ?? product.storePhone,
+            upc: detail.upc ?? product.upc,
+            description: detail.description ?? product.description,
+          } satisfies CatalogProduct;
+        } catch (err) {
+          this.logger.warn(
+            `BigBox enrichment failed for ${product.productId}: ${err}`,
+          );
+          return product;
+        }
+      }),
+    );
+
+    // 4. Reassemble the HD result with enriched products
+    const enrichedProducts = enriched.map((r, i) =>
+      r.status === 'fulfilled' ? r.value : productsToEnrich[i],
+    );
+    // Append any un-enriched products beyond topN
+    const remaining = hdResult.products.slice(topN);
+
+    const enrichedHd: CatalogSearchResult = {
+      ...hdResult,
+      products: [...enrichedProducts, ...remaining],
+    };
+
+    // Replace the HD result in the array
+    return baseResults.map((r) =>
+      r.provider === 'homedepot' ? enrichedHd : r,
+    );
   }
 
   // -------------------------------------------------------------------------

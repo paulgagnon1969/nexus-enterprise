@@ -36,6 +36,10 @@ export interface CatalogProduct {
   aisle?: string;
   /** Whether the item is in stock at a nearby store. */
   inStock?: boolean;
+  /** Structured availability status for UI display. */
+  availabilityStatus?: 'IN_STOCK' | 'SPECIAL_ORDER' | 'ONLINE_ONLY' | 'UNAVAILABLE';
+  /** Estimated lead time in days (for special order / ship-to-home items). */
+  leadTimeDays?: number;
   /** Average customer rating (e.g. 4.5). */
   rating?: number;
 
@@ -81,6 +85,8 @@ export interface StoreAvailability {
     inStock: boolean;
     qty?: number;
     price?: number;
+    availabilityStatus?: 'IN_STOCK' | 'SPECIAL_ORDER' | 'ONLINE_ONLY' | 'UNAVAILABLE';
+    leadTimeDays?: number;
   }>;
 }
 

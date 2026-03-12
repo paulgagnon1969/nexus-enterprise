@@ -156,6 +156,7 @@ export class BigBoxProvider implements CatalogProvider {
     const primaryOffer = offers.primary ?? {};
     const ff = r.fulfillment ?? {};
     const po = ff.pickup_options ?? {};
+    const inStock = ff.pickup ?? product.in_stock ?? undefined;
     return {
       productId: String(product.item_id ?? product.link?.split("/")?.pop() ?? ""),
       provider: this.providerKey,
@@ -167,7 +168,9 @@ export class BigBoxProvider implements CatalogProvider {
       price: primaryOffer.price ?? product.price?.value ?? product.price ?? undefined,
       wasPrice: primaryOffer.was_price ?? product.was_price?.value ?? undefined,
       unit: primaryOffer.unit ?? product.unit ?? undefined,
-      inStock: ff.pickup ?? product.in_stock ?? undefined,
+      inStock,
+      availabilityStatus: this.deriveAvailabilityStatus(inStock, ff),
+      leadTimeDays: this.extractLeadTimeDays(ff),
       upc: product.upc ?? undefined,
       storeSku: product.store_sku ?? undefined,
       storeName: ff.store_name ?? po.store_name ?? undefined,
@@ -182,6 +185,7 @@ export class BigBoxProvider implements CatalogProvider {
   private mapProductDetail(p: any): CatalogProduct {
     const ff = p.fulfillment ?? {};
     const po = ff.pickup_options ?? {};
+    const inStock = p.in_stock ?? undefined;
     return {
       productId: String(p.item_id ?? ""),
       provider: this.providerKey,
@@ -198,7 +202,9 @@ export class BigBoxProvider implements CatalogProvider {
       wasPrice: p.was_price?.value ?? undefined,
       unit: p.unit ?? undefined,
       aisle: p.aisle ? `Aisle ${p.aisle.aisle_id}, Bay ${p.aisle.bay_id ?? ""}`.trim() : undefined,
-      inStock: p.in_stock ?? undefined,
+      inStock,
+      availabilityStatus: this.deriveAvailabilityStatus(inStock, ff),
+      leadTimeDays: this.extractLeadTimeDays(ff),
       storeName: ff.store_name ?? po.store_name ?? undefined,
       storeAddress: ff.store_address ?? po.store_address ?? po.address ?? undefined,
       storeCity: ff.store_city ?? po.store_city ?? po.city ?? undefined,
@@ -211,6 +217,75 @@ export class BigBoxProvider implements CatalogProvider {
         buybox_winner: p.buybox_winner ?? undefined,
       },
     };
+  }
+
+  // -------------------------------------------------------------------------
+  // Availability helpers
+  // -------------------------------------------------------------------------
+
+  /**
+   * Derive a structured availability status from BigBox fulfillment data.
+   */
+  private deriveAvailabilityStatus(
+    inStock: boolean | undefined,
+    ff: Record<string, any>,
+  ): CatalogProduct['availabilityStatus'] {
+    // Pickup available → in stock at a store
+    if (ff.pickup_available || ff.pickup === true || inStock === true) {
+      return 'IN_STOCK';
+    }
+    // Ship-to-home but not pickup → online only or special order
+    if (ff.ship_to_home_available || ff.online_only) {
+      return 'ONLINE_ONLY';
+    }
+    // Special order fields present
+    if (ff.special_order || ff.special_order_available) {
+      return 'SPECIAL_ORDER';
+    }
+    // Explicitly out of stock
+    if (inStock === false) {
+      return 'UNAVAILABLE';
+    }
+    return undefined;
+  }
+
+  /**
+   * Extract lead time in days from BigBox fulfillment response.
+   * Checks ship_to_home.delivery_days, special_order fields, and free_delivery_date.
+   */
+  private extractLeadTimeDays(ff: Record<string, any>): number | undefined {
+    // Direct delivery days field
+    const sth = ff.ship_to_home ?? ff.shipping ?? {};
+    if (typeof sth.delivery_days === 'number') return sth.delivery_days;
+    if (typeof sth.delivery_date === 'string') {
+      const days = this.dateToDays(sth.delivery_date);
+      if (days != null) return days;
+    }
+
+    // Special order lead time
+    const so = ff.special_order ?? {};
+    if (typeof so.lead_time_days === 'number') return so.lead_time_days;
+    if (typeof so.delivery_days === 'number') return so.delivery_days;
+
+    // Free delivery date string (e.g. "Delivery by Fri, Mar 20")
+    if (typeof ff.free_delivery_date === 'string') {
+      const days = this.dateToDays(ff.free_delivery_date);
+      if (days != null) return days;
+    }
+
+    return undefined;
+  }
+
+  /** Parse a date-like string into days from now. Returns undefined if unparseable. */
+  private dateToDays(dateStr: string): number | undefined {
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return undefined;
+      const days = Math.ceil((d.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+      return days > 0 ? days : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   // -------------------------------------------------------------------------

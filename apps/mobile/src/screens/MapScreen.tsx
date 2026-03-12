@@ -37,6 +37,16 @@ import {
   type LocalSupplier,
   type NearbySupplier,
 } from "../api/localSuppliers";
+import {
+  searchWithAvailability as searchCatalogEnriched,
+  availabilityLabel,
+  availabilityColor,
+  providerColor,
+  providerDisplayName,
+  type CatalogProduct,
+  type CatalogSearchResult,
+} from "../api/supplierCatalog";
+import { resolveUserZip } from "../utils/resolveZip";
 import { DirectionsDialog } from "../components/DirectionsDialog";
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
@@ -321,6 +331,11 @@ export function MapScreen({ onSelectProject }: Props) {
   const [searchingProducts, setSearchingProducts] = useState(false);
   const [searchMode, setSearchMode] = useState<"projects" | "products">("projects");
 
+  // Supplier catalog product search (HD + Lowe's enriched results)
+  const [catalogResults, setCatalogResults] = useState<CatalogProduct[]>([]);
+  const [selectedCatalogProduct, setSelectedCatalogProduct] = useState<CatalogProduct | null>(null);
+  const [userZip, setUserZip] = useState<string | null>(null);
+
   // Directions dialog
   const [directionsTarget, setDirectionsTarget] = useState<{
     latitude: number; longitude: number; address: string | null; name: string | null;
@@ -446,9 +461,18 @@ export function MapScreen({ onSelectProject }: Props) {
     return calcBounds(geoData);
   }, [radiusMiles, userLoc, geoData]);
 
-  const isFiltered = search.length > 0 || statusFilters.size < 5 || !showSuppliers || productResults.length > 0;
+  const isFiltered = search.length > 0 || statusFilters.size < 5 || !showSuppliers || productResults.length > 0 || catalogResults.length > 0;
 
-  // Product search GeoJSON
+  // ── Resolve user ZIP once location is known ──────────────────────────────
+  useEffect(() => {
+    if (userLoc && !userZip) {
+      resolveUserZip(userLoc, projects).then((zip) => {
+        if (zip) setUserZip(zip);
+      });
+    }
+  }, [userLoc, projects, userZip]);
+
+  // Product search GeoJSON (NexFIND local suppliers)
   const productGeo = useMemo((): GeoJSON.FeatureCollection<GeoJSON.Point> => ({
     type: "FeatureCollection",
     features: productResults.map((s) => ({
@@ -463,6 +487,33 @@ export function MapScreen({ onSelectProject }: Props) {
       },
     })),
   }), [productResults]);
+
+  // Catalog product search GeoJSON (HD + Lowe's with store coordinates)
+  const catalogGeo = useMemo((): GeoJSON.FeatureCollection<GeoJSON.Point> => ({
+    type: "FeatureCollection",
+    features: catalogResults
+      .filter((p) => p.storeAddress && p.storeCity && p.storeState)
+      .map((p, i) => ({
+        type: "Feature" as const,
+        id: `catalog-${p.provider}-${p.productId}-${i}`,
+        geometry: {
+          type: "Point" as const,
+          // We don't have exact store lat/lng from the API, so we'll
+          // use the user's location as approximate center. Products
+          // without coordinates show only in the results list.
+          coordinates: userLoc ? [userLoc.lng, userLoc.lat] : [0, 0],
+        },
+        properties: {
+          idx: i,
+          provider: p.provider,
+          providerColor: providerColor(p.provider),
+          title: p.title,
+          price: p.price ? `$${p.price.toFixed(2)}` : "",
+          availabilityStatus: p.availabilityStatus ?? "",
+          availabilityColor: availabilityColor(p.availabilityStatus),
+        },
+      })),
+  }), [catalogResults, userLoc]);
 
   const toggleStatus = (key: StatusKey) => {
     setStatusFilters((prev) => {
@@ -480,39 +531,59 @@ export function MapScreen({ onSelectProject }: Props) {
     setSearch("");
     setProductSearch("");
     setProductResults([]);
+    setCatalogResults([]);
+    setSelectedCatalogProduct(null);
     setSearchMode("projects");
     setStatusFilters(new Set(["active", "open", "pending", "completed", "closed"]));
     setShowSuppliers(true);
   };
 
-  // ── NexFIND product search ────────────────────────────────────────────
+  // ── Dual product search (NexFIND + Supplier Catalog) ──────────────────
 
   const handleProductSearch = useCallback(async () => {
     const q = productSearch.trim();
     if (q.length < 2) return;
 
-    // Use map center or first project with coords as reference
-    const refProject = projects.find((p) => p.latitude != null && p.longitude != null);
-    if (!refProject?.latitude || !refProject?.longitude) {
-      Alert.alert("No reference location", "No projects with GPS coordinates to search near.");
-      return;
-    }
+    // Use user location or first project with coords as reference
+    const refLat = userLoc?.lat ?? projects.find((p) => p.latitude != null)?.latitude;
+    const refLng = userLoc?.lng ?? projects.find((p) => p.longitude != null)?.longitude;
 
     setSearchingProducts(true);
+    setCatalogResults([]);
+    setSelectedCatalogProduct(null);
+
     try {
-      const results = await searchNearbyProducts(
-        q,
-        refProject.latitude,
-        refProject.longitude,
-        25,
-      );
-      setProductResults(results);
+      // Run both searches in parallel:
+      // 1. Supplier catalog (HD + Lowe's with enriched pricing/availability)
+      // 2. NexFIND local supplier search (nearby stores from our DB)
+      const [catalogPromise, nexfindPromise] = await Promise.allSettled([
+        searchCatalogEnriched(q, userZip ?? undefined, 5),
+        refLat != null && refLng != null
+          ? searchNearbyProducts(q, refLat, refLng, 25)
+          : Promise.resolve([] as NearbySupplier[]),
+      ]);
+
+      // Process catalog results
+      if (catalogPromise.status === "fulfilled") {
+        const allProducts = catalogPromise.value.flatMap((r) => r.products);
+        setCatalogResults(allProducts);
+      }
+
+      // Process NexFIND results
+      if (nexfindPromise.status === "fulfilled") {
+        setProductResults(nexfindPromise.value);
+      }
+
+      // If both failed, show error
+      if (catalogPromise.status === "rejected" && nexfindPromise.status === "rejected") {
+        Alert.alert("Search failed", "Could not search for products. Please try again.");
+      }
     } catch (err: any) {
       Alert.alert("Search failed", err.message ?? "Could not search for products.");
     } finally {
       setSearchingProducts(false);
     }
-  }, [productSearch, projects]);
+  }, [productSearch, projects, userLoc, userZip]);
 
   // ── Supplier directions ───────────────────────────────────────────────
 
@@ -547,6 +618,7 @@ export function MapScreen({ onSelectProject }: Props) {
   const showCallout = useCallback(
     (project: ProjectListItem) => {
       setSelectedSupplier(null);
+      setSelectedCatalogProduct(null);
       setSelected(project);
       // Fly to the project location
       if (project.latitude != null && project.longitude != null) {
@@ -569,7 +641,23 @@ export function MapScreen({ onSelectProject }: Props) {
   const showSupplierCallout = useCallback(
     (supplier: LocalSupplier) => {
       setSelected(null);
+      setSelectedCatalogProduct(null);
       setSelectedSupplier(supplier);
+      RNAnimated.spring(calloutSlide, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 80,
+        friction: 12,
+      }).start();
+    },
+    [calloutSlide],
+  );
+
+  const showCatalogCallout = useCallback(
+    (product: CatalogProduct) => {
+      setSelected(null);
+      setSelectedSupplier(null);
+      setSelectedCatalogProduct(product);
       RNAnimated.spring(calloutSlide, {
         toValue: 0,
         useNativeDriver: true,
@@ -588,6 +676,7 @@ export function MapScreen({ onSelectProject }: Props) {
     }).start(() => {
       setSelected(null);
       setSelectedSupplier(null);
+      setSelectedCatalogProduct(null);
     });
   }, [calloutSlide]);
 
@@ -633,8 +722,8 @@ export function MapScreen({ onSelectProject }: Props) {
   );
 
   const handleMapPress = useCallback(() => {
-    if (selected || selectedSupplier) hideCallout();
-  }, [selected, selectedSupplier, hideCallout]);
+    if (selected || selectedSupplier || selectedCatalogProduct) hideCallout();
+  }, [selected, selectedSupplier, selectedCatalogProduct, hideCallout]);
 
   // ── Supplier actions ────────────────────────────────────────────────────
 
@@ -1205,7 +1294,180 @@ export function MapScreen({ onSelectProject }: Props) {
         </RNAnimated.View>
       )}
 
-      {/* ── Directions dialog ────────────────────────────────────────────── */}
+      {/* ── Catalog product callout ────────────────────────────────────── */}
+      {selectedCatalogProduct && (
+        <RNAnimated.View
+          style={[
+            styles.callout,
+            { transform: [{ translateY: calloutSlide }] },
+          ]}
+        >
+          <View style={styles.calloutHandle} />
+          <View style={styles.calloutHeader}>
+            <View
+              style={[
+                styles.calloutStatusDot,
+                { backgroundColor: providerColor(selectedCatalogProduct.provider) },
+              ]}
+            />
+            <Text style={styles.calloutTitle} numberOfLines={2}>
+              {selectedCatalogProduct.title}
+            </Text>
+          </View>
+
+          {/* Provider + brand */}
+          <Text style={[styles.supplierCategory, { marginLeft: 18 }]}>
+            {providerDisplayName(selectedCatalogProduct.provider)}
+            {selectedCatalogProduct.brand ? ` · ${selectedCatalogProduct.brand}` : ""}
+          </Text>
+
+          {/* Price row */}
+          <View style={{ flexDirection: "row", alignItems: "center", marginLeft: 18, marginBottom: 4, gap: 8 }}>
+            {selectedCatalogProduct.price != null && (
+              <Text style={{ fontSize: 20, fontWeight: "800", color: colors.textPrimary }}>
+                ${selectedCatalogProduct.price.toFixed(2)}
+              </Text>
+            )}
+            {selectedCatalogProduct.wasPrice != null && (
+              <Text style={{ fontSize: 14, color: colors.textMuted, textDecorationLine: "line-through" }}>
+                ${selectedCatalogProduct.wasPrice.toFixed(2)}
+              </Text>
+            )}
+            {selectedCatalogProduct.unit && (
+              <Text style={{ fontSize: 12, color: colors.textMuted }}>
+                / {selectedCatalogProduct.unit}
+              </Text>
+            )}
+          </View>
+
+          {/* Availability badge */}
+          <View style={{ flexDirection: "row", alignItems: "center", marginLeft: 18, marginBottom: 4, gap: 6 }}>
+            <View
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 4,
+                backgroundColor: availabilityColor(selectedCatalogProduct.availabilityStatus),
+              }}
+            />
+            <Text style={{ fontSize: 13, fontWeight: "600", color: colors.textSecondary }}>
+              {availabilityLabel(selectedCatalogProduct)}
+            </Text>
+          </View>
+
+          {/* Store + aisle */}
+          {selectedCatalogProduct.storeAddress && (
+            <Text style={styles.calloutAddress} numberOfLines={1}>
+              {[selectedCatalogProduct.storeAddress, selectedCatalogProduct.storeCity, selectedCatalogProduct.storeState]
+                .filter(Boolean)
+                .join(", ")}
+            </Text>
+          )}
+          {selectedCatalogProduct.aisle && (
+            <Text style={[styles.calloutContact, { marginLeft: 18 }]}>
+              📍 {selectedCatalogProduct.aisle}
+            </Text>
+          )}
+
+          {/* Action buttons */}
+          <View style={styles.calloutActions}>
+            {selectedCatalogProduct.storePhone && (
+              <Pressable
+                style={styles.calloutCallBtn}
+                onPress={() => {
+                  const tel = selectedCatalogProduct.storePhone!.replace(/[^\d+]/g, "");
+                  Linking.openURL(`tel:${tel}`).catch(() =>
+                    Alert.alert("Cannot call", "Unable to open the phone dialer."),
+                  );
+                }}
+              >
+                <Text style={styles.calloutCallText}>📞 Call Store</Text>
+              </Pressable>
+            )}
+            {selectedCatalogProduct.productUrl && (
+              <Pressable
+                style={[styles.calloutOpenBtn, { backgroundColor: providerColor(selectedCatalogProduct.provider) }]}
+                onPress={() => Linking.openURL(selectedCatalogProduct.productUrl!)}
+              >
+                <Text style={styles.calloutOpenText}>
+                  View on {providerDisplayName(selectedCatalogProduct.provider)} ›
+                </Text>
+              </Pressable>
+            )}
+            <Pressable style={styles.calloutCloseBtn} onPress={hideCallout}>
+              <Text style={styles.calloutCloseText}>Dismiss</Text>
+            </Pressable>
+          </View>
+        </RNAnimated.View>
+      )}
+
+      {/* ── Catalog results list (shown below map when products found) ──── */}
+      {catalogResults.length > 0 && !selectedCatalogProduct && !selected && !selectedSupplier && (
+        <View style={styles.catalogResultsPanel}>
+          <View style={styles.calloutHandle} />
+          <Text style={styles.catalogResultsTitle}>
+            {catalogResults.length} Product{catalogResults.length !== 1 ? "s" : ""} Found
+            {userZip ? ` near ${userZip}` : ""}
+          </Text>
+          <ScrollView
+            horizontal={false}
+            style={{ maxHeight: 220 }}
+            showsVerticalScrollIndicator
+          >
+            {catalogResults.map((p, i) => (
+              <Pressable
+                key={`${p.provider}-${p.productId}-${i}`}
+                style={styles.catalogResultCard}
+                onPress={() => showCatalogCallout(p)}
+              >
+                <View style={[styles.catalogProviderBadge, { backgroundColor: providerColor(p.provider) }]}>
+                  <Text style={styles.catalogProviderText}>
+                    {p.provider === "homedepot" ? "HD" : "L"}
+                  </Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.catalogResultName} numberOfLines={2}>
+                    {p.title}
+                  </Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 }}>
+                    {p.price != null && (
+                      <Text style={styles.catalogResultPrice}>${p.price.toFixed(2)}</Text>
+                    )}
+                    {p.wasPrice != null && (
+                      <Text style={styles.catalogResultWasPrice}>${p.wasPrice.toFixed(2)}</Text>
+                    )}
+                    <View
+                      style={[
+                        styles.catalogAvailBadge,
+                        { backgroundColor: availabilityColor(p.availabilityStatus) + "20" },
+                      ]}
+                    >
+                      <View
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: 3,
+                          backgroundColor: availabilityColor(p.availabilityStatus),
+                        }}
+                      />
+                      <Text
+                        style={[
+                          styles.catalogAvailText,
+                          { color: availabilityColor(p.availabilityStatus) },
+                        ]}
+                      >
+                        {availabilityLabel(p)}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* ── Directions dialog ──────────────────────────────────────────── */}
       {directionsTarget && (
         <DirectionsDialog
           visible={!!directionsTarget}
@@ -1642,5 +1904,79 @@ const styles = StyleSheet.create({
   },
   searchModeBtnTextActive: {
     color: "#fff",
+  },
+
+  // ── Catalog results panel ─────────────────────────────────────────────────
+  catalogResultsPanel: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+  catalogResultsTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: colors.textPrimary,
+    marginBottom: 10,
+  },
+  catalogResultCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderLight,
+  },
+  catalogProviderBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+  catalogProviderText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  catalogResultName: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: colors.textPrimary,
+    lineHeight: 18,
+  },
+  catalogResultPrice: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: colors.textPrimary,
+  },
+  catalogResultWasPrice: {
+    fontSize: 12,
+    color: colors.textMuted,
+    textDecorationLine: "line-through",
+  },
+  catalogAvailBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  catalogAvailText: {
+    fontSize: 10,
+    fontWeight: "700",
   },
 });

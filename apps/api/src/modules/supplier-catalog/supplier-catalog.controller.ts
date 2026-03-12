@@ -120,6 +120,35 @@ export class SupplierCatalogController {
   }
 
   // -------------------------------------------------------------------------
+  // Enriched Search (SerpAPI search + BigBox pricing/availability)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Search all providers with BigBox enrichment for HD results.
+   * Returns localized pricing, availability status, aisle, and lead times.
+   *
+   *  ?q=Hardie+fiber+cement&zip=78133&topN=5
+   */
+  @Get("search/enriched")
+  async searchEnriched(
+    @Req() req: FastifyRequest,
+    @Query("q") q: string,
+    @Query("zip") zip?: string,
+    @Query("topN") topN?: string,
+  ) {
+    const user = getUser(req);
+    assertPmOrAbove(user);
+
+    if (!q || q.trim().length < 2) {
+      throw new BadRequestException("Search query (q) must be at least 2 characters");
+    }
+
+    return this.catalog.searchWithAvailability(q.trim(), zip, {
+      topN: topN ? Number(topN) : undefined,
+    });
+  }
+
+  // -------------------------------------------------------------------------
   // Product Detail
   // -------------------------------------------------------------------------
 
