@@ -55,9 +55,9 @@ type StatusKey = "active" | "open" | "pending" | "completed" | "closed";
 
 const STATUS_CHIPS: { key: StatusKey; label: string; color: string }[] = [
   { key: "active", label: "Active", color: "#22c55e" },
-  { key: "open", label: "Open", color: "#3b82f6" },
-  { key: "pending", label: "Pending", color: "#f59e0b" },
-  { key: "completed", label: "Completed", color: "#6366f1" },
+  { key: "open", label: "Open", color: "#1d4ed8" },
+  { key: "pending", label: "Pending", color: "#60a5fa" },
+  { key: "completed", label: "Completed", color: "#64748b" },
   { key: "closed", label: "Closed", color: "#9ca3af" },
 ];
 
@@ -241,7 +241,7 @@ const pinInnerStyle: Mapbox.CircleLayerStyle = {
 // ─── Supplier helpers ─────────────────────────────────────────────────────────
 
 const SUPPLIER_STATUS_COLORS: Record<LocalSupplier["status"], string> = {
-  ACTIVE: "#3b82f6",           // blue
+  ACTIVE: "#f97316",           // orange
   PENDING_REMOVAL: "#f59e0b",  // amber
   PERMANENTLY_CLOSED: "#ef4444", // red
 };
@@ -982,7 +982,7 @@ export function MapScreen({ onSelectProject }: Props) {
           <Pressable
             style={[
               styles.chip,
-              showSuppliers && { backgroundColor: "#3b82f6", borderColor: "#3b82f6" },
+              showSuppliers && { backgroundColor: "#f97316", borderColor: "#f97316" },
             ]}
             onPress={() => setShowSuppliers((v) => !v)}
           >
