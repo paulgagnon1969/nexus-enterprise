@@ -23,6 +23,7 @@ const MODULES: { key: string; icon: string; label: string }[] = [
   { key: "TimecardTab", icon: "⏱️", label: "Timecard" },
   { key: "DirectoryTab", icon: "👥", label: "Directory" },
   { key: "ProjectsTab", icon: "📝", label: "Daily Logs" },
+  { key: "MapTab", icon: "🗺️", label: "Map" },
   { key: "ScannerTab", icon: "📐", label: "Scanner" },
   { key: "InventoryTab", icon: "📦", label: "Inventory" },
   { key: "OutboxTab", icon: "📤", label: "Outbox" },
