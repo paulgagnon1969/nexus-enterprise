@@ -18,5 +18,6 @@ Pod::Spec.new do |s|
   # Weak-link so the app still runs on devices without LiDAR / iOS < 16.
   # The Swift code uses `#if canImport(RoomPlan)` + `@available(iOS 16.0, *)`
   # to gracefully degrade at runtime.
+  s.framework      = 'ARKit'
   s.weak_framework = 'RoomPlan'
 end

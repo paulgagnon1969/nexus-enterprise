@@ -4,6 +4,7 @@ import UIKit
 // RoomPlan is available on iOS 16+ with LiDAR
 #if canImport(RoomPlan)
 import RoomPlan
+import ARKit
 #endif
 
 public class NexusRoomPlanModule: Module {
