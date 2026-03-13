@@ -31,6 +31,44 @@ enum SupportTicketStatus {
   CLOSED
 }
 
+// =============================================================================
+// Session Mirror — Remote Dev Oversight from Mobile
+// =============================================================================
+
+enum DevSessionStatus {
+  ACTIVE
+  PAUSED
+  AWAITING_REVIEW
+  COMPLETED
+  CANCELLED
+}
+
+enum DevSessionEventType {
+  FILE_CHANGED
+  COMMAND_RUN
+  DECISION
+  APPROVAL_REQUESTED
+  APPROVAL_RESOLVED
+  COMMENT
+  MILESTONE
+  STATUS_CHANGE
+}
+
+enum DevApprovalRequestType {
+  DEPLOY
+  SCHEMA_CHANGE
+  DESTRUCTIVE_ACTION
+  CODE_REVIEW
+  CUSTOM
+}
+
+enum DevApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
 enum SupportTicketPriority {
   LOW
   MEDIUM
@@ -371,6 +409,10 @@ model Company {
   // Client invoice payment intents (Stripe)
   invoicePaymentIntents InvoicePaymentIntent[]
 
+  // NexCART — Shopping Carts & Material Procurement
+  shoppingCarts          ShoppingCart[]
+  materialDrawdownLedger MaterialDrawdownLedger[]
+
   // NexCAD — Precision Object Scanning
   precisionScans PrecisionScan[]
 
@@ -380,6 +422,12 @@ model Company {
   // Invoice Tracker — activity + auto-pay reviews
   invoiceActivities InvoiceActivity[]
   autoPayReviews    AutoPayReview[]
+
+  // Daily Logs (denormalized companyId for tenant-scoped sequence numbering)
+  dailyLogs DailyLog[] @relation("CompanyDailyLogs")
+
+  // Session Mirror — Remote dev oversight
+  devSessions DevSession[]
 }
 
 model OrganizationTemplate {
@@ -862,8 +910,24 @@ model User {
   camMessagesAuthored           CamDiscussionMessage[]     @relation("CamMessageAuthor")
   camDiscussionParticipations   CamDiscussionParticipant[] @relation("CamDiscussionParticipant")
 
+  // CAM Invite Picker — canned messages and invite groups
+  camCannedMessagesCreated CamCannedMessage[]  @relation("CamCannedMessageCreatedBy")
+  camInviteGroupsCreated   CamInviteGroup[]    @relation("CamInviteGroupCreatedBy")
+
+  // CNDA Templates & Secure Portal Campaigns
+  cndaTemplatesCreated     CndaTemplate[]             @relation("CndaTemplateCreatedBy")
+  campaignsCreated         SecurePortalCampaign[]     @relation("CampaignCreatedBy")
+
   // Invoice Tracker — auto-pay reviews
   autoPayReviews AutoPayReview[] @relation("AutoPayReviewReviewer")
+
+  // NexCART — Shopping Carts created by this user
+  shoppingCartsCreated ShoppingCart[] @relation("ShoppingCartCreatedBy")
+
+  // Session Mirror — Remote dev oversight
+  devSessionsCreated            DevSession[]          @relation("DevSessionCreatedBy")
+  devSessionEventsActed         DevSessionEvent[]     @relation("DevSessionEventActor")
+  devApprovalRequestsResolved   DevApprovalRequest[]  @relation("DevApprovalResolvedBy")
 }
 
 /// Notification delivered to a single user
@@ -1624,6 +1688,10 @@ model Project {
   invoiceActivities InvoiceActivity[]
   autoPayReviews    AutoPayReview[]
 
+  // NexCART — Shopping Carts & Material Procurement
+  shoppingCarts          ShoppingCart[]
+  materialDrawdownLedger MaterialDrawdownLedger[]
+
   @@index([companyId, groupId], map: "Project_company_group_idx")
   @@index([tenantClientId], map: "Project_tenant_client_idx")
 }
@@ -1987,6 +2055,7 @@ model ProjectParticle {
   dailyLogs                 DailyLog[]                @relation("ProjectParticleDailyLogs")
   petlReconciliationEntries PetlReconciliationEntry[]
   roomScans                 RoomScan[]
+  shoppingCartItems         ShoppingCartItem[] @relation("ShoppingCartItemRoom")
 }
 
 model AdminAuditLog {
@@ -3374,6 +3443,9 @@ model SowItem {
   dailyLogs                 DailyLog[]                @relation("SowItemDailyLogs")
   bomPricingHits            BomPricingHit[]
 
+  // NexCART — Shopping cart items sourced from this PETL line
+  shoppingCartItems ShoppingCartItem[] @relation("ShoppingCartItemSowItem")
+
   @@index([estimateVersionId, projectParticleId], map: "SowItem_estimate_particle_idx")
   @@index([projectParticleId], map: "SowItem_particle_idx")
   @@index([categoryCode, selectionCode], map: "SowItem_cat_sel_idx")
@@ -3709,7 +3781,12 @@ model PetlReconciliationEvent {
 model DailyLog {
   id                   String         @id @default(cuid())
   projectId            String
+  companyId            String?
   createdById          String
+  /// Tenant-scoped yearly sequence number. Display as "YY.N" (e.g. 26.1).
+  sequenceNo           Int?
+  /// 2-digit year the sequence belongs to (e.g. 26 for 2026).
+  sequenceYear         Int?
   logDate              DateTime
   title                String?
   tagsJson             String?
@@ -3824,11 +3901,15 @@ model DailyLog {
   // Purchase Reconciliation
   receiptLineDispositions ReceiptLineDisposition[]
 
+  company          Company?             @relation("CompanyDailyLogs", fields: [companyId], references: [id])
+
+  @@unique([companyId, sequenceYear, sequenceNo], name: "DailyLog_company_year_seq_key")
   @@index([projectId], map: "DailyLog_project_idx")
   @@index([projectId, roomParticleId], map: "DailyLog_project_room_idx")
   @@index([projectId, sowItemId], map: "DailyLog_project_sow_idx")
   @@index([isDelayedPublish], map: "DailyLog_delayed_idx")
   @@index([projectId, type], map: "DailyLog_project_type_idx")
+  @@index([companyId, sequenceYear], map: "DailyLog_company_year_idx")
 }
 
 model DailyLogAttachment {
@@ -4348,6 +4429,9 @@ model CompanyPriceListItem {
   // Client rate adjustments from cost book items
   clientRateAdjustments ClientRateAdjustment[] @relation("ClientRateAdjustmentCostBookItem")
 
+  // NexCART — Shopping cart items sourced from this cost book entry
+  shoppingCartItems ShoppingCartItem[] @relation("ShoppingCartItemCostBook")
+
   // Drawings BOM matches
   drawingBomMatches DrawingBomLine[] @relation("DrawingBomCostBookMatch")
 
@@ -4510,6 +4594,8 @@ enum NotificationKind {
   SCHEDULE_ALERT
   INVOICE_ACTIVITY
   AUTO_PAY_UPDATE
+  NEW_MODULE
+  CAM_DISCUSSION
 }
 
 /// Delivery channel used for a notification. IN_APP is always recorded; EMAIL
@@ -6250,12 +6336,16 @@ model PersonalContact {
   createdAt   DateTime              @default(now())
   updatedAt   DateTime              @updatedAt
 
+  /// Excluded from CAM invite picker (hidden but recoverable)
+  camExcluded Boolean               @default(false)
+
   owner     User                  @relation(fields: [ownerUserId], references: [id])
   links     PersonalContactLink[]
   referrals Referral[]
 
   @@index([ownerUserId, email], map: "PersonalContact_owner_email_idx")
   @@index([ownerUserId, phone], map: "PersonalContact_owner_phone_idx")
+  @@index([ownerUserId, camExcluded], map: "PersonalContact_owner_excluded_idx")
 }
 
 /// Link from a personal contact to a candidate/worker in the domain model so
@@ -7048,8 +7138,9 @@ model SystemDocument {
   versions         SystemDocumentVersion[]
   publications     SystemDocumentPublication[]
   tenantCopies     TenantDocumentCopy[]
-  manualDocuments  ManualDocument[] // Documents included in manuals
-  shareLinks       DocumentShareLink[] // Private share links
+  manualDocuments    ManualDocument[] // Documents included in manuals
+  shareLinks         DocumentShareLink[] // Private share links
+  campaignDocuments  CampaignDocument[] // Secure portal campaign attachments
   createdBy        User                        @relation("SystemDocumentCreatedBy", fields: [createdByUserId], references: [id])
   moduleCatalogCam ModuleCatalog?              @relation("ModuleCamDocument")
 
@@ -9127,6 +9218,159 @@ model GlobalSupplier {
 }
 
 // ===================================================================
+// NexCART — Intelligent Materials Procurement Engine
+// ===================================================================
+
+enum ShoppingCartStatus {
+  DRAFT
+  READY
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum ShoppingCartHorizon {
+  TODAY
+  THIS_WEEK
+  TWO_WEEKS
+  CUSTOM
+}
+
+enum ShoppingCartItemStatus {
+  PENDING
+  SOURCED
+  PURCHASED
+  RECEIVED
+}
+
+/// Project-level shopping cart for materials procurement.
+/// Multiple carts per project (e.g. "Week 3 Framing", "Drywall Phase 1").
+model ShoppingCart {
+  id              String             @id @default(cuid())
+  companyId       String
+  projectId       String
+  createdByUserId String?
+  label           String? /// e.g. "Week 3 Framing Run"
+  status          ShoppingCartStatus @default(DRAFT)
+  horizon         ShoppingCartHorizon @default(TODAY)
+  horizonDate     DateTime? /// For CUSTOM horizon
+  notes           String?   @db.Text
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  company   Company  @relation(fields: [companyId], references: [id])
+  project   Project  @relation(fields: [projectId], references: [id])
+  createdBy User?    @relation("ShoppingCartCreatedBy", fields: [createdByUserId], references: [id])
+  items     ShoppingCartItem[]
+
+  @@index([companyId, projectId, status], map: "ShoppingCart_company_project_status_idx")
+  @@index([projectId, status], map: "ShoppingCart_project_status_idx")
+}
+
+/// Individual material line in a shopping cart.
+/// Can originate from a PETL line (SowItem), cost book item, or manual entry.
+model ShoppingCartItem {
+  id             String                  @id @default(cuid())
+  cartId         String
+  sowItemId      String? /// Link to PETL line (nullable for manual/cost book)
+  costBookItemId String? /// Link to CompanyPriceListItem
+  normalizedKey  String /// Canonical material key (e.g. "lumber-2x4x8")
+  description    String /// Human-readable description
+  unit           String? /// e.g. EA, LF, SF
+  unitPrice      Float? /// Estimate unit price
+
+  projectNeedQty   Float   @default(0) /// Total project need for this material
+  cartQty          Float   @default(0) /// Quantity requested for this cart
+  recommendedQty   Float? /// CBA-recommended quantity
+  recommendedReason String? /// Why CBA recommends different qty
+  purchasedQty     Float   @default(0) /// Actual purchased (from receipts)
+
+  status ShoppingCartItemStatus @default(PENDING)
+
+  /// CBA winner fields
+  bestSupplierKey  String? /// e.g. "homedepot", "lowes", "amazon"
+  bestSupplierName String?
+  bestUnitPrice    Float?
+  cbaScore         Float? /// Net benefit score
+
+  fulfillmentType String? /// LOCAL_PICKUP, SHIP_TO_SITE, WILL_CALL — chosen fulfillment for this item
+
+  roomParticleId String? /// Optional room filter context
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cart         ShoppingCart                  @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  sowItem      SowItem?                      @relation("ShoppingCartItemSowItem", fields: [sowItemId], references: [id])
+  costBookItem CompanyPriceListItem?         @relation("ShoppingCartItemCostBook", fields: [costBookItemId], references: [id])
+  roomParticle ProjectParticle?              @relation("ShoppingCartItemRoom", fields: [roomParticleId], references: [id])
+  pricingSnapshots ShoppingCartPricingSnapshot[]
+
+  @@index([cartId, normalizedKey], map: "ShoppingCartItem_cart_key_idx")
+  @@index([sowItemId], map: "ShoppingCartItem_sowItem_idx")
+  @@index([costBookItemId], map: "ShoppingCartItem_costBook_idx")
+}
+
+/// Supplier pricing snapshot captured during CBA analysis.
+/// One row per (cartItem, supplier) — records the price:distance data at search time.
+model ShoppingCartPricingSnapshot {
+  id         String @id @default(cuid())
+  cartItemId String
+
+  supplierKey     String /// e.g. "homedepot", "lowes", "local_supplier_xxx"
+  supplierName    String
+  supplierAddress String?
+  distanceMiles   Float? /// Distance from project
+
+  unitPrice  Float
+  totalPrice Float /// unitPrice × cartQty at search time
+
+  travelCostEstimate Float? /// Round-trip mileage cost
+  timeCostEstimate   Float? /// Crew hourly × travel time
+  netBenefit         Float? /// Savings minus travel/time vs. cheapest single-stop
+
+  availabilityStatus String? /// IN_STOCK, SPECIAL_ORDER, ONLINE_ONLY, etc.
+  leadTimeDays       Int?
+
+  shippingCost      Float?  /// Shipping cost in USD (0 for free shipping, null for local pickup)
+  fulfillmentType   String? /// LOCAL_PICKUP, SHIP_TO_SITE, WILL_CALL
+  deliveryMinDays   Int?    /// Earliest delivery in calendar days
+  deliveryMaxDays   Int?    /// Latest delivery in calendar days
+  deliveryEstimate  String? /// Raw delivery text (e.g. "March 15–18")
+
+  searchedAt DateTime @default(now())
+
+  cartItem ShoppingCartItem @relation(fields: [cartItemId], references: [id], onDelete: Cascade)
+
+  @@index([cartItemId, supplierKey], map: "ShoppingCartPricing_item_supplier_idx")
+}
+
+/// Project-level running balance per normalized material.
+/// Tracks the full chain: need → ordered → purchased → installed.
+model MaterialDrawdownLedger {
+  id        String @id @default(cuid())
+  companyId String
+  projectId String
+
+  normalizedKey String /// Canonical material key
+  description   String
+  unit          String?
+
+  totalProjectNeed Float @default(0) /// Sum of all SowItem qtys for this material
+  totalOrdered     Float @default(0) /// Sum of all cart items requested
+  totalPurchased   Float @default(0) /// Sum of confirmed purchases (DLR/receipts)
+  totalInstalled   Float @default(0) /// Sum from closed PETL lines (100% complete)
+  variance         Float @default(0) /// totalPurchased − totalProjectNeed
+
+  updatedAt DateTime @default(now()) @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@unique([companyId, projectId, normalizedKey], name: "MaterialDrawdown_company_project_key")
+  @@index([projectId], map: "MaterialDrawdown_project_idx")
+}
+
+// ===================================================================
 // Room Scanner & Assessment — LiDAR + AI Vision dual-mode
 // ===================================================================
 
@@ -10721,6 +10965,77 @@ model NexIntSnapshot {
 }
 
 // =============================================================================
+// CNDA Templates — Reusable Agreement Text for Gated Access
+// =============================================================================
+
+/// Reusable CNDA (Confidentiality & Non-Disclosure Agreement) template.
+/// SuperAdmins can create/edit templates and assign them to campaigns.
+model CndaTemplate {
+  id          String   @id @default(cuid())
+  name        String   /// e.g. "Standard CNDA+", "Lite NDA", "Investor CNDA"
+  htmlContent String   @db.Text /// Full HTML of the agreement shown to recipients
+  isDefault   Boolean  @default(false)
+  active      Boolean  @default(true)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy User                  @relation("CndaTemplateCreatedBy", fields: [createdById], references: [id])
+  campaigns SecurePortalCampaign[]
+
+  @@index([active], map: "CndaTemplate_active_idx")
+}
+
+// =============================================================================
+// Secure Portal Campaigns — Reusable CNDA-Gated Document Sharing
+// =============================================================================
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+/// A reusable campaign that ties together documents + CNDA template + invite config.
+/// SuperAdmins create campaigns, attach eDocs, and invite contacts via share tokens.
+model SecurePortalCampaign {
+  id                    String         @id @default(cuid())
+  name                  String         /// "NexCBAML Launch", "Q2 Investor Deck"
+  slug                  String         @unique /// URL-friendly: "nexcbaml-launch"
+  description           String?
+  cndaTemplateId        String         /// Which CNDA to gate with
+  questionnaireEnabled  Boolean        @default(true)
+  questionnaireConfig   Json?          /// Custom questions override (null = default set)
+  status                CampaignStatus @default(DRAFT)
+  createdById           String
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  cndaTemplate CndaTemplate       @relation(fields: [cndaTemplateId], references: [id])
+  createdBy    User                @relation("CampaignCreatedBy", fields: [createdById], references: [id])
+  documents    CampaignDocument[]
+  shareTokens  DocumentShareToken[] @relation("CampaignShareTokens")
+
+  @@index([status], map: "SecurePortalCampaign_status_idx")
+  @@index([cndaTemplateId], map: "SecurePortalCampaign_cnda_idx")
+}
+
+/// Join table linking a campaign to its SystemDocuments in display order.
+model CampaignDocument {
+  id               String @id @default(cuid())
+  campaignId       String
+  systemDocumentId String
+  sortOrder        Int    @default(0)
+
+  campaign       SecurePortalCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  systemDocument SystemDocument       @relation(fields: [systemDocumentId], references: [id])
+
+  @@unique([campaignId, systemDocumentId], name: "CampaignDocument_campaign_doc_key")
+  @@index([campaignId, sortOrder], map: "CampaignDocument_campaign_sort_idx")
+}
+
+// =============================================================================
 // Document Sharing — Viral Token-Gated Access & Referral Chain
 // =============================================================================
 
@@ -10728,6 +11043,7 @@ enum ShareDocumentType {
   NEXFIT_REPORT
   CAM_LIBRARY
   CAM_DOCUMENT
+  SECURE_PORTAL
 }
 
 /// Tracks every shared document link and the viewer-invites-viewer referral chain.
@@ -10770,7 +11086,17 @@ model DocumentShareToken {
   questionnaireCompletedAt DateTime? /// When questionnaire was submitted
   questionnaireData        Json?     /// NexFIT answers for lead intelligence
 
+  /// Revocation — set when admin rescinds or invitee self-withdraws
+  revokedAt       DateTime?         /// When access was revoked (null = active)
+  revokedReason   String?           /// "admin_rescind" or "self_withdrawal"
+
   createdAt       DateTime          @default(now())
+
+  /// Optional link to the invite group/session this token was created in
+  camInviteGroupId String?
+
+  /// Optional link to a Secure Portal Campaign (for SECURE_PORTAL tokens)
+  campaignId       String?
 
   /// Relations
   inviterUser     User?             @relation("ShareTokenInviter", fields: [inviterUserId], references: [id])
@@ -10778,12 +11104,49 @@ model DocumentShareToken {
   parentToken     DocumentShareToken? @relation("ShareTokenChain", fields: [parentTokenId], references: [id])
   childTokens     DocumentShareToken[] @relation("ShareTokenChain")
   accessLogs      DocumentShareAccessLog[]
+  camInviteGroup  CamInviteGroup?   @relation(fields: [camInviteGroupId], references: [id])
+  campaign        SecurePortalCampaign? @relation("CampaignShareTokens", fields: [campaignId], references: [id])
 
   @@index([token], map: "DocShareToken_token_idx")
   @@index([inviterEmail], map: "DocShareToken_inviter_email_idx")
   @@index([inviteeEmail], map: "DocShareToken_invitee_email_idx")
   @@index([parentTokenId], map: "DocShareToken_parent_idx")
   @@index([documentType], map: "DocShareToken_doctype_idx")
+  @@index([camInviteGroupId], map: "DocShareToken_invite_group_idx")
+  @@index([campaignId], map: "DocShareToken_campaign_idx")
+}
+
+// =============================================================================
+// CAM Invite Picker — Canned Messages & Invite Groups
+// =============================================================================
+
+/// Reusable invite message template. Shared across all SUPER_ADMINs.
+model CamCannedMessage {
+  id              String   @id @default(cuid())
+  createdByUserId String
+  title           String   /// e.g. "Default Intro", "Technical Audience"
+  body            String   @db.Text /// Message body with {name} placeholder
+  isDefault       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  createdBy User @relation("CamCannedMessageCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@index([createdByUserId], map: "CamCannedMsg_creator_idx")
+}
+
+/// Named group of invites created in a single invite session.
+model CamInviteGroup {
+  id          String   @id @default(cuid())
+  ownerUserId String
+  name        String   /// Defaults to YYYYMMDD, editable
+  messageUsed String?  @db.Text /// Snapshot of the message sent
+  createdAt   DateTime @default(now())
+
+  owner  User                 @relation("CamInviteGroupCreatedBy", fields: [ownerUserId], references: [id])
+  tokens DocumentShareToken[]
+
+  @@index([ownerUserId, createdAt], map: "CamInviteGroup_owner_created_idx")
 }
 
 // =============================================================================
@@ -10796,6 +11159,7 @@ enum ShareAccessType {
   QUESTIONNAIRE_COMPLETE  /// Questionnaire submitted
   CONTENT_VIEW            /// CAM Manual content served
   RETURN_VISIT            /// Subsequent content views
+  RESCIND                 /// Admin rescind or self-withdrawal
 }
 
 /// Granular per-visit log for DocumentShareToken access.
@@ -10848,17 +11212,19 @@ model CamDiscussionTopic {
 /// Can be pinned to a specific CAM section, assigned to a topic,
 /// and flagged as FAQ. Visibility controls who can see/post.
 model CamDiscussionThread {
-  id           String              @id @default(cuid())
-  topicId      String?             /// Optional topic grouping
-  camSection   String?             /// e.g. "EST-SPD-0001" — pins to a CAM
-  title        String
-  visibility   CamThreadVisibility @default(PUBLIC)
-  isPinned     Boolean             @default(false)
-  isFaq        Boolean             @default(false)
-  createdById  String
-  shareTokenId String?             /// If created by a VIEWER via their share token
-  createdAt    DateTime            @default(now())
-  updatedAt    DateTime            @updatedAt
+  id               String              @id @default(cuid())
+  topicId          String?             /// Optional topic grouping
+  camSection       String?             /// e.g. "EST-SPD-0001" — pins to a CAM
+  title            String
+  visibility       CamThreadVisibility @default(PUBLIC)
+  isPinned         Boolean             @default(false)
+  isFaq            Boolean             @default(false)
+  createdById      String
+  shareTokenId     String?             /// If created by a VIEWER via their share token
+  movedFromSection String?             /// Previous camSection before admin moved this thread
+  movedAt          DateTime?           /// When the thread was moved
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
 
   topic        CamDiscussionTopic?       @relation(fields: [topicId], references: [id])
   createdBy    User                      @relation("CamThreadCreatedBy", fields: [createdById], references: [id])
@@ -10873,12 +11239,13 @@ model CamDiscussionThread {
 
 /// A single message/reply within a CAM discussion thread.
 model CamDiscussionMessage {
-  id        String   @id @default(cuid())
-  threadId  String
-  authorId  String
-  body      String   @db.Text
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              String   @id @default(cuid())
+  threadId        String
+  authorId        String
+  body            String   @db.Text
+  isSystemMessage Boolean  @default(false) /// Auto-generated messages (e.g. "Thread moved from X to Y")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   thread CamDiscussionThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
   author User                @relation("CamMessageAuthor", fields: [authorId], references: [id])
@@ -10887,11 +11254,13 @@ model CamDiscussionMessage {
   @@index([authorId], map: "CamDiscMsg_author_idx")
 }
 
-/// Participant membership in a PRIVATE CAM discussion thread.
+/// Participant membership in a CAM discussion thread.
+/// Controls notification delivery — muted participants don't receive email alerts.
 model CamDiscussionParticipant {
   id       String   @id @default(cuid())
   threadId String
   userId   String
+  muted    Boolean  @default(false) /// When true, no email/in-app notifications for this thread
   joinedAt DateTime @default(now())
 
   thread CamDiscussionThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
@@ -10899,4 +11268,73 @@ model CamDiscussionParticipant {
 
   @@unique([threadId, userId], map: "CamDiscParticipant_thread_user_uk")
   @@index([userId], map: "CamDiscParticipant_user_idx")
+}
+
+// =============================================================================
+// Session Mirror — Remote Dev Oversight from Mobile (SUPER_ADMIN only)
+// =============================================================================
+
+/// A development work session that can be monitored and controlled from mobile.
+/// Only visible to SUPER_ADMIN users.
+model DevSession {
+  id            String           @id @default(cuid())
+  companyId     String
+  createdById   String
+  title         String           /// e.g. "Fix receipt OCR pipeline"
+  description   String?          @db.Text
+  status        DevSessionStatus @default(ACTIVE)
+  sessionCode   String           @unique /// 6-char alphanumeric join code
+  lastHeartbeat DateTime?
+  startedAt     DateTime?        @default(now())
+  endedAt       DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy User              @relation("DevSessionCreatedBy", fields: [createdById], references: [id])
+  events    DevSessionEvent[]
+  approvals DevApprovalRequest[]
+
+  @@index([companyId, status, createdAt], map: "DevSession_company_status_created_idx")
+  @@index([sessionCode], map: "DevSession_code_idx")
+  @@index([createdById, createdAt], map: "DevSession_creator_created_idx")
+}
+
+/// Immutable feed of events within a dev session.
+model DevSessionEvent {
+  id          String              @id @default(cuid())
+  sessionId   String
+  eventType   DevSessionEventType
+  summary     String              /// One-liner for mobile feed
+  detail      Json?               /// Structured payload (diffs, command output, etc.)
+  actorUserId String?             /// Null for agent-originated events
+  createdAt   DateTime            @default(now())
+
+  session   DevSession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  actorUser User?               @relation("DevSessionEventActor", fields: [actorUserId], references: [id])
+  approval  DevApprovalRequest? /// Back-reference from approval request
+
+  @@index([sessionId, createdAt], map: "DevSessionEvent_session_created_idx")
+}
+
+/// Gated approval request that blocks until SUPER_ADMIN responds from mobile.
+model DevApprovalRequest {
+  id              String                 @id @default(cuid())
+  sessionId       String
+  eventId         String                 @unique /// Links to the APPROVAL_REQUESTED event
+  requestType     DevApprovalRequestType
+  title           String
+  description     String?                @db.Text
+  detail          Json?                  /// Diff or action payload
+  status          DevApprovalStatus      @default(PENDING)
+  resolvedById    String?
+  resolvedAt      DateTime?
+  resolverComment String?                @db.Text
+  createdAt       DateTime               @default(now())
+
+  session    DevSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  event      DevSessionEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  resolvedBy User?           @relation("DevApprovalResolvedBy", fields: [resolvedById], references: [id])
+
+  @@index([sessionId, status], map: "DevApproval_session_status_idx")
 }

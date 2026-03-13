@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Routes, Route, NavLink, Navigate, useLocation } from "react-router-dom";
 import { getVersion } from "@tauri-apps/api/app";
+import { invoke } from "@tauri-apps/api/core";
 import { useAuth } from "./hooks/useAuth";
 import { startAutoUpdater, installAndRelaunch, type UpdateStatus } from "./lib/auto-updater";
 import Login from "./pages/Login";
@@ -211,10 +212,20 @@ export default function App() {
   const location = useLocation();
   const [revoking, setRevoking] = useState(false);
   const [appVersion, setAppVersion] = useState("1.0.0");
+  const [archLabel, setArchLabel] = useState<string | null>(null);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: "idle" });
 
   useEffect(() => {
     getVersion().then(setAppVersion).catch(() => {});
+    // Detect runtime architecture (compile-time constant baked into binary)
+    invoke<{ platform: string }>("get_system_info")
+      .then((info) => {
+        const p = info.platform; // e.g. "macos-aarch64" or "macos-x86_64"
+        if (p.includes("aarch64")) setArchLabel("arm64");
+        else if (p.includes("x86_64")) setArchLabel("x86_64");
+        else setArchLabel(p.split("-").pop() ?? null);
+      })
+      .catch(() => {});
   }, []);
 
   // Start background auto-updater
@@ -306,7 +317,19 @@ export default function App() {
       {/* Top bar with version + mesh status */}
       <div className="flex items-center justify-end gap-3 border-b border-slate-200 bg-white px-4 py-1">
         <MeshStatusBadge status={auth.meshStatus} />
-        <span className="text-[10px] font-mono text-slate-400">v{appVersion} (build {__BUILD_NUMBER__})</span>
+        {archLabel && (
+          <span
+            className={`rounded px-1.5 py-0.5 text-[10px] font-mono font-semibold ${
+              archLabel === "arm64"
+                ? "bg-emerald-50 text-emerald-700"
+                : "bg-amber-50 text-amber-700"
+            }`}
+            title={archLabel === "arm64" ? "Native Apple Silicon" : "Running via Rosetta (x86_64)"}
+          >
+            {archLabel === "arm64" ? "\u{1F34F} arm64" : "\u26A0\uFE0F x86_64"}
+          </span>
+        )}
+        <span className="text-[10px] font-mono text-slate-400">v{appVersion}</span>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
@@ -320,7 +343,7 @@ export default function App() {
               </div>
               <div>
                 <h1 className="text-sm font-semibold text-slate-900">NexBRIDGE Connect</h1>
-              <span className="text-[10px] text-slate-400">v{appVersion}</span>
+              <span className="text-[10px] text-slate-400">v{appVersion}{archLabel ? ` (${archLabel})` : ""}</span>
               </div>
             </div>
 

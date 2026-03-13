@@ -747,6 +747,23 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
               >
                 🏆 CAM Dashboard
               </Link>
+              <Link
+                href="/system/campaigns"
+                style={{
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  border: "1px solid #2563eb",
+                  background: pathname?.startsWith("/system/campaigns")
+                    ? "#2563eb"
+                    : "#1e40af",
+                  color: "#eff6ff",
+                  fontSize: 11,
+                  textDecoration: "none",
+                  fontWeight: 600,
+                }}
+              >
+                📋 Campaigns
+              </Link>
               <a
                 href="https://staging-ncc.nfsgrp.com/welcome"
                 target="_blank"

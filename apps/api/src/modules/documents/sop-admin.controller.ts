@@ -117,6 +117,15 @@ export class SopAdminController {
   }
 
   /**
+   * GET /admin/sops/elm-creek-manual
+   * Get Elm Creek Prospectus data grouped by chapter for the document library card.
+   */
+  @Get("elm-creek-manual")
+  async getElmCreekManual() {
+    return this.sopSync.getElmCreekManualData();
+  }
+
+  /**
    * POST /admin/sops/sync-cams
    * Sync all CAM files from docs/cams/ to SystemDocument
    * and link to ModuleCatalog via camDocumentId.

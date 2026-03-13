@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { OcrStatus } from '@prisma/client';
 import { OpenAiOcrProvider } from './openai-ocr.provider';
@@ -6,6 +6,7 @@ import { ReceiptOcrData } from './ocr-provider.interface';
 import { ReceiptInventoryBridgeService } from '../daily-log/receipt-inventory-bridge.service';
 import { AuthenticatedUser } from '../auth/jwt.strategy';
 import { Role, GlobalRole } from '../auth/auth.guards';
+import { ProcurementService } from '../procurement/procurement.service';
 
 @Injectable()
 export class ReceiptOcrService {
@@ -15,6 +16,7 @@ export class ReceiptOcrService {
     private readonly prisma: PrismaService,
     private readonly openAiProvider: OpenAiOcrProvider,
     private readonly inventoryBridge: ReceiptInventoryBridgeService,
+    @Optional() private readonly procurement: ProcurementService | null,
   ) {}
 
   /**
@@ -304,6 +306,35 @@ export class ReceiptOcrService {
       this.logger.log(
         `Inventory promotion for log ${dailyLogId}: ${result.materialLotIds.length} lots, vendor match=${result.vendorMatchType}`,
       );
+
+      // NexCART reconciliation: match receipt lines to open cart items
+      if (this.procurement) {
+        try {
+          const ocrResults = await this.prisma.receiptOcrResult.findMany({
+            where: { dailyLogId, status: 'COMPLETED' },
+            select: { lineItemsJson: true },
+          });
+          const lineItems: Array<{ description: string; qty?: number | null }> = [];
+          for (const ocr of ocrResults) {
+            if (ocr.lineItemsJson) {
+              try {
+                const items = JSON.parse(ocr.lineItemsJson);
+                if (Array.isArray(items)) lineItems.push(...items);
+              } catch { /* skip malformed */ }
+            }
+          }
+          if (lineItems.length > 0) {
+            const recon = await this.procurement.reconcileFromReceipt(
+              project.companyId,
+              log!.projectId,
+              lineItems,
+            );
+            this.logger.log(`NexCART reconciliation: ${recon.matched} matched, ${recon.unmatched} unmatched`);
+          }
+        } catch (err: any) {
+          this.logger.warn(`NexCART reconciliation failed (non-fatal): ${err?.message}`);
+        }
+      }
     } catch (err: any) {
       this.logger.warn(`Inventory promotion failed for log ${dailyLogId}: ${err?.message ?? err}`);
       // Don't throw — promotion is best-effort, should not break OCR flow

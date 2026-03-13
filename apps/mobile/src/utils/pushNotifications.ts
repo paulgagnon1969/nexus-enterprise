@@ -61,6 +61,41 @@ async function registerNotificationCategories() {
       options: { opensAppToForeground: true },
     },
   ]);
+
+  await Notifications.setNotificationCategoryAsync("precision_scan", [
+    {
+      identifier: "view",
+      buttonTitle: "View Scan",
+      options: { opensAppToForeground: true },
+    },
+    {
+      identifier: "retry",
+      buttonTitle: "Retry",
+      options: { opensAppToForeground: true },
+    },
+  ]);
+
+  // Session Mirror — dev oversight notifications (SUPER_ADMIN only)
+  await Notifications.setNotificationCategoryAsync("dev_approval", [
+    {
+      identifier: "approve",
+      buttonTitle: "Approve",
+      options: { opensAppToForeground: true },
+    },
+    {
+      identifier: "reject",
+      buttonTitle: "Reject",
+      options: { isDestructive: true, opensAppToForeground: true },
+    },
+  ]);
+
+  await Notifications.setNotificationCategoryAsync("dev_session", [
+    {
+      identifier: "view",
+      buttonTitle: "View Session",
+      options: { opensAppToForeground: true },
+    },
+  ]);
 }
 
 // Register categories immediately on module load
@@ -199,7 +234,10 @@ export function parseNotificationData(
   projectId?: string;
   roomId?: string;
   taskId?: string;
-  /** The action button identifier the user pressed (e.g. "accept", "decline", "view") */
+  scanId?: string;
+  sessionId?: string;
+  approvalId?: string;
+  /** The action button identifier the user pressed (e.g. "accept", "decline", "view", "approve", "reject") */
   actionIdentifier?: string;
 } | null {
   const data = response.notification.request.content.data;
@@ -210,6 +248,9 @@ export function parseNotificationData(
     projectId: data.projectId as string | undefined,
     roomId: data.roomId as string | undefined,
     taskId: data.taskId as string | undefined,
+    scanId: data.scanId as string | undefined,
+    sessionId: data.sessionId as string | undefined,
+    approvalId: data.approvalId as string | undefined,
     actionIdentifier: response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER
       ? response.actionIdentifier
       : undefined,

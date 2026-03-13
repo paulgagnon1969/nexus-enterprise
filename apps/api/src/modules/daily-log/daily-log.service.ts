@@ -5,7 +5,7 @@ import { ObjectStorageService } from "../../infra/storage/object-storage.service
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { CreateDailyLogDto, DailyLogTypeDto } from "./dto/create-daily-log.dto";
 import { UpdateDailyLogDto } from "./dto/update-daily-log.dto";
-import { Role, DailyLogStatus, DailyLogType, ProjectBillStatus, FulfillmentMethod, InventoryMoveType, InventoryItemType, MaintenanceMeterType, $Enums } from "@prisma/client";
+import { Role, GlobalRole, DailyLogStatus, DailyLogType, ProjectBillStatus, FulfillmentMethod, InventoryMoveType, InventoryItemType, MaintenanceMeterType, $Enums } from "@prisma/client";
 import { moveInventoryWithCost } from '@repo/database';
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -52,12 +52,18 @@ export class DailyLogService {
     actor: AuthenticatedUser,
     requiredCompanyRole: Role | null = null
   ) {
+    const isSuperAdmin = actor.globalRole === GlobalRole.SUPER_ADMIN;
+
     const project = await this.prisma.project.findFirst({
-      where: { id: projectId, companyId }
+      where: isSuperAdmin ? { id: projectId } : { id: projectId, companyId }
     });
 
     if (!project) {
       throw new NotFoundException("Project not found in this company");
+    }
+
+    if (isSuperAdmin) {
+      return project;
     }
 
     if (requiredCompanyRole && actor.role !== Role.OWNER && actor.role !== Role.ADMIN) {
@@ -86,6 +92,7 @@ export class DailyLogService {
    * Check if actor is PM+ level (OWNER, ADMIN, or PM/EXECUTIVE profile).
    */
   private isPmOrAbove(actor: AuthenticatedUser): boolean {
+    if (actor.globalRole === GlobalRole.SUPER_ADMIN) return true;
     if (actor.role === Role.OWNER || actor.role === Role.ADMIN) {
       return true;
     }
@@ -128,7 +135,8 @@ export class DailyLogService {
   private canViewReceiptExpense(actor: AuthenticatedUser, createdById: string): boolean {
     // Author can always see their own receipts
     if (actor.userId === createdById) return true;
-    // Company Owner/Admin can see all
+    // SUPER_ADMIN / Company Owner/Admin can see all
+    if (actor.globalRole === GlobalRole.SUPER_ADMIN) return true;
     if (actor.role === Role.OWNER || actor.role === Role.ADMIN) return true;
     // Foreman+ profiles can see
     if (actor.profileCode && RECEIPT_VISIBLE_PROFILES.has(actor.profileCode)) return true;
@@ -168,7 +176,8 @@ export class DailyLogService {
       return this.isPmOrAbove(actor);
     }
 
-    // Owners/Admins in the company can see all logs in their company projects.
+    // SUPER_ADMIN / Owners/Admins in the company can see all logs in their company projects.
+    if (actor.globalRole === GlobalRole.SUPER_ADMIN) return true;
     if (actor.role === Role.OWNER || actor.role === Role.ADMIN) {
       return true;
     }
@@ -476,6 +485,7 @@ export class DailyLogService {
       const { createdBy, notifyUserIdsJson: _n, tagsJson: _t, ...rest } = l;
       return {
         ...rest,
+        dlid: this.formatDlid(l.sequenceYear, l.sequenceNo),
         createdByUser: createdBy,
       };
     });
@@ -1000,6 +1010,36 @@ export class DailyLogService {
     });
   }
 
+  /**
+   * Format a daily log's sequence fields into a DLID string (e.g. "26.1").
+   * Returns null if sequence fields are not set.
+   */
+  private formatDlid(sequenceYear: number | null | undefined, sequenceNo: number | null | undefined): string | null {
+    if (sequenceYear == null || sequenceNo == null) return null;
+    return `${sequenceYear}.${sequenceNo}`;
+  }
+
+  /**
+   * Assign the next tenant-scoped yearly sequence number.
+   * Uses a DB-level approach: find max within company+year, then create.
+   * The unique index (companyId, sequenceYear, sequenceNo) prevents dupes.
+   */
+  private async assignSequenceNo(
+    projectCompanyId: string,
+  ): Promise<{ sequenceNo: number; sequenceYear: number }> {
+    const now = new Date();
+    const sequenceYear = now.getFullYear() % 100; // 2026 → 26
+
+    const maxRow = await this.prisma.dailyLog.findFirst({
+      where: { companyId: projectCompanyId, sequenceYear },
+      orderBy: { sequenceNo: "desc" },
+      select: { sequenceNo: true },
+    });
+
+    const sequenceNo = (maxRow?.sequenceNo ?? 0) + 1;
+    return { sequenceNo, sequenceYear };
+  }
+
   async createForProject(
     projectId: string,
     companyId: string,
@@ -1007,6 +1047,13 @@ export class DailyLogService {
     dto: CreateDailyLogDto
   ) {
     const project = await this.assertProjectAccess(projectId, companyId, actor, null);
+
+    // Resolve the actual company owning the project (may differ from actor's
+    // companyId when the actor is a SUPER_ADMIN).
+    const projectCompanyId = project.companyId;
+
+    // Assign tenant-scoped sequence number
+    const { sequenceNo, sequenceYear } = await this.assignSequenceNo(projectCompanyId);
 
     // Auto-fill weather if not manually provided
     let autoWeatherSummary: string | null = null;
@@ -1046,6 +1093,9 @@ export class DailyLogService {
     const created = await this.prisma.dailyLog.create({
       data: {
         projectId,
+        companyId: projectCompanyId,
+        sequenceNo,
+        sequenceYear,
         createdById: actor.userId,
         logDate: new Date(dto.logDate),
         type: logType,
@@ -1315,6 +1365,7 @@ export class DailyLogService {
       const { createdBy, notifyUserIdsJson: _n, tagsJson: _t, ...rest } = created as any;
       return {
         ...rest,
+        dlid: this.formatDlid(sequenceYear, sequenceNo),
         createdByUser: createdBy,
         attachments: [],
       };
@@ -1324,6 +1375,7 @@ export class DailyLogService {
 
     return {
       ...restFinal,
+      dlid: this.formatDlid(finalLog.sequenceYear, finalLog.sequenceNo),
       createdByUser: cb,
     };
   }
@@ -2077,6 +2129,7 @@ export class DailyLogService {
           : rest.attachments;
         return {
           ...rest,
+          dlid: this.formatDlid(l.sequenceYear, l.sequenceNo),
           attachments: signedAttachments,
           projectId: project.id,
           projectName: project.name,
@@ -2141,6 +2194,7 @@ export class DailyLogService {
 
     return {
       ...rest,
+      dlid: this.formatDlid((log as any).sequenceYear, (log as any).sequenceNo),
       attachments: signedAttachments,
       projectId: project.id,
       projectName: project.name,

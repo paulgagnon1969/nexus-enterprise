@@ -35,6 +35,7 @@ import { TagReadScreen } from "../screens/TagReadScreen";
 import { FleetOnboardScreen } from "../screens/FleetOnboardScreen";
 import { ObjectCaptureScreen } from "../screens/ObjectCaptureScreen";
 import { PrecisionScanScreen } from "../screens/PrecisionScanScreen";
+import { PrecisionScanDetailScreen } from "../screens/PrecisionScanDetailScreen";
 import { NexiEnrollScreen } from "../screens/NexiEnrollScreen";
 import { NexiCatalogScreen } from "../screens/NexiCatalogScreen";
 import { PlacardScanScreen } from "../screens/PlacardScanScreen";
@@ -42,9 +43,12 @@ import { SelectionsScreen } from "../screens/SelectionsScreen";
 import { SelectionDetailScreen } from "../screens/SelectionDetailScreen";
 import { ProductPickerScreen } from "../screens/ProductPickerScreen";
 import { BankingScreen } from "../screens/BankingScreen";
+import { DevSessionsScreen } from "../screens/DevSessionsScreen";
+import { DevSessionDetailScreen } from "../screens/DevSessionDetailScreen";
 import { ScrollableTabBar } from "../components/ScrollableTabBar";
 import { fetchAllTasks } from "../api/tasks";
 import { apiJson } from "../api/client";
+import { getUserMe } from "../api/user";
 import { recordTabUsage, getTopTab } from "../storage/usageTracker";
 import type { ProjectListItem, TaskItem, PlanSheetItem, DailyLogListItem, DailyLogDetail } from "../types/api";
 
@@ -60,6 +64,12 @@ export type RootTabParamList = {
   InventoryTab: undefined;
   OutboxTab: undefined;
   BankingTab: undefined;
+  DevSessionsTab: undefined;
+};
+
+export type DevSessionsStackParamList = {
+  SessionsList: undefined;
+  SessionDetail: { session: any };
 };
 
 export type DirectoryStackParamList = {
@@ -98,6 +108,7 @@ export type ScannerStackParamList = {
   FleetOnboard: undefined;
   ObjectCapture: undefined;
   PrecisionScan: undefined;
+  PrecisionScanDetail: { scanId: string };
   NexiEnroll: undefined;
   NexiCatalog: undefined;
 };
@@ -106,6 +117,7 @@ const Tab = createBottomTabNavigator<RootTabParamList>();
 const DirectoryStack = createNativeStackNavigator<DirectoryStackParamList>();
 const ProjectsStack = createNativeStackNavigator<ProjectsStackParamList>();
 const ScannerStack = createNativeStackNavigator<ScannerStackParamList>();
+const DevSessionsStack = createNativeStackNavigator<DevSessionsStackParamList>();
 
 // Projects / Daily Logs stack wrappers
 function DailyLogFeedWrapper() {
@@ -422,6 +434,7 @@ function ScannerStackNavigator() {
       <ScannerStack.Screen name="FleetOnboard" component={FleetOnboardWrapper} />
       <ScannerStack.Screen name="ObjectCapture" component={ObjectCaptureWrapper} />
       <ScannerStack.Screen name="PrecisionScan" component={PrecisionScanWrapper} />
+      <ScannerStack.Screen name="PrecisionScanDetail" component={PrecisionScanDetailWrapper} />
       <ScannerStack.Screen name="NexiEnroll" component={NexiEnrollWrapper} />
       <ScannerStack.Screen name="NexiCatalog" component={NexiCatalogWrapper} />
     </ScannerStack.Navigator>
@@ -439,6 +452,7 @@ function ScannerHomeWrapper() {
       onStartPrecisionScan={() => navigation.navigate("PrecisionScan")}
       onStartNexiEnroll={() => navigation.navigate("NexiEnroll")}
       onOpenNexiCatalog={() => navigation.navigate("NexiCatalog")}
+      onViewPrecisionScan={(scanId) => navigation.navigate("PrecisionScanDetail", { scanId })}
     />
   );
 }
@@ -466,6 +480,12 @@ function ObjectCaptureWrapper() {
 function PrecisionScanWrapper() {
   const navigation = useNavigation<NativeStackNavigationProp<ScannerStackParamList>>();
   return <PrecisionScanScreen onBack={() => navigation.goBack()} />;
+}
+
+function PrecisionScanDetailWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ScannerStackParamList>>();
+  const route = useRoute<RouteProp<ScannerStackParamList, "PrecisionScanDetail">>();
+  return <PrecisionScanDetailScreen scanId={route.params.scanId} onBack={() => navigation.goBack()} />;
 }
 
 function NexiEnrollWrapper() {
@@ -511,6 +531,36 @@ function OutboxTabScreen() {
 // Wrapper for BankingScreen
 function BankingTabScreen() {
   return <BankingScreen onBack={() => {}} />;
+}
+
+// Dev Sessions stack (SUPER_ADMIN only)
+function DevSessionsStackNavigator() {
+  return (
+    <DevSessionsStack.Navigator screenOptions={{ headerShown: false }}>
+      <DevSessionsStack.Screen name="SessionsList" component={DevSessionsListWrapper} />
+      <DevSessionsStack.Screen name="SessionDetail" component={DevSessionDetailWrapper} />
+    </DevSessionsStack.Navigator>
+  );
+}
+
+function DevSessionsListWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<DevSessionsStackParamList>>();
+  return (
+    <DevSessionsScreen
+      onSelectSession={(session) => navigation.navigate("SessionDetail", { session })}
+    />
+  );
+}
+
+function DevSessionDetailWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<DevSessionsStackParamList>>();
+  const route = useRoute<RouteProp<DevSessionsStackParamList, "SessionDetail">>();
+  return (
+    <DevSessionDetailScreen
+      session={route.params.session}
+      onBack={() => navigation.goBack()}
+    />
+  );
 }
 
 // Context for logout callback and company info
@@ -562,6 +612,14 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
     name: null,
     refreshKey: 0,
   });
+
+  // Check if user is SUPER_ADMIN (for DevSessions tab visibility)
+  const [isSuperAdmin, setIsSuperAdmin] = React.useState(false);
+  React.useEffect(() => {
+    getUserMe()
+      .then((me) => setIsSuperAdmin(me.globalRole === "SUPER_ADMIN"))
+      .catch(() => setIsSuperAdmin(false));
+  }, []);
 
   // Stable callback — avoids infinite re-render loop between AppNavigator ↔ KpiHomeScreen
   const handleSetCompany = React.useCallback((c: { id: string; name: string }) => {
@@ -650,6 +708,9 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
         <Tab.Screen name="InventoryTab" component={InventoryTabScreen} />
         <Tab.Screen name="OutboxTab" component={OutboxTabScreen} />
         <Tab.Screen name="BankingTab" component={BankingTabScreen} />
+        {isSuperAdmin && (
+          <Tab.Screen name="DevSessionsTab" component={DevSessionsStackNavigator} />
+        )}
       </Tab.Navigator>
     </SetCompanyContext.Provider>
     </CompanyContext.Provider>
@@ -669,6 +730,7 @@ const TAB_KEYS: Record<string, boolean> = {
   InventoryTab: true,
   OutboxTab: true,
   BankingTab: true,
+  DevSessionsTab: true,
 };
 
 const navStyles = StyleSheet.create({

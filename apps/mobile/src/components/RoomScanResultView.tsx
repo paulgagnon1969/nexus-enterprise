@@ -15,11 +15,13 @@ export function RoomScanResultView({
   onSave,
   onNewScan,
   onClose,
+  onMaterialWalk,
 }: {
   scan: ScanNEXRoomResult;
   onSave: (updated: ScanNEXRoomResult) => void;
   onNewScan: () => void;
   onClose: () => void;
+  onMaterialWalk?: () => void;
 }) {
   const [roomName, setRoomName] = useState(scan.roomName);
   const [saved, setSaved] = useState(false);
@@ -215,6 +217,21 @@ export function RoomScanResultView({
             {saved ? "✓ Saved to Project" : "Save Room Scan"}
           </Text>
         </Pressable>
+
+        {/* Material Walk CTA */}
+        {onMaterialWalk && (
+          <Pressable
+            style={[styles.actionBtn, styles.materialWalkBtn]}
+            onPress={onMaterialWalk}
+          >
+            <Text style={styles.actionBtnText}>
+              {scan.roomProfiles.length > 0
+                ? `Material Walk (${scan.roomProfiles.length} captured)`
+                : "Start Material Walk →"}
+            </Text>
+          </Pressable>
+        )}
+
         <View style={styles.secondaryActions}>
           <Pressable style={styles.actionBtnSecondary} onPress={onNewScan}>
             <Text style={styles.actionBtnSecondaryText}>Scan Another Room</Text>
@@ -443,6 +460,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   actionBtnSaved: { backgroundColor: colors.success },
+  materialWalkBtn: {
+    backgroundColor: colors.info,
+    marginTop: 10,
+  },
   actionBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
   secondaryActions: {
     flexDirection: "row",

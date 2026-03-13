@@ -42,6 +42,9 @@ import {
   InferredWireRun,
   WireGauge,
   FixtureCategory,
+  ComponentProfile,
+  EnrichedLineItem,
+  TrimBandDetection,
   METERS_TO_FEET,
 } from "./types";
 
@@ -122,6 +125,11 @@ export function buildScanNEXRoomResult(
     infrastructure,
     visionDetections,
 
+    enrichedBOM: [], // populated after Material Walk
+    roomProfiles: [], // populated after Material Walk
+    highResFramePaths: raw.highResFramePaths ?? [],
+    lidarConfidence: raw.lidarConfidence ?? 0,
+
     photos: [],
     synced: false,
   };
@@ -149,6 +157,8 @@ function buildWalls(raw: CapturedRoomData): ScanNEXWall[] {
       adjacentDoorIds: [],
       adjacentOpeningIds: [],
       position: w.position,
+      measurementConfidence: 0, // populated from LiDAR confidence data
+      componentProfiles: [], // populated after Material Walk
     };
   });
 }
@@ -392,6 +402,32 @@ function inferFixtureFromRect(
 
 // ── Vision Detections ────────────────────────────────────────
 
+// ── Trim Band → Profile Height Estimation ────────────────────
+
+/**
+ * Estimate trim profile height in inches from contour-detected trim bands.
+ * Uses the band's height fraction × wall height (from RoomPlan).
+ */
+function estimateTrimHeightFromBands(
+  trimBands: TrimBandDetection[] | undefined,
+  ceilingHeightFT: number,
+): Map<string, number> {
+  const result = new Map<string, number>();
+  if (!trimBands || ceilingHeightFT <= 0) return result;
+
+  for (const band of trimBands) {
+    // estimatedHeightFraction is fraction of camera frame, which roughly
+    // maps to fraction of wall height when camera faces the wall straight on.
+    // Convert to inches: fraction × wall height (ft) × 12 (in/ft)
+    const estimatedInches = band.estimatedHeightFraction * ceilingHeightFT * 12;
+    // Sanity check: trim profiles are typically 1.5" to 7"
+    if (estimatedInches >= 1.5 && estimatedInches <= 8.0) {
+      result.set(band.trimType, round2(estimatedInches));
+    }
+  }
+  return result;
+}
+
 function buildVisionDetections(raw: VisionDetectionsRaw | undefined): VisionDetections {
   if (!raw) {
     return {
@@ -421,6 +457,11 @@ function buildVisionDetections(raw: VisionDetectionsRaw | undefined): VisionDete
       id: r.id,
       bounds: r.bounds,
       confidence: r.confidence,
+    })),
+    trimBands: (raw.trimBands ?? []).map((b) => ({
+      trimType: b.trimType as TrimBandDetection["trimType"],
+      estimatedHeightFraction: b.estimatedHeightFraction,
+      confidence: b.confidence,
     })),
   };
 }
@@ -739,6 +780,180 @@ function distance3D(
   const dy = a.y - b.y;
   const dz = a.z - b.z;
   return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+// ── Enriched BOM Builder ─────────────────────────────────────
+
+/**
+ * Build enriched BOM line items from room geometry + component profiles.
+ * Call this after Material Walk completes and profiles are populated.
+ * Falls back to generic descriptions when profiles aren't available yet.
+ */
+export function buildEnrichedBOM(result: ScanNEXRoomResult): EnrichedLineItem[] {
+  const items: EnrichedLineItem[] = [];
+
+  // Helper: find room-level profile for a component type
+  const profileFor = (type: string): ComponentProfile | undefined =>
+    result.roomProfiles.find((p) => p.componentType === type);
+
+  // Helper: build description from profile
+  const describeProfile = (profile: ComponentProfile | undefined, fallback: string): string => {
+    if (!profile) return fallback;
+    const parts: string[] = [];
+    if (profile.heightInches) parts.push(`${profile.heightInches}"`);
+    if (profile.profileStyle && profile.profileStyle !== "unknown") parts.push(profile.profileStyle);
+    if (profile.material) parts.push(profile.material);
+    parts.push(fallback); // e.g., "baseboard"
+    if (profile.finish && profile.color) {
+      parts.push(`${profile.finish} ${profile.color}`);
+    } else if (profile.finish) {
+      parts.push(profile.finish);
+    }
+    return parts.join(" ");
+  };
+
+  // 1. Baseboard
+  if (result.totalBaseboardLF > 0) {
+    const bp = profileFor("baseboard");
+    items.push({
+      category: "baseboard",
+      quantity: round2(result.totalBaseboardLF),
+      unit: "LF",
+      description: describeProfile(bp, "baseboard"),
+      profileStyle: bp?.profileStyle,
+      material: bp?.material,
+      finish: bp?.finish,
+      dimensionInches: bp?.heightInches,
+      xactimateCode: bp?.xactimateCode,
+      confidence: bp?.confidence ?? 0,
+      walls: result.walls.filter((w) => w.baseboardLF > 0).map((w) => w.wallId),
+    });
+  }
+
+  // 2. Crown molding (if detected in trim bands or profiles)
+  const crownProfile = profileFor("crown-molding");
+  const hasCrown = crownProfile || result.visionDetections.trimBands.some((b) => b.trimType === "crown-molding");
+  if (hasCrown && result.ceilingPerimeterLF > 0) {
+    items.push({
+      category: "crown",
+      quantity: round2(result.ceilingPerimeterLF),
+      unit: "LF",
+      description: describeProfile(crownProfile, "crown molding"),
+      profileStyle: crownProfile?.profileStyle,
+      material: crownProfile?.material,
+      finish: crownProfile?.finish,
+      dimensionInches: crownProfile?.heightInches,
+      xactimateCode: crownProfile?.xactimateCode,
+      confidence: crownProfile?.confidence ?? 0.3, // lower confidence if only trim-band detected
+    });
+  }
+
+  // 3. Chair rail (if detected)
+  const chairProfile = profileFor("chair-rail");
+  const hasChair = chairProfile || result.visionDetections.trimBands.some((b) => b.trimType === "chair-rail");
+  if (hasChair && result.perimeterLF > 0) {
+    items.push({
+      category: "chair-rail",
+      quantity: round2(result.perimeterLF),
+      unit: "LF",
+      description: describeProfile(chairProfile, "chair rail"),
+      profileStyle: chairProfile?.profileStyle,
+      material: chairProfile?.material,
+      finish: chairProfile?.finish,
+      dimensionInches: chairProfile?.heightInches,
+      xactimateCode: chairProfile?.xactimateCode,
+      confidence: chairProfile?.confidence ?? 0.3,
+    });
+  }
+
+  // 4. Door + window casing
+  const casingProfile = profileFor("casing");
+  const totalCasingLF = result.totalDoorTrimLF + result.totalWindowTrimLF;
+  if (totalCasingLF > 0) {
+    items.push({
+      category: "casing",
+      quantity: round2(totalCasingLF),
+      unit: "LF",
+      description: describeProfile(casingProfile, "casing"),
+      profileStyle: casingProfile?.profileStyle,
+      material: casingProfile?.material,
+      finish: casingProfile?.finish,
+      dimensionInches: casingProfile?.heightInches, // casing "height" = width of the profile
+      xactimateCode: casingProfile?.xactimateCode,
+      confidence: casingProfile?.confidence ?? 0,
+    });
+  }
+
+  // 5. Flooring
+  if (result.floorSF > 0) {
+    const flooringMat = result.visionDetections.materials.flooring;
+    items.push({
+      category: "flooring",
+      quantity: round2(result.floorSF),
+      unit: "SF",
+      description: flooringMat?.type
+        ? `${flooringMat.type} flooring`
+        : "flooring",
+      material: flooringMat?.type ?? undefined,
+      confidence: flooringMat?.confidence ?? 0,
+    });
+  }
+
+  // 6. Wall surface
+  if (result.netWallSF > 0) {
+    const wallMat = result.visionDetections.materials.walls;
+    items.push({
+      category: "wall-surface",
+      quantity: round2(result.netWallSF),
+      unit: "SF",
+      description: wallMat?.type
+        ? `${wallMat.type} walls`
+        : "wall surface",
+      material: wallMat?.type ?? undefined,
+      confidence: wallMat?.confidence ?? 0,
+    });
+  }
+
+  // 7. Ceiling surface
+  if (result.ceilingSF > 0) {
+    const ceilMat = result.visionDetections.materials.ceiling;
+    items.push({
+      category: "ceiling-surface",
+      quantity: round2(result.ceilingSF),
+      unit: "SF",
+      description: ceilMat?.type
+        ? `${ceilMat.type} ceiling`
+        : "ceiling surface",
+      material: ceilMat?.type ?? undefined,
+      confidence: ceilMat?.confidence ?? 0,
+    });
+  }
+
+  // 8. Doors (each)
+  for (const door of result.doors) {
+    items.push({
+      category: "door",
+      quantity: 1,
+      unit: "EA",
+      description: `${door.type !== "unknown" ? door.type + " " : ""}door ${door.widthFT.toFixed(1)}' × ${door.heightFT.toFixed(1)}'`,
+      dimensionInches: round2(door.widthFT * 12),
+      confidence: 0.8, // RoomPlan detection confidence
+    });
+  }
+
+  // 9. Windows (each)
+  for (const win of result.windows) {
+    items.push({
+      category: "window",
+      quantity: 1,
+      unit: "EA",
+      description: `${win.type !== "unknown" ? win.type + " " : ""}window ${win.widthFT.toFixed(1)}' × ${win.heightFT.toFixed(1)}'`,
+      dimensionInches: round2(win.widthFT * 12),
+      confidence: 0.8,
+    });
+  }
+
+  return items;
 }
 
 function findNearestWall(

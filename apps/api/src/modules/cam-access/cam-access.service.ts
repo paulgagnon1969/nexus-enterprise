@@ -105,6 +105,8 @@ export class CamAccessService {
         questionnaireCompletedAt: true,
         viewCount: true,
         firstViewedAt: true,
+        revokedAt: true,
+        revokedReason: true,
       },
     });
 
@@ -114,6 +116,16 @@ export class CamAccessService {
 
     if (record.documentType !== ShareDocumentType.CAM_LIBRARY) {
       throw new NotFoundException("This access link is invalid or has expired.");
+    }
+
+    // Revoked tokens return a special status — no further interaction allowed
+    if (record.revokedAt) {
+      return {
+        valid: false,
+        revoked: true,
+        revokedReason: record.revokedReason,
+        inviterName: record.inviterName || record.inviterEmail,
+      };
     }
 
     // Log the view
@@ -177,11 +189,16 @@ export class CamAccessService {
         documentType: true,
         cndaAcceptedAt: true,
         questionnaireCompletedAt: true,
+        revokedAt: true,
       },
     });
 
     if (!record || record.documentType !== ShareDocumentType.CAM_LIBRARY) {
       throw new NotFoundException("This access link is invalid or has expired.");
+    }
+
+    if (record.revokedAt) {
+      throw new ForbiddenException("This access link has been revoked.");
     }
 
     // Already accepted — skip but return current status
@@ -242,11 +259,16 @@ export class CamAccessService {
         documentType: true,
         cndaAcceptedAt: true,
         questionnaireCompletedAt: true,
+        revokedAt: true,
       },
     });
 
     if (!record || record.documentType !== ShareDocumentType.CAM_LIBRARY) {
       throw new NotFoundException("This access link is invalid or has expired.");
+    }
+
+    if (record.revokedAt) {
+      throw new ForbiddenException("This access link has been revoked.");
     }
 
     // Must accept CNDA first
@@ -305,11 +327,16 @@ export class CamAccessService {
         inviteeEmail: true,
         inviteeName: true,
         viewCount: true,
+        revokedAt: true,
       },
     });
 
     if (!record || record.documentType !== ShareDocumentType.CAM_LIBRARY) {
       throw new NotFoundException("This access link is invalid or has expired.");
+    }
+
+    if (record.revokedAt) {
+      throw new ForbiddenException("This access link has been revoked.");
     }
 
     // Enforce both gates
@@ -451,11 +478,15 @@ export class CamAccessService {
         inviteeName: true,
         inviteeEmail: true,
         depth: true,
+        revokedAt: true,
       },
     });
 
     if (!parent || parent.documentType !== ShareDocumentType.CAM_LIBRARY) {
       throw new NotFoundException("This access link is invalid or has expired.");
+    }
+    if (parent.revokedAt) {
+      throw new ForbiddenException("This access link has been revoked.");
     }
     if (!parent.cndaAcceptedAt || !parent.questionnaireCompletedAt) {
       throw new ForbiddenException(
@@ -548,5 +579,61 @@ export class CamAccessService {
       recipientName: dto.recipientName || null,
       shareUrl,
     };
+  }
+
+  /* ---------------------------------------------------------------- */
+  /*  Self-withdrawal — invitee removes their own access               */
+  /* ---------------------------------------------------------------- */
+
+  async withdraw(token: string, email: string, ctx?: RequestContext) {
+    const normalised = (email || "").trim().toLowerCase();
+    if (!normalised) {
+      throw new BadRequestException("Email is required for identity verification.");
+    }
+
+    const record = await this.prisma.documentShareToken.findUnique({
+      where: { token },
+      select: {
+        id: true,
+        documentType: true,
+        inviteeEmail: true,
+        inviteeName: true,
+        revokedAt: true,
+      },
+    });
+
+    if (!record || record.documentType !== ShareDocumentType.CAM_LIBRARY) {
+      throw new NotFoundException("This access link is invalid or has expired.");
+    }
+
+    if (record.revokedAt) {
+      return { withdrawn: true, alreadyRevoked: true };
+    }
+
+    // Identity verification — must match the invitee email
+    if (normalised !== (record.inviteeEmail || "").toLowerCase()) {
+      throw new ForbiddenException(
+        "The email address does not match the record for this access link.",
+      );
+    }
+
+    const now = new Date();
+    await this.prisma.documentShareToken.update({
+      where: { id: record.id },
+      data: { revokedAt: now, revokedReason: "self_withdrawal" },
+    });
+
+    await this.logAccess(record.id, ShareAccessType.RESCIND, ctx, {
+      metadata: {
+        action: "self_withdrawal",
+        email: normalised,
+      },
+    });
+
+    this.logger.log(
+      `Self-withdrawal: token=${token}, invitee=${normalised}`,
+    );
+
+    return { withdrawn: true };
   }
 }

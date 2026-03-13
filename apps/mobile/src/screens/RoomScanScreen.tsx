@@ -26,9 +26,10 @@ import { saveMeasurementSession, updateSessionLabels } from "../scannex/storage"
 import type { MeasurementSession } from "../scannex/storage";
 import { buildScanNEXRoomResult } from "../scannex/roomResultBuilder";
 import { saveRoomScan, updateRoomScan } from "../scannex/roomScanStorage";
-import type { ScanNEXRoomResult } from "../scannex/types";
+import type { ScanNEXRoomResult, ComponentProfile, EnrichedLineItem } from "../scannex/types";
+import { MaterialWalkScreen } from "../scannex/screens/MaterialWalkScreen";
 
-type ScanMode = "SELECT" | "CAPTURING" | "UPLOADING" | "RESULT" | "MEASURE_RESULT" | "ROOM_RESULT";
+type ScanMode = "SELECT" | "CAPTURING" | "UPLOADING" | "RESULT" | "MEASURE_RESULT" | "ROOM_RESULT" | "MATERIAL_WALK";
 
 export function RoomScanScreen({
   project,
@@ -267,6 +268,27 @@ export function RoomScanScreen({
     await updateRoomScan(updated);
   }, []);
 
+  // ── Material Walk: guided post-scan capture ─────────────────
+  const startMaterialWalk = useCallback(() => {
+    if (!roomScanResult) return;
+    setMode("MATERIAL_WALK");
+  }, [roomScanResult]);
+
+  const handleMaterialWalkComplete = useCallback(
+    async (profiles: ComponentProfile[], enrichedBOM: EnrichedLineItem[]) => {
+      if (!roomScanResult) return;
+      const updated: ScanNEXRoomResult = {
+        ...roomScanResult,
+        roomProfiles: profiles,
+        enrichedBOM,
+      };
+      setRoomScanResult(updated);
+      await updateRoomScan(updated);
+      setMode("ROOM_RESULT");
+    },
+    [roomScanResult],
+  );
+
   const resetScan = () => {
     setResult(null);
     setMeasureResult(null);
@@ -412,6 +434,17 @@ export function RoomScanScreen({
           onSave={handleRoomScanSave}
           onNewScan={resetScan}
           onClose={onBack}
+          onMaterialWalk={startMaterialWalk}
+        />
+      )}
+
+      {/* Material Walk — guided component capture */}
+      {mode === "MATERIAL_WALK" && roomScanResult && (
+        <MaterialWalkScreen
+          roomResult={roomScanResult}
+          onComplete={handleMaterialWalkComplete}
+          onSkip={() => setMode("ROOM_RESULT")}
+          onBack={() => setMode("ROOM_RESULT")}
         />
       )}
     </View>

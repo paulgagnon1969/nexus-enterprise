@@ -179,6 +179,7 @@ export interface DailyLogListItem {
   logDate: string;
   type?: DailyLogType;
   title: string | null;
+  dlid?: string | null;
   workPerformed: string | null;
   issues: string | null;
   status: string;

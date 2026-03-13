@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
+import { Controller, Get, Param, Post, Body, Req, UseGuards, ForbiddenException } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
 import { FeaturesService } from "./features.service";
@@ -38,5 +38,31 @@ export class FeaturesController {
     const user = req.user as AuthenticatedUser;
     await this.features.recordRedirect(user.userId, user.role);
     return { success: true };
+  }
+
+  /**
+   * POST /features/broadcast-module
+   * SUPER_ADMIN only — broadcasts a new module announcement to all Admin/Owner
+   * users via in-app notification + email.
+   */
+  @Post("broadcast-module")
+  async broadcastModule(
+    @Req() req: any,
+    @Body()
+    body: {
+      moduleCode?: string;
+      camId?: string;
+      title: string;
+      description: string;
+      ctaLabel?: string;
+      ctaUrl?: string;
+      summaryBullets: string[];
+    },
+  ) {
+    const user = req.user as AuthenticatedUser;
+    if (user.globalRole !== "SUPER_ADMIN") {
+      throw new ForbiddenException("Only SUPER_ADMIN can broadcast module announcements");
+    }
+    return this.features.broadcastNewModule(body);
   }
 }

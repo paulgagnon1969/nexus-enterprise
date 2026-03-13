@@ -22,6 +22,18 @@ type ScanRecord = {
   createdBy?: { id: string; firstName: string; lastName: string } | null;
 };
 
+type PrecisionScanRecord = {
+  id: string;
+  status: string;
+  name?: string | null;
+  imageCount: number;
+  createdAt: string;
+  completedAt?: string | null;
+  project?: { id: string; name: string } | null;
+  createdBy?: { id: string; firstName: string; lastName: string } | null;
+  _count?: { images: number };
+};
+
 interface Props {
   onStartTagRead: () => void;
   onStartFleetOnboard: () => void;
@@ -30,6 +42,7 @@ interface Props {
   onStartNexiEnroll: () => void;
   onOpenNexiCatalog: () => void;
   onStartPlacardScan: () => void;
+  onViewPrecisionScan?: (scanId: string) => void;
 }
 
 const MODE_CARDS = [
@@ -84,15 +97,20 @@ const MODE_CARDS = [
   },
 ] as const;
 
-export function ScannerHomeScreen({ onStartTagRead, onStartFleetOnboard, onStartObjectCapture, onStartPrecisionScan, onStartNexiEnroll, onOpenNexiCatalog, onStartPlacardScan }: Props) {
+export function ScannerHomeScreen({ onStartTagRead, onStartFleetOnboard, onStartObjectCapture, onStartPrecisionScan, onStartNexiEnroll, onOpenNexiCatalog, onStartPlacardScan, onViewPrecisionScan }: Props) {
   const [recentScans, setRecentScans] = useState<ScanRecord[]>([]);
+  const [precisionScans, setPrecisionScans] = useState<PrecisionScanRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const loadScans = useCallback(async () => {
     try {
-      const data = await apiJson<ScanRecord[]>("/assets/scan?limit=10");
-      setRecentScans(data);
+      const [assetScans, pScans] = await Promise.all([
+        apiJson<ScanRecord[]>("/assets/scan?limit=10").catch(() => [] as ScanRecord[]),
+        apiJson<PrecisionScanRecord[]>("/precision-scans").catch(() => [] as PrecisionScanRecord[]),
+      ]);
+      setRecentScans(assetScans);
+      setPrecisionScans(pScans);
     } catch (err) {
       console.warn("[ScannerHome] Failed to load scans:", err);
     } finally {
@@ -152,10 +170,31 @@ export function ScannerHomeScreen({ onStartTagRead, onStartFleetOnboard, onStart
 
   const statusColor = (status: string) => {
     switch (status) {
-      case "COMPLETE": return "#059669";
-      case "PROCESSING": return "#D97706";
+      case "COMPLETE":
+      case "COMPLETED": return "#059669";
+      case "PROCESSING":
+      case "DOWNLOADING":
+      case "RECONSTRUCTING":
+      case "CONVERTING":
+      case "ANALYZING":
+      case "UPLOADING": return "#D97706";
       case "FAILED": return "#DC2626";
+      case "PENDING": return "#6B7280";
       default: return "#6B7280";
+    }
+  };
+
+  const precisionStatusLabel = (status: string) => {
+    switch (status) {
+      case "PENDING": return "Queued";
+      case "DOWNLOADING": return "Downloading";
+      case "RECONSTRUCTING": return "Reconstructing";
+      case "CONVERTING": return "Converting";
+      case "ANALYZING": return "Analyzing";
+      case "UPLOADING": return "Uploading";
+      case "COMPLETED": return "Complete";
+      case "FAILED": return "Failed";
+      default: return status;
     }
   };
 
@@ -186,15 +225,48 @@ export function ScannerHomeScreen({ onStartTagRead, onStartFleetOnboard, onStart
         ))}
       </View>
 
-      {/* Recent scans */}
+      {/* Precision Scans */}
+      {precisionScans.length > 0 && (
+        <>
+          <Text style={styles.sectionTitle}>Precision Scans</Text>
+          {precisionScans.map((ps) => (
+            <Pressable
+              key={ps.id}
+              style={styles.scanRow}
+              onPress={() => onViewPrecisionScan?.(ps.id)}
+            >
+              <View style={styles.scanInfo}>
+                <Text style={styles.scanType}>
+                  {ps.name || `Precision Scan — ${ps.imageCount} images`}
+                </Text>
+                {ps.project && (
+                  <Text style={styles.scanAsset}>{ps.project.name}</Text>
+                )}
+                <Text style={styles.scanDate}>
+                  {formatDate(ps.createdAt)} · {ps.imageCount} images
+                </Text>
+              </View>
+              <View style={[styles.statusBadge, { backgroundColor: statusColor(ps.status) + "22" }]}>
+                <Text style={[styles.statusText, { color: statusColor(ps.status) }]}>
+                  {precisionStatusLabel(ps.status)}
+                </Text>
+              </View>
+            </Pressable>
+          ))}
+        </>
+      )}
+
+      {/* Recent asset scans */}
       <Text style={styles.sectionTitle}>Recent Scans</Text>
       {loading ? (
         <ActivityIndicator color="#fff" style={{ marginTop: 20 }} />
-      ) : recentScans.length === 0 ? (
+      ) : recentScans.length === 0 && precisionScans.length === 0 ? (
         <View style={styles.emptyState}>
           <Text style={styles.emptyIcon}>📸</Text>
           <Text style={styles.emptyText}>No scans yet. Use one of the modes above to get started.</Text>
         </View>
+      ) : recentScans.length === 0 ? (
+        <Text style={styles.emptySmall}>No asset scans yet.</Text>
       ) : (
         recentScans.map((scan) => (
           <View key={scan.id} style={styles.scanRow}>
@@ -254,4 +326,5 @@ const styles = StyleSheet.create({
   scanDate: { color: "#64748B", fontSize: 12, marginTop: 2 },
   statusBadge: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 },
   statusText: { fontSize: 11, fontWeight: "700" },
+  emptySmall: { color: "#64748B", fontSize: 13, textAlign: "center", paddingVertical: 16 },
 });

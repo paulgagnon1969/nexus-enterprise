@@ -103,19 +103,19 @@ struct Args {
 @available(macOS 14.0, *)
 func runReconstruct(args: Args) async {
     let inputURL = URL(fileURLWithPath: args.inputPath, isDirectory: true)
-    let outputDir = URL(fileURLWithPath: args.outputPath, isDirectory: true)
+
+    // --output is the USDZ file path (e.g. .../output/model.usdz), NOT a directory.
+    // Create parent directory; PhotogrammetrySession writes the file directly.
+    let modelURL = URL(fileURLWithPath: args.outputPath)
+    let outputDir = modelURL.deletingLastPathComponent()
+    try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+    let resultURL = outputDir.appendingPathComponent("result.json")
 
     // Validate input
     var isDir: ObjCBool = false
     guard FileManager.default.fileExists(atPath: args.inputPath, isDirectory: &isDir), isDir.boolValue else {
         fatal("Input directory does not exist: \(args.inputPath)")
     }
-
-    // Create output directory
-    try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-
-    let modelURL = outputDir.appendingPathComponent("model.usdz")
-    let resultURL = outputDir.appendingPathComponent("result.json")
 
     // Configure session
     var config = PhotogrammetrySession.Configuration()
@@ -160,10 +160,13 @@ func runReconstruct(args: Args) async {
 
     // Monitor progress
     do {
-        for try await output in session.outputs {
+        outputLoop: for try await output in session.outputs {
             switch output {
             case .processingComplete:
                 progress("reconstructed", pct: 80, message: "Reconstruction complete")
+                // PhotogrammetrySession.outputs may never terminate on its own.
+                // All requests are done — break out of the for loop.
+                break outputLoop
 
             case .requestProgress(_, let fraction):
                 // Map 0.0-1.0 to 5-80%

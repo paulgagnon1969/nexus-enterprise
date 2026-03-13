@@ -115,7 +115,9 @@ AARCH64_SIGNATURE=$(cat "$AARCH64_SIG")
 X86_64_SIGNATURE=$(cat "$X86_64_SIG")
 
 # ── Configure MinIO client ────────────────────────────────────────────────
-MINIO_ENDPOINT="${MINIO_ENDPOINT:-localhost}"
+# .env.shadow sets MINIO_ENDPOINT=minio (Docker service name) but this script
+# runs on the host, so always use localhost to reach the MinIO container.
+MINIO_ENDPOINT="localhost"
 MINIO_PORT="${MINIO_PORT:-9000}"
 MINIO_ALIAS="nexus-minio"
 

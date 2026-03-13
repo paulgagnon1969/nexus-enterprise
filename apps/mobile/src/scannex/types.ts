@@ -48,6 +48,16 @@ export interface ScanNEXRoomResult {
   pointCloud?: string;
   photos: ScanNEXPhoto[];
 
+  // — Enriched BOM (populated after Material Walk) —
+  enrichedBOM: EnrichedLineItem[];
+
+  // — Room-level component profiles (most common per type, from Material Walk) —
+  roomProfiles: ComponentProfile[];
+
+  // — Capture metadata —
+  highResFramePaths: string[];
+  lidarConfidence: number;  // 0.0–1.0; 0 if no LiDAR
+
   // — Sync —
   synced: boolean;
 }
@@ -70,6 +80,10 @@ export interface ScanNEXWall {
   adjacentOpeningIds: string[];
   /** Wall center position from RoomPlan transform (meters, for adjacency calc) */
   position: { x: number; y: number; z: number };
+  /** LiDAR measurement confidence for this wall (0.0–1.0; 0 if unavailable) */
+  measurementConfidence: number;
+  /** Component profiles attached to this wall (baseboard, crown, casing) */
+  componentProfiles: ComponentProfile[];
 }
 
 // ── Windows ──────────────────────────────────────────────────
@@ -356,6 +370,15 @@ export interface VisionDetections {
     bounds: { x: number; y: number; width: number; height: number };
     confidence: number;
   }>;
+  /** Trim profile bands detected via contour analysis */
+  trimBands: TrimBandDetection[];
+}
+
+export interface TrimBandDetection {
+  trimType: "baseboard" | "crown-molding" | "chair-rail";
+  /** Fraction of frame height occupied by the trim band */
+  estimatedHeightFraction: number;
+  confidence: number;
 }
 
 export interface MaterialSuggestion {
@@ -366,6 +389,90 @@ export interface MaterialSuggestion {
 }
 
 // ── Unit conversion ──────────────────────────────────────────
+
+// ── Component Profile (Material Walk output) ─────────────────────────
+
+export type ComponentType =
+  | "baseboard"
+  | "crown-molding"
+  | "casing"
+  | "chair-rail"
+  | "shoe-molding"
+  | "quarter-round";
+
+export type ProfileStyle =
+  | "colonial"
+  | "ranch"
+  | "craftsman"
+  | "ogee"
+  | "cove"
+  | "flat"
+  | "square"
+  | "beaded"
+  | "shaker"
+  | "custom"
+  | "unknown";
+
+export interface ComponentProfile {
+  componentType: ComponentType;
+  /** Measured profile height in inches (e.g., 3.5 for 3½" baseboard) */
+  heightInches: number;
+  /** Measured depth/projection in inches (e.g., for crown molding) */
+  widthInches?: number;
+  /** AI-identified profile style */
+  profileStyle: ProfileStyle;
+  /** AI-identified material (e.g., "MDF", "pine", "PVC", "oak") */
+  material: string;
+  /** AI-identified finish (e.g., "painted", "stained", "natural", "primed") */
+  finish: string;
+  /** AI-identified color (e.g., "white", "off-white", "natural oak") */
+  color: string;
+  /** How the measurement was obtained */
+  measurementSource: "lidar" | "manual" | "ai-inferred";
+  /** Overall confidence 0.0–1.0 */
+  confidence: number;
+  /** Path to close-up reference photo used for identification */
+  capturePhotoUrl?: string;
+  /** Xactimate line item code suggested by AI */
+  xactimateCode?: string;
+  /** AI-assessed condition */
+  condition?: "new" | "good" | "fair" | "damaged";
+}
+
+// ── Enriched BOM Line Item ─────────────────────────────────
+
+export type BOMCategory =
+  | "baseboard"
+  | "crown"
+  | "casing"
+  | "chair-rail"
+  | "shoe-molding"
+  | "flooring"
+  | "wall-surface"
+  | "ceiling-surface"
+  | "door"
+  | "window";
+
+export interface EnrichedLineItem {
+  category: BOMCategory;
+  quantity: number;
+  unit: "LF" | "SF" | "EA";
+  /** Full description: "3½" colonial MDF baseboard, painted semi-gloss white" */
+  description: string;
+  profileStyle?: string;
+  material?: string;
+  finish?: string;
+  /** Profile dimension in inches (height for baseboard, width for casing, etc.) */
+  dimensionInches?: number;
+  /** Closest Xactimate line item code */
+  xactimateCode?: string;
+  /** Combined confidence from measurement + material identification */
+  confidence: number;
+  /** Which walls this line item applies to */
+  walls?: string[];
+}
+
+// ── Unit conversion ────────────────────────────────────────
 
 export const METERS_TO_FEET = 3.28084;
 export const FEET_TO_METERS = 0.3048;

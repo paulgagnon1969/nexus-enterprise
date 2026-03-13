@@ -19,3 +19,4 @@ export { extrapolateCostBookItem, extrapolateCostBookItems } from "./extrapolate
 export * from "./sop-sync";
 export * from "./catalog/spec-hash";
 export * from "./nexfit";
+export { normalizeMaterialKey, materialKeyToSearchQuery } from "./material-normalize";

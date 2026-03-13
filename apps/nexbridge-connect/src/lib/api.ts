@@ -26,6 +26,10 @@ export function getAccessToken() {
   return accessToken;
 }
 
+export function getBaseUrl() {
+  return baseUrl;
+}
+
 // ---------------------------------------------------------------------------
 // Core request helper (Tauri HTTP + automatic token refresh)
 // ---------------------------------------------------------------------------

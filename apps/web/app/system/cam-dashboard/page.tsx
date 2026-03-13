@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import DOMPurify from "dompurify";
+import MultiSelectInviteModal from "./MultiSelectInviteModal";
 
 const API = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
@@ -574,12 +575,43 @@ function InvitesTab() {
   const [bulkResult, setBulkResult] = useState<any>(null);
   // Shared
   const [copied, setCopied] = useState<string | null>(null);
+  const [multiSelectOpen, setMultiSelectOpen] = useState(false);
+  // Invite groups
+  const [groups, setGroups] = useState<{ id: string; name: string; inviteCount: number; createdAt: string }[]>([]);
+  const [filterGroupId, setFilterGroupId] = useState<string | null>(null);
+  const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  // Sort & search
+  const [sortCol, setSortCol] = useState<string>("createdAt");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [inviteSearch, setInviteSearch] = useState("");
 
   const loadInvites = useCallback(() => {
     api("/cam-dashboard/invites").then(setInvites).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { loadInvites(); }, [loadInvites]);
+  const loadGroups = useCallback(() => {
+    api<{ id: string; name: string; inviteCount: number; createdAt: string }[]>("/cam-dashboard/invite-groups")
+      .then(setGroups)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => { loadInvites(); loadGroups(); }, [loadInvites, loadGroups]);
+
+  const handleRenameGroup = useCallback(async (groupId: string) => {
+    if (!renameValue.trim()) return;
+    try {
+      await api(`/cam-dashboard/invite-groups/${groupId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: renameValue.trim() }),
+      });
+      setGroups((prev) => prev.map((g) => g.id === groupId ? { ...g, name: renameValue.trim() } : g));
+      setRenamingGroupId(null);
+      setRenameValue("");
+    } catch {
+      alert("Failed to rename group");
+    }
+  }, [renameValue]);
 
   const handleSaveBlurb = () => {
     saveBlurb(blurb);
@@ -674,6 +706,16 @@ function InvitesTab() {
     alert("Resent!");
   };
 
+  const handleRescind = async (tokenId: string, recipientEmail: string) => {
+    if (!confirm(`Rescind invite for ${recipientEmail || "this recipient"}? They will no longer be able to access the CAM Library.`)) return;
+    try {
+      await api(`/cam-dashboard/invite/${tokenId}`, { method: "DELETE" });
+      loadInvites();
+    } catch {
+      alert("Failed to rescind invite");
+    }
+  };
+
   const handleCopy = (url: string, id: string) => {
     navigator.clipboard.writeText(url);
     setCopied(id);
@@ -691,12 +733,62 @@ function InvitesTab() {
 
   if (loading) return <Loader />;
 
+  // Multi-select invite modal (rendered at InvitesTab level)
+  const multiSelectModal = multiSelectOpen ? (
+    <MultiSelectInviteModal
+      onClose={() => setMultiSelectOpen(false)}
+      onComplete={() => { loadInvites(); loadGroups(); }}
+    />
+  ) : null;
+
   const statusColors: Record<string, { bg: string; fg: string }> = {
     viewing: { bg: "#dcfce7", fg: "#166534" },
     cnda_accepted: { bg: "#fef3c7", fg: "#92400e" },
     opened: { bg: "#dbeafe", fg: "#1e40af" },
     pending: { bg: "#f3f4f6", fg: "#6b7280" },
+    revoked: { bg: "#fee2e2", fg: "#991b1b" },
   };
+
+  const groupMap = new Map(groups.map((g) => [g.id, g.name]));
+
+  const toggleSort = (col: string) => {
+    if (sortCol === col) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortCol(col);
+      setSortDir(col === "viewCount" ? "desc" : "asc");
+    }
+  };
+
+  const sortIndicator = (col: string) =>
+    sortCol === col ? (sortDir === "asc" ? " ▲" : " ▼") : "";
+
+  const searchTerm = inviteSearch.trim().toLowerCase();
+
+  const filteredInvites = (filterGroupId
+    ? invites.filter((inv: any) => inv.groupId === filterGroupId)
+    : invites
+  ).filter((inv: any) => {
+    if (!searchTerm) return true;
+    const name = (inv.recipientName || "").toLowerCase();
+    const email = (inv.recipientEmail || "").toLowerCase();
+    const status = (inv.status || "").toLowerCase();
+    const group = (inv.groupId ? (groupMap.get(inv.groupId) || "") : "").toLowerCase();
+    return name.includes(searchTerm) || email.includes(searchTerm) || status.includes(searchTerm) || group.includes(searchTerm);
+  }).slice().sort((a: any, b: any) => {
+    let av: any, bv: any;
+    switch (sortCol) {
+      case "recipientName": av = (a.recipientName || "").toLowerCase(); bv = (b.recipientName || "").toLowerCase(); break;
+      case "recipientEmail": av = (a.recipientEmail || "").toLowerCase(); bv = (b.recipientEmail || "").toLowerCase(); break;
+      case "viewCount": av = a.viewCount ?? 0; bv = b.viewCount ?? 0; break;
+      case "status": av = a.status || ""; bv = b.status || ""; break;
+      case "group": av = (groupMap.get(a.groupId) || "").toLowerCase(); bv = (groupMap.get(b.groupId) || "").toLowerCase(); break;
+      case "createdAt": default: av = new Date(a.createdAt).getTime(); bv = new Date(b.createdAt).getTime(); break;
+    }
+    if (av < bv) return sortDir === "asc" ? -1 : 1;
+    if (av > bv) return sortDir === "asc" ? 1 : -1;
+    return 0;
+  });
 
   return (
     <div>
@@ -739,6 +831,9 @@ function InvitesTab() {
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <button onClick={() => { setFormOpen(!formOpen); setCsvRows([]); setBulkResult(null); }} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "#0f172a", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
             + Single Invite
+          </button>
+          <button onClick={() => setMultiSelectOpen(true)} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "#059669", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            👥 Multi-Select Invite
           </button>
           <button onClick={downloadCsvTemplate} style={{ ...btnStyle, display: "flex", alignItems: "center", gap: 4 }}>
             ⬇ CSV Template
@@ -873,25 +968,142 @@ function InvitesTab() {
         </div>
       )}
 
+      {/* ── Invite Groups ── */}
+      {groups.length > 0 && (
+        <>
+          <SectionTitle>📂 Invite Groups ({groups.length})</SectionTitle>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+            {groups.map((g) => {
+              const isActive = filterGroupId === g.id;
+              return (
+                <div
+                  key={g.id}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: 8,
+                    border: isActive ? "2px solid #0f172a" : "1px solid #e5e7eb",
+                    background: isActive ? "#f0f9ff" : "#fff",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    fontSize: 12,
+                    transition: "all 0.15s",
+                  }}
+                  onClick={() => setFilterGroupId(isActive ? null : g.id)}
+                >
+                  <div>
+                    {renamingGroupId === g.id ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 4 }} onClick={(e) => e.stopPropagation()}>
+                        <input
+                          autoFocus
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") handleRenameGroup(g.id); if (e.key === "Escape") { setRenamingGroupId(null); setRenameValue(""); } }}
+                          style={{ padding: "2px 6px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 12, width: 120 }}
+                        />
+                        <button onClick={() => handleRenameGroup(g.id)} style={{ ...btnSmall, background: "#059669", color: "#fff", border: "none", padding: "2px 8px" }}>✓</button>
+                        <button onClick={() => { setRenamingGroupId(null); setRenameValue(""); }} style={{ ...btnSmall, padding: "2px 6px" }}>✕</button>
+                      </div>
+                    ) : (
+                      <span
+                        style={{ fontWeight: 600, cursor: "text" }}
+                        onDoubleClick={(e) => { e.stopPropagation(); setRenamingGroupId(g.id); setRenameValue(g.name); }}
+                        title="Double-click to rename"
+                      >
+                        {g.name}
+                      </span>
+                    )}
+                    <div style={{ fontSize: 10, color: "#9ca3af" }}>
+                      {g.inviteCount} invite{g.inviteCount !== 1 ? "s" : ""} · {timeAgo(g.createdAt)}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
       {/* ── Invite History ── */}
-      <SectionTitle>Invite History ({invites.length})</SectionTitle>
-      {invites.length === 0 ? (
-        <EmptyState msg="No invites yet — send your first one!" />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <SectionTitle>
+          Invite History ({filteredInvites.length}{(filterGroupId || searchTerm) ? ` of ${invites.length}` : ""})
+        </SectionTitle>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <input
+            type="text"
+            placeholder="Search invitees..."
+            value={inviteSearch}
+            onChange={(e) => setInviteSearch(e.target.value)}
+            style={{
+              padding: "5px 10px",
+              borderRadius: 4,
+              border: "1px solid #d1d5db",
+              fontSize: 12,
+              outline: "none",
+              width: 200,
+            }}
+          />
+          {inviteSearch && (
+            <button
+              onClick={() => setInviteSearch("")}
+              style={{ ...btnSmall, border: "none", background: "none", fontSize: 14, color: "#9ca3af", padding: "0 4px" }}
+            >
+              ✕
+            </button>
+          )}
+          {filterGroupId && (
+            <button
+              onClick={() => setFilterGroupId(null)}
+              style={{ ...btnSmall, background: "#fef3c7", border: "1px solid #f59e0b", color: "#92400e", display: "flex", alignItems: "center", gap: 4 }}
+            >
+              Group: {groups.find((g) => g.id === filterGroupId)?.name || "..."}
+              <span style={{ fontWeight: 700 }}>✕</span>
+            </button>
+          )}
+        </div>
+      </div>
+      {filteredInvites.length === 0 ? (
+        <EmptyState msg={filterGroupId ? "No invites in this group" : "No invites yet — send your first one!"} />
       ) : (
         <div style={{ ...cardStyle, overflow: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: "#f9fafb" }}>
-                {["Recipient", "Email", "Views", "Status", "Created", ""].map((h) => (
-                  <th key={h} style={{ padding: "8px 10px", textAlign: "left", borderBottom: "1px solid #e5e7eb", fontWeight: 600 }}>{h}</th>
+                {[
+                  ["Recipient", "recipientName"],
+                  ["Email", "recipientEmail"],
+                  ["Views", "viewCount"],
+                  ["Status", "status"],
+                  ["Group", "group"],
+                  ["Created", "createdAt"],
+                  ["", ""],
+                ].map(([label, col]) => (
+                  <th
+                    key={label + col}
+                    onClick={() => col && toggleSort(col)}
+                    style={{
+                      padding: "8px 10px",
+                      textAlign: "left",
+                      borderBottom: "1px solid #e5e7eb",
+                      fontWeight: 600,
+                      cursor: col ? "pointer" : "default",
+                      userSelect: "none",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {label}{sortIndicator(col)}
+                  </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {invites.map((inv: any) => {
+              {filteredInvites.map((inv: any) => {
                 const sc = statusColors[inv.status] || statusColors.pending;
                 const baseUrl = process.env.NEXT_PUBLIC_APP_BASE_URL || "https://staging-ncc.nfsgrp.com";
                 const url = `${baseUrl}/cam-access/${inv.token}`;
+                const gName = inv.groupId ? groupMap.get(inv.groupId) : null;
                 return (
                   <tr key={inv.id}>
                     <td style={tdStyle}>{inv.recipientName || "—"}</td>
@@ -900,13 +1112,41 @@ function InvitesTab() {
                     <td style={tdStyle}>
                       <span style={{ padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 600, background: sc.bg, color: sc.fg }}>{inv.status}</span>
                     </td>
+                    <td style={tdStyle}>
+                      {gName ? (
+                        <span
+                          style={{ padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 500, background: "#eff6ff", color: "#1e40af", cursor: "pointer" }}
+                          onClick={() => setFilterGroupId(inv.groupId)}
+                        >
+                          {gName}
+                        </span>
+                      ) : (
+                        <span style={{ color: "#d1d5db" }}>—</span>
+                      )}
+                    </td>
                     <td style={tdStyle}>{timeAgo(inv.createdAt)}</td>
-                    <td style={{ ...tdStyle, textAlign: "right" }}>
-                      <button onClick={() => handleCopy(url, inv.id)} style={{ ...btnSmall, marginRight: 4 }}>
-                        {copied === inv.id ? "✓" : "Copy"}
-                      </button>
-                      {inv.status === "pending" && (
-                        <button onClick={() => handleResend(inv.id)} style={{ ...btnSmall, background: "#f59e0b", color: "#fff", border: "none" }}>Resend</button>
+                    <td style={{ ...tdStyle, textAlign: "right", whiteSpace: "nowrap" }}>
+                      {inv.status !== "revoked" && (
+                        <>
+                          <button onClick={() => handleCopy(url, inv.id)} style={{ ...btnSmall, marginRight: 4 }}>
+                            {copied === inv.id ? "✓" : "Copy"}
+                          </button>
+                          {inv.status === "pending" && (
+                            <button onClick={() => handleResend(inv.id)} style={{ ...btnSmall, background: "#f59e0b", color: "#fff", border: "none", marginRight: 4 }}>Resend</button>
+                          )}
+                          <button
+                            onClick={() => handleRescind(inv.id, inv.recipientEmail)}
+                            style={{ ...btnSmall, background: "#fee2e2", color: "#991b1b", border: "1px solid #fecaca" }}
+                            title="Rescind this invite and revoke access"
+                          >
+                            Rescind
+                          </button>
+                        </>
+                      )}
+                      {inv.status === "revoked" && (
+                        <span style={{ fontSize: 10, color: "#9ca3af" }}>
+                          {inv.revokedReason === "self_withdrawal" ? "Self-withdrawn" : "Admin rescinded"}
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -916,6 +1156,8 @@ function InvitesTab() {
           </table>
         </div>
       )}
+
+      {multiSelectModal}
     </div>
   );
 }

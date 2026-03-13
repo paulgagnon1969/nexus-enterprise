@@ -8,6 +8,7 @@ import { BigBoxProvider } from "./bigbox.provider";
 import { SerpApiProvider } from "./serpapi.provider";
 import { SerpApiLowesProvider } from "./serpapi-lowes.provider";
 import { LowesProvider } from "./lowes.provider";
+import { SerpApiAmazonProvider } from "./serpapi-amazon.provider";
 import { VendorRegistryService } from "./vendor-registry.service";
 import { ShopService } from "./shop.service";
 
@@ -20,6 +21,7 @@ import { ShopService } from "./shop.service";
     BigBoxProvider,
     SerpApiLowesProvider,
     LowesProvider,
+    SerpApiAmazonProvider,
     VendorRegistryService,
     ShopService,
   ],
@@ -28,6 +30,7 @@ import { ShopService } from "./shop.service";
     BigBoxProvider,
     SerpApiProvider,
     SerpApiLowesProvider,
+    SerpApiAmazonProvider,
     VendorRegistryService,
     ShopService,
   ],

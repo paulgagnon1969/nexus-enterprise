@@ -30858,6 +30858,7 @@ onClick={() => setManageTemplatesOpen(true)}
                         <thead>
                           <tr style={{ backgroundColor: "#f9fafb" }}>
                             <th style={{ textAlign: "center", padding: "4px 6px", width: 100 }}>Actions</th>
+                            <th style={{ textAlign: "left", padding: "4px 6px", width: 60 }}>DLID</th>
                             <th style={{ textAlign: "left", padding: "4px 6px" }}>Date</th>
                             <th style={{ textAlign: "left", padding: "4px 6px" }}>Author</th>
                             <th style={{ textAlign: "left", padding: "4px 6px" }}>Type</th>
@@ -30980,6 +30981,20 @@ onClick={() => setManageTemplatesOpen(true)}
                                     </>
                                   )}
                                 </div>
+                              </td>
+                              {/* DLID */}
+                              <td
+                                style={{
+                                  padding: "4px 6px",
+                                  borderTop: "1px solid #e5e7eb",
+                                  whiteSpace: "nowrap",
+                                  fontFamily: "monospace",
+                                  fontSize: 11,
+                                  color: "#6366f1",
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {(log as any).dlid || "—"}
                               </td>
                               {/* Date */}
                               <td
@@ -39024,6 +39039,11 @@ onClick={() => setManageTemplatesOpen(true)}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <div style={{ fontSize: 15, fontWeight: 600 }}>Daily Log Details</div>
+                {(viewDailyLog.log as any).dlid && (
+                  <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 600, color: "#6366f1", background: "#eef2ff", padding: "2px 8px", borderRadius: 4 }}>
+                    #{(viewDailyLog.log as any).dlid}
+                  </span>
+                )}
                 {!viewDailyLog.editing && isPmOrAbove && (
                   <>
                     <button

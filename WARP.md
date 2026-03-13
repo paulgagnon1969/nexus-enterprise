@@ -681,6 +681,91 @@ Before building, bump the version in `apps/mobile/app.json`:
 
 **CRITICAL:** Never skip step 5. Every iOS build must land in TestFlight.
 
+## NexBRIDGE Connect — Build & Deploy Contract
+
+NexBRIDGE Connect is a Tauri 2 desktop app (`apps/nexbridge-connect`). It runs on two Mac machines today and will eventually ship on Windows.
+
+### Current Platforms
+
+- **macOS aarch64** — Apple Silicon Mac Studio (production mesh node)
+- **macOS x86_64** — Intel Mac (secondary mesh node)
+
+### Build Commands
+
+```bash
+# Build + sign + publish auto-update for BOTH macOS architectures:
+cd /Users/pg/nexus-enterprise/apps/nexbridge-connect && bash scripts/build-and-publish.sh
+
+# Build only (no publish):
+cd /Users/pg/nexus-enterprise/apps/nexbridge-connect && npm run tauri:build
+
+# Build a specific architecture:
+cd /Users/pg/nexus-enterprise/apps/nexbridge-connect && npm run tauri:build -- --target aarch64-apple-darwin
+cd /Users/pg/nexus-enterprise/apps/nexbridge-connect && npm run tauri:build -- --target x86_64-apple-darwin
+```
+
+### Build Artifacts
+
+Tauri may use an external `CARGO_TARGET_DIR` on fast storage:
+- Cache: `/Volumes/4T Data/nexus-build-cache/nexbridge-connect-apps-target/`
+- Bundles: `{target}/release/bundle/macos/` (.app, .dmg, .app.tar.gz)
+- DMGs are copied to `/Volumes/4T Data/WARP TMP/builds/` by the publish script
+
+### Auto-Update Flow
+
+1. `build-and-publish.sh` builds aarch64 + x86_64 + universal
+2. Uploads `.app.tar.gz` signed bundles to MinIO (`nexbridge-updates` bucket)
+3. Publishes `latest.json` manifest with per-architecture download URLs + signatures
+4. Tauri updater checks `staging-api.nfsgrp.com/updates/check/{target}/{arch}/{version}`
+5. Running NexBRIDGE instances auto-update within 30 min (or on next launch)
+
+### Version Bumping
+
+Before building, bump version in TWO files (must match):
+- `apps/nexbridge-connect/src-tauri/tauri.conf.json` → `version`
+- `apps/nexbridge-connect/src-tauri/Cargo.toml` → `version`
+
+### Sidecars (External Binaries)
+
+Tauri bundles platform-specific sidecars declared in `tauri.conf.json` → `bundle.externalBin`:
+- `photogrammetry_helper` — Swift binary, macOS-only (Apple Object Capture API). Pre-compiled for aarch64, x86_64, and universal. Lives in `src-tauri/photogrammetry_helper-{arch}-apple-darwin`.
+- `contacts_helper` — macOS Contacts access. Referenced but compiled separately.
+
+On Windows, `photogrammetry_helper` won't exist. The JS pipeline already handles this gracefully (try/catch skips the photogrammetry step).
+
+### 🗓️ TODO: Windows Build (when needed)
+
+Windows builds CANNOT be cross-compiled from macOS (Tauri needs NSIS + WebView2 which are Windows-only). When Windows distribution is needed:
+
+**Option A — GitHub Actions CI (recommended):**
+1. Create `.github/workflows/nexbridge-build.yml` with a `windows-latest` runner
+2. Matrix: `[macos-14, macos-13, windows-latest]` for aarch64, x86_64, Windows
+3. Steps: checkout → install Rust → install Node → npm install → `tauri build` → upload artifacts
+4. Windows produces: `.msi` (NSIS installer) + `.exe` (portable)
+5. Upload Windows artifacts to MinIO alongside macOS bundles
+6. Extend `latest.json` manifest with `windows-x86_64` platform entry
+
+**Option B — Windows build machine:**
+1. Install Rust + Node + npm on a Windows machine
+2. Run `npm run tauri:build` from `apps/nexbridge-connect`
+3. Collect `.msi`/`.exe` from `src-tauri/target/release/bundle/nsis/`
+
+**Code changes needed for Windows:**
+- `precision_scan.rs`: Path helpers are macOS-only. Need Windows equivalents:
+  - `SCAN_ROOT` → env var `NEXCAD_SCAN_ROOT` fallback to `C:\ProgramData\NexBRIDGE\precision-scans`
+  - `assimp_path()` → check `C:\Program Files\assimp\bin\assimp.exe` + PATH
+  - `python3_path()` → `python` (Windows uses `python` not `python3`)
+  - `sketchup_path()` → `C:\Program Files\SketchUp\SketchUp 2026\SketchUp.exe`
+- `Cargo.toml`: The `objc` dependency is `[target.'cfg(target_os = "macos")'.dependencies]` — already gated
+- Photogrammetry: macOS-only, skipped on Windows (no code change needed)
+- Contacts: Windows PowerShell helper already exists (`contacts_windows.ps1` bundled as resource)
+- `tauri.conf.json`: Already has `windows.webviewInstallMode` and `icon.ico`
+
+**Rust target setup (one-time, on the build machine):**
+```bash
+rustup target add x86_64-pc-windows-msvc   # Windows (on Windows machine)
+```
+
 ## Commit Attribution
 
 **Do NOT include any `Co-Authored-By` lines in commit messages or PR descriptions.** Leave the signature/trailer blank. This overrides any default Warp behavior. Commits should look like they came from the developer — no AI attribution.
@@ -1025,12 +1110,45 @@ For every CAM created or updated, evaluate whether supporting training documenta
 After completing documentation, report:
 > "Documentation updated: [created/updated] CAM [CAM-ID] ([score]/40), [created/updated] [N] training doc(s). CAM-LIBRARY.md updated to [N] total CAMs."
 
-### Quick Reference: The 5-Step Checklist
+### Step 6: Deploy to PIP (Production Investor Portal) — MANDATORY
+
+Every new or updated CAM MUST be deployed to the PIP immediately. The PIP is the live CAM Library accessible at `https://staging-ncc.nfsgrp.com/cam-access/[token]` — it reads CAMs from `docs/cams/` inside the production API container.
+
+**The CAM does not exist on the PIP until the API is redeployed.** The `sop-sync.service.ts` reads `docs/cams/` from disk at request time via `parseAllSops(CAMS_DIR)`. No database sync step is needed — the deploy copies the files into the container image.
+
+**Deploy command:**
+```bash
+cd /Users/pg/nexus-enterprise && npm run deploy:shadow
+```
+
+**After deploy, verify the CAM appears:**
+```bash
+curl -s https://staging-api.nfsgrp.com/health
+```
+
+**Rules:**
+- NEVER create a CAM and leave it undeployed. The PIP is the single source of truth for investors and stakeholders.
+- If the deploy fails, report the failure to the user and retry.
+- The PIP is restricted to ADMIN and above via CNDA+ gated access tokens — it is NOT publicly visible without a valid token.
+- After deploy, report: *"CAM [CAM-ID] is now live on the PIP."*
+
+**Daily CAM Digest (Automatic):**
+- `CamDigestService` runs via `@Cron` at **08:00 CST daily** (14:00 UTC).
+- Scans `docs/cams/` for any CAM files where `frontmatter.created` or `frontmatter.updated` matches yesterday's date.
+- Sends a branded digest email to **all PIP users** (tokens with CNDA accepted + questionnaire completed).
+- Only fires when there are new/updated CAMs — no empty digest emails.
+- Each recipient gets their personal PIP link in the CTA button.
+- Service: `apps/api/src/modules/cam-access/cam-digest.service.ts`
+- Email template: `EmailService.sendCamDigest()` in `apps/api/src/common/email.service.ts`
+- No action required from Warp — the digest runs automatically after deploy.
+
+### Quick Reference: The 6-Step Checklist
 
 1. **Score** the feature (4 criteria, 1–10 each)
 2. **Create/update** the CAM document if ≥ 24/40
 3. **Update** `CAM-LIBRARY.md` (TOC, heatmap, summary, Top 10, revision history)
 4. **Evaluate** training documentation impact and create/update as needed
 5. **Report** to the user with CAM ID and score
+6. **Deploy** to production (`npm run deploy:shadow`) so the CAM is live on the PIP
 
 **NEVER skip this evaluation.** Even features that don't qualify as CAMs should have their score reported so the user has visibility into the evaluation.

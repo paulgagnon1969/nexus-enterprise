@@ -86,6 +86,11 @@ import { UpdatesModule } from "./modules/updates/updates.module";
 import { NexfitModule } from "./modules/nexfit/nexfit.module";
 import { CamAccessModule } from "./modules/cam-access/cam-access.module";
 import { CamDashboardModule } from "./modules/cam-dashboard/cam-dashboard.module";
+import { ProcurementModule } from "./modules/procurement/procurement.module";
+import { CndaTemplatesModule } from "./modules/cnda-templates/cnda-templates.module";
+import { CampaignsModule } from "./modules/campaigns/campaigns.module";
+import { PortalAccessModule } from "./modules/portal-access/portal-access.module";
+import { DevSessionModule } from "./modules/dev-session/dev-session.module";
 
 @Module({
   imports: [
@@ -176,6 +181,11 @@ import { CamDashboardModule } from "./modules/cam-dashboard/cam-dashboard.module
     NexfitModule,
     CamAccessModule,
     CamDashboardModule,
+    ProcurementModule,
+    CndaTemplatesModule,
+    CampaignsModule,
+    PortalAccessModule,
+    DevSessionModule,
   ],
   controllers: [DevController],
   providers: [

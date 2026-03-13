@@ -859,6 +859,278 @@ export class EmailService {
   }
 
   /**
+   * Send a new module announcement email to admins.
+   */
+  async sendNewModuleAnnouncement(params: {
+    toEmail: string;
+    recipientName?: string;
+    moduleName: string;
+    summaryBullets: string[];
+    ctaUrl: string;
+    ctaLabel?: string;
+  }) {
+    const name = params.recipientName || "there";
+    const cta = params.ctaLabel || "Explore the Module";
+
+    const bulletsHtml = params.summaryBullets
+      .map(
+        (b) =>
+          `<li style="margin-bottom: 6px; color: #374151; font-size: 13px;">${escapeHtml(b)}</li>`,
+      )
+      .join("");
+
+    const subject = `New Module Available: ${params.moduleName}`;
+
+    const html = `
+      <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height: 1.5; max-width: 600px;">
+        <div style="background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%); color: #fff; padding: 24px; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 20px;">\uD83D\uDE80 New Module Available</h1>
+          <p style="margin: 8px 0 0; opacity: 0.9; font-size: 14px;">${escapeHtml(params.moduleName)}</p>
+        </div>
+        <div style="background: #fff; border: 1px solid #e5e7eb; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+          <p style="margin: 0 0 16px;">Hello ${escapeHtml(name)},</p>
+          <p style="margin: 0 0 16px;">A powerful new module has been added to the Nexus platform:</p>
+
+          <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 16px; margin: 0 0 20px;">
+            <h2 style="margin: 0 0 12px; font-size: 16px; color: #059669;">${escapeHtml(params.moduleName)}</h2>
+            <ul style="margin: 0; padding-left: 20px;">
+              ${bulletsHtml}
+            </ul>
+          </div>
+
+          <p style="margin: 0 0 24px; text-align: center;">
+            <a href="${params.ctaUrl}" style="display: inline-block; background: linear-gradient(135deg, #059669 0%, #10b981 100%); color: #fff; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">
+              ${escapeHtml(cta)}
+            </a>
+          </p>
+
+          <p style="margin: 0 0 8px; color: #6b7280; font-size: 12px;">Or copy this link:</p>
+          <p style="margin: 0 0 20px; word-break: break-all; font-size: 12px; color: #2563eb;">
+            <a href="${params.ctaUrl}" style="color: #2563eb;">${params.ctaUrl}</a>
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">This is an automated notification from NEXUS. You received this because you are an administrator on the platform.</p>
+        </div>
+      </div>
+    `.trim();
+
+    const bulletsText = params.summaryBullets.map((b) => `  - ${b}`).join("\n");
+    const text = `New Module Available: ${params.moduleName}\n\nHello ${name},\n\nA new module has been added to Nexus:\n\n${bulletsText}\n\n${cta}: ${params.ctaUrl}\n`;
+
+    return this.sendMail({ to: params.toEmail, subject, html, text });
+  }
+
+  /**
+   * Send a Secure Portal campaign invite email with branded CTA.
+   */
+  async sendPortalInvite(params: {
+    toEmail: string;
+    recipientName?: string;
+    inviterName: string;
+    campaignName: string;
+    message?: string;
+    shareUrl: string;
+  }) {
+    const name = params.recipientName || "there";
+    const personalMessage = params.message
+      ? `<div style="background: #f0f9ff; border-left: 3px solid #3b82f6; padding: 12px 16px; margin: 0 0 20px; border-radius: 0 6px 6px 0; font-style: italic; color: #1e40af; font-size: 13px;">${escapeHtml(params.message)}</div>`
+      : "";
+
+    const subject = `${params.inviterName} has invited you to view: ${params.campaignName}`;
+
+    const html = `
+      <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height: 1.5; max-width: 600px;">
+        <div style="background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%); color: #fff; padding: 24px; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 20px;">\uD83D\uDD12 You're Invited</h1>
+          <p style="margin: 8px 0 0; opacity: 0.9; font-size: 14px;">${escapeHtml(params.campaignName)}</p>
+        </div>
+        <div style="background: #fff; border: 1px solid #e5e7eb; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+          <p style="margin: 0 0 16px;">Hello ${escapeHtml(name)},</p>
+          <p style="margin: 0 0 16px;"><strong>${escapeHtml(params.inviterName)}</strong> has invited you to securely view <strong>${escapeHtml(params.campaignName)}</strong>.</p>
+
+          ${personalMessage}
+
+          <div style="background: #f9fafb; border-radius: 8px; padding: 16px; margin: 0 0 20px;">
+            <h3 style="margin: 0 0 8px; font-size: 14px; color: #374151;">What to expect:</h3>
+            <ol style="margin: 0; padding-left: 20px; color: #374151; font-size: 13px;">
+              <li style="margin-bottom: 4px;">Review &amp; accept a brief confidentiality agreement</li>
+              <li style="margin-bottom: 4px;">Complete a quick assessment</li>
+              <li>Access the secure documents</li>
+            </ol>
+          </div>
+
+          <p style="margin: 0 0 24px; text-align: center;">
+            <a href="${params.shareUrl}" style="display: inline-block; background: linear-gradient(135deg, #059669 0%, #10b981 100%); color: #fff; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">
+              View Documents
+            </a>
+          </p>
+
+          <p style="margin: 0 0 8px; color: #6b7280; font-size: 12px;">Or copy this link:</p>
+          <p style="margin: 0 0 20px; word-break: break-all; font-size: 12px; color: #2563eb;">
+            <a href="${params.shareUrl}" style="color: #2563eb;">${params.shareUrl}</a>
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">This invitation was sent by NEXUS on behalf of ${escapeHtml(params.inviterName)}. The documents you are about to access contain confidential and proprietary information protected under the agreement you will accept.</p>
+        </div>
+      </div>
+    `.trim();
+
+    const text = `${params.inviterName} has invited you to view: ${params.campaignName}.\n\n${params.message ? `"${params.message}"\n\n` : ""}View Documents: ${params.shareUrl}\n\nYou'll need to accept a brief confidentiality agreement and complete a quick assessment before viewing.\n`;
+
+    return this.sendMail({ to: params.toEmail, subject, html, text });
+  }
+
+  /**
+   * Send a daily CAM digest email to PIP users summarizing new/updated CAMs.
+   */
+  async sendCamDigest(params: {
+    toEmail: string;
+    recipientName?: string;
+    entries: Array<{
+      camId: string;
+      title: string;
+      mode: string;
+      modeLabel: string;
+      category: string;
+      score: number;
+      isNew: boolean;
+    }>;
+    dateLabel: string;
+    shareUrl: string;
+  }) {
+    const name = params.recipientName || "there";
+    const newCount = params.entries.filter((e) => e.isNew).length;
+    const updatedCount = params.entries.length - newCount;
+
+    const subjectParts: string[] = [];
+    if (newCount > 0) subjectParts.push(`${newCount} new`);
+    if (updatedCount > 0) subjectParts.push(`${updatedCount} updated`);
+    const subject = `CAM Library Update — ${subjectParts.join(" & ")} module${params.entries.length > 1 ? "s" : ""}`;
+
+    const entriesHtml = params.entries
+      .map((e) => {
+        const badge = e.isNew
+          ? `<span style="display:inline-block;background:#059669;color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:8px;">NEW</span>`
+          : `<span style="display:inline-block;background:#2563eb;color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:8px;">UPDATED</span>`;
+        const scoreColor = e.score >= 35 ? "#059669" : e.score >= 30 ? "#0284c7" : "#b45309";
+        return `
+          <tr>
+            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;">
+              <strong style="color:#0f172a;font-size:14px;">${escapeHtml(e.title)}</strong>${badge}
+              <br/><span style="color:#6b7280;font-size:12px;">${escapeHtml(e.camId)} • ${escapeHtml(e.modeLabel)} • ${escapeHtml(e.category)}</span>
+            </td>
+            <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;">
+              <span style="font-weight:700;font-size:16px;color:${scoreColor};">${e.score}/40</span>
+            </td>
+          </tr>`;
+      })
+      .join("");
+
+    const html = `
+      <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height: 1.5; max-width: 600px;">
+        <div style="background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%); color: #fff; padding: 24px; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 20px;">\uD83D\uDCCA CAM Library — Daily Update</h1>
+          <p style="margin: 8px 0 0; opacity: 0.9; font-size: 14px;">${params.dateLabel}</p>
+        </div>
+        <div style="background: #fff; border: 1px solid #e5e7eb; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+          <p style="margin: 0 0 16px;">Hello ${escapeHtml(name)},</p>
+          <p style="margin: 0 0 20px;">
+            ${newCount > 0 ? `<strong>${newCount}</strong> new module${newCount > 1 ? "s" : ""} ` : ""}
+            ${newCount > 0 && updatedCount > 0 ? "and " : ""}
+            ${updatedCount > 0 ? `<strong>${updatedCount}</strong> updated module${updatedCount > 1 ? "s" : ""} ` : ""}
+            ${newCount > 0 || updatedCount > 0 ? "added to the Nexus CAM Library:" : ""}
+          </p>
+
+          <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+            <thead>
+              <tr style="background:#f8fafc;">
+                <th style="padding:8px 12px;text-align:left;font-size:12px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">Module</th>
+                <th style="padding:8px 12px;text-align:center;font-size:12px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">Score</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${entriesHtml}
+            </tbody>
+          </table>
+
+          <p style="margin: 24px 0 24px; text-align: center;">
+            <a href="${params.shareUrl}" style="display: inline-block; background: linear-gradient(135deg, #059669 0%, #10b981 100%); color: #fff; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">
+              View in CAM Library
+            </a>
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">This is an automated daily digest from NEXUS. You received this because you have active access to the CAM Library. The CAM Library contains confidential and proprietary information protected under the CNDA+ agreement.</p>
+        </div>
+      </div>
+    `.trim();
+
+    const entriesText = params.entries
+      .map((e) => `  ${e.isNew ? "[NEW]" : "[UPD]"} ${e.camId} — ${e.title} (${e.score}/40)`)
+      .join("\n");
+    const text = `CAM Library Daily Update — ${params.dateLabel}\n\nHello ${name},\n\n${entriesText}\n\nView in CAM Library: ${params.shareUrl}\n`;
+
+    return this.sendMail({ to: params.toEmail, subject, html, text });
+  }
+
+  /**
+   * Send device verification code for untrusted device login.
+   */
+  /**
+   * Send a CAM discussion notification when someone posts a new message.
+   * Includes thread context, message preview, view CTA, and mute link.
+   */
+  async sendDiscussionNotification(params: {
+    toEmail: string;
+    recipientName?: string;
+    threadTitle: string;
+    camSection: string;
+    authorName: string;
+    messagePreview: string;
+    threadUrl: string;
+    muteUrl: string;
+  }) {
+    const name = params.recipientName || "there";
+    const subject = `New reply in "${params.threadTitle}" — ${params.camSection}`;
+
+    const html = `
+      <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height: 1.5; max-width: 600px;">
+        <div style="background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%); color: #fff; padding: 20px 24px; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 16px;">\uD83D\uDCAC New Discussion Reply</h1>
+          <p style="margin: 6px 0 0; opacity: 0.85; font-size: 13px;">${escapeHtml(params.camSection)}</p>
+        </div>
+        <div style="background: #fff; border: 1px solid #e5e7eb; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+          <p style="margin: 0 0 16px;">Hello ${escapeHtml(name)},</p>
+          <p style="margin: 0 0 16px;"><strong>${escapeHtml(params.authorName)}</strong> replied in the discussion:</p>
+
+          <div style="background: #f9fafb; border-left: 3px solid #3b82f6; padding: 12px 16px; margin: 0 0 20px; border-radius: 0 6px 6px 0;">
+            <p style="margin: 0 0 4px; font-weight: 600; font-size: 14px; color: #0f172a;">${escapeHtml(params.threadTitle)}</p>
+            <p style="margin: 0; color: #4b5563; font-size: 13px;">${escapeHtml(params.messagePreview)}</p>
+          </div>
+
+          <p style="margin: 0 0 24px; text-align: center;">
+            <a href="${params.threadUrl}" style="display: inline-block; background: linear-gradient(135deg, #059669 0%, #10b981 100%); color: #fff; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">
+              View Discussion
+            </a>
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">
+            You received this because you're a participant in this discussion.
+            <a href="${params.muteUrl}" style="color: #6b7280; text-decoration: underline;">Mute this thread</a>
+          </p>
+        </div>
+      </div>
+    `.trim();
+
+    const text = `New reply in "${params.threadTitle}" (${params.camSection})\n\n${params.authorName} wrote:\n${params.messagePreview}\n\nView discussion: ${params.threadUrl}\nMute this thread: ${params.muteUrl}\n`;
+
+    return this.sendMail({ to: params.toEmail, subject, html, text });
+  }
+
+  /**
    * Send device verification code for untrusted device login.
    */
   async sendDeviceVerificationCode(params: {

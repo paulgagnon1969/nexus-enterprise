@@ -50,6 +50,13 @@ export interface VisionMaterial {
   confidence: number;
 }
 
+export interface TrimBandRaw {
+  trimType: string;       // "baseboard" | "crown-molding" | "chair-rail"
+  bounds: { x: number; y: number; width: number; height: number };
+  estimatedHeightFraction: number;  // fraction of frame height
+  confidence: number;
+}
+
 export interface VisionDetectionsRaw {
   roomType: string | null;
   roomTypeConfidence: number;
@@ -61,6 +68,7 @@ export interface VisionDetectionsRaw {
   };
   detectedText: string[];
   additionalRectangles: VisionRectangle[];
+  trimBands: TrimBandRaw[];
   framesAnalyzed: number;
 }
 
@@ -84,6 +92,10 @@ export interface CapturedRoomData {
   floorPolygon: number[][];      // [[x,z], ...] wall centers projected to XZ plane
   summary: RoomSummary;
   visionDetections: VisionDetectionsRaw;
+  /** Full-res JPEG paths captured per-wall during scan (for Material Walk AI analysis) */
+  highResFramePaths: string[];
+  /** Average LiDAR depth confidence across the scan (0.0–1.0; 0 if no LiDAR) */
+  lidarConfidence: number;
 }
 
 export interface RoomPlanResult {

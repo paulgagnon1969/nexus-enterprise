@@ -8,13 +8,17 @@ import {
   Query,
   Req,
   UseGuards,
+  Logger,
 } from '@nestjs/common';
+import { readMultipleFilesFromMultipart } from '../../infra/uploads/multipart';
 import { CombinedAuthGuard, Roles, Role } from '../auth/auth.guards';
 import { AuthenticatedUser } from '../auth/jwt.strategy';
 import { PrecisionScanService } from './precision-scan.service';
 
 @Controller('precision-scans')
 export class PrecisionScanController {
+  private readonly logger = new Logger(PrecisionScanController.name);
+
   constructor(private readonly scans: PrecisionScanService) {}
 
   /**
@@ -96,6 +100,40 @@ export class PrecisionScanController {
       scanId,
       body.status as 'DOWNLOADING' | 'RECONSTRUCTING' | 'CONVERTING' | 'ANALYZING' | 'UPLOADING',
     );
+  }
+
+  /**
+   * POST /precision-scans/:scanId/upload
+   * Receive multipart file uploads from NexBridge Connect, store in MinIO,
+   * and update the scan record with public URLs.
+   *
+   * NexBRIDGE sends files as multipart parts named `file_usdz`, `file_obj`,
+   * `file_dae`, etc. plus optional `analysis` (JSON) and `jobId` (text).
+   */
+  @UseGuards(CombinedAuthGuard)
+  @Roles(Role.OWNER, Role.ADMIN, Role.MEMBER)
+  @Post(':scanId/upload')
+  async uploadFiles(
+    @Req() req: any,
+    @Param('scanId') scanId: string,
+  ) {
+    const { files, fields } = await readMultipleFilesFromMultipart(req, {
+      captureFields: ['jobId'],
+    });
+
+    this.logger.log(
+      `Upload for scan ${scanId}: ${files.length} files (meshJob=${fields.jobId ?? 'unknown'})`,
+    );
+
+    const filePayloads = await Promise.all(
+      files.map(async (f) => ({
+        fieldName: (f as any).fieldname || (f as any).field || f.filename.replace(/^model\./, 'file_').replace(/\..+$/, ''),
+        fileName: f.filename,
+        buffer: await f.toBuffer(),
+      })),
+    );
+
+    return this.scans.uploadScanFiles(scanId, filePayloads);
   }
 
   /**

@@ -1,9 +1,9 @@
 ---
 title: "Nexus CAM Library — Competitive Advantage Modules"
-revision: "1.0"
+revision: "1.1"
 status: active
 created: 2026-03-10
-updated: 2026-03-10
+updated: 2026-03-13
 author: Warp
 visibility:
   public: false
@@ -14,7 +14,7 @@ tags: [cam, library, index, portfolio, competitive-advantage]
 
 # Nexus CAM Library
 
-> **49 modules. 7 functional areas. NexOP ~6–12% of revenue recovered. NexINT 72% → 95% operational integrity.**
+> **53 modules. 7 functional areas. NexOP ~6–12% of revenue recovered. NexINT 72% → 95% operational integrity.**
 
 This document is the master index and executive summary of every Competitive Advantage Module in the Nexus platform. It is organized in three tiers:
 
@@ -42,7 +42,7 @@ Five cross-tenant collaboration mechanisms form the backbone:
 - NexNet Candidate Pool Sharing (curated talent distribution)
 - The Referral Graph (trust as the strongest intent signal)
 
-The 49 CAMs below organize into four layers of the intent system:
+The 53 CAMs below organize into four layers of the intent system:
 - **Discovery & Recruitment** — CLT-INTG-0001 (Sovereign Marketplace), CLT-COLLAB-0001/0002, NexFIND, Phantom Fleet
 - **Identity & Reputation** — NexCheck, TUCKS, NexOP, NexINT
 - **Operational Execution** — NexPLAN, BOM Pricing, Task Cascading, Auto-Posting
@@ -61,14 +61,14 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 ```
               AUTO   INTL   INTG   VIS   SPD   ACC   COLLAB   CMP
   FIN          2      2      1      2     1     5      —       —     = 13
-  EST          1      1      1      —     1     2      —       —     =  6
-  OPS          1      1      1      4     —     1      1       —     =  9
-  TECH         1      2      3      2     2     1      —       —     = 11
+  EST          1      2      1      —     1     2      —       —     =  7
+  OPS          1      3      1      4     —     1      1       —     = 11
+  TECH         1      2      3      2     2     1      1       —     = 12
   CLT          —      1      1      —     —     —      4       —     =  6
   CMP          1      —      1      —     —     —      —       1     =  3
   HR           —      —      —      —     —     —      —       —     =  0
              ───    ───    ───    ───   ───   ───    ───     ───
-              6      7      8      8     4     9      5       1     = 48+1 portfolio
+              6     10      8      8     4     9      6       1     = 52+1 portfolio
 ```
 
 **Densest cells**: FIN-ACC (5), OPS-VIS (4), CLT-COLLAB (4), TECH-INTG (3), TECH-VIS (2), TECH-INTL (2), FIN-AUTO (2), FIN-INTL (2), FIN-VIS (2)
@@ -95,7 +95,7 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 | FIN-VIS-0001 | Purchase Reconciliation Audit Chain | 33/40 | ~0.66% | draft |
 | FIN-VIS-0002 | Invoice Retail Transparency Display | 24/40 | ~0.12% | draft |
 
-### Estimating (EST) — 6 CAMs | Module NexOP ~3.12%
+### Estimating (EST) — 7 CAMs | Module NexOP ~3.97%
 
 | CAM ID | Title | Score | NexOP | Status |
 |--------|-------|-------|-------|--------|
@@ -104,9 +104,10 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 | EST-AUTO-0002 | NexPLAN — AI-Assisted Selections & Planning | 36/40 | ~0.60% | draft |
 | EST-INTG-0001 | Multi-Provider BOM Pricing Pipeline | 32/40 | ~2.99% | draft |
 | EST-INTL-0001 | NexBRIDGE Video Index & Re-scan | 32/40 | ~0.18% | draft |
+| **EST-INTL-0002** | **ScanNEX Component Identity & Material Intelligence** | **36/40** | **~0.85%** | **draft** |
 | EST-SPD-0001 | Redis Price List Caching | 29/40 | ~0.13% | draft |
 
-### Operations (OPS) — 9 CAMs | Module NexOP ~1.81%
+### Operations (OPS) — 11 CAMs | Module NexOP ~3.31%
 
 | CAM ID | Title | Score | NexOP | Status |
 |--------|-------|-------|-------|--------|
@@ -115,12 +116,14 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 | OPS-COLLAB-0001 | Phantom Fleet — Personal Asset Sharing | 31/40 | ~0.39% | draft |
 | OPS-INTG-0001 | NexFIND Receipt Bridge — Verified Suppliers | 30/40 | ~0.26% | draft |
 | OPS-INTL-0001 | NexFIND — Supplier Intelligence Network | 35/40 | ~0.54% | draft |
+| OPS-INTL-0002 | NexCART — Intelligent Materials Procurement | 35/40 | ~1.00% | draft |
+| **OPS-INTL-0003** | **NexCBAML — Cost-Benefit Analysis Materials Logistics** | **38/40** | **~1.50%** | **draft** |
 | OPS-VIS-0001a | Field Qty Discrepancy Pipeline | 28/40 | ~0.61% | draft |
 | OPS-VIS-0001b | Intelligent Feature Discovery | 33/40 | — | draft |
 | OPS-VIS-0002 | Urgency-Based Task Dashboard | 29/40 | ~0.27% | draft |
 | OPS-VIS-0003 | Project & Tenant Scan/Assessment Hub | 32/40 | — | draft |
 
-### Technology (TECH) — 11 CAMs | Module NexOP ~1.51%
+### Technology (TECH) — 12 CAMs | Module NexOP ~1.51%
 
 | CAM ID | Title | Score | NexOP | Status |
 |--------|-------|-------|-------|--------|
@@ -135,8 +138,9 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 | TECH-SPD-0004 | NexBRIDGE Real-Time Update Push | 28/40 | — | draft |
 | TECH-VIS-0001 | NexOP — Operating Percentage Metric | 35/40 | — | draft |
 | TECH-VIS-0002 | NexINT — Operational Integrity Dashboard | 36/40 | — | draft |
+| TECH-COLLAB-0002 | Session Mirror — Remote Dev Oversight from Mobile | 33/40 | — | validated |
 
-### Client Relations (CLT) — 6 CAMs
+### Client Relations (CLT)
 
 | CAM ID | Title | Score | NexOP | Status |
 |--------|-------|-------|-------|--------|
@@ -159,16 +163,16 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 
 ## Top 10 CAMs by Score
 
-1. **CLT-INTG-0001** NCC Sovereign Marketplace — **37/40** ★ Flagship
-2. **EST-ACC-0002** NexCAD Enhanced Video Assessment — **37/40**
-3. **TECH-AUTO-0001** NexBRIDGE Distributed Compute Mesh — **37/40**
-4. **CLT-INTL-0001** NexFIT Module Discovery & ROI Engine — **36/40**
-5. **FIN-ACC-0002** Zero-Loss Receipt Capture — **36/40**
-6. **EST-AUTO-0002** NexPLAN AI-Assisted Selections — **36/40**
-7. **TECH-INTG-0001b** NexCAD Precision Scan → CAD — **36/40**
-8. **TECH-VIS-0002** NexINT Operational Integrity Dashboard — **36/40**
-9. **FIN-INTL-0003** NexPRICE Regional Pricing Intelligence — **35/40**
-10. **CLT-COLLAB-0003** Viral Document Sharing & Graduated Identity — **35/40**
+1. **OPS-INTL-0003** NexCBAML — Cost-Benefit Analysis Materials Logistics — **38/40** ★ New #1
+2. **CLT-INTG-0001** NCC Sovereign Marketplace — **37/40** ★ Flagship
+3. **EST-ACC-0002** NexCAD Enhanced Video Assessment — **37/40**
+4. **TECH-AUTO-0001** NexBRIDGE Distributed Compute Mesh — **37/40**
+5. **CLT-INTL-0001** NexFIT Module Discovery & ROI Engine — **36/40**
+6. **EST-INTL-0002** ScanNEX Component Identity & Material Intelligence — **36/40** ★ New
+7. **FIN-ACC-0002** Zero-Loss Receipt Capture — **36/40**
+8. **EST-AUTO-0002** NexPLAN AI-Assisted Selections — **36/40**
+9. **TECH-INTG-0001b** NexCAD Precision Scan → CAD — **36/40**
+10. **TECH-VIS-0002** NexINT Operational Integrity Dashboard — **36/40**
 
 ---
 
@@ -342,6 +346,15 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 
 → [Full CAM](./EST-INTL-0001-nexbridge-video-index-rescan.md)
 
+#### EST-INTL-0002 — ScanNEX Component Identity & Material Intelligence ★ New
+*"Scan a room. Know every baseboard, every crown, every casing — profile, material, finish — before you leave the jobsite."*
+
+**Problem**: LiDAR scanning gives you "87.5 LF of baseboard" but not *what kind*. Estimators still make return visits to hand-measure trim profiles and photograph materials — a half-day per room that delays estimates by 24-48 hours.
+**NCC Advantage**: Three-stage pipeline: passive Vision contour detection during LiDAR scan identifies trim bands (baseboard, crown, chair rail), guided Material Walk captures close-up photos of each component in 30-60s, and `buildEnrichedBOM()` produces 9 categories of estimate-ready line items with profile style, material, and dimensions. Output: "87.5 LF of 3.5" colonial MDF baseboard" — not "87.5 LF baseboard."
+**Score**: 36/40 (U:9 V:10 D:9 Def:8) | **NexOP**: ~0.85% | Tied for highest value score (10/10).
+
+→ [Full CAM](./EST-INTL-0002-scannex-component-identity-material-intelligence.md)
+
 #### EST-SPD-0001 — Redis Price List Caching
 *"54,000 prices in 50ms."*
 
@@ -399,6 +412,24 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 **Score**: 35/40 (U:9 V:9 D:9 Def:8) | **NexOP**: ~0.54% | Strongest network-effect moat.
 
 → [Full CAM](./OPS-INTL-0001-nexfind-supplier-intelligence.md)
+
+#### OPS-INTL-0002 — NexCART: Intelligent Materials Procurement
+*"The estimate says what you need. NexCART tells you where to buy it, how much to carry, and whether the crew actually did."*
+
+**Problem**: Materials are 40–50% of project cost, yet no system connects the estimate to the purchase to the receipt to the installed quantity. Crews default to the nearest store, buy inconsistent quantities, and waste is invisible.
+**NCC Advantage**: PETL-driven shopping carts with CBA price:distance optimization, multi-supplier trip planning, and automatic receipt reconciliation. Drawdown ledger tracks need → ordered → purchased → installed. Every deviation is visible — turning procurement from a cost center into a cultural training tool.
+**Score**: 35/40 (U:9 V:10 D:8 Def:8) | **NexOP**: ~1.00% | Highest value score (10/10) tied with FIN-ACC-0002.
+
+→ [Full CAM](./OPS-INTL-0002-nexcart-intelligent-materials-procurement.md)
+
+#### OPS-INTL-0003 — NexCBAML: Cost-Benefit Analysis Materials Logistics ★ New #1
+*"Where should I buy it, how should it get here, and what does the whole decision actually cost?"*
+
+**Problem**: Procurement tools treat local stores and online suppliers as separate workflows. No system unifies pickup and delivery economics into a single optimized decision. No platform models delivery lead time as a monetary cost.
+**NCC Advantage**: Omnichannel CBA engine that scores local pickup (travel + time cost) and online delivery (shipping + lead time penalty) on the same cost surface. Hybrid trip optimizer produces plans with physical stops + parallel online orders. Bulk pricing tiers from Amazon/online suppliers feed quantity recommendations. Six interconnected NexSTACK layers make this impossible to replicate as a standalone feature — a competitor would need to rebuild the entire platform.
+**Score**: 38/40 (U:10 V:10 D:9 Def:9) | **NexOP**: ~1.50% | Highest-scoring CAM in the portfolio.
+
+→ [Full CAM](./OPS-INTL-0003-nexcbaml-cost-benefit-analysis-materials-logistics.md)
 
 #### OPS-VIS-0001a — Field Qty Discrepancy Pipeline
 *"Field flags it. PM sees it. Supplement filed the same day."*
@@ -539,6 +570,15 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 
 → [Full CAM](./TECH-VIS-0002-nexint-operational-integrity-dashboard.md)
 
+#### TECH-COLLAB-0002 — Session Mirror: Remote Dev Oversight from Mobile
+*"Approve a deployment from the golf course. Reject a migration from the plane."*
+
+**Problem**: Development velocity is constrained when the decision-maker must be physically present to review changes and approve deployments. Context-switching to a laptop breaks field work.
+**NCC Advantage**: Full-stack remote dev oversight via the NCC mobile app. Live event streaming (WebSocket + REST fallback), push-notification-gated deployment approvals with Approve/Reject action buttons, inline commenting, and SUPER_ADMIN-only access enforced at every layer (API, WebSocket, mobile UI). No competitor in restoration or construction offers real-time mobile command-and-control over AI-assisted development.
+**Score**: 33/40 (U:9 V:8 D:9 Def:7) | Status: validated.
+
+→ [Full CAM](./TECH-COLLAB-0002-session-mirror-remote-dev-oversight.md)
+
 ---
 
 ### Client Relations (CLT)
@@ -648,3 +688,4 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 | 1.2 | 2026-03-11 | Added CLT-INTL-0001 NexFIT Module Discovery & ROI Engine (36/40) — 46 CAMs total |
 || 1.3 | 2026-03-11 | Added CLT-COLLAB-0003 Viral Document Sharing & Graduated Identity (35/40) — 47 CAMs total |
 || 1.4 | 2026-03-11 | Added CLT-COLLAB-0004 CAM Portal Viral Referral (33/40) and CMP-CMP-0001 CNDA+ Gated Access (34/40) — 49 CAMs total |
+|| 1.5 | 2026-03-13 | Added TECH-COLLAB-0002 Session Mirror — Remote Dev Oversight from Mobile (33/40) — 53 CAMs total |

@@ -119,6 +119,17 @@ export default function SystemDocumentsPage() {
                 statLabel="CAMs"
                 adminCard
               />
+
+              {/* Elm Creek Prospectus */}
+              <DashboardCard
+                href="/system/documents/elm-creek-prospectus"
+                icon="🏘️"
+                title="Elm Creek Prospectus"
+                description="Phase 1 Investor Prospectus — 128 units, $7.8M, 18–24% IRR."
+                stat={10}
+                statLabel="chapters"
+                adminCard
+              />
             </div>
         </section>
 

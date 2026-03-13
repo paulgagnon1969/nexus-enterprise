@@ -393,6 +393,9 @@ export function DailyLogDetailScreen({
             )}
           </View>
           <Text style={styles.date}>{formatDate(data.logDate)}</Text>
+          {data.dlid && (
+            <Text style={styles.dlid}>#{data.dlid}</Text>
+          )}
           <Text style={styles.title}>{data.title || "(No title)"}</Text>
           <View style={styles.metaRow}>
             <Text style={styles.meta}>By {createdByName}</Text>
@@ -786,6 +789,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.textMuted,
     marginBottom: 8,
+  },
+  dlid: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#6366f1",
+    fontFamily: "monospace" as any,
+    marginBottom: 4,
   },
   title: {
     fontSize: 20,

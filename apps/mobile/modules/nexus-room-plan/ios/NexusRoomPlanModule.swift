@@ -67,6 +67,15 @@ class RoomCaptureCoordinator: NSObject, NSCoding, RoomCaptureViewDelegate, RoomC
   /// fixture detection (outlets, switches, vents), text recognition, and materials.
   private let visionAnalyzer = VisionAnalyzer()
 
+  /// High-resolution frame snapshots captured at strategic moments (one per wall detected).
+  /// Stored to Documents dir for downstream AI material analysis.
+  private var highResFramePaths: [String] = []
+  private var lastHighResWallCount: Int = 0
+
+  /// Per-frame LiDAR confidence accumulator (0.0–1.0 scale).
+  /// Used to tag each wall/surface with average measurement confidence.
+  private var confidenceSamples: [Float] = []
+
   init(promise: Promise, onCleanup: @escaping () -> Void) {
     self.promise = promise
     self.onCleanup = onCleanup
@@ -164,9 +173,21 @@ class RoomCaptureCoordinator: NSObject, NSCoding, RoomCaptureViewDelegate, RoomC
 
   /// Called on every room model update during scanning — use to feed Vision analyzer.
   func captureSession(_ session: RoomCaptureSession, didUpdate room: CapturedRoom) {
-    // Grab the current AR frame and feed it to Vision analyzer
-    if let arFrame = session.arSession.currentFrame {
-      visionAnalyzer.analyzeFrameIfNeeded(arFrame)
+    guard let arFrame = session.arSession.currentFrame else { return }
+
+    // Feed Vision analyzer
+    visionAnalyzer.analyzeFrameIfNeeded(arFrame)
+
+    // Capture a high-res frame when a new wall is detected
+    let currentWallCount = room.walls.count
+    if currentWallCount > lastHighResWallCount {
+      lastHighResWallCount = currentWallCount
+      saveHighResFrame(arFrame, tag: "wall_\(currentWallCount)")
+    }
+
+    // Accumulate LiDAR confidence data
+    if let depthData = arFrame.sceneDepth ?? arFrame.smoothedSceneDepth {
+      accumulateConfidence(depthData.confidenceMap)
     }
   }
 
@@ -189,8 +210,15 @@ class RoomCaptureCoordinator: NSObject, NSCoding, RoomCaptureViewDelegate, RoomC
       var result = self.serializeCapturedRoom(processedResult)
       // Merge Vision AI analysis results alongside RoomPlan data
       result["visionDetections"] = self.visionAnalyzer.getResults()
+      // Attach high-res frame paths for downstream Material Walk / AI analysis
+      result["highResFramePaths"] = self.highResFramePaths
+      // Attach average LiDAR confidence score (0.0–1.0)
+      result["lidarConfidence"] = self.averageLidarConfidence()
       self.promise.resolve(["roomData": result])
       self.visionAnalyzer.reset()
+      self.highResFramePaths.removeAll()
+      self.lastHighResWallCount = 0
+      self.confidenceSamples.removeAll()
       self.onCleanup()
     }
   }
@@ -312,6 +340,76 @@ class RoomCaptureCoordinator: NSObject, NSCoding, RoomCaptureViewDelegate, RoomC
     ]
 
     return result
+  }
+
+  // MARK: - High-Res Frame Capture
+
+  /// Save the current AR camera frame at full resolution to Documents dir.
+  /// These frames are used by the Material Walk for AI material identification.
+  private func saveHighResFrame(_ frame: ARFrame, tag: String) {
+    let pixelBuffer = frame.capturedImage
+    let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+    let context = CIContext()
+    guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else { return }
+
+    let uiImage = UIImage(cgImage: cgImage)
+    guard let jpegData = uiImage.jpegData(compressionQuality: 0.92) else { return }
+
+    let fm = FileManager.default
+    let docsDir = fm.urls(for: .documentDirectory, in: .userDomainMask).first!
+    let scanDir = docsDir.appendingPathComponent("scannex-highres")
+    try? fm.createDirectory(at: scanDir, withIntermediateDirectories: true)
+
+    let fileName = "highres_\(tag)_\(Int(Date().timeIntervalSince1970 * 1000)).jpg"
+    let fileURL = scanDir.appendingPathComponent(fileName)
+
+    do {
+      try jpegData.write(to: fileURL)
+      highResFramePaths.append(fileURL.path)
+      print("[NexusRoomPlan] Captured high-res frame: \(fileName) (\(ciImage.extent.width)×\(ciImage.extent.height))")
+    } catch {
+      print("[NexusRoomPlan] Failed to save high-res frame: \(error)")
+    }
+  }
+
+  // MARK: - LiDAR Confidence
+
+  /// Accumulate average confidence from LiDAR depth confidence map.
+  private func accumulateConfidence(_ confidenceMap: CVPixelBuffer?) {
+    guard let map = confidenceMap else { return }
+    CVPixelBufferLockBaseAddress(map, .readOnly)
+    defer { CVPixelBufferUnlockBaseAddress(map, .readOnly) }
+
+    let width = CVPixelBufferGetWidth(map)
+    let height = CVPixelBufferGetHeight(map)
+    guard let baseAddress = CVPixelBufferGetBaseAddress(map) else { return }
+
+    // Confidence map is ARConfidenceLevel (UInt8): 0=low, 1=medium, 2=high
+    let ptr = baseAddress.assumingMemoryBound(to: UInt8.self)
+    let totalPixels = width * height
+    guard totalPixels > 0 else { return }
+
+    // Sample a grid (every 8th pixel) for performance
+    var sum: Float = 0
+    var count: Float = 0
+    let stride = 8
+    for y in Swift.stride(from: 0, to: height, by: stride) {
+      for x in Swift.stride(from: 0, to: width, by: stride) {
+        let level = ptr[y * width + x]
+        sum += Float(level) / 2.0  // Normalize 0-2 → 0.0-1.0
+        count += 1
+      }
+    }
+
+    if count > 0 {
+      confidenceSamples.append(sum / count)
+    }
+  }
+
+  /// Return the average LiDAR confidence across all sampled frames (0.0–1.0).
+  private func averageLidarConfidence() -> Float {
+    guard !confidenceSamples.isEmpty else { return 0 }
+    return confidenceSamples.reduce(0, +) / Float(confidenceSamples.count)
   }
 
   // MARK: - Helpers

@@ -12,6 +12,7 @@ import { ReceiptInventoryBridgeService } from '../daily-log/receipt-inventory-br
 import { TaskService } from '../task/task.service';
 import { AuditService } from '../../common/audit.service';
 import { NexfindModule } from '../nexfind/nexfind.module';
+import { ProcurementModule } from '../procurement/procurement.module';
 
 const StorageProvider = {
   provide: ObjectStorageService,
@@ -19,7 +20,7 @@ const StorageProvider = {
 };
 
 @Module({
-  imports: [PrismaModule, ConfigModule, LocationsModule, NotificationsModule, NexfindModule],
+  imports: [PrismaModule, ConfigModule, LocationsModule, NotificationsModule, NexfindModule, ProcurementModule],
   controllers: [OcrController],
   providers: [OpenAiOcrProvider, ReceiptOcrService, StorageProvider, ReceiptInventoryBridgeService, TaskService, AuditService],
   exports: [ReceiptOcrService, OpenAiOcrProvider, ReceiptInventoryBridgeService],

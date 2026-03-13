@@ -1,11 +1,11 @@
 ---
 title: "ScanNEX — LiDAR Scanning & Measurement Module"
 module: scannex
-revision: "4.0"
-tags: [sop, scannex, scanning, lidar, arkit, mobile, ncc, operations, field, estimating]
+revision: "6.0"
+tags: [sop, scannex, scanning, lidar, arkit, mobile, ncc, operations, field, estimating, object-capture, nexcad, material-walk, component-identity]
 status: draft
 created: 2026-02-28
-updated: 2026-02-28
+updated: 2026-03-13
 author: Warp
 visibility:
   public: false
@@ -270,19 +270,56 @@ affectedArea.perimLF   → Affected perim (LF)   → Containment barrier, poly s
 - **Accoutrement count:** 100% accuracy for doors/windows (RoomPlan auto-detects); fixtures are Phase 4 with lower confidence
 - **Non-LiDAR fallback:** ±5-8% for SF/LF (camera-only AR is less precise)
 
+### Component Identity & Material Intelligence (New — Rev 6.0)
+
+ScanNEX now includes a **Component Identity** pipeline that detects, measures, and classifies building components during and after a room scan. This goes beyond raw dimensions to identify what is being measured.
+
+**Capture Pipeline Enhancements:**
+- **High-resolution frame capture** — `NexusRoomPlanModule.swift` captures a full-res JPEG per wall as new walls are detected. Stored to Documents dir as `highResFramePaths[]`. Used downstream for AI material classification.
+- **Contour detection** — `VisionAnalyzer.swift` runs `VNDetectContoursRequest` (iOS 17+) to identify horizontal trim bands. Classifies by vertical position: baseboard (<15% of wall height), crown (>85%), chair rail (30-45%). Outputs `trimBands[]` with trim type, confidence, and estimated height fraction.
+- **LiDAR confidence filtering** — Accumulates `ARFrame.sceneDepth.confidenceMap` samples throughout the scan. Outputs `lidarConfidence` (0-1) as a quality indicator for the scan session.
+
+**Component Profile Types:**
+- `ComponentType`: baseboard, crown-molding, casing, chair-rail, shoe-molding, quarter-round
+- `ComponentProfile`: Captures type, heightInches, profileStyle (colonial, ranch, craftsman, modern, ogee, etc.), material (MDF, pine, oak, PVC, etc.), finish, color, measurementSource (lidar / ai-inferred / manual), confidence, and capturePhotoUrl
+- `EnrichedLineItem`: estimate-ready line items with category, quantity, unit, description, profileStyle, material, finish, dimensionInches, xactimateCode, confidence, and source wall IDs
+
+**Enriched BOM Builder** (`buildEnrichedBOM()` in `roomResultBuilder.ts`):
+Produces 9 categories of estimate-ready line items from a room scan:
+1. Baseboard (LF) — with profile description: "87.5 LF of 3.5" colonial MDF baseboard"
+2. Crown molding (LF)
+3. Chair rail (LF)
+4. Door casing (LF per door)
+5. Window casing (LF per window)
+6. Flooring (SF)
+7. Wall surface (SF)
+8. Ceiling surface (SF)
+9. Door/window units (EA)
+
+When component profiles are captured via Material Walk, line items include profile style, material, and finish. Without profiles, items fall back to generic descriptions.
+
+**Material Walk Screen** (`MaterialWalkScreen.tsx`):
+A guided post-scan step where the field tech captures close-up photos of each detected component:
+- Checklist auto-populates from scan results (detected trim bands, doors, windows)
+- Always includes flooring, wall surface, and ceiling surface
+- Opens camera for high-quality (0.95) close-up photos
+- Builds preliminary `ComponentProfile[]` from captures + trim band height estimates
+- On completion, generates enriched BOM and saves to room scan result
+- Photos are stored locally and will be sent to server-side AI for profile/material/finish classification (API-side GPT-4o/Gemini integration — future)
+
+**Flow:** LiDAR Scan → Room Result → "Start Material Walk →" → Guided Capture → Enriched BOM
+
 ### What ScanNEX does NOT measure (manual input required)
 
 These items need manual field input or photo annotation — they cannot be reliably extracted from a LiDAR scan:
 
-- **Material types** — carpet vs. hardwood vs. tile (camera + ML could detect in Phase 4, but not reliably enough for estimating)
 - **Material condition/grade** — builder grade vs. premium (subjective assessment)
 - **Hidden damage** — behind walls, under flooring, above ceiling (requires demo/inspection)
 - **Appliances** — type, brand, model (photo documentation, not measurement)
-- **Electrical/plumbing fixtures** — outlet count, switch count, fixture types (too small for LiDAR)
 - **Paint sheen/color** — visual/subjective
 - **Existing conditions** — age, wear, pre-existing damage (field tech judgment)
 
-ScanNEX captures the dimensions. The field tech annotates the rest via the review screen.
+ScanNEX captures the dimensions and now identifies component profiles. The field tech annotates condition/grade via the review screen.
 
 ---
 
@@ -637,12 +674,73 @@ flowchart LR
 - Auto-population of full estimate line items from a single room scan
 - On-device inference via Neural Engine — no cloud round-trip for measurements
 
+## Native Module Architecture — NexusObjectCapture
+
+The `NexusObjectCapture` Expo native module (`apps/mobile/modules/nexus-object-capture/`) provides three scanning capabilities through Apple's `ObjectCaptureSession` and `PhotogrammetrySession` APIs (iOS 17+, LiDAR required).
+
+### Module Functions
+
+| Function | Purpose | Returns |
+|----------|---------|--------|
+| `isSupported()` | Check if device has LiDAR + iOS 17+ | `boolean` |
+| `startCapture()` | Full 3D Object Capture — guided orbit + on-device photogrammetry at `.reduced` detail | `{ modelPath, thumbnailPath, dimensions, boundingBox, referenceImagePaths }` |
+| `startPrecisionCapture()` | NexCAD — high-density image capture only (no on-device photogrammetry) | `{ imagePaths, imageCount, totalSizeBytes, persistentDir }` |
+| `getDeviceCapabilities()` | Device capability check without starting capture | `{ hasLiDAR, supportsObjectCapture, iosVersion }` |
+
+### 3D Scan vs Precision Scan
+
+**3D Scan** (`startCapture`): Runs Apple's `PhotogrammetrySession` on-device at `.reduced` detail. Produces a USDZ model with bounding box dimensions (5-10mm accuracy). Best for: quick field documentation, equipment inventory, insurance photos with dimensions.
+
+**Precision Scan** (`startPrecisionCapture`): Captures 80-120 HEIC images with LiDAR depth data but does NOT run photogrammetry on the phone. Images upload to the API, which dispatches a `precision_photogrammetry` job through NexMESH to the Mac Studio for `.full` detail reconstruction (~1mm accuracy). Best for: engineering-grade models, SketchUp/CAD export, replacement ordering. See CAM `TECH-INTG-0001b`.
+
+### Swift Implementation Pattern
+
+All async functions use `CheckedContinuation<[String: Any], Error>` with a coordinator pattern:
+
+```swift
+AsyncFunction("startCapture") { () async throws -> [String: Any] in
+  return try await withCheckedThrowingContinuation { continuation in
+    DispatchQueue.main.async {
+      let coordinator = ObjectCaptureCoordinator(continuation: continuation) { ... }
+      coordinator.start()
+    }
+  }
+}
+```
+
+**CRITICAL**: Do NOT use the old Expo Modules `Promise` parameter pattern (e.g., `{ (promise: Promise) in ... }`). Expo Modules Core treats `Promise` as a required JS argument, causing "Received 0 arguments, but 1 was expected" at runtime. Always use `async throws` with `CheckedContinuation`.
+
+Each coordinator includes a `hasResumed` guard to prevent double-resume crashes:
+
+```swift
+private var hasResumed = false
+
+private func resumeSuccess(_ result: [String: Any]) {
+  guard !hasResumed else { return }
+  hasResumed = true
+  continuation.resume(returning: result)
+  onCleanup()
+}
+```
+
+### Build & Deploy Notes
+
+- Native module changes require a **full Xcode rebuild** — OTA updates (`eas update`) only push JS changes
+- Always **clear Xcode DerivedData** after modifying Swift files in `modules/`: `rm -rf ~/Library/Developer/Xcode/DerivedData/NexusMobile-*`
+- Build via: `eas build --platform ios --profile production --local`
+- Submit to TestFlight immediately: `eas submit --platform ios --path <ipa-path> --non-interactive`
+- Bump `version` in `app.json` before native rebuilds so testers can distinguish builds
+
 ## Related Modules
 - NCC Mobile App (`apps/mobile`) — host app
 - Project Detail — data destination for scans and measurements
 - Estimating — consumes measurement data for line items and Xactimate mapping
 - Daily Logs — scan attachments for daily documentation
 - Documents — 3D models and floor plans stored as project documents
+- NexCAD (CAM `TECH-INTG-0001b`) — Precision Scan → Mac Studio → 8 CAD format pipeline
+- NexMESH (CAM `TECH-AUTO-0001`) — Distributed compute mesh for off-device photogrammetry
+- NEXI Capture (CAM `OPS-ACC-0001`) — Object fingerprinting from 3D Scan reference images
+- ScanNEX Component Identity (CAM `EST-INTL-0002`) — Component identification and material intelligence from LiDAR + Vision + Material Walk
 
 ## Revision History
 
@@ -652,3 +750,5 @@ flowchart LR
 | 2.0 | 2026-02-28 | Rebranded to ScanNEX. Added technical assessment of ARKit/LiDAR capabilities, 4-phase roadmap, package structure, data flow, and Android strategy |
 | 3.0 | 2026-02-28 | Added measurement output specification (SF/LF/accoutrements), RoomPlan-to-Xactimate mapping, ScanNEXRoomResult data model, accuracy targets, deduction logic, and manual-input boundaries |
 | 4.0 | 2026-02-28 | Added simultaneous AR video recording, ScanNEXVideo interface, on-device storage architecture (Documents dir with per-project/room structure), local replay without network, Wi-Fi background sync strategy, storage management/cleanup policy, video recording settings |
+|| 5.0 | 2026-03-12 | Added NexusObjectCapture native module architecture section. Documented 3D Scan vs Precision Scan, Swift implementation pattern (CheckedContinuation, NOT Promise), build/deploy notes, DerivedData cache gotcha. Fixed startCapture Promise→async throws migration. Added CAM cross-references |
+|| 6.0 | 2026-03-13 | Added Component Identity & Material Intelligence section. High-res frame capture, VNDetectContoursRequest trim band detection, LiDAR confidence filtering. ComponentProfile + EnrichedLineItem types. buildEnrichedBOM() producing 9-category estimate-ready line items. MaterialWalkScreen for guided post-scan component capture. Updated "What ScanNEX does NOT measure" to reflect new material identification capabilities. Added EST-INTL-0002 CAM cross-reference |

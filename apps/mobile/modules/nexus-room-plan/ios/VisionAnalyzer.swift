@@ -32,6 +32,8 @@ class VisionAnalyzer {
   private var sceneAttributeVotes: [String: [Float]] = [:]
   /// Detected rectangles (potential outlets, switches, registers, panels).
   private var detectedRectangles: [DetectedRect] = []
+  /// Detected horizontal edge bands (potential baseboard, crown molding, chair rail).
+  private var detectedTrimBands: [TrimBand] = []
   /// OCR text found across frames.
   private var detectedTexts: Set<String> = []
   /// Material observations for surfaces.
@@ -73,6 +75,7 @@ class VisionAnalyzer {
       roomTypeVotes.removeAll()
       sceneAttributeVotes.removeAll()
       detectedRectangles.removeAll()
+      detectedTrimBands.removeAll()
       detectedTexts.removeAll()
       flooringVotes.removeAll()
       wallMaterialVotes.removeAll()
@@ -111,6 +114,15 @@ class VisionAnalyzer {
     textRequest.usesLanguageCorrection = true
     requests.append(textRequest)
 
+    // 4. Contour detection — horizontal edge bands for trim profiles
+    //    (baseboard, crown molding, chair rail, shoe molding)
+    if #available(iOS 17.0, *) {
+      let contourRequest = VNDetectContoursRequest()
+      contourRequest.contrastAdjustment = 1.5
+      contourRequest.detectsDarkOnLight = true
+      requests.append(contourRequest)
+    }
+
     do {
       try handler.perform(requests)
     } catch {
@@ -131,6 +143,13 @@ class VisionAnalyzer {
     // Process text results
     if let observations = textRequest.results {
       processText(observations)
+    }
+
+    // Process contour results for trim profile detection
+    if #available(iOS 17.0, *) {
+      if let contourObs = requests.compactMap({ $0 as? VNDetectContoursRequest }).first?.results?.first {
+        processContours(contourObs)
+      }
     }
   }
 
@@ -199,6 +218,73 @@ class VisionAnalyzer {
     }
   }
 
+  // MARK: - Contour Processing (Trim Profile Detection)
+
+  /// Analyze contour paths for horizontal edge bands that indicate trim profiles.
+  /// Baseboard: horizontal band at bottom 15% of frame.
+  /// Crown molding: horizontal band at top 15% of frame.
+  /// Chair rail: horizontal band at 30-45% from bottom.
+  @available(iOS 17.0, *)
+  private func processContours(_ observation: VNContoursObservation) {
+    let contourCount = observation.contourCount
+    guard contourCount > 0 else { return }
+
+    for i in 0..<min(contourCount, 50) {
+      guard let contour = try? observation.contour(at: i) else { continue }
+      let points = contour.normalizedPoints
+      guard points.count >= 10 else { continue }
+
+      // Compute bounding box of the contour
+      var minX: Float = 1.0, maxX: Float = 0.0
+      var minY: Float = 1.0, maxY: Float = 0.0
+      for p in points {
+        minX = min(minX, p.x)
+        maxX = max(maxX, p.x)
+        minY = min(minY, p.y)
+        maxY = max(maxY, p.y)
+      }
+
+      let width = maxX - minX
+      let height = maxY - minY
+      guard width > 0 && height > 0 else { continue }
+
+      let aspectRatio = width / height
+
+      // Trim profiles are long horizontal bands: aspect ratio > 5:1,
+      // spanning at least 30% of frame width, with thin height
+      guard aspectRatio > 5.0 && width > 0.3 && height < 0.10 else { continue }
+
+      let centerY = (minY + maxY) / 2.0
+
+      // Classify by vertical position in frame (Vision coords: 0=bottom, 1=top)
+      let trimType: String
+      if centerY < 0.15 {
+        trimType = "baseboard"
+      } else if centerY > 0.85 {
+        trimType = "crown-molding"
+      } else if centerY > 0.30 && centerY < 0.45 {
+        trimType = "chair-rail"
+      } else {
+        continue // Not in a typical trim zone
+      }
+
+      let band = TrimBand(
+        trimType: trimType,
+        bounds: CGRect(x: CGFloat(minX), y: CGFloat(minY),
+                       width: CGFloat(width), height: CGFloat(height)),
+        estimatedHeightFraction: height,
+        confidence: min(1.0, aspectRatio / 15.0) // Higher aspect ratio = more confident
+      )
+
+      // Deduplicate: skip if very similar to existing band of same type
+      if !detectedTrimBands.contains(where: {
+        $0.trimType == band.trimType && abs($0.estimatedHeightFraction - band.estimatedHeightFraction) < 0.01
+      }) {
+        detectedTrimBands.append(band)
+      }
+    }
+  }
+
   // MARK: - Result Building
 
   private func buildResults() -> [String: Any] {
@@ -237,6 +323,31 @@ class VisionAnalyzer {
       ]
     }
 
+    // Trim bands → serialized (deduplicated by type, pick highest confidence)
+    var bestBands: [String: TrimBand] = [:]
+    for band in detectedTrimBands {
+      if let existing = bestBands[band.trimType] {
+        if band.confidence > existing.confidence {
+          bestBands[band.trimType] = band
+        }
+      } else {
+        bestBands[band.trimType] = band
+      }
+    }
+    let trimBandsData: [[String: Any]] = bestBands.values.map { band in
+      [
+        "trimType": band.trimType,
+        "bounds": [
+          "x": band.bounds.origin.x,
+          "y": band.bounds.origin.y,
+          "width": band.bounds.width,
+          "height": band.bounds.height,
+        ],
+        "estimatedHeightFraction": band.estimatedHeightFraction,
+        "confidence": band.confidence,
+      ]
+    }
+
     return [
       "roomType": roomType?.key ?? NSNull(),
       "roomTypeConfidence": roomTypeConf,
@@ -248,6 +359,7 @@ class VisionAnalyzer {
       ],
       "detectedText": Array(detectedTexts),
       "additionalRectangles": rects,
+      "trimBands": trimBandsData,
       "framesAnalyzed": framesAnalyzed,
     ]
   }
@@ -362,5 +474,14 @@ extension VisionAnalyzer {
     let frameRegion: String   // "ceiling", "wall", "floor"
     let aspectRatio: Float
     let relativeSize: Float   // fraction of total frame area
+  }
+
+  /// A horizontal edge band detected via contour analysis.
+  /// Represents a potential trim profile (baseboard, crown, chair rail).
+  struct TrimBand {
+    let trimType: String        // "baseboard", "crown-molding", "chair-rail"
+    let bounds: CGRect          // normalized bounding box
+    let estimatedHeightFraction: Float  // fraction of frame height (use with wall height to estimate profile height)
+    let confidence: Float       // 0.0–1.0
   }
 }

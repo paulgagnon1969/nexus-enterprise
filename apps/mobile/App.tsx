@@ -204,6 +204,30 @@ export default function App() {
           navigationRef.current.navigate("Todos" as any);
           return;
         }
+
+        // ── Dev Session / Approval (SUPER_ADMIN only) ──
+        if (
+          (data.type === "dev_session" || data.type === "dev_approval") &&
+          data.sessionId
+        ) {
+          // Navigate to the DevSessions tab → session detail
+          navigationRef.current.navigate("Main" as any, {
+            screen: "DevSessionsTab",
+            params: {
+              screen: "SessionDetail",
+              params: {
+                session: {
+                  id: data.sessionId,
+                  title: "", // Will be loaded by the screen
+                  status: "ACTIVE",
+                  sessionCode: "",
+                  createdAt: new Date().toISOString(),
+                },
+              },
+            },
+          });
+          return;
+        }
       });
 
     return () => {

@@ -13,18 +13,22 @@ import type {
 
 const JOB_PREFIX = "mesh:job:";
 const JOB_TTL = 3600; // 1 hour TTL for job records
-const DEFAULT_OFFER_TIMEOUT_MS = 5000;
+const DEFAULT_OFFER_TIMEOUT_MS = 30_000;
 
 /**
  * Callback registered by the gateway to emit WebSocket events.
  * This avoids a circular dependency between service and gateway.
  */
 export type EmitJobOfferFn = (socketId: string, offer: JobOffer) => void;
+export type OnNodeRegisteredFn = (companyId: string, nodeId: string) => void;
+export type OnJobCompletedFn = (job: MeshJob) => void;
 
 @Injectable()
 export class MeshJobService {
   private readonly logger = new Logger(MeshJobService.name);
   private emitOffer: EmitJobOfferFn | null = null;
+  private nodeRegisteredCallback: OnNodeRegisteredFn | null = null;
+  private jobCompletedCallback: OnJobCompletedFn | null = null;
 
   /**
    * Map of jobId → server-fallback callback. When a job times out with no
@@ -43,6 +47,21 @@ export class MeshJobService {
   /** Called by the gateway to register its emit function */
   setEmitOffer(fn: EmitJobOfferFn) {
     this.emitOffer = fn;
+  }
+
+  /** Called by PrecisionScanService to register for node registration events */
+  setOnNodeRegistered(fn: OnNodeRegisteredFn) {
+    this.nodeRegisteredCallback = fn;
+  }
+
+  /** Called by the gateway when a node registers */
+  notifyNodeRegistered(companyId: string, nodeId: string) {
+    this.nodeRegisteredCallback?.(companyId, nodeId);
+  }
+
+  /** Called by PrecisionScanService to react when a client-side job completes */
+  setOnJobCompleted(fn: OnJobCompletedFn) {
+    this.jobCompletedCallback = fn;
   }
 
   // ---------------------------------------------------------------------------
@@ -198,6 +217,14 @@ export class MeshJobService {
     this.logger.log(
       `Job ${job.id} (${job.type}): completed by client in ${result.processingMs}ms`,
     );
+
+    // Notify listeners (e.g. PrecisionScanService) that the job completed
+    try {
+      this.jobCompletedCallback?.(job);
+    } catch (err: any) {
+      this.logger.error(`Job ${job.id}: completion callback failed: ${err?.message}`);
+    }
+
     return true;
   }
 

@@ -85,6 +85,9 @@ export class ComputeMeshGateway
       // Join a company room for potential broadcasts
       client.join(`company:${payload.companyId}`);
 
+      // Notify listeners that a new node is available (triggers pending scan sweep)
+      this.jobService.notifyNodeRegistered(payload.companyId, payload.nodeId);
+
       return { ok: true, nodeId: node.nodeId, score: node.score };
     } catch (err: any) {
       this.logger.error(`Registration failed: ${err.message}`);

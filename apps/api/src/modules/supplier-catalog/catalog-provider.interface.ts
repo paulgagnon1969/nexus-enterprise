@@ -43,6 +43,27 @@ export interface CatalogProduct {
   /** Average customer rating (e.g. 4.5). */
   rating?: number;
 
+  // ── Online / Delivery fields ──────────────────────────────────────────────
+
+  /** Estimated shipping cost in USD (null for local-pickup items). */
+  shippingCost?: number;
+  /** Whether the item ships free (e.g. Prime-eligible, free freight). */
+  freeShipping?: boolean;
+  /** Earliest delivery in calendar days from order. */
+  deliveryMinDays?: number;
+  /** Latest delivery in calendar days from order. */
+  deliveryMaxDays?: number;
+  /** Raw delivery estimate text (e.g. "March 15–18"). */
+  deliveryEstimate?: string;
+  /** Amazon ASIN identifier. */
+  asin?: string;
+  /** Whether the product is Prime-eligible. */
+  isPrime?: boolean;
+  /** Quantity break pricing tiers (e.g. pack-of-4 vs pack-of-12). */
+  bulkPricing?: Array<{ minQty: number; unitPrice: number }>;
+  /** How the item reaches the jobsite. */
+  fulfillmentType?: 'LOCAL_PICKUP' | 'SHIP_TO_SITE' | 'WILL_CALL';
+
   /** Nearest store name (e.g. "Phoenix #0409"). */
   storeName?: string;
   /** Nearest store street address. */

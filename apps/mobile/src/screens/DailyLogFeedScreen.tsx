@@ -186,6 +186,9 @@ export function DailyLogFeedScreen({ onSelectLog, onEditLog, onCreateLog }: Prop
         <Pressable onPress={() => onSelectLog(item)}>
           <View style={styles.cardHeader}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              {item.dlid && (
+                <Text style={styles.cardDlid}>{item.dlid}</Text>
+              )}
               <Text style={styles.cardDate}>{formatDate(item.logDate)}</Text>
               {item.type && item.type !== "PUDL" && (
                 <View style={[styles.typeBadge, getTypeBadgeStyle(item.type)]}>
@@ -498,6 +501,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 6,
+  },
+  cardDlid: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#6366f1",
+    fontFamily: "monospace" as any,
   },
   cardDate: {
     fontSize: 12,

@@ -81,6 +81,31 @@ export class CamDashboardService {
     private readonly sopSync: SopSyncService,
   ) {}
 
+  /* ---------------------------------------------------------------- */
+  /*  Helpers                                                          */
+  /* ---------------------------------------------------------------- */
+
+  private async logAccess(
+    tokenId: string,
+    accessType: ShareAccessType,
+    ctx?: { ipAddress?: string; userAgent?: string },
+    extra?: { metadata?: Record<string, any> },
+  ) {
+    try {
+      await this.prisma.documentShareAccessLog.create({
+        data: {
+          tokenId,
+          accessType,
+          ipAddress: ctx?.ipAddress ?? null,
+          userAgent: ctx?.userAgent ?? null,
+          metadata: extra?.metadata ?? undefined,
+        },
+      });
+    } catch (err: any) {
+      this.logger.warn(`Failed to log access: ${err?.message}`);
+    }
+  }
+
   /* ================================================================ */
   /*  ANALYTICS                                                        */
   /* ================================================================ */
@@ -512,6 +537,47 @@ export class CamDashboardService {
     return { resent: true, email: record.inviteeEmail, ...result };
   }
 
+  async rescindInvite(actor: AuthenticatedUser, tokenId: string) {
+    const record = await this.prisma.documentShareToken.findUnique({
+      where: { id: tokenId },
+      select: {
+        id: true,
+        documentType: true,
+        revokedAt: true,
+        inviteeEmail: true,
+        inviteeName: true,
+      },
+    });
+
+    if (!record || record.documentType !== ShareDocumentType.CAM_LIBRARY) {
+      throw new NotFoundException("Invite not found");
+    }
+
+    if (record.revokedAt) {
+      throw new BadRequestException("This invite has already been rescinded");
+    }
+
+    const now = new Date();
+    await this.prisma.documentShareToken.update({
+      where: { id: tokenId },
+      data: { revokedAt: now, revokedReason: "admin_rescind" },
+    });
+
+    await this.logAccess(tokenId, ShareAccessType.RESCIND, undefined, {
+      metadata: {
+        action: "admin_rescind",
+        rescindedBy: actor.email,
+        inviteeEmail: record.inviteeEmail,
+      },
+    });
+
+    this.logger.log(
+      `Invite rescinded by admin: tokenId=${tokenId}, invitee=${record.inviteeEmail}, admin=${actor.email}`,
+    );
+
+    return { rescinded: true, tokenId };
+  }
+
   async listInvites() {
     const tokens = await this.prisma.documentShareToken.findMany({
       where: { documentType: ShareDocumentType.CAM_LIBRARY },
@@ -528,6 +594,9 @@ export class CamDashboardService {
         lastViewedAt: true,
         cndaAcceptedAt: true,
         questionnaireCompletedAt: true,
+        camInviteGroupId: true,
+        revokedAt: true,
+        revokedReason: true,
         createdAt: true,
       },
     });
@@ -543,14 +612,19 @@ export class CamDashboardService {
       lastViewed: t.lastViewedAt,
       cndaAccepted: !!t.cndaAcceptedAt,
       questionnaireCompleted: !!t.questionnaireCompletedAt,
-      accessGranted: !!t.cndaAcceptedAt && !!t.questionnaireCompletedAt,
-      status: t.cndaAcceptedAt
-        ? t.questionnaireCompletedAt
-          ? "viewing"
-          : "cnda_accepted"
-        : t.viewCount > 0
-          ? "opened"
-          : "pending",
+      accessGranted: !!t.cndaAcceptedAt && !!t.questionnaireCompletedAt && !t.revokedAt,
+      status: t.revokedAt
+        ? "revoked"
+        : t.cndaAcceptedAt
+          ? t.questionnaireCompletedAt
+            ? "viewing"
+            : "cnda_accepted"
+          : t.viewCount > 0
+            ? "opened"
+            : "pending",
+      revokedAt: t.revokedAt,
+      revokedReason: t.revokedReason,
+      groupId: t.camInviteGroupId,
       createdAt: t.createdAt,
     }));
   }
@@ -873,5 +947,440 @@ export class CamDashboardService {
 
   async getHandbookContent() {
     return this.sopSync.getCamHandbookHtml();
+  }
+
+  /* ================================================================ */
+  /*  INVITE PICKER — contact list + invitee list for dual-column UI   */
+  /* ================================================================ */
+
+  async getInvitePickerData(
+    actor: AuthenticatedUser,
+    cursor?: string,
+    search?: string,
+    limit = 200,
+  ) {
+    // 1. Get all already-invited emails (CAM_LIBRARY tokens) so we can exclude them
+    const existingTokens = await this.prisma.documentShareToken.findMany({
+      where: { documentType: ShareDocumentType.CAM_LIBRARY },
+      select: { inviteeEmail: true },
+    });
+    const invitedEmails = new Set(
+      existingTokens
+        .map((t) => t.inviteeEmail?.toLowerCase())
+        .filter(Boolean) as string[],
+    );
+
+    // 2. Fetch contacts page (cursor-based)
+    const where: any = {
+      ownerUserId: actor.userId,
+      camExcluded: false,
+      email: { not: null },
+    };
+
+    if (search?.trim()) {
+      const term = search.trim();
+      where.OR = [
+        { displayName: { contains: term, mode: "insensitive" } },
+        { firstName: { contains: term, mode: "insensitive" } },
+        { lastName: { contains: term, mode: "insensitive" } },
+        { email: { contains: term, mode: "insensitive" } },
+        { phone: { contains: term } },
+      ];
+    }
+
+    const contacts = await this.prisma.personalContact.findMany({
+      where,
+      orderBy: { displayName: "asc" },
+      take: limit + 1, // +1 to detect hasMore
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      select: {
+        id: true,
+        displayName: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        source: true,
+      },
+    });
+
+    const hasMore = contacts.length > limit;
+    const page = hasMore ? contacts.slice(0, limit) : contacts;
+    const nextCursor = hasMore ? page[page.length - 1].id : null;
+
+    // Filter out already-invited emails client-side (more reliable than SQL NOT IN for large sets)
+    const available = page.filter(
+      (c) => c.email && !invitedEmails.has(c.email.toLowerCase()),
+    );
+
+    // 3. Get excluded count for the badge
+    const excludedCount = await this.prisma.personalContact.count({
+      where: { ownerUserId: actor.userId, camExcluded: true },
+    });
+
+    return {
+      contacts: available,
+      nextCursor,
+      hasMore,
+      excludedCount,
+    };
+  }
+
+  async getInvitePickerInvitees() {
+    // Return all existing CAM_LIBRARY tokens with status info
+    const tokens = await this.prisma.documentShareToken.findMany({
+      where: { documentType: ShareDocumentType.CAM_LIBRARY },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        inviteeEmail: true,
+        inviteeName: true,
+        viewCount: true,
+        cndaAcceptedAt: true,
+        questionnaireCompletedAt: true,
+        createdAt: true,
+        camInviteGroupId: true,
+      },
+    });
+
+    return tokens.map((t) => ({
+      id: t.id,
+      email: t.inviteeEmail,
+      name: t.inviteeName,
+      viewCount: t.viewCount,
+      status: t.cndaAcceptedAt
+        ? t.questionnaireCompletedAt
+          ? "viewing"
+          : "cnda_accepted"
+        : t.viewCount > 0
+          ? "opened"
+          : "pending",
+      createdAt: t.createdAt,
+      groupId: t.camInviteGroupId,
+    }));
+  }
+
+  /* ================================================================ */
+  /*  CAM EXCLUDE — bulk toggle contacts out of the picker             */
+  /* ================================================================ */
+
+  async bulkExcludeContacts(
+    actor: AuthenticatedUser,
+    contactIds: string[],
+    exclude: boolean,
+  ) {
+    if (!contactIds?.length) {
+      throw new BadRequestException("No contact IDs provided");
+    }
+    const result = await this.prisma.personalContact.updateMany({
+      where: {
+        id: { in: contactIds },
+        ownerUserId: actor.userId,
+      },
+      data: { camExcluded: exclude },
+    });
+    return { updated: result.count, exclude };
+  }
+
+  async getExcludedContacts(
+    actor: AuthenticatedUser,
+    search?: string,
+    cursor?: string,
+    limit = 200,
+  ) {
+    const where: any = {
+      ownerUserId: actor.userId,
+      camExcluded: true,
+    };
+    if (search?.trim()) {
+      const term = search.trim();
+      where.OR = [
+        { displayName: { contains: term, mode: "insensitive" } },
+        { email: { contains: term, mode: "insensitive" } },
+      ];
+    }
+
+    const rows = await this.prisma.personalContact.findMany({
+      where,
+      orderBy: { displayName: "asc" },
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      select: {
+        id: true,
+        displayName: true,
+        email: true,
+        phone: true,
+        source: true,
+      },
+    });
+
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+
+    return {
+      contacts: page,
+      nextCursor: hasMore ? page[page.length - 1].id : null,
+      hasMore,
+    };
+  }
+
+  /* ================================================================ */
+  /*  GROUP INVITE — bulk send + create named group                    */
+  /* ================================================================ */
+
+  async sendGroupInvite(
+    actor: AuthenticatedUser,
+    dto: {
+      contactIds: string[];
+      message: string;
+      groupName?: string;
+      deliveryMethods: Array<"email" | "sms">;
+    },
+  ) {
+    if (!dto.contactIds?.length) {
+      throw new BadRequestException("No contacts selected");
+    }
+    if (dto.contactIds.length > 200) {
+      throw new BadRequestException("Maximum 200 contacts per group invite");
+    }
+
+    // Look up inviter
+    const inviter = await this.prisma.user.findUnique({
+      where: { id: actor.userId },
+      select: { firstName: true, lastName: true, email: true },
+    });
+    const inviterName =
+      `${inviter?.firstName ?? ""} ${inviter?.lastName ?? ""}`.trim() ||
+      actor.email;
+
+    // Create the group
+    const now = new Date();
+    const defaultName = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+
+    const group = await this.prisma.camInviteGroup.create({
+      data: {
+        ownerUserId: actor.userId,
+        name: dto.groupName?.trim() || defaultName,
+        messageUsed: dto.message,
+      },
+    });
+
+    // Load selected contacts
+    const contacts = await this.prisma.personalContact.findMany({
+      where: {
+        id: { in: dto.contactIds },
+        ownerUserId: actor.userId,
+        email: { not: null },
+      },
+      select: {
+        id: true,
+        displayName: true,
+        firstName: true,
+        email: true,
+        phone: true,
+      },
+    });
+
+    const baseUrl =
+      process.env.NEXT_PUBLIC_APP_URL || "https://staging-ncc.nfsgrp.com";
+    const results: Array<{
+      contactId: string;
+      email: string;
+      success: boolean;
+      shareUrl?: string;
+      error?: string;
+    }> = [];
+
+    for (const contact of contacts) {
+      if (!contact.email) continue;
+      try {
+        const token = crypto.randomBytes(24).toString("hex");
+        await this.prisma.documentShareToken.create({
+          data: {
+            token,
+            documentType: ShareDocumentType.CAM_LIBRARY,
+            inviterEmail: actor.email,
+            inviterName,
+            inviterUserId: actor.userId,
+            inviteeEmail: contact.email.toLowerCase(),
+            inviteeName: contact.displayName || contact.firstName || null,
+            depth: 0,
+            camInviteGroupId: group.id,
+          },
+        });
+
+        const shareUrl = `${baseUrl}/cam-access/${token}`;
+        const personalizedMessage = (dto.message || "").replace(
+          /\{name\}/gi,
+          contact.firstName || contact.displayName?.split(" ")[0] || "there",
+        );
+
+        // Send email
+        if (dto.deliveryMethods.includes("email")) {
+          try {
+            await this.email.sendCamInvite({
+              toEmail: contact.email,
+              recipientName: contact.displayName || contact.firstName || undefined,
+              inviterName,
+              message: personalizedMessage,
+              shareUrl,
+            });
+          } catch (err: any) {
+            this.logger.error(
+              `Group invite email failed for ${contact.email}: ${err?.message}`,
+            );
+          }
+        }
+
+        // Send SMS
+        if (dto.deliveryMethods.includes("sms") && contact.phone) {
+          try {
+            const smsBody = `${inviterName} invited you to review the Nexus CAM Library. View here: ${shareUrl}`;
+            await this.sms.sendSms(contact.phone, smsBody);
+          } catch (err: any) {
+            this.logger.error(
+              `Group invite SMS failed for ${contact.phone}: ${err?.message}`,
+            );
+          }
+        }
+
+        results.push({
+          contactId: contact.id,
+          email: contact.email,
+          success: true,
+          shareUrl,
+        });
+      } catch (err: any) {
+        results.push({
+          contactId: contact.id,
+          email: contact.email!,
+          success: false,
+          error: err?.message || "Unknown error",
+        });
+      }
+    }
+
+    return {
+      group: { id: group.id, name: group.name },
+      total: contacts.length,
+      sent: results.filter((r) => r.success).length,
+      failed: results.filter((r) => !r.success).length,
+      results,
+    };
+  }
+
+  /* ================================================================ */
+  /*  INVITE GROUPS — list & rename                                    */
+  /* ================================================================ */
+
+  async listInviteGroups(actor: AuthenticatedUser) {
+    const groups = await this.prisma.camInviteGroup.findMany({
+      where: { ownerUserId: actor.userId },
+      orderBy: { createdAt: "desc" },
+      include: {
+        _count: { select: { tokens: true } },
+      },
+    });
+    return groups.map((g) => ({
+      id: g.id,
+      name: g.name,
+      inviteCount: g._count.tokens,
+      createdAt: g.createdAt,
+    }));
+  }
+
+  async renameInviteGroup(actor: AuthenticatedUser, groupId: string, name: string) {
+    const group = await this.prisma.camInviteGroup.findFirst({
+      where: { id: groupId, ownerUserId: actor.userId },
+    });
+    if (!group) throw new NotFoundException("Invite group not found");
+
+    return this.prisma.camInviteGroup.update({
+      where: { id: groupId },
+      data: { name: name.trim() },
+    });
+  }
+
+  /* ================================================================ */
+  /*  CANNED MESSAGES — shared CRUD                                    */
+  /* ================================================================ */
+
+  async listCannedMessages() {
+    return this.prisma.camCannedMessage.findMany({
+      orderBy: [{ isDefault: "desc" }, { updatedAt: "desc" }],
+      select: {
+        id: true,
+        title: true,
+        body: true,
+        isDefault: true,
+        createdAt: true,
+        updatedAt: true,
+        createdBy: {
+          select: { firstName: true, lastName: true, email: true },
+        },
+      },
+    });
+  }
+
+  async createCannedMessage(
+    actor: AuthenticatedUser,
+    dto: { title: string; body: string; isDefault?: boolean },
+  ) {
+    if (!dto.title?.trim() || !dto.body?.trim()) {
+      throw new BadRequestException("Title and body are required");
+    }
+
+    // If setting as default, unset any existing default
+    if (dto.isDefault) {
+      await this.prisma.camCannedMessage.updateMany({
+        where: { isDefault: true },
+        data: { isDefault: false },
+      });
+    }
+
+    return this.prisma.camCannedMessage.create({
+      data: {
+        createdByUserId: actor.userId,
+        title: dto.title.trim(),
+        body: dto.body.trim(),
+        isDefault: dto.isDefault ?? false,
+      },
+    });
+  }
+
+  async updateCannedMessage(
+    messageId: string,
+    dto: { title?: string; body?: string; isDefault?: boolean },
+  ) {
+    const msg = await this.prisma.camCannedMessage.findUnique({
+      where: { id: messageId },
+    });
+    if (!msg) throw new NotFoundException("Canned message not found");
+
+    if (dto.isDefault) {
+      await this.prisma.camCannedMessage.updateMany({
+        where: { isDefault: true, id: { not: messageId } },
+        data: { isDefault: false },
+      });
+    }
+
+    return this.prisma.camCannedMessage.update({
+      where: { id: messageId },
+      data: {
+        ...(dto.title !== undefined ? { title: dto.title.trim() } : {}),
+        ...(dto.body !== undefined ? { body: dto.body.trim() } : {}),
+        ...(dto.isDefault !== undefined ? { isDefault: dto.isDefault } : {}),
+      },
+    });
+  }
+
+  async deleteCannedMessage(messageId: string) {
+    const msg = await this.prisma.camCannedMessage.findUnique({
+      where: { id: messageId },
+    });
+    if (!msg) throw new NotFoundException("Canned message not found");
+
+    await this.prisma.camCannedMessage.delete({ where: { id: messageId } });
+    return { deleted: true };
   }
 }

@@ -1,5 +1,8 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../infra/prisma/prisma.service";
+import { NotificationsService } from "../notifications/notifications.service";
+import { EmailService } from "../../common/email.service";
+import { $Enums } from "@prisma/client";
 
 /** Maximum login redirects per user per announcement before we stop redirecting. */
 const MAX_REDIRECTS = 3;
@@ -9,7 +12,13 @@ const ADMIN_PLUS_ROLES = ["OWNER", "ADMIN"];
 
 @Injectable()
 export class FeaturesService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(FeaturesService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+    private readonly email: EmailService,
+  ) {}
 
   /**
    * Return all active announcements with the authenticated user's view status.
@@ -158,5 +167,111 @@ export class FeaturesService {
       data: { enabledModule: true },
     });
     return { success: true };
+  }
+
+  /**
+   * Broadcast a new module announcement to all Admin/Owner users.
+   * Creates a FeatureAnnouncement, in-app notifications, and sends emails.
+   */
+  async broadcastNewModule(params: {
+    moduleCode?: string;
+    camId?: string;
+    title: string;
+    description: string;
+    ctaLabel?: string;
+    ctaUrl?: string;
+    summaryBullets: string[];
+  }) {
+    // 1. Create the FeatureAnnouncement record (populates /whats-new)
+    const announcement = await this.prisma.featureAnnouncement.create({
+      data: {
+        moduleCode: params.moduleCode ?? null,
+        camId: params.camId ?? null,
+        title: params.title,
+        description: params.description,
+        ctaLabel: params.ctaLabel ?? "Learn More",
+        ctaUrl: params.ctaUrl ?? "/whats-new",
+        targetRoles: ["OWNER", "ADMIN"],
+        active: true,
+        sortOrder: 0,
+      },
+    });
+
+    // 2. Find all Admin/Owner users across all active companies
+    const adminMembers = await this.prisma.companyMembership.findMany({
+      where: {
+        role: { in: ["OWNER", "ADMIN"] },
+        isActive: true,
+        company: { deletedAt: null },
+      },
+      select: {
+        userId: true,
+        companyId: true,
+        user: { select: { id: true, email: true, firstName: true } },
+      },
+    });
+
+    // De-duplicate by userId (a user may be admin in multiple companies)
+    const seen = new Set<string>();
+    const uniqueAdmins: typeof adminMembers = [];
+    for (const m of adminMembers) {
+      if (!seen.has(m.userId)) {
+        seen.add(m.userId);
+        uniqueAdmins.push(m);
+      }
+    }
+
+    this.logger.log(
+      `Broadcasting "${params.title}" to ${uniqueAdmins.length} admin/owner users`,
+    );
+
+    // 3. Create in-app notifications + send emails (fire-and-forget per user)
+    let emailsSent = 0;
+    let notificationsCreated = 0;
+
+    for (const member of uniqueAdmins) {
+      // In-app notification
+      try {
+        await this.notifications.createNotification({
+          userId: member.userId,
+          companyId: member.companyId,
+          kind: $Enums.NotificationKind.NEW_MODULE,
+          channel: $Enums.NotificationChannel.IN_APP,
+          title: `New Module: ${params.title}`,
+          body: params.description,
+          metadata: {
+            announcementId: announcement.id,
+            moduleCode: params.moduleCode,
+            ctaUrl: params.ctaUrl,
+          },
+        });
+        notificationsCreated++;
+      } catch (err) {
+        this.logger.warn(`Failed to create notification for user ${member.userId}: ${err}`);
+      }
+
+      // Email
+      try {
+        await this.email.sendNewModuleAnnouncement({
+          toEmail: member.user.email,
+          recipientName: member.user.firstName || undefined,
+          moduleName: params.title,
+          summaryBullets: params.summaryBullets,
+          ctaUrl: params.ctaUrl || "https://staging-ncc.nfsgrp.com/whats-new",
+          ctaLabel: params.ctaLabel,
+        });
+        emailsSent++;
+      } catch (err) {
+        this.logger.warn(`Failed to send email to ${member.user.email}: ${err}`);
+      }
+    }
+
+    return {
+      success: true,
+      announcementId: announcement.id,
+      recipientCount: uniqueAdmins.length,
+      notificationsCreated,
+      emailsSent,
+    };
   }
 }

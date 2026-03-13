@@ -2935,9 +2935,10 @@ export class ProjectService {
       throw new NotFoundException("Project not found in this company");
     }
 
-    // Company OWNER/ADMIN can always add members.
+    // SUPER_ADMIN, company OWNER/ADMIN can always add members.
     // Project-level OWNER (e.g. Foreman who created the project) can also add.
-    if (currentUserRole !== Role.OWNER && currentUserRole !== Role.ADMIN) {
+    const isSuperAdmin = actor.globalRole === GlobalRole.SUPER_ADMIN;
+    if (!isSuperAdmin && currentUserRole !== Role.OWNER && currentUserRole !== Role.ADMIN) {
       const actorProjectMembership = await this.prisma.projectMembership.findUnique({
         where: { userId_projectId: { userId: actor.userId, projectId } },
         select: { role: true },
@@ -3040,8 +3041,9 @@ export class ProjectService {
       throw new BadRequestException(`Invalid role: ${newRole}`);
     }
 
-    // Company OWNER/ADMIN bypass hierarchy check
-    if (actor.role !== Role.OWNER && actor.role !== Role.ADMIN) {
+    // SUPER_ADMIN and company OWNER/ADMIN bypass hierarchy check
+    const isSuperAdmin = actor.globalRole === GlobalRole.SUPER_ADMIN;
+    if (!isSuperAdmin && actor.role !== Role.OWNER && actor.role !== Role.ADMIN) {
       // Get actor's project membership to determine their role
       const actorMembership = await this.prisma.projectMembership.findUnique({
         where: { userId_projectId: { userId: actor.userId, projectId } },
@@ -10152,7 +10154,8 @@ export class ProjectService {
 
     // Any user who can see the project can see Field PETL, but we still
     // enforce project membership for non-owners/admins.
-    if (actor.role !== Role.OWNER && actor.role !== Role.ADMIN) {
+    const isSuperAdmin = actor.globalRole === GlobalRole.SUPER_ADMIN;
+    if (!isSuperAdmin && actor.role !== Role.OWNER && actor.role !== Role.ADMIN) {
       const membership = await this.prisma.projectMembership.findUnique({
         where: {
           userId_projectId: {
@@ -10270,7 +10273,8 @@ export class ProjectService {
     }
 
     // Any project member can submit flags; enforce membership for non-owner/admin.
-    if (actor.role !== Role.OWNER && actor.role !== Role.ADMIN) {
+    const isSuperAdmin = actor.globalRole === GlobalRole.SUPER_ADMIN;
+    if (!isSuperAdmin && actor.role !== Role.OWNER && actor.role !== Role.ADMIN) {
       const membership = await this.prisma.projectMembership.findUnique({
         where: {
           userId_projectId: {

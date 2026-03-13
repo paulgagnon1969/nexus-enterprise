@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tauri::Emitter;
 use tokio::process::Command;
+use std::time::Duration;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -520,23 +521,45 @@ pub async fn generate_sketchup(
 
     let script = sketchup_import_script();
 
-    let output = Command::new(sketchup_path())
+    // Spawn SketchUp with a hard timeout — GUI apps can hang indefinitely
+    // (e.g. welcome screen never triggers Ruby observer callbacks).
+    let sketchup_timeout = Duration::from_secs(120);
+
+    let mut child = Command::new(sketchup_path())
         .arg("-RubyStartup")
         .arg(&script)
         .env("NEXCAD_INPUT", dae_path.to_str().unwrap())
         .env("NEXCAD_OUTPUT", skp_path.to_str().unwrap())
-        .output()
-        .await
+        .spawn()
         .map_err(|e| format!("SketchUp failed to launch: {}", e))?;
 
-    // SketchUp exits 0 even on Ruby errors — check if .skp was actually created
-    if !skp_path.exists() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        return Err(format!(
-            "SketchUp did not produce .skp\nstdout: {}\nstderr: {}",
-            stdout, stderr
-        ));
+    // Use wait() (borrows &mut self) so child remains available for kill() on timeout
+    match tokio::time::timeout(sketchup_timeout, child.wait()).await {
+        Ok(Ok(status)) => {
+            // SketchUp exited within timeout — check if .skp was produced
+            if !skp_path.exists() {
+                return Err(format!(
+                    "SketchUp exited ({}) but did not produce .skp",
+                    status
+                ));
+            }
+        }
+        Ok(Err(e)) => {
+            return Err(format!("SketchUp process error: {}", e));
+        }
+        Err(_) => {
+            // Timeout — kill the process
+            eprintln!("[nexcad] SketchUp timed out after {}s — killing process", sketchup_timeout.as_secs());
+            let _ = child.kill().await;
+
+            // Even though we timed out, SketchUp may have saved before hanging
+            if !skp_path.exists() {
+                return Err(format!(
+                    "SketchUp timed out after {}s and did not produce .skp",
+                    sketchup_timeout.as_secs()
+                ));
+            }
+        }
     }
 
     let file_size = tokio::fs::metadata(&skp_path)
@@ -647,10 +670,14 @@ pub async fn analyze_mesh(
 }
 
 /// Upload scan results (model files + analysis) back to the API.
+///
+/// `job_id`  — mesh job UUID (used for local file path resolution)
+/// `scan_id` — precision scan cuid (used in the API upload URL)
 #[tauri::command]
 pub async fn upload_scan_results(
     app: tauri::AppHandle,
     job_id: String,
+    scan_id: String,
     api_url: String,
     token: String,
     formats: Option<Vec<String>>,
@@ -714,10 +741,11 @@ pub async fn upload_scan_results(
         uploaded_files.push("mesh_analysis.json".to_string());
     }
 
+    // Use the precision scan ID (not mesh job ID) for the API endpoint
     let url = format!(
-        "{}/precision-scans/{}/results",
+        "{}/precision-scans/{}/upload",
         api_url.trim_end_matches('/'),
-        job_id
+        scan_id
     );
 
     let resp = client

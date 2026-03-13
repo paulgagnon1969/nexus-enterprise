@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Req, Res } from "@nestjs/common";
 import { FastifyReply, FastifyRequest } from "fastify";
 import { randomBytes } from "crypto";
+import { Public } from "../auth/auth.guards";
 
 const PAYLOAD_SIZE = 1024 * 1024; // 1 MB
 
@@ -9,6 +10,7 @@ const PAYLOAD_SIZE = 1024 * 1024; // 1 MB
  * to the API server. No auth required — these are used during the
  * heartbeat cycle to report network quality.
  */
+@Public()
 @Controller("mesh")
 export class MeshSpeedController {
   /** Pre-generated 1 MB random buffer for download tests */

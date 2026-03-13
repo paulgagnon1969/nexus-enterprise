@@ -753,6 +753,36 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             )}
           </Link>
 
+          {/* Back to Home — always visible when not on /projects */}
+          {!isAuthRoute && !isPublicRoute && !isActive("/projects") && (
+            <Link
+              href="/projects"
+              style={{
+                marginLeft: 12,
+                marginRight: 4,
+                padding: "4px 10px",
+                borderRadius: 4,
+                border: "1px solid #e5e7eb",
+                background: "#f9fafb",
+                color: "#374151",
+                fontSize: 12,
+                fontWeight: 500,
+                textDecoration: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+              }}
+              title="Back to Home"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+              Home
+            </Link>
+          )}
+
           {/* Company switcher (hide for applicant pool accounts; hide on auth and /system routes for SUPER_ADMIN) */}
           {!isAuthRoute &&
             !isReferralRoute &&
@@ -951,6 +981,75 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Global Nexus Trouble Ticket badge on authenticated, non-public routes */}
       {!isAuthRoute && !isPublicRoute && (
         <>
+          {/* CAM buttons — SUPER_ADMIN only, persistent bottom-right */}
+          {globalRole === "SUPER_ADMIN" && (
+            <>
+              {/* Preview: see what invitees see (opens in new tab) */}
+              {camAccessToken && (
+                <a
+                  href={`/cam-access/${camAccessToken}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="no-print"
+                  style={{
+                    position: "fixed",
+                    right: 196,
+                    bottom: 16,
+                    zIndex: 900,
+                    height: 44,
+                    padding: "0 14px",
+                    borderRadius: 22,
+                    border: "1px solid #059669",
+                    backgroundColor: "#fff",
+                    color: "#059669",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    textDecoration: "none",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 5,
+                    boxShadow: "0 4px 12px rgba(5,150,105,0.25)",
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                  title="Preview CAM Library as invitee (new tab)"
+                >
+                  👁 Preview
+                </a>
+              )}
+              {/* Dashboard */}
+              <Link
+                href="/system/cam-dashboard"
+                className="no-print"
+                style={{
+                  position: "fixed",
+                  right: 116,
+                  bottom: 16,
+                  zIndex: 900,
+                  height: 44,
+                  padding: "0 14px",
+                  borderRadius: 22,
+                  border: "none",
+                  backgroundColor: "#059669",
+                  color: "#fff",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  textDecoration: "none",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 5,
+                  boxShadow: "0 4px 12px rgba(5,150,105,0.4)",
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+                title="CAM Dashboard"
+              >
+                🏆 CAM
+              </Link>
+            </>
+          )}
           {/* Help button - positioned to the left of NttBadge */}
           <button
             type="button"

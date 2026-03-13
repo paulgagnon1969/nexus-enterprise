@@ -153,7 +153,18 @@ export async function apiJson<T>(
   const res = await apiFetch(path, init);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`API ${res.status} ${path}: ${text || res.statusText}`);
+
+    // If the response is HTML (e.g. Cloudflare 502 page), don't dump raw markup
+    // into UI error messages — surface a short, human-readable message instead.
+    const isHtml =
+      res.headers.get("content-type")?.includes("text/html") ||
+      text.trimStart().startsWith("<");
+
+    const detail = isHtml
+      ? `Server returned ${res.status}. Please try again shortly.`
+      : text || res.statusText;
+
+    throw new Error(detail);
   }
   return (await res.json()) as T;
 }

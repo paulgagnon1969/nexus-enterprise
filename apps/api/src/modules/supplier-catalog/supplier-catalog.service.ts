@@ -4,6 +4,7 @@ import { SerpApiProvider } from "./serpapi.provider";
 import { BigBoxProvider } from "./bigbox.provider";
 import { SerpApiLowesProvider } from "./serpapi-lowes.provider";
 import { LowesProvider } from "./lowes.provider";
+import { SerpApiAmazonProvider } from "./serpapi-amazon.provider";
 import type {
   CatalogProvider,
   CatalogProduct,
@@ -139,6 +140,7 @@ export class SupplierCatalogService {
     private readonly bigBox: BigBoxProvider,
     private readonly serpApiLowes: SerpApiLowesProvider,
     private readonly lowes: LowesProvider,
+    private readonly serpApiAmazon: SerpApiAmazonProvider,
   ) {
     // Dual-provider strategy: register BOTH SerpAPI and BigBox for HD when
     // both keys exist. SerpAPI is best for search, BigBox is best for
@@ -166,6 +168,11 @@ export class SupplierCatalogService {
       ? this.serpApiLowes
       : this.lowes;
     providers.push([lowesProvider.providerKey, lowesProvider]);
+
+    // Amazon — online-only supplier via SerpAPI Amazon engine.
+    if (this.serpApiAmazon.isEnabled()) {
+      providers.push(['amazon', this.serpApiAmazon]);
+    }
 
     this.providers = new Map<string, CatalogProvider>(providers);
 

@@ -75,7 +75,7 @@ async function bootstrap() {
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ bodyLimit: 100 * 1024 * 1024 }), // 100 MB for video frame payloads
+    new FastifyAdapter({ bodyLimit: 300 * 1024 * 1024 }), // 300 MB for precision scan multi-file uploads
   );
 
   app.enableCors({
@@ -93,8 +93,8 @@ async function bootstrap() {
   const server = app.getHttpAdapter().getInstance();
   await server.register(fastifyMultipart, {
     limits: {
-      // 100 MB to support large architectural drawing sets (PDF)
-      fileSize: 100 * 1024 * 1024,
+      // 250 MB per file to support large 3D model uploads (STEP/USDZ/SKP)
+      fileSize: 250 * 1024 * 1024,
     },
   });
 

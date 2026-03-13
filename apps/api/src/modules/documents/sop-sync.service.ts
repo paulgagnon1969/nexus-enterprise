@@ -18,6 +18,7 @@ const STAGING_DIR = path.resolve(__dirname, "../../../../../docs/sops-staging");
 const POLICIES_DIR = path.resolve(__dirname, "../../../../../docs/policies");
 const CAMS_DIR = path.resolve(__dirname, "../../../../../docs/cams");
 const TRAINING_DIR = path.resolve(__dirname, "../../../../../docs/training-manuals");
+const ELM_CREEK_DIR = path.resolve(__dirname, "../../../../../docs/elm-creek");
 
 // All source directories for SOP documents
 const SOURCE_DIRS = [STAGING_DIR, POLICIES_DIR, TRAINING_DIR];
@@ -922,5 +923,150 @@ export class SopSyncService {
 
     // Default: Feature SOPs for any unknown module
     return "Feature SOPs";
+  }
+
+  // ───────────────────────────────────────────────
+  // Elm Creek Prospectus Manual Data
+  // ───────────────────────────────────────────────
+
+  /**
+   * Get Elm Creek Prospectus data grouped by chapter group for the document library card.
+   * Reads the manual markdown and returns structured chapter data.
+   */
+  async getElmCreekManualData(): Promise<{
+    chapterGroups: Array<{
+      group: string;
+      icon: string;
+      description: string;
+      chapters: Array<{
+        id: string;
+        title: string;
+        revision: string;
+        summary: string;
+        keyMetric?: string;
+      }>;
+    }>;
+    totalChapters: number;
+    totalAppendices: number;
+    projectSummary: {
+      totalAcres: number;
+      totalUnits: number;
+      totalProjectCost: string;
+      equityRaise: string;
+      projectedIRR: string;
+      timeline: string;
+    };
+  }> {
+    // Static data derived from the Elm Creek prospectus manual
+    const chapterGroups = [
+      {
+        group: "Investment Overview",
+        icon: "🏗️",
+        description: "The strategic case for Elm Creek — what it is, where it is, and why it matters.",
+        chapters: [
+          {
+            id: "ch1",
+            title: "Executive Summary",
+            revision: "Rev 8",
+            summary: "High-conviction investment in a scalable, mixed-use development on 174.61 acres in New Braunfels, TX ETJ. Phase 1: 128 garden-style multifamily units, 18–24% IRR.",
+            keyMetric: "18–24% IRR (base 21%)",
+          },
+          {
+            id: "ch2",
+            title: "Project Overview & Opportunity",
+            revision: "Rev 9",
+            summary: "Two fully owned parcels totaling 174.61 acres with creek frontage, I-35 access, and ag exemptions. 128 units across 5 buildings in high-growth corridor.",
+            keyMetric: "174.61 acres, 128 units",
+          },
+        ],
+      },
+      {
+        group: "Financial & Execution",
+        icon: "💰",
+        description: "Capital structure, financial projections, build/refi timeline, and risk mitigation strategy.",
+        chapters: [
+          {
+            id: "ch3",
+            title: "Financial Projections & Use of Funds",
+            revision: "Rev 7",
+            summary: "$7.8M total cost under Nexus CMS pricing (~35% savings). Phased build/refi model generates ~$5.52M in cumulative profit over 32 months.",
+            keyMetric: "$7.8M total / $4.2M equity",
+          },
+          {
+            id: "ch4",
+            title: "Timeline, Risks & Mitigation",
+            revision: "Rev 7",
+            summary: "32-month phased timeline with NCC real-time transparency. Five key risks mitigated through GMP contracts, PETL tracking, and conservative assumptions.",
+            keyMetric: "32-month phased build/refi",
+          },
+        ],
+      },
+      {
+        group: "Team & Terms",
+        icon: "👥",
+        description: "The vertically integrated team executing Elm Creek and the investment structure.",
+        chapters: [
+          {
+            id: "ch5",
+            title: "Development & Construction Team",
+            revision: "Rev 7",
+            summary: "Vertically integrated execution under Nexus Fortified Structures, LLC. NASCLA-certified in 18+ states. GC O&P waived. NCC software provides investor dashboards.",
+            keyMetric: "250+ yrs experience, NASCLA 18+ states",
+          },
+          {
+            id: "ch6",
+            title: "Investment Opportunity & Terms",
+            revision: "Rev 2",
+            summary: "Seeking $500K–$3M per accredited investor. Mezzanine equity with 8% preferred return, promote after 12% IRR. De-risked via $3.67M land equity swap.",
+            keyMetric: "$500K–$3M per investor, 8% pref",
+          },
+        ],
+      },
+      {
+        group: "Appendices",
+        icon: "📎",
+        description: "Supporting documentation, market data, legal notes, and reference materials.",
+        chapters: [
+          {
+            id: "appA",
+            title: "Project Team & Advisors",
+            revision: "Rev 7",
+            summary: "Developer, GC, and environmental consultant confirmed. Architect, legal counsel, and financial advisor TBD.",
+          },
+          {
+            id: "appB",
+            title: "Market Analysis Summary",
+            revision: "Rev 6",
+            summary: "Regional population +2.8% annually. Avg rent $1,440/mo. High occupancy in workforce segment. Exit cap rate 6.5–7.2%.",
+          },
+          {
+            id: "appC",
+            title: "Legal & Regulatory Notes",
+            revision: "Rev 5",
+            summary: "Confidential, accredited investors only. Not an offer to sell securities.",
+          },
+          {
+            id: "appD",
+            title: "Supporting Documents",
+            revision: "Rev 1",
+            summary: "Nexus Fortified Structures LOI cover page and Comal AD property details (PID 72563).",
+          },
+        ],
+      },
+    ];
+
+    return {
+      chapterGroups,
+      totalChapters: 6,
+      totalAppendices: 4,
+      projectSummary: {
+        totalAcres: 174.61,
+        totalUnits: 128,
+        totalProjectCost: "$7.8M",
+        equityRaise: "$4.2M",
+        projectedIRR: "18–24%",
+        timeline: "32 months",
+      },
+    };
   }
 }

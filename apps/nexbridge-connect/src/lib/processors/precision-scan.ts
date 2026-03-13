@@ -13,6 +13,7 @@
 // ---------------------------------------------------------------------------
 
 import { invoke } from "@tauri-apps/api/core";
+import { getBaseUrl, getAccessToken } from "../api";
 import type { JobProcessor } from "../mesh-job-runner";
 
 interface PrecisionScanPayload {
@@ -93,12 +94,21 @@ export const precisionScanProcessor: JobProcessor = {
     onProgress: (pct: number, message?: string) => void,
   ): Promise<Record<string, unknown>> {
     const p = payload as unknown as PrecisionScanPayload;
-    const scanJobId = p.jobId || jobId;
+    // The mesh job runner passes jobId (mesh job UUID) — use it for local file
+    // storage.  The payload contains scanId (precision scan cuid) which is the
+    // identity the API expects for the upload endpoint.
+    const meshJobId = jobId;
+    const scanId = (payload as any).scanId || p.jobId || jobId;
     const formats = p.formats || DEFAULT_FORMATS;
     const generateSkp = p.generateSketchup !== false;
     const doAnalyze = p.analyzeMesh !== false;
     const doUpload = p.uploadResults !== false;
     const doCleanup = p.cleanupAfter === true;
+
+    // Use NexBRIDGE's own API credentials as fallback (the API doesn't
+    // pass these in the payload — NexBRIDGE is already authenticated)
+    const apiUrl = p.apiUrl || getBaseUrl();
+    const token = p.token || getAccessToken();
 
     // -----------------------------------------------------------------------
     // Step 1: Download images (0–15%)
@@ -106,7 +116,7 @@ export const precisionScanProcessor: JobProcessor = {
     onProgress(2, "Downloading scan images to local SSD...");
 
     const downloadResult = await invoke<DownloadResult>("download_scan_images", {
-      jobId: scanJobId,
+      jobId: meshJobId,
       imageUrls: p.imageUrls,
       apiUrl: p.apiUrl,
       token: p.token,
@@ -120,7 +130,7 @@ export const precisionScanProcessor: JobProcessor = {
     onProgress(16, "Starting photogrammetry reconstruction...");
 
     const photoResult = await invoke<PhotogrammetryResult>("run_photogrammetry", {
-      jobId: scanJobId,
+      jobId: meshJobId,
       detail: p.detail || "full",
     });
 
@@ -139,7 +149,7 @@ export const precisionScanProcessor: JobProcessor = {
 
       try {
         const result = await invoke<ConvertFormatResult>("convert_model", {
-          jobId: scanJobId,
+          jobId: meshJobId,
           format: fmt,
         });
         convertedFormats.push(result);
@@ -160,7 +170,7 @@ export const precisionScanProcessor: JobProcessor = {
 
       try {
         sketchupResult = await invoke<SketchUpResult>("generate_sketchup", {
-          jobId: scanJobId,
+          jobId: meshJobId,
         });
       } catch (err: any) {
         console.warn("[nexcad] SketchUp generation failed:", err?.message || err);
@@ -179,7 +189,7 @@ export const precisionScanProcessor: JobProcessor = {
 
       try {
         analysisResult = await invoke<MeshAnalysisResult>("analyze_mesh", {
-          jobId: scanJobId,
+          jobId: meshJobId,
         });
       } catch (err: any) {
         console.warn("[nexcad] Mesh analysis failed:", err?.message || err);
@@ -192,7 +202,7 @@ export const precisionScanProcessor: JobProcessor = {
     // Step 5: Upload results (90–98%)
     // -----------------------------------------------------------------------
     let uploadResult: UploadScanResult | null = null;
-    if (doUpload && p.apiUrl && p.token) {
+    if (doUpload && apiUrl && token) {
       onProgress(91, "Uploading results to API...");
 
       try {
@@ -205,9 +215,10 @@ export const precisionScanProcessor: JobProcessor = {
         ];
 
         uploadResult = await invoke<UploadScanResult>("upload_scan_results", {
-          jobId: scanJobId,
-          apiUrl: p.apiUrl,
-          token: p.token,
+          jobId: meshJobId,
+          scanId,
+          apiUrl,
+          token,
           formats: allFormats,
         });
 
@@ -222,7 +233,7 @@ export const precisionScanProcessor: JobProcessor = {
     // -----------------------------------------------------------------------
     if (doCleanup) {
       try {
-        await invoke("cleanup_scan", { jobId: scanJobId });
+        await invoke("cleanup_scan", { jobId: meshJobId });
       } catch (err: any) {
         console.warn("[nexcad] Cleanup failed:", err?.message || err);
       }
@@ -234,7 +245,8 @@ export const precisionScanProcessor: JobProcessor = {
     // Build result payload
     // -----------------------------------------------------------------------
     return {
-      jobId: scanJobId,
+      jobId: meshJobId,
+      scanId,
       imageCount: downloadResult.image_count,
       photogrammetry: {
         usdzPath: photoResult.usdz_path,

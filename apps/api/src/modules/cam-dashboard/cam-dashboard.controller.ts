@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -77,6 +78,11 @@ export class CamDashboardController {
     return this.svc.resendInvite(req.user as AuthenticatedUser, tokenId);
   }
 
+  @Delete("invite/:tokenId")
+  rescindInvite(@Req() req: any, @Param("tokenId") tokenId: string) {
+    return this.svc.rescindInvite(req.user as AuthenticatedUser, tokenId);
+  }
+
   /* ── Discussion — Topics ───────────────────────────────────────── */
 
   @Get("topics")
@@ -125,5 +131,117 @@ export class CamDashboardController {
   @Patch("threads/:id")
   patchThread(@Param("id") id: string, @Body() dto: PatchThreadDto) {
     return this.svc.patchThread(id, dto);
+  }
+
+  /* ── Invite Picker ───────────────────────────────────────────── */
+
+  @Get("invite-picker")
+  getInvitePickerData(
+    @Req() req: any,
+    @Query("cursor") cursor?: string,
+    @Query("search") search?: string,
+    @Query("limit") limitRaw?: string,
+  ) {
+    const limit = limitRaw ? parseInt(limitRaw, 10) || 200 : 200;
+    return this.svc.getInvitePickerData(
+      req.user as AuthenticatedUser,
+      cursor,
+      search,
+      Math.min(limit, 500),
+    );
+  }
+
+  @Get("invite-picker/invitees")
+  getInvitePickerInvitees() {
+    return this.svc.getInvitePickerInvitees();
+  }
+
+  @Get("invite-picker/excluded")
+  getExcludedContacts(
+    @Req() req: any,
+    @Query("search") search?: string,
+    @Query("cursor") cursor?: string,
+  ) {
+    return this.svc.getExcludedContacts(
+      req.user as AuthenticatedUser,
+      search,
+      cursor,
+    );
+  }
+
+  @Post("invite-picker/exclude")
+  bulkExcludeContacts(
+    @Req() req: any,
+    @Body() body: { contactIds: string[]; exclude: boolean },
+  ) {
+    return this.svc.bulkExcludeContacts(
+      req.user as AuthenticatedUser,
+      body.contactIds,
+      body.exclude,
+    );
+  }
+
+  /* ── Group Invite ────────────────────────────────────────────── */
+
+  @Post("invite/group")
+  sendGroupInvite(
+    @Req() req: any,
+    @Body()
+    body: {
+      contactIds: string[];
+      message: string;
+      groupName?: string;
+      deliveryMethods: Array<"email" | "sms">;
+    },
+  ) {
+    return this.svc.sendGroupInvite(req.user as AuthenticatedUser, body);
+  }
+
+  /* ── Invite Groups ───────────────────────────────────────────── */
+
+  @Get("invite-groups")
+  listInviteGroups(@Req() req: any) {
+    return this.svc.listInviteGroups(req.user as AuthenticatedUser);
+  }
+
+  @Patch("invite-groups/:id")
+  renameInviteGroup(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() body: { name: string },
+  ) {
+    return this.svc.renameInviteGroup(
+      req.user as AuthenticatedUser,
+      id,
+      body.name,
+    );
+  }
+
+  /* ── Canned Messages ────────────────────────────────────────── */
+
+  @Get("canned-messages")
+  listCannedMessages() {
+    return this.svc.listCannedMessages();
+  }
+
+  @Post("canned-messages")
+  createCannedMessage(
+    @Req() req: any,
+    @Body() body: { title: string; body: string; isDefault?: boolean },
+  ) {
+    return this.svc.createCannedMessage(req.user as AuthenticatedUser, body);
+  }
+
+  @Patch("canned-messages/:id")
+  updateCannedMessage(
+    @Param("id") id: string,
+    @Body() body: { title?: string; body?: string; isDefault?: boolean },
+  ) {
+    return this.svc.updateCannedMessage(id, body);
+  }
+
+  @Delete("canned-messages/:id")
+  deleteCannedMessage(@Param("id") id: string) {
+    return this.svc.deleteCannedMessage(id);
   }
 }

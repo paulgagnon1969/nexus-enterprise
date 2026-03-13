@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import DOMPurify from "dompurify";
 
@@ -10,14 +10,16 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
 
 interface GateStatus {
   valid: boolean;
+  revoked?: boolean;
+  revokedReason?: string | null;
   inviterName: string;
   inviteeEmail: string | null;
   inviteeName: string | null;
-  cndaRequired: boolean;
-  cndaAccepted: boolean;
-  questionnaireRequired: boolean;
-  questionnaireCompleted: boolean;
-  accessGranted: boolean;
+  cndaRequired?: boolean;
+  cndaAccepted?: boolean;
+  questionnaireRequired?: boolean;
+  questionnaireCompleted?: boolean;
+  accessGranted?: boolean;
 }
 
 interface CamScores {
@@ -209,6 +211,9 @@ export default function CamAccessPage() {
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
 
+  // Auto-verify guard — prevents infinite retry loop when cndaEmail is masked
+  const autoVerifyAttempted = useRef(false);
+
   // Referral
   const [showReferral, setShowReferral] = useState(false);
   const [refName, setRefName] = useState("");
@@ -216,6 +221,30 @@ export default function CamAccessPage() {
   const [refMessage, setRefMessage] = useState("");
   const [refSubmitting, setRefSubmitting] = useState(false);
   const [refResult, setRefResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Self-withdrawal
+  const [showWithdraw, setShowWithdraw] = useState(false);
+  const [withdrawEmail, setWithdrawEmail] = useState("");
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [withdrawn, setWithdrawn] = useState(false);
+
+  // Admin overlay — detect SUPER_ADMIN via /users/me (only if logged in)
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminEmail, setAdminEmail] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const accessToken = window.localStorage.getItem("accessToken");
+    if (!accessToken) return;
+    fetch(`${API_BASE}/users/me`, { headers: { Authorization: `Bearer ${accessToken}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then((me: any) => {
+        if (me?.globalRole === "SUPER_ADMIN") {
+          setIsAdmin(true);
+          if (me.email) setAdminEmail(me.email);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // ── Load gate status ──────────────────────────────────────────────
   useEffect(() => {
@@ -261,15 +290,31 @@ export default function CamAccessPage() {
 
   // ── When user just completed CNDA in this session, auto-verify ─────
   // The CNDA step captured their email, so they don't need to re-enter it.
+  // Guard: skip masked emails (j***e@company.com) returned for returning visitors,
+  // and don't retry after the first attempt to avoid infinite loops.
   useEffect(() => {
-    if (gate?.accessGranted && cndaEmail && !verifiedEmail) {
+    if (gate?.accessGranted && cndaEmail && !verifiedEmail && !autoVerifyAttempted.current) {
       const email = cndaEmail.trim().toLowerCase();
-      if (email) {
+      // Masked emails contain "***" — never auto-verify with those
+      if (email && !email.includes("***")) {
+        autoVerifyAttempted.current = true;
         setVerifiedEmail(email);
         try { window.sessionStorage.setItem(`nexus_cam_verified_${token}`, email); } catch {}
       }
     }
   }, [gate?.accessGranted, cndaEmail, verifiedEmail, token]);
+
+  // ── Admin auto-verify — skip identity step for SUPER_ADMIN ─────────
+  // When the admin opens a preview link from the CAM Dashboard, use their
+  // logged-in email to auto-verify identity so they never see the form.
+  useEffect(() => {
+    if (isAdmin && adminEmail && gate?.accessGranted && !verifiedEmail) {
+      const email = adminEmail.trim().toLowerCase();
+      setVerifiedEmail(email);
+      setVerifyInput(email);
+      try { window.sessionStorage.setItem(`nexus_cam_verified_${token}`, email); } catch {}
+    }
+  }, [isAdmin, adminEmail, gate?.accessGranted, verifiedEmail, token]);
 
   // ── CNDA submission ───────────────────────────────────────────────
   const handleCndaSubmit = useCallback(
@@ -435,6 +480,40 @@ export default function CamAccessPage() {
     [token, verifyInput],
   );
 
+  // ── Self-withdrawal submission ─────────────────────────────────────
+  const handleWithdraw = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      const email = withdrawEmail.trim().toLowerCase();
+      if (!email) return;
+      setWithdrawing(true);
+      try {
+        const res = await fetch(`${API_BASE}/cam-access/${token}/withdraw`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          alert(data.message || "Failed to withdraw. Please check your email and try again.");
+          return;
+        }
+        setWithdrawn(true);
+        setShowWithdraw(false);
+        // Clear local storage
+        try {
+          window.sessionStorage.removeItem(`nexus_cam_verified_${token}`);
+          window.localStorage.removeItem("nexus_cam_token");
+        } catch {}
+      } catch {
+        alert("Network error. Please try again.");
+      } finally {
+        setWithdrawing(false);
+      }
+    },
+    [token, withdrawEmail],
+  );
+
   // ── Determine current step ────────────────────────────────────────
   const needsVerification = gate?.accessGranted && !verifiedEmail;
   const currentStep = !gate
@@ -474,8 +553,99 @@ export default function CamAccessPage() {
     );
   }
 
+  // ── Revoked state ─────────────────────────────────────────────────
+  if (gate?.revoked || withdrawn) {
+    const reason = withdrawn ? "self_withdrawal" : gate?.revokedReason;
+    return (
+      <div style={containerStyle}>
+        <div style={{ ...cardStyle, maxWidth: 580, textAlign: "center" as const }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>{reason === "self_withdrawal" ? "👋" : "🔒"}</div>
+          <h2 style={{ margin: "0 0 8px", fontSize: 22, color: "#0f172a" }}>
+            {reason === "self_withdrawal" ? "Access Withdrawn" : "Access Revoked"}
+          </h2>
+          <p style={{ color: "#6b7280", fontSize: 14, lineHeight: 1.6, maxWidth: 420, margin: "0 auto 20px" }}>
+            {reason === "self_withdrawal"
+              ? "You have successfully withdrawn your access to the Nexus CAM Library. Your data has been retained per the CNDA+ agreement terms."
+              : "This access link has been revoked. If you believe this is an error, please contact the person who invited you."}
+          </p>
+          {gate?.inviterName && (
+            <p style={{ fontSize: 13, color: "#9ca3af" }}>Invited by: {gate.inviterName}</p>
+          )}
+          <div style={{ marginTop: 24, paddingTop: 20, borderTop: "1px solid #e5e7eb", fontSize: 11, color: "#9ca3af" }}>
+            Nexus Group LLC — Confidential
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={containerStyle}>
+      {/* ── Admin overlay (SUPER_ADMIN only) ── */}
+      {isAdmin && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 9999,
+            background: "#0f172a",
+            padding: "6px 16px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            fontSize: 12,
+            color: "#e2e8f0",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontWeight: 700, color: "#fbbf24" }}>👁 ADMIN PREVIEW</span>
+            <span style={{ color: "#94a3b8" }}>You are viewing this page as invitees see it</span>
+            <span style={{ color: "#64748b" }}>·</span>
+            <span style={{ color: "#64748b" }}>Step: <strong style={{ color: "#e2e8f0" }}>{currentStep}</strong></span>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <a
+              href="/system/cam-dashboard"
+              style={{
+                padding: "4px 12px",
+                borderRadius: 4,
+                border: "none",
+                background: "#059669",
+                color: "#fff",
+                fontSize: 11,
+                fontWeight: 600,
+                textDecoration: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+              }}
+            >
+              🏆 CAM Dashboard
+            </a>
+            <a
+              href="/projects"
+              style={{
+                padding: "4px 12px",
+                borderRadius: 4,
+                border: "1px solid #475569",
+                background: "transparent",
+                color: "#e2e8f0",
+                fontSize: 11,
+                fontWeight: 500,
+                textDecoration: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+              }}
+            >
+              ← Home
+            </a>
+          </div>
+        </div>
+      )}
+
       {/* Progress indicator */}
       <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 24 }}>
         {["CNDA+", "Questionnaire", "Verify", "Document"].map((label, i) => {
@@ -724,11 +894,62 @@ export default function CamAccessPage() {
       {currentStep === "content" && handbook && (
         <ContentView
           handbook={handbook}
+          token={token}
+          isAdmin={isAdmin}
           onRefer={() => { setRefResult(null); setShowReferral(true); }}
+          onWithdraw={() => { setWithdrawEmail(""); setShowWithdraw(true); }}
         />
       )}
 
-      {/* ── Referral Modal ───────────────────────────────────── */}
+      {/* ── Withdrawal Confirmation Modal ───────────────────── */}
+      {showWithdraw && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowWithdraw(false); }}
+        >
+          <div style={{ background: "#fff", borderRadius: 12, width: "100%", maxWidth: 440, padding: 28, boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#991b1b" }}>👋 Withdraw Access</h2>
+              <button onClick={() => setShowWithdraw(false)} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#6b7280", padding: 4 }}>✕</button>
+            </div>
+
+            <p style={{ margin: "0 0 8px", fontSize: 13, color: "#374151", lineHeight: 1.6 }}>
+              This will permanently revoke your access to the Nexus CAM Library.
+            </p>
+            <p style={{ margin: "0 0 16px", fontSize: 12, color: "#6b7280", lineHeight: 1.5 }}>
+              Your CNDA+ acceptance and questionnaire data will be retained per the agreement terms.
+              To confirm, enter the email address you used when accepting the CNDA+.
+            </p>
+
+            <form onSubmit={handleWithdraw}>
+              <div style={{ marginBottom: 16 }}>
+                <label style={labelStyle}>Your Email Address *</label>
+                <input
+                  type="email"
+                  value={withdrawEmail}
+                  onChange={(e) => setWithdrawEmail(e.target.value)}
+                  required
+                  style={inputStyle}
+                  placeholder="jane@company.com"
+                  autoFocus
+                />
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" onClick={() => setShowWithdraw(false)} style={{ flex: 1, padding: "10px 16px", borderRadius: 6, border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+                <button
+                  type="submit"
+                  disabled={!withdrawEmail.trim() || withdrawing}
+                  style={{ flex: 2, padding: "10px 16px", borderRadius: 6, border: "none", background: withdrawing ? "#6b7280" : "#dc2626", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: !withdrawEmail.trim() ? 0.5 : 1 }}
+                >
+                  {withdrawing ? "Withdrawing..." : "Confirm Withdrawal"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Referral Modal ─────────────────────────────────────── */}
       {showReferral && (
         <div
           style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }}
@@ -792,7 +1013,7 @@ export default function CamAccessPage() {
 /*  CONTENT VIEW — rich handbook layout                               */
 /* ═══════════════════════════════════════════════════════════════════ */
 
-function ContentView({ handbook, onRefer }: { handbook: HandbookData; onRefer: () => void }) {
+function ContentView({ handbook, token, isAdmin, onRefer, onWithdraw }: { handbook: HandbookData; token: string; isAdmin: boolean; onRefer: () => void; onWithdraw: () => void }) {
   const isReturnVisit = handbook._shareContext.visitNumber > 1;
   const [bookmarkDismissed, setBookmarkDismissed] = useState(false);
   const allCams = handbook.modules.flatMap((m) => m.cams);
@@ -1013,6 +1234,9 @@ function ContentView({ handbook, onRefer }: { handbook: HandbookData; onRefer: (
           </div>
         </div>
 
+        {/* ── General Discussion (manual-level) ── */}
+        <DiscussionPanel token={token} camSection={undefined} isAdmin={isAdmin} generalLabel="📖 General Discussion" />
+
         {/* ── Table of Contents ── */}
         <div className="toc-section">
           <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16, color: "#0f172a" }}>Table of Contents</h2>
@@ -1091,6 +1315,7 @@ function ContentView({ handbook, onRefer }: { handbook: HandbookData; onRefer: (
                     {content && (
                       <div className="cam-content" style={{ fontSize: 14, lineHeight: 1.6, color: "#1e293b" }} dangerouslySetInnerHTML={{ __html: sanitize(content) }} />
                     )}
+                    <DiscussionPanel token={token} camSection={cam.camId || cam.code} isAdmin={isAdmin} />
                   </div>
                 );
               })}
@@ -1116,10 +1341,18 @@ function ContentView({ handbook, onRefer }: { handbook: HandbookData; onRefer: (
 
         {/* ── Footer ── */}
         <hr style={{ border: "none", borderTop: "2px solid #0f172a", margin: "48px 0 16px" }} />
-        <div style={{ textAlign: "center", fontSize: 11, color: "#9ca3af", userSelect: "none", paddingBottom: 40 }}>
+        <div style={{ textAlign: "center", fontSize: 11, color: "#9ca3af", userSelect: "none", paddingBottom: 16 }}>
           CONFIDENTIAL — Nexus Group LLC — Serial: {handbook._shareContext.serialNumber}<br />
           This document is protected under the CNDA+ agreement. Unauthorized distribution is prohibited.<br />
           {handbook.totalCams} CAMs · {handbook.modules.length} Module Groups · {new Date(handbook._shareContext.accessedAt).toLocaleDateString()}
+        </div>
+        <div className="no-print" style={{ textAlign: "center", paddingBottom: 40 }}>
+          <button
+            onClick={onWithdraw}
+            style={{ background: "none", border: "none", color: "#9ca3af", fontSize: 11, cursor: "pointer", textDecoration: "underline", padding: "4px 8px" }}
+          >
+            I’d like to withdraw my access
+          </button>
         </div>
       </div>
 
@@ -1136,7 +1369,410 @@ function ContentView({ handbook, onRefer }: { handbook: HandbookData; onRefer: (
   );
 }
 
-// ─── Styles ─────────────────────────────────────────────────────────────────
+// ─── Discussion Panel Component ─────────────────────────────────────────────────────────
+
+interface DiscThread {
+  id: string;
+  title: string;
+  camSection: string | null;
+  isPinned: boolean;
+  isFaq: boolean;
+  messageCount: number;
+  createdBy: { id: string; name: string };
+  lastMessage: { preview: string; authorName: string; createdAt: string } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface DiscMessage {
+  id: string;
+  body: string;
+  isSystemMessage: boolean;
+  author: { id: string; name: string };
+  createdAt: string;
+}
+
+function DiscussionPanel({
+  token,
+  camSection,
+  isAdmin,
+  generalLabel,
+}: {
+  token: string;
+  camSection: string | undefined;
+  isAdmin: boolean;
+  generalLabel?: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [threads, setThreads] = useState<DiscThread[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  // Active thread view
+  const [activeThread, setActiveThread] = useState<string | null>(null);
+  const [messages, setMessages] = useState<DiscMessage[]>([]);
+  const [threadMuted, setThreadMuted] = useState(false);
+  const [msgsLoading, setMsgsLoading] = useState(false);
+
+  // New thread form
+  const [showNew, setShowNew] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newBody, setNewBody] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  // Reply
+  const [replyBody, setReplyBody] = useState("");
+  const [replying, setReplying] = useState(false);
+
+  // Move (admin)
+  const [moveTarget, setMoveTarget] = useState("");
+  const [moving, setMoving] = useState(false);
+
+  const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+  const loadThreads = async () => {
+    setLoading(true);
+    try {
+      const qs = camSection ? `?camSection=${encodeURIComponent(camSection)}` : "";
+      const res = await fetch(`${base}/cam-access/${token}/discussions${qs}`);
+      if (res.ok) {
+        setThreads(await res.json());
+        setLoaded(true);
+      }
+    } catch {}
+    setLoading(false);
+  };
+
+  const handleExpand = () => {
+    if (!expanded && !loaded) loadThreads();
+    setExpanded(!expanded);
+  };
+
+  const loadThread = async (threadId: string) => {
+    setActiveThread(threadId);
+    setMsgsLoading(true);
+    try {
+      const res = await fetch(`${base}/cam-access/${token}/discussions/${threadId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setMessages(data.messages);
+        setThreadMuted(data.muted);
+      }
+    } catch {}
+    setMsgsLoading(false);
+  };
+
+  const handleCreate = async () => {
+    if (!newTitle.trim() || !newBody.trim()) return;
+    setCreating(true);
+    try {
+      const res = await fetch(`${base}/cam-access/${token}/discussions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: newTitle.trim(), body: newBody.trim(), camSection }),
+      });
+      if (res.ok) {
+        setNewTitle("");
+        setNewBody("");
+        setShowNew(false);
+        loadThreads();
+      }
+    } catch {}
+    setCreating(false);
+  };
+
+  const handleReply = async () => {
+    if (!replyBody.trim() || !activeThread) return;
+    setReplying(true);
+    try {
+      const res = await fetch(
+        `${base}/cam-access/${token}/discussions/${activeThread}/messages`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ body: replyBody.trim() }),
+        },
+      );
+      if (res.ok) {
+        const msg = await res.json();
+        setMessages((prev) => [...prev, msg]);
+        setReplyBody("");
+      }
+    } catch {}
+    setReplying(false);
+  };
+
+  const handleMute = async () => {
+    if (!activeThread) return;
+    try {
+      const res = await fetch(
+        `${base}/cam-access/${token}/discussions/${activeThread}/mute`,
+        { method: "POST" },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setThreadMuted(data.muted);
+      }
+    } catch {}
+  };
+
+  const handleMove = async (threadId: string) => {
+    if (!moveTarget.trim()) return;
+    setMoving(true);
+    try {
+      const accessToken = window.localStorage.getItem("accessToken");
+      const res = await fetch(
+        `${base}/cam-access/admin/discussions/${threadId}/move`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          },
+          body: JSON.stringify({ newCamSection: moveTarget.trim() }),
+        },
+      );
+      if (res.ok) {
+        setMoveTarget("");
+        setActiveThread(null);
+        loadThreads();
+      }
+    } catch {}
+    setMoving(false);
+  };
+
+  const handleAdminAction = async (threadId: string, action: "pin" | "faq" | "delete") => {
+    const accessToken = window.localStorage.getItem("accessToken");
+    const method = action === "delete" ? "DELETE" : "POST";
+    try {
+      await fetch(
+        `${base}/cam-access/admin/discussions/${threadId}/${action === "delete" ? "" : action}`.replace(/\/$/, ""),
+        {
+          method,
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+        },
+      );
+      if (action === "delete") setActiveThread(null);
+      loadThreads();
+    } catch {}
+  };
+
+  const timeAgo = (d: string) => {
+    const s = Math.floor((Date.now() - new Date(d).getTime()) / 1000);
+    if (s < 60) return "just now";
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+    return `${Math.floor(s / 86400)}d ago`;
+  };
+
+  const label = generalLabel ?? `\uD83D\uDCAC Discussion`;
+
+  return (
+    <div
+      className="no-print"
+      id={camSection ? `discussion-${camSection}` : "discussion-general"}
+      style={{ marginTop: 12, marginBottom: 8, border: "1px solid #e5e7eb", borderRadius: 8, background: "#fafafa" }}
+    >
+      {/* Header / Toggle */}
+      <button
+        onClick={handleExpand}
+        style={{
+          width: "100%",
+          padding: "10px 16px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          fontSize: 13,
+          fontWeight: 600,
+          color: "#374151",
+        }}
+      >
+        <span>{label} {loaded && threads.length > 0 ? `(${threads.length})` : ""}</span>
+        <span style={{ fontSize: 11, color: "#9ca3af" }}>{expanded ? "▲" : "▼"}</span>
+      </button>
+
+      {expanded && (
+        <div style={{ padding: "0 16px 16px" }}>
+          {loading && <div style={{ fontSize: 12, color: "#9ca3af", padding: 8 }}>Loading...</div>}
+
+          {/* Thread list */}
+          {!activeThread && !loading && (
+            <>
+              {threads.length === 0 && loaded && (
+                <div style={{ fontSize: 12, color: "#9ca3af", padding: "8px 0" }}>
+                  No discussions yet. Be the first to start one!
+                </div>
+              )}
+              {threads.map((t) => (
+                <div
+                  key={t.id}
+                  onClick={() => loadThread(t.id)}
+                  style={{
+                    padding: "10px 12px",
+                    marginBottom: 6,
+                    background: "#fff",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 6,
+                    cursor: "pointer",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: "#0f172a" }}>
+                      {t.isPinned ? "\uD83D\uDCCC " : ""}{t.isFaq ? "\u2753 " : ""}{t.title}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#9ca3af" }}>{t.messageCount} msg{t.messageCount !== 1 ? "s" : ""}</div>
+                  </div>
+                  {t.lastMessage && (
+                    <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+                      {t.lastMessage.authorName}: {t.lastMessage.preview.slice(0, 100)}{t.lastMessage.preview.length > 100 ? "..." : ""}
+                      {" \u00B7 "}{timeAgo(t.lastMessage.createdAt)}
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {/* New thread form */}
+              {showNew ? (
+                <div style={{ marginTop: 8, padding: 12, background: "#fff", border: "1px solid #d1d5db", borderRadius: 6 }}>
+                  <input
+                    type="text"
+                    placeholder="Discussion title..."
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    style={{ width: "100%", padding: "6px 10px", border: "1px solid #d1d5db", borderRadius: 4, fontSize: 13, marginBottom: 8, boxSizing: "border-box" }}
+                  />
+                  <textarea
+                    placeholder="Your message..."
+                    value={newBody}
+                    onChange={(e) => setNewBody(e.target.value)}
+                    rows={3}
+                    style={{ width: "100%", padding: "6px 10px", border: "1px solid #d1d5db", borderRadius: 4, fontSize: 13, resize: "vertical", boxSizing: "border-box" }}
+                  />
+                  <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                    <button
+                      onClick={handleCreate}
+                      disabled={!newTitle.trim() || !newBody.trim() || creating}
+                      style={{ padding: "6px 14px", borderRadius: 4, border: "none", background: "#0f172a", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: !newTitle.trim() || !newBody.trim() ? 0.5 : 1 }}
+                    >
+                      {creating ? "Posting..." : "Post"}
+                    </button>
+                    <button onClick={() => { setShowNew(false); setNewTitle(""); setNewBody(""); }} style={{ padding: "6px 14px", borderRadius: 4, border: "1px solid #d1d5db", background: "#fff", fontSize: 12, cursor: "pointer" }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowNew(true)}
+                  style={{ marginTop: 8, padding: "6px 14px", borderRadius: 4, border: "1px dashed #9ca3af", background: "none", fontSize: 12, color: "#6b7280", cursor: "pointer" }}
+                >
+                  + Start a Discussion
+                </button>
+              )}
+            </>
+          )}
+
+          {/* Thread detail */}
+          {activeThread && (
+            <div>
+              <button
+                onClick={() => { setActiveThread(null); setMessages([]); }}
+                style={{ background: "none", border: "none", fontSize: 12, color: "#2563eb", cursor: "pointer", padding: 0, marginBottom: 8 }}
+              >
+                \u2190 Back to threads
+              </button>
+
+              {/* Controls bar */}
+              <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+                <button
+                  onClick={handleMute}
+                  style={{ padding: "4px 10px", borderRadius: 4, border: "1px solid #d1d5db", background: threadMuted ? "#fef3c7" : "#fff", fontSize: 11, cursor: "pointer", color: threadMuted ? "#92400e" : "#374151" }}
+                >
+                  {threadMuted ? "\uD83D\uDD15 Muted" : "\uD83D\uDD14 Notifications On"}
+                </button>
+                {isAdmin && (
+                  <>
+                    <button onClick={() => handleAdminAction(activeThread, "pin")} style={{ padding: "4px 10px", borderRadius: 4, border: "1px solid #d1d5db", background: "#fff", fontSize: 11, cursor: "pointer" }}>\uD83D\uDCCC Pin</button>
+                    <button onClick={() => handleAdminAction(activeThread, "faq")} style={{ padding: "4px 10px", borderRadius: 4, border: "1px solid #d1d5db", background: "#fff", fontSize: 11, cursor: "pointer" }}>\u2753 FAQ</button>
+                    <button onClick={() => handleAdminAction(activeThread, "delete")} style={{ padding: "4px 10px", borderRadius: 4, border: "1px solid #fecaca", background: "#fef2f2", color: "#991b1b", fontSize: 11, cursor: "pointer" }}>\uD83D\uDDD1 Delete</button>
+                    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                      <input
+                        type="text"
+                        placeholder="Move to CAM ID..."
+                        value={moveTarget}
+                        onChange={(e) => setMoveTarget(e.target.value)}
+                        style={{ padding: "3px 8px", border: "1px solid #d1d5db", borderRadius: 4, fontSize: 11, width: 130 }}
+                      />
+                      <button
+                        onClick={() => handleMove(activeThread)}
+                        disabled={!moveTarget.trim() || moving}
+                        style={{ padding: "4px 10px", borderRadius: 4, border: "none", background: "#2563eb", color: "#fff", fontSize: 11, cursor: "pointer", opacity: !moveTarget.trim() ? 0.5 : 1 }}
+                      >
+                        {moving ? "..." : "Move"}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Messages */}
+              {msgsLoading && <div style={{ fontSize: 12, color: "#9ca3af" }}>Loading messages...</div>}
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {messages.map((m) => (
+                  <div
+                    key={m.id}
+                    style={{
+                      padding: "8px 12px",
+                      background: m.isSystemMessage ? "#f0f9ff" : "#fff",
+                      border: `1px solid ${m.isSystemMessage ? "#bae6fd" : "#e5e7eb"}`,
+                      borderRadius: 6,
+                      fontSize: 13,
+                    }}
+                  >
+                    {m.isSystemMessage ? (
+                      <div style={{ color: "#0369a1", fontStyle: "italic" }}>{m.body}</div>
+                    ) : (
+                      <>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                          <span style={{ fontWeight: 600, fontSize: 12, color: "#0f172a" }}>{m.author.name}</span>
+                          <span style={{ fontSize: 11, color: "#9ca3af" }}>{timeAgo(m.createdAt)}</span>
+                        </div>
+                        <div style={{ color: "#374151", whiteSpace: "pre-wrap" }}>{m.body}</div>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Reply box */}
+              <div style={{ marginTop: 10, display: "flex", gap: 6 }}>
+                <textarea
+                  placeholder="Write a reply..."
+                  value={replyBody}
+                  onChange={(e) => setReplyBody(e.target.value)}
+                  rows={2}
+                  style={{ flex: 1, padding: "6px 10px", border: "1px solid #d1d5db", borderRadius: 4, fontSize: 13, resize: "vertical" }}
+                />
+                <button
+                  onClick={handleReply}
+                  disabled={!replyBody.trim() || replying}
+                  style={{ alignSelf: "flex-end", padding: "6px 14px", borderRadius: 4, border: "none", background: "#0f172a", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: !replyBody.trim() ? 0.5 : 1 }}
+                >
+                  {replying ? "..." : "Reply"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Styles ─────────────────────────────────────────────────────────────────────────────
 
 const containerStyle: React.CSSProperties = {
   minHeight: "100vh",

@@ -29,26 +29,28 @@ public class NexusObjectCaptureModule: Module {
     /// 1. ObjectCaptureSession for guided image capture
     /// 2. PhotogrammetrySession for 3D reconstruction
     /// Returns: { modelPath, thumbnailPath, dimensions, boundingBox }
-    AsyncFunction("startCapture") { (promise: Promise) in
+    AsyncFunction("startCapture") { () async throws -> [String: Any] in
       #if canImport(RealityKit)
       if #available(iOS 17.0, *) {
         let supported = await MainActor.run { ObjectCaptureSession.isSupported }
         guard supported else {
-          promise.reject("UNSUPPORTED", "Device does not support Object Capture (requires LiDAR + iOS 17)")
-          return
+          throw NSError(domain: "NexusObjectCapture", code: 1,
+                       userInfo: [NSLocalizedDescriptionKey: "Device does not support Object Capture (requires LiDAR + iOS 17)"])
         }
 
-        DispatchQueue.main.async { [weak self] in
-          let coordinator = ObjectCaptureCoordinator(promise: promise) { [weak self] in
-            self?.activeCoordinator = nil
+        return try await withCheckedThrowingContinuation { continuation in
+          DispatchQueue.main.async { [weak self] in
+            let coordinator = ObjectCaptureCoordinator(continuation: continuation) { [weak self] in
+              self?.activeCoordinator = nil
+            }
+            self?.activeCoordinator = coordinator
+            coordinator.start()
           }
-          self?.activeCoordinator = coordinator
-          coordinator.start()
         }
-        return
       }
       #endif
-      promise.reject("UNSUPPORTED", "Object Capture requires iOS 17+ with LiDAR")
+      throw NSError(domain: "NexusObjectCapture", code: 2,
+                   userInfo: [NSLocalizedDescriptionKey: "Object Capture requires iOS 17+ with LiDAR"])
     }
 
     /// Launch Precision Capture: captures high-density images for Mac Studio
@@ -105,17 +107,35 @@ public class NexusObjectCaptureModule: Module {
 @available(iOS 17.0, *)
 @MainActor
 class ObjectCaptureCoordinator: NSObject {
-  private let promise: Promise
+  private let continuation: CheckedContinuation<[String: Any], Error>
   private let onCleanup: () -> Void
   private var session: ObjectCaptureSession?
   private var hostingController: UIViewController?
   private var imagesDirectory: URL?
   private var outputDirectory: URL?
+  private var hasResumed = false
 
-  init(promise: Promise, onCleanup: @escaping () -> Void) {
-    self.promise = promise
+  init(continuation: CheckedContinuation<[String: Any], Error>, onCleanup: @escaping () -> Void) {
+    self.continuation = continuation
     self.onCleanup = onCleanup
     super.init()
+  }
+
+  /// Resume continuation with a successful result. Safe to call multiple times — only the first fires.
+  private func resumeSuccess(_ result: [String: Any]) {
+    guard !hasResumed else { return }
+    hasResumed = true
+    continuation.resume(returning: result)
+    onCleanup()
+  }
+
+  /// Resume continuation with an error. Safe to call multiple times — only the first fires.
+  private func resumeError(_ message: String) {
+    guard !hasResumed else { return }
+    hasResumed = true
+    continuation.resume(throwing: NSError(domain: "NexusObjectCapture", code: 0,
+                                          userInfo: [NSLocalizedDescriptionKey: message]))
+    onCleanup()
   }
 
   func start() {
@@ -130,7 +150,7 @@ class ObjectCaptureCoordinator: NSObject {
       try FileManager.default.createDirectory(at: imagesDir, withIntermediateDirectories: true)
       try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
     } catch {
-      promise.reject("DIR_ERROR", "Failed to create capture directories: \(error.localizedDescription)")
+      resumeError("Failed to create capture directories: \(error.localizedDescription)")
       return
     }
 
@@ -168,7 +188,7 @@ class ObjectCaptureCoordinator: NSObject {
     self.hostingController = vc
 
     guard let rootVC = findPresentingViewController() else {
-      promise.reject("PRESENTATION_ERROR", "Could not find root view controller")
+      resumeError("Could not find root view controller")
       return
     }
 
@@ -193,8 +213,7 @@ class ObjectCaptureCoordinator: NSObject {
     case .failed(let error):
       print("[NexusObjectCapture] Capture failed: \(error)")
       dismiss {
-        self.promise.reject("CAPTURE_FAILED", error.localizedDescription)
-        self.cleanup()
+        self.resumeError(error.localizedDescription)
       }
     @unknown default:
       break
@@ -208,8 +227,7 @@ class ObjectCaptureCoordinator: NSObject {
   private func cancel() {
     session?.cancel()
     dismiss {
-      self.promise.reject("CANCELLED", "User cancelled object capture")
-      self.cleanup()
+      self.resumeError("User cancelled object capture")
     }
   }
 
@@ -217,8 +235,7 @@ class ObjectCaptureCoordinator: NSObject {
 
   private func startReconstruction() {
     guard let imagesDir = imagesDirectory, let outputDir = outputDirectory else {
-      promise.reject("INTERNAL_ERROR", "Missing capture directories")
-      cleanup()
+      resumeError("Missing capture directories")
       return
     }
 
@@ -251,8 +268,7 @@ class ObjectCaptureCoordinator: NSObject {
             print("[NexusObjectCapture] Processing error: \(error)")
             await MainActor.run {
               self.dismiss {
-                self.promise.reject("RECONSTRUCTION_FAILED", error.localizedDescription)
-                self.cleanup()
+                self.resumeError(error.localizedDescription)
               }
             }
             return
@@ -264,8 +280,7 @@ class ObjectCaptureCoordinator: NSObject {
       } catch {
         await MainActor.run {
           self.dismiss {
-            self.promise.reject("RECONSTRUCTION_FAILED", error.localizedDescription)
-            self.cleanup()
+            self.resumeError(error.localizedDescription)
           }
         }
       }
@@ -319,8 +334,7 @@ class ObjectCaptureCoordinator: NSObject {
     }
 
     dismiss {
-      self.promise.resolve(result)
-      self.cleanup()
+      self.resumeSuccess(result)
     }
   }
 
@@ -336,9 +350,9 @@ class ObjectCaptureCoordinator: NSObject {
     }
   }
 
-  private func cleanup() {
-    onCleanup()
-    // Clean up temp directories after a delay to ensure files are read
+  /// Clean up temp directories after a delay to ensure files have been read.
+  /// Called internally after resumeSuccess/resumeError via onCleanup.
+  private func scheduleTempCleanup() {
     if let imagesDir = imagesDirectory?.deletingLastPathComponent() {
       DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 60) {
         try? FileManager.default.removeItem(at: imagesDir)

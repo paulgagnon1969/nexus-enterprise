@@ -810,10 +810,13 @@ export function DailyLogsScreen({
                 disabled={!!l.__local}
               >
                 <View style={styles.logCardContent}>
-                  <Text style={styles.logCardTitle} numberOfLines={2}>
-                    {l.title || l.workPerformed || "(no title)"}
-                    {l.__local ? " (pending)" : ""}
-                  </Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    {l.dlid && <Text style={styles.logCardDlid}>{l.dlid}</Text>}
+                    <Text style={[styles.logCardTitle, { flex: 1 }]} numberOfLines={2}>
+                      {l.title || l.workPerformed || "(no title)"}
+                      {l.__local ? " (pending)" : ""}
+                    </Text>
+                  </View>
                   <Text style={styles.logCardDate}>
                     {formatLogDate(l.logDate)}
                     {l.createdByUser ? ` • ${l.createdByUser.firstName || l.createdByUser.email}` : ""}
@@ -849,6 +852,9 @@ export function DailyLogsScreen({
           ) : detailLog ? (
             <ScrollView style={styles.detailBody} contentContainerStyle={{ paddingBottom: 40 }}>
               <View style={styles.detailMeta}>
+                {detailLog.dlid && (
+                  <Text style={styles.detailDlid}>#{detailLog.dlid}</Text>
+                )}
                 <Text style={styles.detailDate}>{formatLogDate(detailLog.logDate)}</Text>
                 <Text style={styles.detailAuthor}>
                   by {detailLog.createdByUser?.firstName || detailLog.createdByUser?.email || "Unknown"}
@@ -1390,6 +1396,12 @@ const styles = StyleSheet.create({
   logCardContent: {
     flex: 1,
   },
+  logCardDlid: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#6366f1",
+    fontFamily: "monospace" as any,
+  },
   logCardTitle: {
     fontSize: 14,
     fontWeight: "600",
@@ -1448,6 +1460,13 @@ const styles = StyleSheet.create({
   },
   detailMeta: {
     marginBottom: 16,
+  },
+  detailDlid: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#6366f1",
+    fontFamily: "monospace" as any,
+    marginBottom: 2,
   },
   detailDate: {
     fontSize: 16,

@@ -88,6 +88,23 @@ export class CamAccessController {
   }
 
   /**
+   * POST /cam-access/:token/withdraw
+   * Self-withdrawal — an invitee revokes their own access.
+   * Requires email verification (must match the CNDA signer).
+   */
+  @Post(":token/withdraw")
+  async withdraw(
+    @Param("token") token: string,
+    @Body() body: { email: string },
+    @Req() req: any,
+  ) {
+    return this.camAccess.withdraw(token, body.email, {
+      ipAddress: req.ip,
+      userAgent: req.headers?.["user-agent"],
+    });
+  }
+
+  /**
    * POST /cam-access/:token/refer
    * Viral referral — an invitee who has completed CNDA + questionnaire
    * can refer someone else. Creates a child token and sends an invite.
