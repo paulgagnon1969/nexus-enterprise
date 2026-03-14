@@ -480,6 +480,43 @@ npm -w packages/database exec -- npx prisma db push
 - Create a proper migration instead
 - Or ask the user how they want to handle it
 
+## Environment Awareness — Pre-Flight Check Contract — CRITICAL
+
+Before ANY work that involves running code, starting servers, testing endpoints, or launching simulators, Warp MUST run a pre-flight check to understand what's already running. **No assumptions. No blind starts.**
+
+**Mandatory pre-flight (run at the START of every session and before any server/test work):**
+```bash
+# 1. What's listening on dev + prod ports?
+lsof -i:3000 -i:3001 -i:8000 -i:8001 -i:5433 -i:5435 -i:6380 -i:6381 -sTCP:LISTEN | head -20
+
+# 2. What shadow containers are running?
+docker ps --filter name=nexus-shadow --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+
+# 3. What dev host processes are alive?
+pgrep -lf 'nodemon|ts-node.*main|next dev' || echo 'No dev servers running'
+```
+
+**What to do with the results:**
+- If shadow containers are UP on :8000/:3001 → production is live. Do NOT touch.
+- If dev API is running on :8001 → code changes auto-reload via nodemon. Do NOT start another.
+- If dev web is running on :3000 → HMR is active. Do NOT start another.
+- If a port is occupied → do NOT start a competing process on it.
+- If the mobile simulator needs an API → verify which URL `EXPO_PUBLIC_API_BASE_URL` points to and confirm that endpoint is healthy before launching.
+
+**When launching the mobile simulator:**
+```bash
+# Verify the API the app will talk to is actually responding
+curl -s https://staging-api.nfsgrp.com/health || echo 'PROD API DOWN'
+curl -s http://localhost:8001/health || echo 'DEV API DOWN'
+```
+
+**Rules:**
+- NEVER start a dev server without checking if one is already running on that port.
+- NEVER assume a port is free. Always verify.
+- NEVER start `npx expo start` without confirming the target API is healthy.
+- If the pre-flight reveals unexpected state (e.g., dev server on a prod port, shadow containers down), REPORT it to the user before proceeding.
+- After a reboot, re-run the pre-flight — don't assume prior state survived.
+
 ## Dev Server Stability - CRITICAL RULES
 
 The local dev servers use file-watching auto-reload (`nodemon` for API, Next.js HMR for web). Warp MUST respect running processes.
