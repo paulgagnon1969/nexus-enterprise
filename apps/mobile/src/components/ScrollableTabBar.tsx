@@ -27,6 +27,7 @@ const MODULES: { key: string; icon: string; label: string }[] = [
   { key: "ScannerTab", icon: "📐", label: "Scanner" },
   { key: "InventoryTab", icon: "📦", label: "Inventory" },
   { key: "OutboxTab", icon: "📤", label: "Outbox" },
+  { key: "DevSessionsTab", icon: "🛠️", label: "Dev Mirror" },
 ];
 
 const TAB_META: Record<string, { icon: string; label: string }> = {
@@ -39,6 +40,7 @@ const TAB_META: Record<string, { icon: string; label: string }> = {
   ScannerTab: { icon: "📐", label: "Scanner" },
   InventoryTab: { icon: "📦", label: "Inventory" },
   OutboxTab: { icon: "📤", label: "Outbox" },
+  DevSessionsTab: { icon: "🛠️", label: "Dev Mirror" },
 };
 
 interface Props extends BottomTabBarProps {
@@ -64,6 +66,11 @@ export function ScrollableTabBar({
   const currentRoute = state.routes[state.index]?.name ?? "HomeTab";
   const isHome = currentRoute === "HomeTab";
   const activeMeta = TAB_META[currentRoute] ?? { icon: "•", label: currentRoute };
+
+  // Filter modules to only show tabs that exist in the navigator
+  // (e.g. DevSessionsTab only appears for SUPER_ADMIN)
+  const availableRouteNames = new Set(state.routes.map((r) => r.name));
+  const visibleModules = MODULES.filter((m) => availableRouteNames.has(m.key));
 
   const goHome = () => {
     void Haptics.selectionAsync();
@@ -260,7 +267,7 @@ export function ScrollableTabBar({
             </View>
 
             <View style={styles.moduleGrid}>
-              {MODULES.map((mod) => {
+              {visibleModules.map((mod) => {
                 const isActive = currentRoute === mod.key;
                 const showBadge = mod.key === "TodosTab" && todoBadgeCount > 0;
 
