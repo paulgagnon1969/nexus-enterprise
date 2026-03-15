@@ -493,10 +493,11 @@ export class ProcurementService {
         // Attempt to extract coverage from the product and compute the true
         // purchase quantity & effective per-project-unit price.
         const hasSpecs = !!enrichedProduct.rawJson?.specifications;
+        const specs = enrichedProduct.rawJson?.specifications;
         this.logger.log(
           `[CBA-COVERAGE] ${result.provider} | productId=${enrichedProduct.productId} | ` +
           `title="${(enrichedProduct.title ?? '').slice(0, 80)}" | price=$${enrichedProduct.price} | ` +
-          `hasSpecs=${hasSpecs} | specsKeys=${hasSpecs ? JSON.stringify(Object.keys(enrichedProduct.rawJson!.specifications).slice(0, 5)) : 'none'}`,
+          `hasSpecs=${hasSpecs} | specs=${hasSpecs ? JSON.stringify(Array.isArray(specs) ? specs.slice(0, 6) : specs).slice(0, 500) : 'none'}`,
         );
         const normalized = normalizePricing(enrichedProduct, item.cartQty, item.unit);
         this.logger.log(

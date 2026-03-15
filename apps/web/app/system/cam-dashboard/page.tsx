@@ -149,50 +149,57 @@ function AnalyticsTab() {
         </>
       )}
 
-      {/* Repeat Visitors */}
-      <SectionTitle>Repeat Visitors ({data.visitors.length})</SectionTitle>
-      {data.visitors.length === 0 ? (
-        <EmptyState msg="No visitors yet" />
-      ) : (
-        <div style={{ ...cardStyle, overflow: "auto", maxHeight: 350 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-            <thead>
-              <tr style={{ background: "#f9fafb" }}>
-                {["Name", "Email", "Views", "First Visit", "Last Visit", "Status"].map((h) => (
-                  <th key={h} style={{ padding: "8px 10px", textAlign: "left", borderBottom: "1px solid #e5e7eb", fontWeight: 600 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.visitors.map((v: any, i: number) => (
-                <tr key={i}>
-                  <td style={tdStyle}>{v.name || "—"}</td>
-                  <td style={tdStyle}>{v.email || "—"}</td>
-                  <td style={{ ...tdStyle, fontWeight: 700, color: v.viewCount >= 3 ? "#059669" : "#0f172a" }}>{v.viewCount}</td>
-                  <td style={tdStyle}>{v.firstVisit ? timeAgo(v.firstVisit) : "—"}</td>
-                  <td style={tdStyle}>{v.lastVisit ? timeAgo(v.lastVisit) : "—"}</td>
-                  <td style={tdStyle}><StatusBadge granted={v.accessGranted} cnda={v.cndaAccepted} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Activity Timeline */}
-      <SectionTitle>Recent Activity</SectionTitle>
-      <div style={{ ...cardStyle, maxHeight: 300, overflow: "auto", padding: 12 }}>
-        {data.recentActivity.length === 0 ? (
-          <EmptyState msg="No recent activity" />
-        ) : (
-          data.recentActivity.slice(0, 50).map((a: any, i: number) => (
-            <div key={i} style={{ display: "flex", gap: 10, padding: "6px 0", borderBottom: i < 49 ? "1px solid #f3f4f6" : "none", fontSize: 12 }}>
-              <ActivityIcon type={a.type} />
-              <span style={{ flex: 1 }}><strong>{a.name || "Unknown"}</strong> — {a.type.replace(/_/g, " ").toLowerCase()}</span>
-              <span style={{ color: "#9ca3af", fontSize: 11 }}>{timeAgo(a.createdAt)}</span>
+      {/* Repeat Visitors + Recent Activity — side by side */}
+      <div style={{ display: "flex", gap: 16, marginBottom: 0 }}>
+        {/* Repeat Visitors */}
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+          <SectionTitle>Repeat Visitors ({data.visitors.length})</SectionTitle>
+          {data.visitors.length === 0 ? (
+            <EmptyState msg="No visitors yet" />
+          ) : (
+            <div style={{ ...cardStyle, flex: 1, overflow: "auto", maxHeight: 420, minHeight: 200 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: "#f9fafb", position: "sticky", top: 0, zIndex: 1 }}>
+                    {["Name", "Email", "Views", "First Visit", "Last Visit", "Status"].map((h) => (
+                      <th key={h} style={{ padding: "8px 10px", textAlign: "left", borderBottom: "1px solid #e5e7eb", fontWeight: 600, background: "#f9fafb" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.visitors.map((v: any, i: number) => (
+                    <tr key={i}>
+                      <td style={tdStyle}>{v.name || "—"}</td>
+                      <td style={tdStyle}>{v.email || "—"}</td>
+                      <td style={{ ...tdStyle, fontWeight: 700, color: v.viewCount >= 3 ? "#059669" : "#0f172a" }}>{v.viewCount}</td>
+                      <td style={tdStyle}>{v.firstVisit ? timeAgo(v.firstVisit) : "—"}</td>
+                      <td style={tdStyle}>{v.lastVisit ? timeAgo(v.lastVisit) : "—"}</td>
+                      <td style={tdStyle}><StatusBadge granted={v.accessGranted} cnda={v.cndaAccepted} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ))
-        )}
+          )}
+        </div>
+
+        {/* Recent Activity */}
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+          <SectionTitle>Recent Activity</SectionTitle>
+          <div style={{ ...cardStyle, flex: 1, maxHeight: 420, minHeight: 200, overflow: "auto", padding: 12 }}>
+            {data.recentActivity.length === 0 ? (
+              <EmptyState msg="No recent activity" />
+            ) : (
+              data.recentActivity.slice(0, 50).map((a: any, i: number) => (
+                <div key={i} style={{ display: "flex", gap: 10, padding: "6px 0", borderBottom: i < 49 ? "1px solid #f3f4f6" : "none", fontSize: 12 }}>
+                  <ActivityIcon type={a.type} />
+                  <span style={{ flex: 1 }}><strong>{a.name || "Unknown"}</strong> — {a.type.replace(/_/g, " ").toLowerCase()}</span>
+                  <span style={{ color: "#9ca3af", fontSize: 11, whiteSpace: "nowrap" }}>{timeAgo(a.createdAt)}</span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
