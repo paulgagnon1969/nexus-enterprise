@@ -14,7 +14,7 @@ tags: [cam, library, index, portfolio, competitive-advantage]
 
 # Nexus CAM Library
 
-> **55 modules. 7 functional areas. NexOP ~6–12% of revenue recovered. NexINT 72% → 95% operational integrity.**
+> **56 modules. 7 functional areas. NexOP ~6–12% of revenue recovered. NexINT 72% → 95% operational integrity.**
 
 This document is the master index and executive summary of every Competitive Advantage Module in the Nexus platform. It is organized in three tiers:
 
@@ -42,7 +42,7 @@ Five cross-tenant collaboration mechanisms form the backbone:
 - NexNet Candidate Pool Sharing (curated talent distribution)
 - The Referral Graph (trust as the strongest intent signal)
 
-The 55 CAMs below organize into four layers of the intent system:
+The 56 CAMs below organize into four layers of the intent system:
 - **Discovery & Recruitment** — CLT-INTG-0001 (Sovereign Marketplace), CLT-COLLAB-0001/0002, NexFIND, Phantom Fleet
 - **Identity & Reputation** — NexCheck, TUCKS, NexOP, NexINT
 - **Operational Execution** — NexPLAN, BOM Pricing, Task Cascading, Auto-Posting
@@ -61,17 +61,17 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 ```
               AUTO   INTL   INTG   VIS   SPD   ACC   COLLAB   CMP
   FIN          2      2      1      2     1     5      —       —     = 13
-  EST          1      2      1      —     1     2      —       —     =  7
-  OPS          2      3      1      4     —     1      1       —     = 11
+  EST          1      2      1      —     1     3      —       —     =  8
+  OPS          2      3      1      4     —     1      1       —     = 12
   TECH         2      2      3      2     2     1      1       —     = 13
   CLT          —      1      1      —     —     —      4       —     =  6
   CMP          1      —      1      —     —     —      —       1     =  3
   HR           —      —      —      —     —     —      —       —     =  0
              ───    ───    ───    ───   ───   ───    ───     ───
-              7     10      8      8     4     9      6       1     = 54+1 portfolio
+              8     10      8      8     4    10      6       1     = 55+1 portfolio
 ```
 
-**Densest cells**: FIN-ACC (5), OPS-VIS (4), CLT-COLLAB (4), TECH-INTG (3), TECH-VIS (2), TECH-INTL (2), TECH-AUTO (2), FIN-AUTO (2), FIN-INTL (2), FIN-VIS (2)
+**Densest cells**: FIN-ACC (5), OPS-VIS (4), CLT-COLLAB (4), TECH-INTG (3), EST-ACC (3), TECH-VIS (2), TECH-INTL (2), TECH-AUTO (2), FIN-AUTO (2), FIN-INTL (2), FIN-VIS (2)
 
 ---
 
@@ -95,19 +95,20 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 | FIN-VIS-0001 | Purchase Reconciliation Audit Chain | 33/40 | ~0.66% | draft |
 | FIN-VIS-0002 | Invoice Retail Transparency Display | 24/40 | ~0.12% | draft |
 
-### Estimating (EST) — 7 CAMs | Module NexOP ~3.97%
+### Estimating (EST) — 8 CAMs | Module NexOP ~4.62%
 
 | CAM ID | Title | Score | NexOP | Status |
 |--------|-------|-------|-------|--------|
 | EST-ACC-0001 | NexDupE — Cross-Project Duplicate Expense Detection | 32/40 | ~0.35% | draft |
 | EST-ACC-0002 | NexCAD Enhanced Video Assessment | 37/40 | — | draft |
+| **EST-ACC-0003** | **NexUNIT — Unit Price Discrimination Engine** | **33/40** | **~0.65%** | **draft** |
 | EST-AUTO-0002 | NexPLAN — AI-Assisted Selections & Planning | 36/40 | ~0.60% | draft |
 | EST-INTG-0001 | Multi-Provider BOM Pricing Pipeline | 32/40 | ~2.99% | draft |
 | EST-INTL-0001 | NexBRIDGE Video Index & Re-scan | 32/40 | ~0.18% | draft |
 | **EST-INTL-0002** | **ScanNEX Component Identity & Material Intelligence** | **36/40** | **~0.85%** | **draft** |
 | EST-SPD-0001 | Redis Price List Caching | 29/40 | ~0.13% | draft |
 
-### Operations (OPS) — 12 CAMs | Module NexOP ~3.76%
+### Operations (OPS) — 12 CAMs | Module NexOP ~4.21%
 
 | CAM ID | Title | Score | NexOP | Status |
 |--------|-------|-------|-------|--------|
@@ -321,6 +322,15 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 
 → [Full CAM](./EST-ACC-0002-nexcad-enhanced-video-assessment.md)
 
+#### EST-ACC-0003 — NexUNIT: Unit Price Discrimination Engine ★ New
+*"The estimate says 130 SF. Home Depot says $12.99/roll. NexUNIT says: that roll covers 40 SF, so your effective cost is $0.32/SF — and you need 4 rolls."*
+
+**Problem**: Retail products are sold in packaging units (rolls, sheets, bundles, cases) that don't match project estimate units (SF, LF, SQ). Comparing "$12.99/roll" vs "$14.99/roll" is meaningless without knowing each roll's coverage. Every competitor treats sticker price as the comparison unit — they all get this wrong.
+**NCC Advantage**: Three-tier coverage extraction — spec-sheet parsing (HIGH confidence), title dimension parsing with Unicode-aware regex and 6-category material-type detection (MEDIUM), and industry-standard heuristics (LOW) — resolves true per-project-unit cost from any retail product listing. Full unit conversion matrix (SF ↔ SY ↔ SQ, LF, CF ↔ CY, BF, 30+ aliases). NexSTACK Layer 3 — the bridge that makes Layer 2 (BOM Pricing) comparable and Layer 4 (NexBUY) aggregatable.
+**Score**: 33/40 (U:9 V:9 D:7 Def:8) | **NexOP**: ~0.65%
+
+→ [Full CAM](./EST-ACC-0003-nexunit-unit-price-discrimination-engine.md)
+
 #### EST-AUTO-0002 — NexPLAN: AI-Assisted Selections & Planning
 *"Upload a floor plan. Describe what you want. Get a professional selection package in 5 minutes."*
 
@@ -388,11 +398,11 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 
 → [Full CAM](./OPS-AUTO-0001-group-task-cascading-completion.md)
 
-#### OPS-AUTO-0002 — NexBUY: Group Shopping Cart & Consolidated Purchase ★ New
+#### OPS-AUTO-0002 — NexBUY: Group Shopping Cart & Consolidated Purchase (rev 1.1)
 *"Five projects need 2×4s. One purchase order. One trip. Every site gets exactly what it needs."*
 
 **Problem**: Each PM places independent material orders per project — 5 projects buying the same lumber means 5 retail-price trips to the same supplier. No cross-project visibility, no volume leverage, no organizational buying power.
-**NCC Advantage**: Tenant-wide shopping cart view with multi-select consolidated purchasing. Material aggregation by normalized key preserves per-project allocation while unlocking bulk pricing. Integrates with NexCART normalization, NexCBAML pricing, and the receipt reconciliation pipeline.
+**NCC Advantage**: Tenant-wide shopping cart view with multi-select consolidated purchasing. Material aggregation by normalized key preserves per-project allocation while unlocking bulk pricing. Receipt origin tracking (`MANUAL` / `SHOPPING_CART`) creates a complete Cart → Receipt → Bill audit chain. PM+ role gating ensures consolidated purchasing is managed by operations leadership. NexSTACK Layer 4 — depends on NexCART (Layer 1), BOM Pricing (Layer 2), and NexUNIT (Layer 3) for correct per-unit costs.
 **Score**: 33/40 (U:8 V:9 D:9 Def:7) | **NexOP**: ~0.45%
 
 → [Full CAM](./OPS-AUTO-0002-nexbuy-group-shopping-cart-consolidated-purchase.md)
@@ -712,3 +722,5 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 || 1.6 | 2026-03-13 | Added TECH-AUTO-0002 Secure Web Portal Campaigns (33/40) — 54 CAMs total |
 ||| 1.7 | 2026-03-14 | Added OPS-AUTO-0002 NexBUY — Group Shopping Cart & Consolidated Purchase (33/40) — 55 CAMs total |
 ||| 1.8 | 2026-03-15 | Updated TECH-COLLAB-0002 Session Mirror to rev 1.1 — race condition fix, cross-company visibility, safe area compliance |
+||| 1.9 | 2026-03-15 | Updated OPS-AUTO-0002 NexBUY to rev 1.1 — receipt origin tracking, cart-to-bill audit chain, PM+ role gating |
+||| 2.0 | 2026-03-15 | Added EST-ACC-0003 NexUNIT — Unit Price Discrimination Engine (33/40), NexSTACK Layer 3 — 56 CAMs total |

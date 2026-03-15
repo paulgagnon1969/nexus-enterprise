@@ -118,8 +118,20 @@ Normalization: Unicode-aware regex for Xactimate dimension markers
 
 **Total: 32/40** — Exceeds CAM threshold (24).
 
+## Position in the NexSTACK Procurement Pipeline
+
+BOM Pricing is **Layer 2** of a four-layer procurement stack:
+
+1. **PETL → Shop** (OPS-INTL-0002 NexCART) — Estimate line items auto-populate shopping carts with normalized material keys
+2. **Scrape for Shop** (EST-INTG-0001 BOM Pricing — this CAM) — Multi-provider catalog search across HD, Lowe's, Amazon
+3. **Unit Price Discrimination** (EST-ACC-0003 NexUNIT) — Converts retail packaging prices to project estimate units
+4. **Shopping Aggregator** (OPS-AUTO-0002 NexBUY) — Cross-project consolidated purchasing with per-project allocation
+
 ## Related CAMs
 
+- `EST-ACC-0003` — NexUNIT: Unit Price Discrimination Engine (Layer 3 — normalizes the raw prices this layer produces into per-project-unit costs)
+- `OPS-INTL-0002` — NexCART (Layer 1 — PETL-driven carts that consume BOM pricing results)
+- `OPS-AUTO-0002` — NexBUY (Layer 4 — cross-project consolidation of priced carts)
 - `EST-SPD-0001` — Redis Price List Caching (complementary speed optimization for internal price lists)
 - `FIN-INTL-0003` — NexPRICE Regional Pricing (BOM pricing feeds the regional pricing intelligence engine)
 - `FIN-VIS-0001` — Purchase Reconciliation (purchased materials flow into reconciliation audit chain)

@@ -152,9 +152,20 @@ No competitor operates procurement at the tenant level. All are project-scoped.
 - **Demonstrable (9/10):** Highly visual — select carts, tap consolidate, see aggregated materials with per-project breakdowns. The "before/after" of 5 separate orders vs. 1 consolidated order is immediately compelling. Mobile-first demo works in any meeting.
 - **Defensible (7/10):** The consolidation logic itself is straightforward. The moat is integration depth — it requires NexCART's normalization, the CBA engine, supplier intelligence, and receipt reconciliation to deliver full value. A standalone consolidation tool without these layers is just a spreadsheet.
 
+## Position in the NexSTACK Procurement Pipeline
+
+NexBUY is **Layer 4** of a four-layer procurement stack:
+
+1. **PETL → Shop** (OPS-INTL-0002 NexCART) — Estimate line items auto-populate shopping carts with normalized material keys
+2. **Scrape for Shop** (EST-INTG-0001 BOM Pricing) — Multi-provider catalog search across HD, Lowe's, Amazon
+3. **Unit Price Discrimination** (EST-ACC-0003 NexUNIT) — Converts retail packaging prices to project estimate units
+4. **Shopping Aggregator** (OPS-AUTO-0002 NexBUY — this CAM) — Cross-project consolidated purchasing with per-project allocation
+
 ## Related CAMs
 
-- `OPS-INTL-0002` — NexCART: Intelligent Materials Procurement (shopping cart data model + normalization)
+- `OPS-INTL-0002` — NexCART (Layer 1 — PETL-driven carts and normalization that NexBUY aggregates across)
+- `EST-INTG-0001` — Multi-Provider BOM Pricing (Layer 2 — supplier prices that flow into consolidated cost estimates)
+- `EST-ACC-0003` — NexUNIT: Unit Price Discrimination Engine (Layer 3 — ensures quantities are in correct project units before aggregation)
 - `OPS-INTL-0003` — NexCBAML: Cost-Benefit Analysis Materials Logistics (CBA feeds consolidated pricing)
 - `OPS-INTL-0001` — NexFIND: Supplier Intelligence Network (supplier data for consolidated lines)
 - `OPS-INTG-0001` — NexFIND Receipt Bridge (receipt reconciliation for consolidated purchases)

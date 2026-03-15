@@ -492,7 +492,16 @@ export class ProcurementService {
         // ── Unit Normalization ─────────────────────────────────────────────
         // Attempt to extract coverage from the product and compute the true
         // purchase quantity & effective per-project-unit price.
+        const hasSpecs = !!enrichedProduct.rawJson?.specifications;
+        this.logger.log(
+          `[CBA-COVERAGE] ${result.provider} | productId=${enrichedProduct.productId} | ` +
+          `title="${(enrichedProduct.title ?? '').slice(0, 80)}" | price=$${enrichedProduct.price} | ` +
+          `hasSpecs=${hasSpecs} | specsKeys=${hasSpecs ? JSON.stringify(Object.keys(enrichedProduct.rawJson!.specifications).slice(0, 5)) : 'none'}`,
+        );
         const normalized = normalizePricing(enrichedProduct, item.cartQty, item.unit);
+        this.logger.log(
+          `[CBA-COVERAGE] ${result.provider} | normalized=${normalized ? `coverage=${normalized.coverage.coverageValue} ${normalized.coverage.coverageUnit}/${normalized.coverage.purchaseUnitLabel} (${normalized.coverage.source}/${normalized.coverage.confidence}) → purchaseQty=${normalized.purchaseQty} × $${normalized.pricePerPurchaseUnit} = $${normalized.totalCost}` : 'NULL (fallback to raw price)'}`,
+        );
 
         // For the optimizer: use the effective $/project-unit when available,
         // otherwise fall back to raw product price (pre-normalization behavior).

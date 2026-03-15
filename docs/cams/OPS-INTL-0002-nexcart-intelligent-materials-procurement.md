@@ -157,13 +157,24 @@ No competitor connects estimate → cart → supplier pricing → receipt → in
 - **Demonstrable (8/10):** Shopping cart + CBA scoring + trip plans + drawdown ledger are all highly visual. Receipt reconciliation happens automatically. The optimizer output is a compelling demo moment.
 - **Defensible (8/10):** The integration depth (PETL + supplier catalog + OCR + drawdown) creates a system-level moat. Each component is useful alone; together they create intelligence no competitor can replicate without rebuilding the entire stack.
 
+## Position in the NexSTACK Procurement Pipeline
+
+NexCART is **Layer 1** of a four-layer procurement stack:
+
+1. **PETL → Shop** (OPS-INTL-0002 NexCART — this CAM) — Estimate line items auto-populate shopping carts with normalized material keys
+2. **Scrape for Shop** (EST-INTG-0001 BOM Pricing) — Multi-provider catalog search across HD, Lowe's, Amazon
+3. **Unit Price Discrimination** (EST-ACC-0003 NexUNIT) — Converts retail packaging prices to project estimate units
+4. **Shopping Aggregator** (OPS-AUTO-0002 NexBUY) — Cross-project consolidated purchasing with per-project allocation
+
 ## Related CAMs
 
+- `EST-ACC-0003` — NexUNIT: Unit Price Discrimination Engine (Layer 3 — normalizes retail prices to project estimate units during CBA)
+- `EST-INTG-0001` — Multi-Provider BOM Pricing (Layer 2 — supplier catalog search feeds CBA)
+- `OPS-AUTO-0002` — NexBUY: Group Shopping Cart (Layer 4 — cross-project consolidation)
 - `OPS-INTL-0001` — NexFIND Supplier Intelligence (supplier discovery feeds CBA search)
 - `OPS-INTG-0001` — NexFIND Receipt Bridge (receipt OCR feeds drawdown reconciliation)
 - `FIN-AUTO-0001` — Inline Receipt OCR (OCR pipeline triggers NexCART reconciliation)
 - `FIN-ACC-0002` — Zero-Loss Receipt Capture (ensures every purchase creates a bill)
-- `EST-INTG-0001` — Multi-Provider BOM Pricing (shared supplier catalog infrastructure)
 - `FIN-VIS-0001` — Purchase Reconciliation Audit Chain (audit trail for CBA decisions)
 
 ## Expansion Opportunities
