@@ -20,7 +20,7 @@ scores:
   value: 9
   demonstrable: 8
   defensible: 9
-  total: 35
+  total: 88
 ---
 
 # NexPRICE — Regional Pricing Intelligence

@@ -48,6 +48,7 @@ import { GroupShoppingCartScreen } from "../screens/GroupShoppingCartScreen";
 import { ShoppingCartHubScreen } from "../screens/ShoppingCartHubScreen";
 import { ShoppingCartDetailScreen } from "../screens/ShoppingCartDetailScreen";
 import { BankingScreen } from "../screens/BankingScreen";
+import { PipScreen } from "../screens/PipScreen";
 import { DevSessionsScreen } from "../screens/DevSessionsScreen";
 import { DevSessionDetailScreen } from "../screens/DevSessionDetailScreen";
 import { ScrollableTabBar } from "../components/ScrollableTabBar";
@@ -58,6 +59,7 @@ import { apiJson } from "../api/client";
 import { getUserMe } from "../api/user";
 import { recordTabUsage, getTopTab } from "../storage/usageTracker";
 import { getLastProject, setLastProject } from "../storage/settings";
+import { getPipToken } from "../storage/pipToken";
 import type { ProjectListItem, TaskItem, PlanSheetItem, DailyLogListItem, DailyLogDetail } from "../types/api";
 
 // Type definitions for navigation
@@ -73,6 +75,7 @@ export type RootTabParamList = {
   InventoryTab: undefined;
   OutboxTab: undefined;
   BankingTab: undefined;
+  PipTab: undefined;
   DevSessionsTab: undefined;
 };
 
@@ -724,6 +727,15 @@ function DevSessionDetailWrapper() {
   );
 }
 
+// PIP token context — stored PIP share token for the PIP tab
+export const PipTokenContext = React.createContext<{
+  pipToken: string | null;
+  setPipToken: (t: string | null) => void;
+}>({
+  pipToken: null,
+  setPipToken: () => {},
+});
+
 // Context for logout callback and company info
 const LogoutContext = React.createContext<() => void>(() => {});
 const CompanyContext = React.createContext<{ name: string | null; id: string | null; refreshKey: number }>({
@@ -809,6 +821,18 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
   const filterCtx = React.useMemo(
     () => ({ project: filterProject, setProject: setFilterProject }),
     [filterProject],
+  );
+
+  // PIP token state — loaded from SecureStore on mount
+  const [pipToken, setPipTokenState] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    getPipToken().then((t) => {
+      if (t) setPipTokenState(t);
+    }).catch(() => {});
+  }, []);
+  const pipCtx = React.useMemo(
+    () => ({ pipToken, setPipToken: setPipTokenState }),
+    [pipToken],
   );
 
   // Check if user is SUPER_ADMIN (for DevSessions tab visibility) + company role
@@ -923,6 +947,11 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
       {isPmPlus && (
         <Tab.Screen name="ShopTab" component={ShopTabScreen} />
       )}
+      {pipToken && (
+        <Tab.Screen name="PipTab">
+          {() => <PipScreen pipToken={pipToken} onTokenSaved={setPipTokenState} />}
+        </Tab.Screen>
+      )}
       {isSuperAdmin && (
         <Tab.Screen name="DevSessionsTab" component={DevSessionsStackNavigator} />
       )}
@@ -931,6 +960,7 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
 
   return (
     <LogoutContext.Provider value={onLogout}>
+    <PipTokenContext.Provider value={pipCtx}>
     <CompanyContext.Provider value={company}>
     <SetCompanyContext.Provider value={handleSetCompany}>
     <UserRoleContext.Provider value={userRole}>
@@ -951,6 +981,7 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
     </UserRoleContext.Provider>
     </SetCompanyContext.Provider>
     </CompanyContext.Provider>
+    </PipTokenContext.Provider>
     </LogoutContext.Provider>
   );
 }
@@ -968,6 +999,7 @@ const TAB_KEYS: Record<string, boolean> = {
   InventoryTab: true,
   OutboxTab: true,
   BankingTab: true,
+  PipTab: true,
   DevSessionsTab: true,
 };
 

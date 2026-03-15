@@ -78,6 +78,76 @@ export class CamDiscussionPublicController {
   ) {
     return this.svc.toggleMute(token, threadId);
   }
+
+  /** Get unread message counts per CAM section for badge display. */
+  @Get("unread-counts")
+  getUnreadCounts(@Param("token") token: string) {
+    return this.svc.getUnreadCounts(token);
+  }
+
+  /** Get all CAM read statuses + favorites for badge coloring. */
+  @Get("cam-statuses")
+  getCamStatuses(@Param("token") token: string) {
+    return this.svc.getCamStatuses(token);
+  }
+
+  /** Mark a CAM as read (user viewed it). */
+  @Post("cam-read")
+  markCamRead(
+    @Param("token") token: string,
+    @Body() body: { camId: string },
+  ) {
+    return this.svc.markCamRead(token, body.camId);
+  }
+
+  /** Toggle favorite status for a CAM. */
+  @Post("cam-favorite")
+  toggleCamFavorite(
+    @Param("token") token: string,
+    @Body() body: { camId: string },
+  ) {
+    return this.svc.toggleCamFavorite(token, body.camId);
+  }
+
+  /** List global announcements (last 30 days). */
+  @Get("announcements")
+  listAnnouncements(@Param("token") token: string) {
+    return this.svc.listAnnouncements(token);
+  }
+
+  /** Register a mobile device push token for this PIP viewer. */
+  @Post("register-device")
+  registerDevice(
+    @Param("token") token: string,
+    @Body() body: { expoPushToken: string },
+  ) {
+    return this.svc.registerDevice(token, body.expoPushToken);
+  }
+}
+
+/* ================================================================== */
+/*  SUBSCRIPTION routes — PIP viewer CAM-level subscriptions           */
+/* ================================================================== */
+
+@Public()
+@Controller("cam-access/:token/subscriptions")
+export class CamSubscriptionPublicController {
+  constructor(private readonly svc: CamDiscussionService) {}
+
+  /** List all CAM sections this viewer is subscribed to. */
+  @Get()
+  getSubscriptions(@Param("token") token: string) {
+    return this.svc.getSubscriptions(token);
+  }
+
+  /** Toggle subscription for a CAM section. */
+  @Post()
+  toggleSubscription(
+    @Param("token") token: string,
+    @Body() body: { camSection: string; enabled: boolean },
+  ) {
+    return this.svc.toggleSubscription(token, body.camSection, body.enabled);
+  }
 }
 
 /* ================================================================== */
@@ -141,5 +211,15 @@ export class CamDiscussionAdminController {
   @Delete(":threadId")
   deleteThread(@Param("threadId") threadId: string) {
     return this.svc.deleteThread(threadId);
+  }
+
+  /** Create a global PIP announcement (push to all active viewers). */
+  @Post("announcements")
+  createAnnouncement(
+    @Req() req: any,
+    @Body() dto: { title: string; body: string; priority?: string },
+  ) {
+    const actor = req.user as AuthenticatedUser;
+    return this.svc.createAnnouncement(actor.userId, dto as any);
   }
 }

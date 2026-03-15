@@ -41,6 +41,10 @@ interface PostCommentDto {
   text: string;
 }
 
+interface AttentionDto {
+  message: string;
+}
+
 interface CreateApprovalDto {
   requestType: DevApprovalRequestType;
   title: string;
@@ -74,9 +78,9 @@ export class DevSessionController {
   }
 
   @Get()
-  async list(@Req() req: any) {
+  async list(@Req() req: any, @Query("q") q?: string) {
     const user = req.user as AuthenticatedUser;
-    return this.service.listSessions(user.companyId);
+    return this.service.listSessions(user.companyId, q?.trim() || undefined);
   }
 
   @Get(":id")
@@ -148,6 +152,27 @@ export class DevSessionController {
       event,
     });
     return event;
+  }
+
+  @Post(":id/attention")
+  async requestAttention(
+    @Param("id") id: string,
+    @Body() body: AttentionDto,
+  ) {
+    const event = await this.service.requestAttention(id, body.message);
+    this.gateway.emitSessionEvent(id, {
+      type: "session-event",
+      event,
+    });
+    return event;
+  }
+
+  @Get(":id/pending-messages")
+  async getPendingMessages(
+    @Param("id") id: string,
+    @Query("since") since?: string,
+  ) {
+    return this.service.getPendingMessages(id, since);
   }
 
   @Post(":id/approval-requests")

@@ -20,7 +20,7 @@ scores:
   value: 9
   demonstrable: 8
   defensible: 8
-  total: 34
+  total: 85
 ---
 
 # FIN-ACC-0001: NexVERIFY — Multi-Source Expense Convergence

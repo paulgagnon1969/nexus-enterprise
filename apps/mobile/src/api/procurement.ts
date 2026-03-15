@@ -76,6 +76,18 @@ export interface TripPlanItem {
   quantity: number;
   unitPrice: number;
   lineTotal: number;
+  // Product detail for display
+  productId?: string;
+  productTitle?: string;
+  modelNumber?: string;
+  productUrl?: string;
+  pricePerPurchaseUnit?: number;
+  coveragePerPurchaseUnit?: number;
+  purchaseUnit?: string;
+  purchaseQty?: number;
+  coverageConfidence?: string;
+  stockQty?: number;
+  inStock?: boolean;
 }
 
 export interface TripPlanSupplier {
@@ -354,4 +366,35 @@ export function consolidateCarts(cartIds: string[]) {
 
 export function getDrawdown(projectId: string) {
   return apiJson<any[]>(`/procurement/drawdown?projectId=${encodeURIComponent(projectId)}`);
+}
+
+// ── NexPRINT: Fingerprint Enrichment ─────────────────────────────────────
+
+export interface PriceHistoryPoint {
+  unitPrice: number;
+  quantity: number;
+  source: string;
+  transactionDate: string | null;
+  createdAt: string;
+}
+
+export interface FingerprintEnrichment {
+  fingerprintId: string;
+  confidence: string;
+  verificationCount: number;
+  lastVerifiedAt: string | null;
+  coverageValue: number | null;
+  coverageUnit: string | null;
+  purchaseUnitLabel: string | null;
+  sku: string | null;
+  priceHistory: PriceHistoryPoint[];
+}
+
+/** Batch-enrich CBA items with fingerprint data (confidence + price history). */
+export function enrichFingerprints(items: Array<{ supplierKey: string; productId: string }>) {
+  return apiJson<Record<string, FingerprintEnrichment>>("/procurement/fingerprints/enrich", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ items }),
+  });
 }

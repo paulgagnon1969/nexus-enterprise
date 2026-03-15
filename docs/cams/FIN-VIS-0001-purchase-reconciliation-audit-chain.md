@@ -20,7 +20,7 @@ scores:
   value: 9
   demonstrable: 9
   defensible: 7
-  total: 33
+  total: 83
 ---
 
 # Purchase Reconciliation — Full Audit Chain with PM Compliance

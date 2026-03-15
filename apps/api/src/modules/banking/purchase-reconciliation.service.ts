@@ -10,6 +10,7 @@ import {
   CsvImportSource,
   TransactionDisposition,
 } from "@prisma/client";
+import { ProductIntelligenceService } from "../procurement/product-intelligence.service";
 
 // ---------------------------------------------------------------------------
 // Merchant classification keyword sets
@@ -176,7 +177,10 @@ const CC_PAYMENT_PATTERNS = [
 export class PurchaseReconciliationService {
   private readonly logger = new Logger(PurchaseReconciliationService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly productIntelligence: ProductIntelligenceService,
+  ) {}
 
   // ═══════════════════════════════════════════════════════════════════
   // Auto-classification
@@ -495,6 +499,13 @@ export class PurchaseReconciliationService {
       where: { id: { in: creditCardTxnIds } },
       data: { reconciliationStatus: ReconciliationStatus.LINKED },
     });
+
+    // NexPRINT: upgrade fingerprint confidence for bank-confirmed CC transactions (fire-and-forget)
+    this.productIntelligence
+      .confirmByImportedTransactions(companyId, creditCardTxnIds, checkingTxnId, checkingTxn.date)
+      .catch((err: any) => {
+        this.logger.warn(`NexPRINT bank confirmation failed (non-fatal): ${err.message}`);
+      });
 
     return { ok: true, linked: creditCardTxnIds.length };
   }

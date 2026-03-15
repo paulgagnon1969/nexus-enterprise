@@ -278,7 +278,8 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
           display: "flex",
           alignItems: "stretch",
           gap: (hideSidebar || !isSuperAdmin) ? 0 : 16,
-          minHeight: "calc(100vh - 79px)",
+          height: "calc(100vh - 79px)",
+          overflow: "hidden",
         }}
       >
       {/* Left sidebar: organizations list (SUPER_ADMIN only, hidden on document detail pages) */}
@@ -584,8 +585,8 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
       </aside>
       )}
 
-      {/* Right pane */}
-      <div style={{ flex: 1, minWidth: 0, position: "relative", width: hideSidebar ? "100%" : undefined }}>
+      {/* Right pane — flex column, height-constrained to viewport */}
+      <div style={{ flex: 1, minWidth: 0, position: "relative", width: hideSidebar ? "100%" : undefined, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {/* System nav bar — visible to all ADMIN+ users, hidden on document detail pages */}
         {isAdminPlus === true && !hideSidebar && (
           <div
@@ -786,6 +787,23 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
                 Worker registration landing
               </Link>
               <Link
+                href="/system/session-mirror"
+                style={{
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  border: "1px solid #6366f1",
+                  background: pathname?.startsWith("/system/session-mirror")
+                    ? "#6366f1"
+                    : "#4338ca",
+                  color: "#eef2ff",
+                  fontSize: 11,
+                  textDecoration: "none",
+                  fontWeight: 600,
+                }}
+              >
+                🔭 Session Mirror
+              </Link>
+              <Link
                 href="/system/cam-dashboard"
                 style={{
                   padding: "2px 8px",
@@ -942,7 +960,10 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
         </div>
         )}
 
-        {children}
+        {/* Children area — scrollable by default; pages can override with overflow:hidden for fixed layout */}
+        <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+          {children}
+        </div>
 
         {showNewOrg && (
           <div

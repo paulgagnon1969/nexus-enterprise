@@ -11,10 +11,16 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  AppState,
+  type AppStateStatus,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { apiJson, apiFetch } from "../api/client";
 import { colors } from "../theme/colors";
+
+/** Idle timeout: 3 minutes of no interaction → stop polling */
+const IDLE_TIMEOUT_MS = 3 * 60 * 1000;
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -91,7 +97,10 @@ export function DevSessionDetailScreen({ session, onBack, onOpenApproval }: Prop
   const [refreshing, setRefreshing] = useState(false);
   const [comment, setComment] = useState("");
   const [sending, setSending] = useState(false);
+  const [idle, setIdle] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadEvents = useCallback(async () => {
     try {
@@ -107,12 +116,63 @@ export function DevSessionDetailScreen({ session, onBack, onOpenApproval }: Prop
     }
   }, [session.id]);
 
-  useEffect(() => {
-    loadEvents();
-    // Poll every 5 seconds for new events
-    const interval = setInterval(loadEvents, 5000);
-    return () => clearInterval(interval);
-  }, [loadEvents]);
+  // ── Idle timer management ──
+  const resetIdleTimer = useCallback(() => {
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    if (idle) {
+      // Resume polling on interaction
+      setIdle(false);
+      loadEvents();
+      intervalRef.current = setInterval(loadEvents, 5000);
+    }
+    idleTimerRef.current = setTimeout(() => {
+      setIdle(true);
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    }, IDLE_TIMEOUT_MS);
+  }, [idle, loadEvents]);
+
+  // ── Focus-aware polling ──
+  useFocusEffect(
+    useCallback(() => {
+      loadEvents();
+      intervalRef.current = setInterval(loadEvents, 5000);
+      // Start idle timer
+      idleTimerRef.current = setTimeout(() => {
+        setIdle(true);
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
+      }, IDLE_TIMEOUT_MS);
+
+      // Pause/resume on app state
+      const handleAppState = (state: AppStateStatus) => {
+        if (state === "active" && !idle) {
+          loadEvents();
+          if (!intervalRef.current) {
+            intervalRef.current = setInterval(loadEvents, 5000);
+          }
+        } else if (state !== "active") {
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+          }
+        }
+      };
+      const sub = AppState.addEventListener("change", handleAppState);
+
+      return () => {
+        if (intervalRef.current) clearInterval(intervalRef.current);
+        if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+        intervalRef.current = null;
+        idleTimerRef.current = null;
+        sub.remove();
+      };
+    }, [loadEvents, idle]),
+  );
 
   // Auto-scroll to bottom on new events
   useEffect(() => {
@@ -202,12 +262,21 @@ export function DevSessionDetailScreen({ session, onBack, onOpenApproval }: Prop
         </View>
       </View>
 
+      {/* Idle overlay */}
+      {idle && (
+        <Pressable style={styles.idleOverlay} onPress={resetIdleTimer}>
+          <Text style={styles.idleIcon}>💤</Text>
+          <Text style={styles.idleText}>Session idle</Text>
+          <Text style={styles.idleSubtext}>Tap anywhere to resume</Text>
+        </Pressable>
+      )}
+
       {/* Event feed */}
-      {loading ? (
+      {!idle && loading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
-      ) : (
+      ) : !idle ? (
         <ScrollView
           ref={scrollRef}
           style={styles.eventList}
@@ -215,6 +284,8 @@ export function DevSessionDetailScreen({ session, onBack, onOpenApproval }: Prop
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
+          onScrollBeginDrag={resetIdleTimer}
+          onTouchStart={resetIdleTimer}
         >
           {events.map((event) => (
             <EventCard
@@ -227,10 +298,10 @@ export function DevSessionDetailScreen({ session, onBack, onOpenApproval }: Prop
           ))}
           <View style={{ height: 16 }} />
         </ScrollView>
-      )}
+      ) : null}
 
       {/* Comment input */}
-      {isActive && (
+      {isActive && !idle && (
         <View style={styles.inputBar}>
           <TextInput
             style={styles.input}
@@ -383,6 +454,15 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 16, fontWeight: "800", color: colors.textOnPrimary },
   headerMeta: { fontSize: 12, color: "rgba(255,255,255,0.7)", marginTop: 2 },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
+  idleOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.03)",
+  },
+  idleIcon: { fontSize: 48, marginBottom: 12 },
+  idleText: { fontSize: 20, fontWeight: "700", color: colors.textPrimary, marginBottom: 4 },
+  idleSubtext: { fontSize: 14, color: colors.textMuted },
   eventList: { flex: 1 },
   eventListContent: { padding: 16 },
   eventCard: {

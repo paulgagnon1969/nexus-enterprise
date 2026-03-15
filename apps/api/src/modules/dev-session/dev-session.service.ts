@@ -95,14 +95,24 @@ export class DevSessionService {
     return session;
   }
 
-  async listSessions(_companyId?: string) {
+  async listSessions(_companyId?: string, query?: string) {
     // SUPER_ADMIN sees all sessions across all companies
+    // Ordered by most-recently-modified first (device-driven Session Mirror)
+    const where = query
+      ? {
+          OR: [
+            { title: { contains: query, mode: "insensitive" as const } },
+            { description: { contains: query, mode: "insensitive" as const } },
+            { sessionCode: { contains: query, mode: "insensitive" as const } },
+            { events: { some: { summary: { contains: query, mode: "insensitive" as const } } } },
+          ],
+        }
+      : undefined;
+
     return this.prisma.devSession.findMany({
-      orderBy: [
-        { status: "asc" }, // ACTIVE first
-        { createdAt: "desc" },
-      ],
-      take: 50,
+      where,
+      orderBy: { updatedAt: "desc" },
+      take: query ? 100 : 50, // Deeper search when filtering
       include: {
         createdBy: { select: USER_SELECT },
         _count: { select: { events: true, approvals: true } },
@@ -390,6 +400,60 @@ export class DevSessionService {
     });
     if (!approval) throw new NotFoundException("Approval not found");
     return approval;
+  }
+
+  // ── Attention / Pending Messages ────────────────────────────────
+
+  /**
+   * "Warp needs you" — create an ATTENTION event and push-notify all
+   * SUPER_ADMIN devices so the user knows the agent requires input.
+   */
+  async requestAttention(sessionId: string, message: string) {
+    const session = await this.prisma.devSession.findUnique({
+      where: { id: sessionId },
+    });
+    if (!session) throw new NotFoundException("Session not found");
+
+    const event = await this.prisma.devSessionEvent.create({
+      data: {
+        sessionId,
+        eventType: "MILESTONE", // reuse MILESTONE — no schema change needed
+        summary: `🔔 Warp needs your attention: ${message}`,
+        detail: { attention: true, message },
+      },
+    });
+
+    await this.pushToSuperAdmins(session.companyId, {
+      title: "🔔 Warp needs you",
+      body: message,
+      data: { type: "warp_attention", sessionId, eventId: event.id },
+      categoryId: "warp_attention",
+      sound: "default",
+    });
+
+    return event;
+  }
+
+  /**
+   * Return COMMENT events posted by human users (actorUserId != null)
+   * since a given timestamp. Used by the bridge daemon to poll for
+   * remote messages that need to be surfaced to the Warp agent.
+   */
+  async getPendingMessages(sessionId: string, since?: string) {
+    const sinceDate = since ? new Date(since) : new Date(Date.now() - 60000);
+
+    return this.prisma.devSessionEvent.findMany({
+      where: {
+        sessionId,
+        eventType: "COMMENT",
+        actorUserId: { not: null },
+        createdAt: { gt: sinceDate },
+      },
+      orderBy: { createdAt: "asc" },
+      include: {
+        actorUser: { select: USER_SELECT },
+      },
+    });
   }
 
   // ── Push helper ───────────────────────────────────────────────────

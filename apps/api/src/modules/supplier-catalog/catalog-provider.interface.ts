@@ -36,6 +36,8 @@ export interface CatalogProduct {
   aisle?: string;
   /** Whether the item is in stock at a nearby store. */
   inStock?: boolean;
+  /** On-hand stock quantity at nearest store (e.g. 100, null if unknown). */
+  stockQty?: number;
   /** Structured availability status for UI display. */
   availabilityStatus?: 'IN_STOCK' | 'SPECIAL_ORDER' | 'ONLINE_ONLY' | 'UNAVAILABLE';
   /** Estimated lead time in days (for special order / ship-to-home items). */

@@ -6,8 +6,10 @@ import {
   SupplierOptimizerService,
   type ItemPricing,
   type SupplierInfo,
+  type SupplierProductDetail,
   type TripPlan,
 } from './supplier-optimizer.service';
+import { ProductIntelligenceService } from './product-intelligence.service';
 import {
   normalizeMaterialKey,
   materialKeyToSearchQuery,
@@ -17,7 +19,7 @@ import type {
   ShoppingCartHorizon,
   ShoppingCartItemStatus,
 } from '@prisma/client';
-import { normalizePricing, type NormalizedPricing } from './coverage-extractor';
+import { normalizePricing, normalizeUnit, type NormalizedPricing, type CoverageInfo } from './coverage-extractor';
 
 // ── DTOs ─────────────────────────────────────────────────────────────────────
 
@@ -59,6 +61,7 @@ export class ProcurementService {
     private readonly catalogService: SupplierCatalogService,
     private readonly cbaEngine: CbaEngineService,
     private readonly optimizer: SupplierOptimizerService,
+    private readonly productIntelligence: ProductIntelligenceService,
   ) {}
 
   // ─── Tenant-wide Cart Listing ──────────────────────────────────────────
@@ -455,13 +458,24 @@ export class ProcurementService {
       const results = await this.catalogService.searchAll(searchQuery, { zipCode: zip });
 
       const supplierPrices: Record<string, number | null> = {};
+      const supplierProducts: Record<string, SupplierProductDetail> = {};
       let bestNormalized: NormalizedPricing | null = null;
 
       for (const result of results) {
         if (result.products.length === 0) continue;
 
-        // Take the best-priced product from each provider
-        const cheapest = result.products.reduce((best, p) =>
+        // Filter for relevance before selecting cheapest.
+        // Prevents wrong products (R-49 when searching R-13, car battery kit, etc.).
+        const relevant = result.products.filter(p =>
+          isProductRelevant(p.title ?? '', searchQuery),
+        );
+        if (relevant.length === 0) {
+          this.logger.warn(`[CBA] No relevant products from ${result.provider} for "${searchQuery}"`);
+          continue;
+        }
+
+        // Take the best-priced relevant product from each provider
+        const cheapest = relevant.reduce((best, p) =>
           (p.price ?? Infinity) < (best.price ?? Infinity) ? p : best,
         );
 
@@ -489,31 +503,131 @@ export class ProcurementService {
           this.logger.warn(`Product detail enrichment failed for ${cheapest.productId}: ${err}`);
         }
 
-        // ── Unit Normalization ─────────────────────────────────────────────
-        // Attempt to extract coverage from the product and compute the true
-        // purchase quantity & effective per-project-unit price.
-        const hasSpecs = !!enrichedProduct.rawJson?.specifications;
-        const specs = enrichedProduct.rawJson?.specifications;
-        this.logger.log(
-          `[CBA-COVERAGE] ${result.provider} | productId=${enrichedProduct.productId} | ` +
-          `title="${(enrichedProduct.title ?? '').slice(0, 80)}" | price=$${enrichedProduct.price} | ` +
-          `hasSpecs=${hasSpecs} | specs=${hasSpecs ? JSON.stringify(Array.isArray(specs) ? specs.slice(0, 6) : specs).slice(0, 500) : 'none'}`,
+        // ── Tier 0: Fingerprint Lookup ──────────────────────────────────────
+        // Check if we already have verified coverage for this product.
+        const t0Start = Date.now();
+        const fingerprint = await this.productIntelligence.lookupFingerprint(
+          cart.companyId,
+          result.provider,
+          enrichedProduct.productId,
         );
-        const normalized = normalizePricing(enrichedProduct, item.cartQty, item.unit);
+
+        let normalized: NormalizedPricing | null = null;
+        let fingerprintHit = false;
+
+        if (
+          fingerprint?.coverageValue &&
+          fingerprint.coverageUnit &&
+          fingerprint.purchaseUnitLabel
+        ) {
+          // Tier 0 hit — use fingerprint coverage, skip live extraction
+          fingerprintHit = true;
+          const fpCoverage: CoverageInfo = {
+            coverageValue: fingerprint.coverageValue,
+            coverageUnit: fingerprint.coverageUnit,
+            purchaseUnitLabel: fingerprint.purchaseUnitLabel,
+            confidence: fingerprint.confidence === 'VERIFIED' || fingerprint.confidence === 'BANK_CONFIRMED' || fingerprint.confidence === 'RECEIPT'
+              ? 'HIGH' : fingerprint.confidence === 'HD_PRO_XTRA' || fingerprint.confidence === 'HIGH'
+              ? 'HIGH' : fingerprint.confidence === 'MEDIUM' ? 'MEDIUM' : 'LOW',
+            source: 'SPEC_SHEET', // Treat fingerprint as highest-quality source
+          };
+          const purchaseQty = Math.ceil(item.cartQty / fpCoverage.coverageValue);
+          normalized = {
+            purchaseQty,
+            pricePerPurchaseUnit: enrichedProduct.price!,
+            effectiveUnitPrice: enrichedProduct.price! / fpCoverage.coverageValue,
+            totalCost: purchaseQty * enrichedProduct.price!,
+            coverage: fpCoverage,
+          };
+          this.logger.log(
+            `[CBA-TIER0] ${result.provider} | FINGERPRINT HIT for ${enrichedProduct.productId} ` +
+            `(${fingerprint.confidence}) → coverage=${fpCoverage.coverageValue} ${fpCoverage.coverageUnit}`,
+          );
+        } else {
+          // ── Standard Tier 1-3 Extraction ────────────────────────────────
+          const hasSpecs = !!enrichedProduct.rawJson?.specifications;
+          const specs = enrichedProduct.rawJson?.specifications;
+          this.logger.log(
+            `[CBA-COVERAGE] ${result.provider} | productId=${enrichedProduct.productId} | ` +
+            `title="${(enrichedProduct.title ?? '').slice(0, 80)}" | price=$${enrichedProduct.price} | ` +
+            `hasSpecs=${hasSpecs} | specs=${hasSpecs ? JSON.stringify(Array.isArray(specs) ? specs.slice(0, 6) : specs).slice(0, 500) : 'none'}`,
+          );
+          normalized = normalizePricing(enrichedProduct, item.cartQty, item.unit);
+        }
         this.logger.log(
           `[CBA-COVERAGE] ${result.provider} | normalized=${normalized ? `coverage=${normalized.coverage.coverageValue} ${normalized.coverage.coverageUnit}/${normalized.coverage.purchaseUnitLabel} (${normalized.coverage.source}/${normalized.coverage.confidence}) → purchaseQty=${normalized.purchaseQty} × $${normalized.pricePerPurchaseUnit} = $${normalized.totalCost}` : 'NULL (fallback to raw price)'}`,
         );
 
-        // For the optimizer: use the effective $/project-unit when available,
-        // otherwise fall back to raw product price (pre-normalization behavior).
-        supplierPrices[result.provider] = normalized
-          ? normalized.effectiveUnitPrice
-          : cheapest.price;
+        // ── NexPRINT Telemetry + Recording ──────────────────────────────────
+        const extractionDuration = Date.now() - t0Start;
+        const extractionTier = fingerprintHit ? 0 : normalized?.coverage.source === 'SPEC_SHEET' ? 1 : normalized?.coverage.source === 'TITLE_PARSE' ? 2 : normalized?.coverage.source === 'HEURISTIC' ? 3 : -1;
+        this.productIntelligence.logExtraction(
+          cart.companyId,
+          enrichedProduct.title ?? '',
+          result.provider,
+          item.unit ?? 'EA',
+          extractionTier,
+          normalized?.coverage.coverageValue ?? null,
+          normalized?.coverage.confidence ?? null,
+          fingerprintHit,
+          extractionDuration,
+        );
+
+        // Record CBA extraction as fingerprint (Path 3 — won't downgrade)
+        if (!fingerprintHit && enrichedProduct.price != null) {
+          void this.productIntelligence.recordCbaExtraction(
+            cart.companyId,
+            result.provider,
+            enrichedProduct.productId,
+            enrichedProduct.title ?? '',
+            enrichedProduct.price,
+            item.cartQty,
+            normalized?.coverage ?? null,
+          );
+        }
+
+        // For the optimizer: use the effective $/project-unit when available.
+        // When normalization fails and the project unit is area/length-based,
+        // the raw per-purchase-unit price is NOT comparable — skip this supplier
+        // to avoid absurd line totals (e.g., $56.67/bag × 557.98 SF = $31k).
+        if (normalized) {
+          supplierPrices[result.provider] = normalized.effectiveUnitPrice;
+        } else {
+          const projUnit = normalizeUnit(item.unit);
+          if (!projUnit || projUnit === 'EA') {
+            // Per-each items: raw price is usable as-is
+            supplierPrices[result.provider] = cheapest.price;
+          } else {
+            this.logger.warn(
+              `[CBA] Skipping ${result.provider} for "${item.description}" — ` +
+              `cannot normalize $${cheapest.price}/pkg to $/${projUnit}`,
+            );
+          }
+        }
 
         // Track the best normalization result for this item
         if (normalized && (!bestNormalized || normalized.effectiveUnitPrice < bestNormalized.effectiveUnitPrice)) {
           bestNormalized = normalized;
         }
+
+        // If this supplier was excluded from pricing (normalization failed for
+        // area/length units), skip snapshot + best-supplier update entirely.
+        if (supplierPrices[result.provider] == null) continue;
+
+        // Capture product details for trip plan display
+        supplierProducts[result.provider] = {
+          productId: enrichedProduct.productId,
+          title: enrichedProduct.title ?? '',
+          modelNumber: enrichedProduct.modelNumber,
+          productUrl: enrichedProduct.productUrl,
+          pricePerPurchaseUnit: cheapest.price!,
+          coveragePerPurchaseUnit: normalized?.coverage.coverageValue,
+          purchaseUnit: normalized?.coverage.purchaseUnitLabel,
+          purchaseQty: normalized?.purchaseQty,
+          coverageConfidence: normalized?.coverage.confidence,
+          stockQty: enrichedProduct.stockQty,
+          inStock: enrichedProduct.inStock,
+        };
 
         // Determine distance and fulfillment type
         const isOnline = cheapest.fulfillmentType === 'SHIP_TO_SITE';
@@ -589,12 +703,34 @@ export class ProcurementService {
         }
       }
 
+      // ── Outlier Detection ───────────────────────────────────────────────
+      // If any supplier's effective $/unit deviates >3× from the median,
+      // it's almost certainly a normalization failure (e.g., multiplied a
+      // bundle price by the per-batt coverage). Exclude it.
+      const pricedKeys = Object.entries(supplierPrices).filter(([_, p]) => p != null) as [string, number][];
+      if (pricedKeys.length >= 2) {
+        const sorted = [...pricedKeys].sort((a, b) => a[1] - b[1]);
+        const median = sorted[Math.floor(sorted.length / 2)][1];
+        for (const [key, price] of pricedKeys) {
+          if (price > median * 3) {
+            this.logger.warn(
+              `[CBA-OUTLIER] ${key} for "${item.description}": ` +
+              `$${price.toFixed(4)}/unit is ${(price / median).toFixed(1)}× the median ` +
+              `($${median.toFixed(4)}/unit). Excluding as likely normalization error.`,
+            );
+            delete supplierPrices[key];
+            delete supplierProducts[key];
+          }
+        }
+      }
+
       if (Object.keys(supplierPrices).length > 0) {
         itemPricings.push({
           cartItemId: item.id,
           description: item.description,
           quantity: item.cartQty,
           supplierPrices,
+          supplierProducts,
         });
       }
     }
@@ -744,6 +880,60 @@ export class ProcurementService {
 
     return { matched, unmatched };
   }
+}
+
+// ── Product Relevance ────────────────────────────────────────────────────────
+
+/**
+ * Basic relevance check: ensure the product matches the search query.
+ * Prevents wrong products (R-49 when searching R-13, car battery kit, etc.).
+ */
+function isProductRelevant(title: string, searchQuery: string): boolean {
+  const titleLower = title.toLowerCase();
+  const queryLower = searchQuery.toLowerCase();
+
+  // 1. R-value / grade mismatch check (insulation, wire gauge, etc.)
+  //    If the query specifies an R-value, the product must match.
+  const queryRValue = queryLower.match(/\br[- ]?(\d+)\b/);
+  if (queryRValue) {
+    const titleRValue = titleLower.match(/\br[- ]?(\d+)\b/);
+    if (titleRValue && titleRValue[1] !== queryRValue[1]) {
+      return false; // R-value mismatch
+    }
+  }
+
+  // 2. Non-construction context rejection.
+  //    Products from automotive, electronics, etc. that share construction terms
+  //    (e.g., "battery insulation blanket", "phone case tile pattern").
+  const nonConstructionContexts = [
+    /\bbatter(?:y|ies)\b/, /\bcar\b/, /\bvehicle\b/, /\bautomotive\b/,
+    /\btruck\b/, /\bmotorcycle\b/, /\bboat\b/, /\bphone\b/, /\blaptop\b/,
+    /\bcooler\b.*\bbag\b/, /\bpet\b.*\bhouse\b/, /\bdog\b/, /\bcat\b/,
+    /\bcamping\b/, /\bsleeping\s*bag\b/,
+  ];
+  if (nonConstructionContexts.some(re => re.test(titleLower))) {
+    return false;
+  }
+
+  // 3. Category mismatch: reject obviously wrong product categories.
+  const constructionTerms = [
+    'insulation', 'batt', 'fiberglass', 'drywall', 'plywood', 'lumber',
+    'shingle', 'roofing', 'paint', 'concrete', 'mortar', 'flooring',
+    'tile', 'screw', 'nail', 'pipe', 'wire', 'conduit', 'tape',
+    'caulk', 'sealant', 'primer', 'stain', 'board', 'panel', 'sheathing',
+    'mineral wool', 'rockwool', 'foam', 'kraft', 'faced', 'unfaced',
+  ];
+  const queryHasConstruction = constructionTerms.some(t => queryLower.includes(t));
+  if (queryHasConstruction) {
+    const titleHasConstruction = constructionTerms.some(t => titleLower.includes(t));
+    if (!titleHasConstruction) return false;
+  }
+
+  // 4. Keyword overlap: at least 30% of meaningful query words appear in title
+  const queryWords = queryLower.split(/\s+/).filter(w => w.length > 2);
+  if (queryWords.length === 0) return true;
+  const matches = queryWords.filter(w => titleLower.includes(w));
+  return matches.length >= Math.max(2, Math.ceil(queryWords.length * 0.3));
 }
 
 // ── Haversine ────────────────────────────────────────────────────────────────

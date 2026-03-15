@@ -9,6 +9,7 @@ import { PrismaService } from "../../infra/prisma/prisma.service";
 import { EmailService } from "../../common/email.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import {
+  CamAnnouncementPriority,
   CamThreadVisibility,
   NotificationKind,
   ShareDocumentType,
@@ -223,12 +224,13 @@ export class CamDiscussionService {
       },
     });
 
-    // Check mute status for this viewer
-    const participant = await this.prisma.camDiscussionParticipant.findUnique({
+    // Mark thread as read for this viewer (upsert participant + set lastReadAt)
+    const participant = await this.prisma.camDiscussionParticipant.upsert({
       where: {
         threadId_userId: { threadId, userId: viewer.userId },
       },
-      select: { muted: true },
+      create: { threadId, userId: viewer.userId, lastReadAt: new Date() },
+      update: { lastReadAt: new Date() },
     });
 
     return {
@@ -425,6 +427,131 @@ export class CamDiscussionService {
   }
 
   /* ================================================================ */
+  /*  Public — Unread counts per CAM section                           */
+  /* ================================================================ */
+
+  /**
+   * Returns { [camSection: string]: number } — count of unread messages
+   * per CAM section for this viewer. A message is "unread" if it was created
+   * after the viewer's lastReadAt on that thread (or all messages if no
+   * lastReadAt). Only counts sections where the viewer has a subscription
+   * or has participated in a thread.
+   */
+  async getUnreadCounts(token: string): Promise<Record<string, number>> {
+    const viewer = await this.validateViewerToken(token);
+
+    // Get all threads with PUBLIC visibility that have a camSection
+    const threads = await this.prisma.camDiscussionThread.findMany({
+      where: {
+        visibility: CamThreadVisibility.PUBLIC,
+        camSection: { not: null },
+      },
+      select: {
+        id: true,
+        camSection: true,
+        _count: { select: { messages: true } },
+        participants: {
+          where: { userId: viewer.userId },
+          select: { lastReadAt: true },
+        },
+      },
+    });
+
+    // Also check which sections the viewer is subscribed to
+    const subs = await this.prisma.camSectionSubscription.findMany({
+      where: { tokenId: viewer.tokenId },
+      select: { camSection: true, createdAt: true },
+    });
+    const subMap = new Map(subs.map((s) => [s.camSection, s.createdAt]));
+
+    const counts: Record<string, number> = {};
+
+    for (const t of threads) {
+      const section = t.camSection!;
+      const participant = t.participants[0];
+      const subCreated = subMap.get(section);
+
+      // Skip sections where viewer has no involvement
+      if (!participant && !subCreated) continue;
+
+      // Determine the "since" cutoff for unread
+      let since: Date | null = null;
+      if (participant?.lastReadAt) {
+        since = participant.lastReadAt;
+      } else if (subCreated) {
+        since = subCreated;
+      }
+
+      // Count messages after the cutoff
+      let unread: number;
+      if (since) {
+        unread = await this.prisma.camDiscussionMessage.count({
+          where: { threadId: t.id, createdAt: { gt: since } },
+        });
+      } else {
+        // Never opened — all messages are unread
+        unread = t._count.messages;
+      }
+
+      if (unread > 0) {
+        counts[section] = (counts[section] || 0) + unread;
+      }
+    }
+
+    return counts;
+  }
+
+  /* ================================================================ */
+  /*  Public — CAM Section Subscriptions                               */
+  /* ================================================================ */
+
+  async getSubscriptions(token: string): Promise<string[]> {
+    const viewer = await this.validateViewerToken(token);
+    const subs = await this.prisma.camSectionSubscription.findMany({
+      where: { tokenId: viewer.tokenId },
+      select: { camSection: true },
+    });
+    return subs.map((s) => s.camSection);
+  }
+
+  async toggleSubscription(
+    token: string,
+    camSection: string,
+    enabled: boolean,
+  ): Promise<{ subscribed: boolean }> {
+    const viewer = await this.validateViewerToken(token);
+
+    if (!camSection?.trim()) {
+      throw new BadRequestException("camSection is required.");
+    }
+
+    if (enabled) {
+      await this.prisma.camSectionSubscription.upsert({
+        where: {
+          tokenId_camSection: {
+            tokenId: viewer.tokenId,
+            camSection: camSection.trim(),
+          },
+        },
+        create: {
+          tokenId: viewer.tokenId,
+          camSection: camSection.trim(),
+        },
+        update: {},
+      });
+      return { subscribed: true };
+    } else {
+      await this.prisma.camSectionSubscription.deleteMany({
+        where: {
+          tokenId: viewer.tokenId,
+          camSection: camSection.trim(),
+        },
+      });
+      return { subscribed: false };
+    }
+  }
+
+  /* ================================================================ */
   /*  Admin — Move thread to a different CAM section                   */
   /* ================================================================ */
 
@@ -511,6 +638,7 @@ export class CamDiscussionService {
     authorName: string,
     messageBody: string,
   ) {
+    // 1. Thread participants (existing behavior)
     const participants = await this.prisma.camDiscussionParticipant.findMany({
       where: {
         threadId,
@@ -524,7 +652,40 @@ export class CamDiscussionService {
       },
     });
 
-    if (participants.length === 0) return;
+    // 2. Section subscribers with notifyInstant=true (new behavior)
+    //    Deduplicate: skip users who are already thread participants.
+    const participantUserIds = new Set(participants.map((p) => p.user.id));
+    const subscriberEmails = new Set<string>();
+
+    if (camSection) {
+      const subs = await this.prisma.camSectionSubscription.findMany({
+        where: {
+          camSection,
+          notifyInstant: true,
+        },
+        include: {
+          token: {
+            select: {
+              inviteeEmail: true,
+              inviteeName: true,
+              inviteeUserId: true,
+              token: true,
+            },
+          },
+        },
+      });
+
+      for (const sub of subs) {
+        const subUserId = sub.token.inviteeUserId;
+        const subEmail = sub.token.inviteeEmail?.toLowerCase();
+        // Skip the author and existing participants
+        if (subUserId === authorUserId) continue;
+        if (subUserId && participantUserIds.has(subUserId)) continue;
+        if (subEmail) subscriberEmails.add(subEmail);
+      }
+    }
+
+    if (participants.length === 0 && subscriberEmails.size === 0) return;
 
     const preview = messageBody.length > 200
       ? messageBody.slice(0, 197) + "..."
@@ -533,7 +694,7 @@ export class CamDiscussionService {
     const baseUrl =
       process.env.NEXT_PUBLIC_APP_URL || "https://staging-ncc.nfsgrp.com";
 
-    // In-app notifications
+    // In-app notifications (thread participants only — subscribers are email-based)
     const inAppPromises = participants.map((p) =>
       this.notifications
         .createNotification({
@@ -550,11 +711,12 @@ export class CamDiscussionService {
         ),
     );
 
-    // Email notifications — look up each participant's share token for their PIP link
+    // Email notifications for thread participants
+    const participantEmailsSent = new Set<string>();
     const emailPromises = participants
       .filter((p) => p.user.email)
       .map(async (p) => {
-        // Find this user's share token for PIP link
+        participantEmailsSent.add(p.user.email!.toLowerCase());
         const shareToken = await this.prisma.documentShareToken.findFirst({
           where: {
             inviteeEmail: p.user.email!.toLowerCase(),
@@ -586,10 +748,253 @@ export class CamDiscussionService {
           );
       });
 
-    await Promise.all([...inAppPromises, ...emailPromises]);
+    // Email notifications for section subscribers (not already emailed as participants)
+    const subEmailPromises = [...subscriberEmails]
+      .filter((email) => !participantEmailsSent.has(email))
+      .map(async (email) => {
+        const shareToken = await this.prisma.documentShareToken.findFirst({
+          where: {
+            inviteeEmail: email,
+            documentType: ShareDocumentType.CAM_LIBRARY,
+            revokedAt: null,
+          },
+          select: { token: true, inviteeName: true },
+        });
 
+        const pipUrl = shareToken
+          ? `${baseUrl}/cam-access/${shareToken.token}`
+          : baseUrl;
+
+        return this.email
+          .sendDiscussionNotification({
+            toEmail: email,
+            recipientName: shareToken?.inviteeName ?? undefined,
+            threadTitle,
+            camSection: camSection ?? "General Discussion",
+            authorName,
+            messagePreview: preview,
+            threadUrl: `${pipUrl}#discussion-${threadId}`,
+            muteUrl: `${pipUrl}#mute-${threadId}`,
+          })
+          .catch((err: any) =>
+            this.logger.warn(
+              `Subscriber email notification failed for ${email}: ${err?.message}`,
+            ),
+          );
+      });
+
+    await Promise.all([...inAppPromises, ...emailPromises, ...subEmailPromises]);
+
+    const total = participants.length + subscriberEmails.size;
     this.logger.log(
-      `Dispatched ${participants.length} notification(s) for thread "${threadTitle}"`,
+      `Dispatched ${total} notification(s) for thread "${threadTitle}" (${participants.length} participants + ${subscriberEmails.size} subscribers)`,
     );
+  }
+
+  /* ================================================================ */
+  /*  Public — CAM Read Status & Favorites                             */
+  /* ================================================================ */
+
+  /**
+   * Returns all read statuses + favorites for this viewer.
+   * Used by the frontend to determine icon badge colors.
+   */
+  async getCamStatuses(
+    token: string,
+  ): Promise<Array<{ camId: string; lastReadAt: string; isFavorite: boolean }>> {
+    const viewer = await this.validateViewerToken(token);
+    const statuses = await this.prisma.camReadStatus.findMany({
+      where: { tokenId: viewer.tokenId },
+      select: { camId: true, lastReadAt: true, isFavorite: true },
+    });
+    return statuses.map((s) => ({
+      camId: s.camId,
+      lastReadAt: s.lastReadAt.toISOString(),
+      isFavorite: s.isFavorite,
+    }));
+  }
+
+  /**
+   * Mark a CAM as read (upsert lastReadAt to now).
+   * Called when the user opens the phone preview or clicks the CAM ID link.
+   */
+  async markCamRead(
+    token: string,
+    camId: string,
+  ): Promise<{ camId: string; lastReadAt: string }> {
+    const viewer = await this.validateViewerToken(token);
+    if (!camId?.trim()) {
+      throw new BadRequestException("camId is required.");
+    }
+    const status = await this.prisma.camReadStatus.upsert({
+      where: {
+        tokenId_camId: { tokenId: viewer.tokenId, camId: camId.trim() },
+      },
+      create: {
+        tokenId: viewer.tokenId,
+        camId: camId.trim(),
+        lastReadAt: new Date(),
+      },
+      update: { lastReadAt: new Date() },
+    });
+    return { camId: status.camId, lastReadAt: status.lastReadAt.toISOString() };
+  }
+
+  /**
+   * Toggle favorite status for a CAM.
+   */
+  async toggleCamFavorite(
+    token: string,
+    camId: string,
+  ): Promise<{ camId: string; isFavorite: boolean }> {
+    const viewer = await this.validateViewerToken(token);
+    if (!camId?.trim()) {
+      throw new BadRequestException("camId is required.");
+    }
+    const existing = await this.prisma.camReadStatus.findUnique({
+      where: {
+        tokenId_camId: { tokenId: viewer.tokenId, camId: camId.trim() },
+      },
+    });
+    if (existing) {
+      const updated = await this.prisma.camReadStatus.update({
+        where: { id: existing.id },
+        data: { isFavorite: !existing.isFavorite },
+      });
+      return { camId: updated.camId, isFavorite: updated.isFavorite };
+    }
+    // First interaction — create with favorite=true and mark as read
+    const created = await this.prisma.camReadStatus.create({
+      data: {
+        tokenId: viewer.tokenId,
+        camId: camId.trim(),
+        lastReadAt: new Date(),
+        isFavorite: true,
+      },
+    });
+    return { camId: created.camId, isFavorite: created.isFavorite };
+  }
+
+  /* ================================================================ */
+  /*  Public — Announcements                                           */
+  /* ================================================================ */
+
+  /**
+   * List announcements from the last 30 days, newest first.
+   */
+  async listAnnouncements(token: string) {
+    await this.validateViewerToken(token);
+    const since = new Date();
+    since.setDate(since.getDate() - 30);
+    const items = await this.prisma.camAnnouncement.findMany({
+      where: { createdAt: { gte: since } },
+      orderBy: { createdAt: "desc" },
+      include: {
+        createdBy: { select: { firstName: true, lastName: true } },
+      },
+    });
+    return items.map((a) => ({
+      id: a.id,
+      title: a.title,
+      body: a.body,
+      priority: a.priority,
+      authorName:
+        `${a.createdBy.firstName ?? ""} ${a.createdBy.lastName ?? ""}`.trim() ||
+        "Admin",
+      createdAt: a.createdAt.toISOString(),
+    }));
+  }
+
+  /**
+   * Admin: create a global announcement and optionally push to all active PIP viewers.
+   */
+  async createAnnouncement(
+    userId: string,
+    dto: { title: string; body: string; priority?: CamAnnouncementPriority },
+  ) {
+    if (!dto.title?.trim() || !dto.body?.trim()) {
+      throw new BadRequestException("Title and body are required.");
+    }
+    const announcement = await this.prisma.camAnnouncement.create({
+      data: {
+        title: dto.title.trim(),
+        body: dto.body.trim(),
+        priority: dto.priority ?? CamAnnouncementPriority.NORMAL,
+        createdById: userId,
+      },
+    });
+
+    // Push to all active PIP viewers who have registered a mobile device
+    const tokensWithPush = await this.prisma.documentShareToken.findMany({
+      where: {
+        documentType: ShareDocumentType.CAM_LIBRARY,
+        revokedAt: null,
+        cndaAcceptedAt: { not: null },
+        questionnaireCompletedAt: { not: null },
+        expoPushToken: { not: null },
+      },
+      select: { expoPushToken: true },
+    });
+
+    const pushTokens = tokensWithPush
+      .map((t) => t.expoPushToken!)
+      .filter(Boolean);
+
+    if (pushTokens.length > 0) {
+      this.logger.log(
+        `Sending PIP announcement push to ${pushTokens.length} device(s)`,
+      );
+      // Fire-and-forget Expo push
+      const messages = pushTokens.map((pt) => ({
+        to: pt,
+        title: dto.priority === CamAnnouncementPriority.URGENT
+          ? `🔴 ${dto.title.trim()}`
+          : `📢 ${dto.title.trim()}`,
+        body: dto.body.trim().slice(0, 200),
+        data: { type: "pip_announcement", announcementId: announcement.id },
+        categoryId: "pip_announcement",
+        sound: "default" as const,
+      }));
+
+      fetch("https://exp.host/--/api/v2/push/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(messages),
+      }).catch((err) =>
+        this.logger.warn(`PIP push send failed: ${err?.message}`),
+      );
+    }
+
+    return {
+      id: announcement.id,
+      title: announcement.title,
+      body: announcement.body,
+      priority: announcement.priority,
+      createdAt: announcement.createdAt.toISOString(),
+      pushSentTo: pushTokens.length,
+    };
+  }
+
+  /* ================================================================ */
+  /*  Public — Mobile Device Registration for PIP Push                  */
+  /* ================================================================ */
+
+  /**
+   * Register an Expo push token against a PIP share token.
+   * Called from the mobile app when PIP mode is activated.
+   */
+  async registerDevice(
+    token: string,
+    expoPushToken: string,
+  ): Promise<{ registered: boolean }> {
+    const viewer = await this.validateViewerToken(token);
+    if (!expoPushToken?.trim()) {
+      throw new BadRequestException("expoPushToken is required.");
+    }
+    await this.prisma.documentShareToken.update({
+      where: { id: viewer.tokenId },
+      data: { expoPushToken: expoPushToken.trim() },
+    });
+    return { registered: true };
   }
 }

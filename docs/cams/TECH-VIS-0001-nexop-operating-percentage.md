@@ -20,7 +20,7 @@ scores:
   value: 9
   demonstrable: 9
   defensible: 8
-  total: 35
+  total: 88
 ---
 
 # TECH-VIS-0001: NexOP — Nexus Operating Percentage

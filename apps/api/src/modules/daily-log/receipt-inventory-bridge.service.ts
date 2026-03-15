@@ -15,6 +15,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { AuthenticatedUser } from '../auth/jwt.strategy';
 import { NexfindService } from '../nexfind/nexfind.service';
 import { EntitlementService } from '../billing/entitlement.service';
+import { ProductIntelligenceService } from '../procurement/product-intelligence.service';
 
 /** Shape of a single OCR line item stored in ReceiptOcrResult.lineItemsJson */
 interface OcrLineItem {
@@ -46,6 +47,7 @@ export class ReceiptInventoryBridgeService {
     private readonly notifications: NotificationsService,
     private readonly nexfind: NexfindService,
     private readonly entitlements: EntitlementService,
+    private readonly productIntelligence: ProductIntelligenceService,
   ) {}
 
   /**
@@ -155,7 +157,14 @@ export class ReceiptInventoryBridgeService {
         );
     });
 
-    // ── 3. Handle RETURN flow ───────────────────────────────────────────
+    // ── 2c. NexPRINT: ingest product intelligence from receipt line items
+    void this.productIntelligence
+      .ingestFromReceipt(companyId, ocr.id, ocr.vendorName, lineItems)
+      .catch((err: any) =>
+        this.logger.warn(`NexPRINT receipt ingestion failed (non-fatal): ${err?.message}`),
+      );
+
+    // ── 3. Handle RETURN flow ─────────────────────────────────────────
     if (isReturn) {
       return this.handleReturnFlow(
         log,

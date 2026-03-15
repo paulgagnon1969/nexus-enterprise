@@ -870,6 +870,7 @@ export class SopSyncService {
         scores: { uniqueness: number; value: number; demonstrable: number; defensible: number; total: number };
         status: string;
         htmlContent: string;
+        updatedAt: string;
       }>;
     }>;
     totalCams: number;
@@ -902,6 +903,7 @@ export class SopSyncService {
         scores: { uniqueness: number; value: number; demonstrable: number; defensible: number; total: number };
         status: string;
         htmlContent: string;
+        updatedAt: string;
       }>;
     }>();
 
@@ -928,6 +930,7 @@ export class SopSyncService {
         },
         status: fm.status,
         htmlContent: cam.htmlBody,
+        updatedAt: fm.updated || fm.created || "",
       });
     }
 

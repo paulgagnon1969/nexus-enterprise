@@ -24,14 +24,19 @@ import {
   searchSupplierCatalog,
   browseCatalog,
   fetchPetlItems,
+  enrichFingerprints,
   type ShoppingCart,
   type ShoppingCartItem,
   type CbaRunResult,
   type TripPlan,
   type CatalogItem,
   type CatalogProduct,
+  type FingerprintEnrichment,
 } from "../api/procurement";
 import { colors } from "../theme/colors";
+import { ConfidenceBadge } from "../components/ConfidenceBadge";
+import { PriceSparkline } from "../components/PriceSparkline";
+import { ProductIntelligenceSheet } from "../components/ProductIntelligenceSheet";
 import type { FieldPetlItem, ProjectListItem } from "../types/api";
 
 // ── Step Enum ────────────────────────────────────────────────────────────────
@@ -84,6 +89,15 @@ export function ShoppingListScreen({ project, companyName, onBack, onNavigateHom
   const [cbaResult, setCbaResult] = useState<CbaRunResult | null>(null);
   const [cbaLoading, setCbaLoading] = useState(false);
   const [selectedPlanIdx, setSelectedPlanIdx] = useState<number | null>(null);
+
+  // NexPRINT: fingerprint enrichment
+  const [fingerprints, setFingerprints] = useState<Record<string, FingerprintEnrichment>>({});
+  const [sheetVisible, setSheetVisible] = useState(false);
+  const [sheetItem, setSheetItem] = useState<{
+    title: string;
+    supplier: string;
+    fp: FingerprintEnrichment | null;
+  } | null>(null);
 
   // Route / departure
   const [showDeparture, setShowDeparture] = useState(false);
@@ -302,6 +316,23 @@ export function ShoppingListScreen({ project, companyName, onBack, onNavigateHom
       setCbaResult(result);
       setStep("CBA_RESULTS");
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      // NexPRINT: batch-enrich CBA items with fingerprint data (fire-and-forget)
+      const lookups: Array<{ supplierKey: string; productId: string }> = [];
+      for (const plan of result.tripPlans) {
+        for (const sup of plan.suppliers) {
+          for (const si of sup.items) {
+            if (si.productId) {
+              lookups.push({ supplierKey: sup.key, productId: si.productId });
+            }
+          }
+        }
+      }
+      if (lookups.length > 0) {
+        enrichFingerprints(lookups)
+          .then((fps) => setFingerprints(fps))
+          .catch(() => {}); // non-fatal
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -714,11 +745,66 @@ export function ShoppingListScreen({ project, companyName, onBack, onNavigateHom
                         <Text style={s.supplierName}>
                           📍 {sup.name} ({sup.distanceMiles.toFixed(1)} mi)
                         </Text>
-                        {sup.items.map((si) => (
-                          <Text key={si.cartItemId} style={s.supplierItem}>
-                            • {si.description} × {si.quantity} — ${si.lineTotal.toFixed(2)}
-                          </Text>
-                        ))}
+                        {sup.items.map((si) => {
+                          const fpKey = si.productId ? `${sup.key}::${si.productId}` : null;
+                          const fp = fpKey ? fingerprints[fpKey] : undefined;
+                          return (
+                          <View key={si.cartItemId} style={s.supplierItemBlock}>
+                            <View style={s.supplierItemHeader}>
+                              <Text style={[s.supplierItemTitle, { flex: 1 }]} numberOfLines={2}>
+                                {si.productTitle ?? si.description}
+                              </Text>
+                              {fp && (
+                                <ConfidenceBadge
+                                  confidence={fp.confidence}
+                                  verificationCount={fp.verificationCount}
+                                  compact
+                                  onPress={() => {
+                                    setSheetItem({
+                                      title: si.productTitle ?? si.description,
+                                      supplier: sup.name,
+                                      fp,
+                                    });
+                                    setSheetVisible(true);
+                                  }}
+                                />
+                              )}
+                            </View>
+                            {si.modelNumber ? (
+                              <Text style={s.supplierItemMeta}>SKU: {si.modelNumber}</Text>
+                            ) : si.productId ? (
+                              <Text style={s.supplierItemMeta}>ID: {si.productId}</Text>
+                            ) : null}
+                            {fp && fp.priceHistory.length > 1 && (
+                              <PriceSparkline data={fp.priceHistory} width={100} height={20} />
+                            )}
+                            {si.purchaseUnit && si.pricePerPurchaseUnit != null ? (
+                              <Text style={s.supplierItemPricing}>
+                                ${si.pricePerPurchaseUnit.toFixed(2)}/{si.purchaseUnit}
+                                {si.coveragePerPurchaseUnit ? ` (${si.coveragePerPurchaseUnit} SF/${si.purchaseUnit})` : ""}
+                                {si.purchaseQty ? ` × ${si.purchaseQty}` : ""}
+                                {" = $"}{si.lineTotal.toFixed(2)}
+                                {si.coveragePerPurchaseUnit ? ` · $${si.unitPrice.toFixed(2)}/SF` : ""}
+                              </Text>
+                            ) : (
+                              <Text style={s.supplierItemPricing}>
+                                ${si.unitPrice.toFixed(2)} × {si.quantity} = ${si.lineTotal.toFixed(2)}
+                              </Text>
+                            )}
+                            {si.stockQty != null ? (
+                              <Text style={[s.supplierItemStock, si.stockQty < (si.purchaseQty ?? si.quantity) ? { color: "#dc2626" } : {}]}>
+                                {si.stockQty >= (si.purchaseQty ?? si.quantity)
+                                  ? `✓ ${si.stockQty}+ in stock`
+                                  : `⚠ Only ${si.stockQty} in stock (need ${si.purchaseQty ?? si.quantity})`}
+                              </Text>
+                            ) : si.inStock != null ? (
+                              <Text style={s.supplierItemStock}>
+                                {si.inStock ? "✓ In stock" : "✗ Not in stock"}
+                              </Text>
+                            ) : null}
+                          </View>
+                          );
+                        })}
                       </View>
                     ))}
 
@@ -800,6 +886,15 @@ export function ShoppingListScreen({ project, companyName, onBack, onNavigateHom
           )}
         </ScrollView>
       )}
+
+      {/* NexPRINT: Product Intelligence Sheet */}
+      <ProductIntelligenceSheet
+        visible={sheetVisible}
+        onClose={() => setSheetVisible(false)}
+        productTitle={sheetItem?.title ?? ""}
+        supplierName={sheetItem?.supplier ?? ""}
+        fingerprint={sheetItem?.fp ?? null}
+      />
     </View>
   );
 }
@@ -1038,6 +1133,18 @@ const s = StyleSheet.create({
   supplierBlock: { marginTop: 10, paddingLeft: 4 },
   supplierName: { fontSize: 13, fontWeight: "700", color: colors.primary },
   supplierItem: { fontSize: 11, color: colors.textSecondary, marginTop: 2, paddingLeft: 8 },
+  supplierItemBlock: {
+    marginTop: 6,
+    paddingLeft: 8,
+    paddingVertical: 6,
+    borderLeftWidth: 2,
+    borderLeftColor: colors.borderMuted,
+  },
+  supplierItemHeader: { flexDirection: "row", alignItems: "flex-start", gap: 6 },
+  supplierItemTitle: { fontSize: 12, fontWeight: "600", color: colors.textPrimary, lineHeight: 16 },
+  supplierItemMeta: { fontSize: 10, color: colors.textMuted, marginTop: 2 },
+  supplierItemPricing: { fontSize: 11, fontWeight: "600", color: colors.textSecondary, marginTop: 3 },
+  supplierItemStock: { fontSize: 10, fontWeight: "600", color: colors.success, marginTop: 2 },
   selectPlanBtn: {
     marginTop: 12,
     paddingVertical: 10,

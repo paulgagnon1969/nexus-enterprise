@@ -8,6 +8,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { PrescreenService } from "./prescreen.service";
 import { NexPriceService } from "./nexprice.service";
+import { ProductIntelligenceService } from "../procurement/product-intelligence.service";
 
 // ---------------------------------------------------------------------------
 // HD job-name normalizer (ported from scripts/hd-import/parse-hd-csv.ts)
@@ -131,6 +132,7 @@ export class CsvImportService {
     private readonly prescreen: PrescreenService,
     @Inject(forwardRef(() => NexPriceService))
     private readonly nexprice: NexPriceService,
+    private readonly productIntelligence: ProductIntelligenceService,
   ) {}
 
   // ─── Orchestrator ────────────────────────────────────────────────
@@ -293,6 +295,11 @@ export class CsvImportService {
       } catch (err: any) {
         this.logger.error(`NexPRICE sync failed for batch ${batch.id}: ${err.message}`);
       }
+
+      // NexPRINT: ingest HD Pro Xtra product fingerprints (fire-and-forget)
+      this.ingestHdBatchToNexprint(actor.companyId, batch.id).catch((err: any) => {
+        this.logger.error(`NexPRINT HD ingestion failed for batch ${batch.id}: ${err.message}`);
+      });
     }
 
     return {
@@ -309,6 +316,34 @@ export class CsvImportService {
       nexpriceSynced: nexpriceResult.synced,
       nexpriceCreated: nexpriceResult.created,
     };
+  }
+
+  // ─── NexPRINT: HD batch fingerprint ingestion ────────────────────
+
+  private async ingestHdBatchToNexprint(companyId: string, batchId: string) {
+    const txns = await this.prisma.importedTransaction.findMany({
+      where: { batchId, source: CsvImportSource.HD_PRO_XTRA, sku: { not: null } },
+      select: { id: true, sku: true, description: true, unitPrice: true, qty: true, date: true },
+    });
+
+    let ingested = 0;
+    for (const txn of txns) {
+      if (!txn.sku || !txn.unitPrice) continue;
+      await this.productIntelligence.ingestFromHdProXtra(
+        companyId,
+        txn.id,
+        txn.sku,
+        txn.description,
+        txn.unitPrice,
+        txn.qty ?? 1,
+        txn.date,
+      );
+      ingested++;
+    }
+
+    if (ingested > 0) {
+      this.logger.log(`[NexPRINT] Ingested ${ingested} HD Pro Xtra fingerprints from batch ${batchId}`);
+    }
   }
 
   // ─── HD Pro Xtra parser ──────────────────────────────────────────

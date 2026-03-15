@@ -10,7 +10,7 @@ import { getTokens } from "./src/storage/tokens";
 import { initDb } from "./src/offline/db";
 import { recoverStuckProcessing } from "./src/offline/outbox";
 import { startAutoSync, stopAutoSync } from "./src/offline/autoSync";
-import { registerForPushNotifications, deregisterPushToken, parseNotificationData } from "./src/utils/pushNotifications";
+import { registerForPushNotifications, deregisterPushToken, parseNotificationData, handleWarpAttentionReply } from "./src/utils/pushNotifications";
 import { apiJson, setOnAuthExhausted } from "./src/api/client";
 import { getBackgroundAuth, getGeofenceConfig, setupGeofencing } from "./src/services/geofencing";
 import { LoginScreen } from "./src/screens/LoginScreen";
@@ -202,6 +202,32 @@ export default function App() {
           data.taskId
         ) {
           navigationRef.current.navigate("Todos" as any);
+          return;
+        }
+
+        // ── Warp Attention (SUPER_ADMIN — bidirectional bridge) ──
+        if (data.type === "warp_attention" && data.sessionId) {
+          // Inline reply action — send text as a session comment
+          if (data.actionIdentifier === "reply" && data.userText) {
+            await handleWarpAttentionReply(data.sessionId, data.userText);
+            return;
+          }
+          // Default tap or "View Session" — navigate to session detail
+          navigationRef.current.navigate("Main" as any, {
+            screen: "DevSessionsTab",
+            params: {
+              screen: "SessionDetail",
+              params: {
+                session: {
+                  id: data.sessionId,
+                  title: "",
+                  status: "ACTIVE",
+                  sessionCode: "",
+                  createdAt: new Date().toISOString(),
+                },
+              },
+            },
+          });
           return;
         }
 

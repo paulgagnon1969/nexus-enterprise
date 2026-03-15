@@ -165,6 +165,7 @@ export class SerpApiProvider implements CatalogProvider {
       price: typeof r.price === "number" ? r.price : this.parsePrice(r.price),
       unit: r.unit ?? undefined,
       inStock: r.pickup?.free_ship_to_store ?? r.delivery?.free ?? undefined,
+      stockQty: this.parseStockQty(r.pickup?.stock),
       upc: undefined, // Not in search results; available in product detail
       storeSku: undefined,
       rating: r.rating ?? undefined,
@@ -196,6 +197,7 @@ export class SerpApiProvider implements CatalogProvider {
       unit: p.unit ?? undefined,
       aisle: p.aisle ?? undefined,
       inStock: p.in_stock ?? undefined,
+      stockQty: this.parseStockQty(pk.stock ?? pk.quantity),
       rating: p.rating ?? undefined,
       storeName: pk.store_name ?? ff.store_name ?? undefined,
       storeAddress: pk.address ?? pk.street ?? ff.store_address ?? undefined,
@@ -211,6 +213,14 @@ export class SerpApiProvider implements CatalogProvider {
         bullets: p.bullets ?? undefined,
       },
     };
+  }
+
+  /** Parse stock quantity from "100+" or "23" or null. */
+  private parseStockQty(val: any): number | undefined {
+    if (val == null) return undefined;
+    const s = String(val).replace(/\+/g, '').trim();
+    const n = parseInt(s, 10);
+    return isNaN(n) ? undefined : n;
   }
 
   /** Parse "$3.98" or "3.98" into a number. */

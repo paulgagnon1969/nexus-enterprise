@@ -20,7 +20,7 @@ scores:
   value: 8
   demonstrable: 8
   defensible: 7
-  total: 31
+  total: 78
 ---
 
 # FIN-ACC-0004: Client Rate Adjustment — Transparent Discount Billing with Client Memory

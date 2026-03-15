@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -7,7 +7,11 @@ import {
   ScrollView,
   RefreshControl,
   ActivityIndicator,
+  TextInput,
+  AppState,
+  type AppStateStatus,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { apiJson } from "../api/client";
 import { colors } from "../theme/colors";
 
@@ -21,6 +25,7 @@ interface DevSession {
   endedAt?: string | null;
   lastHeartbeat?: string | null;
   createdAt: string;
+  updatedAt?: string;
   createdBy?: { firstName?: string | null; lastName?: string | null } | null;
   _count?: { events?: number; approvals?: number };
 }
@@ -54,10 +59,22 @@ export function DevSessionsScreen({ onSelectSession }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadSessions = useCallback(async () => {
+  // ── Create session form state ──
+  const [showCreate, setShowCreate] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newDesc, setNewDesc] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  // ── Search state ──
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const loadSessions = useCallback(async (q?: string) => {
     try {
       setError(null);
-      const data = await apiJson<DevSession[]>("/dev-session");
+      const url = q ? `/dev-session?q=${encodeURIComponent(q)}` : "/dev-session";
+      const data = await apiJson<DevSession[]>(url);
       setSessions(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load sessions");
@@ -66,12 +83,50 @@ export function DevSessionsScreen({ onSelectSession }: Props) {
     }
   }, []);
 
-  useEffect(() => {
-    loadSessions();
-    // Auto-refresh every 15 seconds
-    const interval = setInterval(loadSessions, 15000);
-    return () => clearInterval(interval);
+  // Debounced search — fires 400ms after user stops typing
+  const handleSearch = useCallback((text: string) => {
+    setSearchQuery(text);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      loadSessions(text.trim() || undefined);
+    }, 400);
   }, [loadSessions]);
+
+  // ── Focus-aware polling: only poll when screen is visible + app is active ──
+  useFocusEffect(
+    useCallback(() => {
+      // Load immediately on focus
+      loadSessions();
+
+      // Start polling
+      intervalRef.current = setInterval(loadSessions, 15000);
+
+      // Pause polling when app backgrounds, resume on foreground
+      const handleAppState = (state: AppStateStatus) => {
+        if (state === "active") {
+          loadSessions();
+          if (!intervalRef.current) {
+            intervalRef.current = setInterval(loadSessions, 15000);
+          }
+        } else {
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+          }
+        }
+      };
+      const sub = AppState.addEventListener("change", handleAppState);
+
+      return () => {
+        // Stop polling on blur
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
+        sub.remove();
+      };
+    }, [loadSessions]),
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -79,18 +134,94 @@ export function DevSessionsScreen({ onSelectSession }: Props) {
     setRefreshing(false);
   }, [loadSessions]);
 
-  const activeSessions = sessions.filter(
-    (s) => s.status === "ACTIVE" || s.status === "AWAITING_REVIEW" || s.status === "PAUSED",
-  );
-  const completedSessions = sessions.filter(
-    (s) => s.status === "COMPLETED" || s.status === "CANCELLED",
-  );
+  // ── Remote session creation ──
+  const handleCreate = useCallback(async () => {
+    if (!newTitle.trim() || creating) return;
+    setCreating(true);
+    try {
+      const session = await apiJson<DevSession>("/dev-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: newTitle.trim(), description: newDesc.trim() || undefined }),
+      });
+      setShowCreate(false);
+      setNewTitle("");
+      setNewDesc("");
+      onSelectSession(session);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to create session");
+    } finally {
+      setCreating(false);
+    }
+  }, [newTitle, newDesc, creating, onSelectSession]);
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Session Mirror</Text>
-        <Text style={styles.subtitle}>Dev Oversight</Text>
+        <View style={styles.headerRow}>
+          <View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Text style={styles.title}>Session Mirror</Text>
+              {sessions.length > 0 && (
+                <View style={styles.countBadge}>
+                  <Text style={styles.countBadgeText}>{sessions.length}</Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.subtitle}>Dev Oversight</Text>
+          </View>
+          <Pressable
+            style={styles.createBtn}
+            onPress={() => setShowCreate(!showCreate)}
+            hitSlop={8}
+          >
+            <Text style={styles.createBtnText}>{showCreate ? "✕" : "+"}</Text>
+          </Pressable>
+        </View>
+
+        {/* Inline create form */}
+        {showCreate && (
+          <View style={styles.createForm}>
+            <TextInput
+              style={styles.createInput}
+              placeholder="Session title…"
+              placeholderTextColor="rgba(255,255,255,0.5)"
+              value={newTitle}
+              onChangeText={setNewTitle}
+              autoFocus
+            />
+            <TextInput
+              style={[styles.createInput, styles.createInputDesc]}
+              placeholder="Description (optional)"
+              placeholderTextColor="rgba(255,255,255,0.5)"
+              value={newDesc}
+              onChangeText={setNewDesc}
+              multiline
+            />
+            <Pressable
+              style={[styles.createSubmit, !newTitle.trim() && { opacity: 0.4 }]}
+              onPress={handleCreate}
+              disabled={!newTitle.trim() || creating}
+            >
+              <Text style={styles.createSubmitText}>
+                {creating ? "Creating…" : "Start Session"}
+              </Text>
+            </Pressable>
+          </View>
+        )}
+      </View>
+
+      {/* Search bar */}
+      <View style={styles.searchBar}>
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search sessions…"
+          placeholderTextColor={colors.textMuted}
+          value={searchQuery}
+          onChangeText={handleSearch}
+          returnKeyType="search"
+          clearButtonMode="while-editing"
+        />
       </View>
 
       {loading && !refreshing ? (
@@ -109,7 +240,7 @@ export function DevSessionsScreen({ onSelectSession }: Props) {
           <Text style={styles.emptyIcon}>🔭</Text>
           <Text style={styles.emptyText}>No dev sessions yet</Text>
           <Text style={styles.emptySubtext}>
-            Sessions will appear here when Warp starts working on tasks
+            Tap + to start a session, or they'll appear here when Warp starts working
           </Text>
         </View>
       ) : (
@@ -119,23 +250,10 @@ export function DevSessionsScreen({ onSelectSession }: Props) {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
         >
-          {activeSessions.length > 0 && (
-            <>
-              <Text style={styles.sectionTitle}>Active</Text>
-              {activeSessions.map((s) => (
-                <SessionCard key={s.id} session={s} onPress={() => onSelectSession(s)} />
-              ))}
-            </>
-          )}
-
-          {completedSessions.length > 0 && (
-            <>
-              <Text style={styles.sectionTitle}>Recent</Text>
-              {completedSessions.map((s) => (
-                <SessionCard key={s.id} session={s} onPress={() => onSelectSession(s)} />
-              ))}
-            </>
-          )}
+          {/* Flat list — API returns sorted by updatedAt DESC */}
+          {sessions.map((s) => (
+            <SessionCard key={s.id} session={s} onPress={() => onSelectSession(s)} />
+          ))}
           <View style={{ height: 40 }} />
         </ScrollView>
       )}
@@ -181,7 +299,7 @@ function SessionCard({
 
       <View style={styles.cardFooter}>
         <Text style={styles.cardMeta}>
-          {timeAgo(session.createdAt)}
+          {timeAgo(session.updatedAt ?? session.createdAt)}
           {session._count?.events ? ` · ${session._count.events} events` : ""}
         </Text>
         {pendingApprovals > 0 && (
@@ -204,8 +322,62 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     backgroundColor: colors.primary,
   },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
   title: { fontSize: 22, fontWeight: "800", color: colors.textOnPrimary },
   subtitle: { fontSize: 13, color: "rgba(255,255,255,0.7)", marginTop: 2 },
+  countBadge: {
+    backgroundColor: "rgba(255,255,255,0.25)",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  countBadgeText: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  createBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  createBtnText: { color: "#fff", fontSize: 20, fontWeight: "700", lineHeight: 22 },
+  createForm: { marginTop: 12 },
+  createInput: {
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: "#fff",
+    marginBottom: 8,
+  },
+  createInputDesc: { minHeight: 50, textAlignVertical: "top" },
+  createSubmit: {
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  createSubmitText: { color: colors.primary, fontWeight: "700", fontSize: 15 },
+  searchBar: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: colors.background,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.cardBorder,
+  },
+  searchInput: {
+    backgroundColor: "#f3f4f6",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: colors.textPrimary,
+  },
   center: { flex: 1, justifyContent: "center", alignItems: "center", padding: 40 },
   errorText: { color: colors.error, fontSize: 14, textAlign: "center", marginBottom: 12 },
   retryBtn: {
@@ -218,17 +390,7 @@ const styles = StyleSheet.create({
   emptyIcon: { fontSize: 48, marginBottom: 12 },
   emptyText: { fontSize: 18, fontWeight: "700", color: colors.textPrimary, marginBottom: 4 },
   emptySubtext: { fontSize: 14, color: colors.textMuted, textAlign: "center" },
-  list: { flex: 1, paddingHorizontal: 16 },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: colors.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    marginTop: 20,
-    marginBottom: 8,
-    marginLeft: 4,
-  },
+  list: { flex: 1, paddingHorizontal: 16, paddingTop: 12 },
   card: {
     backgroundColor: colors.cardBackground,
     borderRadius: 12,

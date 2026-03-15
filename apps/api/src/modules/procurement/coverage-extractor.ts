@@ -120,6 +120,8 @@ const WIDTH_SPEC_KEYS = [
   'width',
   'nominal width (in.)',
   'roll width (in.)',
+  'individual batt width (in.)',
+  'individual batt width',
 ];
 
 const LENGTH_SPEC_KEYS = [
@@ -130,6 +132,9 @@ const LENGTH_SPEC_KEYS = [
   'length',
   'roll length (ft.)',
   'product length (in.)',
+  'individual batt length (in.)',
+  'individual batt length (ft.)',
+  'individual batt length',
 ];
 
 const PACKAGE_QTY_KEYS = [
@@ -140,6 +145,20 @@ const PACKAGE_QTY_KEYS = [
   'count',
   'pieces',
   'number in package',
+  'pack size',
+  'number of batts',
+  'batts per bag',
+];
+
+/** Combined dimension specs (value is "W x L" string to parse). */
+const COMBINED_DIM_KEYS = [
+  'batt/roll size',
+  'product size',
+  'batt size',
+  'roll size',
+  'sheet size',
+  'panel size',
+  'tile size',
 ];
 
 /** Parse a number from a spec value string like "40.0", "32 ft", "15 in". */
@@ -164,35 +183,42 @@ function specValueIsFeet(key: string, val: string): boolean {
 
 /**
  * Look up a spec value from the specifications object (case-insensitive).
- * BigBox/SerpAPI return specs as either:
- *   - Array of { name, value } objects
- *   - Object with key/value pairs
+ * Handles three formats returned by SerpAPI / BigBox:
+ *   - Grouped array: [{ key: "Details", value: [{ name, value }, ...] }]
+ *   - Flat array: [{ name, value }]
+ *   - Object: { key: value }
  */
 function findSpec(specs: any, keys: string[]): string | null {
   if (!specs) return null;
 
-  // Array form: [{ name: "Product Width (in.)", value: "15" }]
+  // Flatten all formats into [{name, value}] entries
+  const entries: Array<{ name: string; value: any }> = [];
+
   if (Array.isArray(specs)) {
-    for (const entry of specs) {
-      const name = (entry.name ?? entry.key ?? '').toLowerCase().trim();
-      for (const k of keys) {
-        if (name === k || name.includes(k)) {
-          return String(entry.value ?? '');
+    for (const item of specs) {
+      if (Array.isArray(item.value)) {
+        // Grouped format: { key: "Details", value: [{name, value}, ...] }
+        for (const sub of item.value) {
+          entries.push({ name: String(sub.name ?? sub.key ?? ''), value: sub.value });
         }
+      } else {
+        // Flat format: { name: "Coverage Area", value: "40" }
+        entries.push({ name: String(item.name ?? item.key ?? ''), value: item.value });
       }
     }
-    return null;
+  } else if (typeof specs === 'object') {
+    // Object format: { "Coverage Area": "40" }
+    for (const [k, v] of Object.entries(specs)) {
+      entries.push({ name: k, value: v });
+    }
   }
 
-  // Object form: { "Product Width (in.)": "15" }
-  if (typeof specs === 'object') {
-    const specEntries = Object.entries(specs);
-    for (const [key, val] of specEntries) {
-      const lower = key.toLowerCase().trim();
-      for (const k of keys) {
-        if (lower === k || lower.includes(k)) {
-          return String(val ?? '');
-        }
+  // Search entries (case-insensitive)
+  for (const entry of entries) {
+    const name = entry.name.toLowerCase().trim();
+    for (const k of keys) {
+      if (name === k || name.includes(k)) {
+        return String(entry.value ?? '');
       }
     }
   }
@@ -258,14 +284,30 @@ function extractFromSpecs(product: CatalogProduct): CoverageInfo | null {
     }
   }
 
-  // 3. Package quantity for items sold as "each" with a known piece coverage
-  const pkgQtyRaw = findSpec(specs, PACKAGE_QTY_KEYS);
-  const pkgQty = parseSpecNum(pkgQtyRaw);
-  if (pkgQty && pkgQty > 1) {
-    // We know the package count but not coverage — will be combined with title parse
-    // Don't return here; let tier 2 handle it with this info
+  // 2b. Combined dimension spec (e.g., "Batt/Roll Size: 4 ft. x 16 in.")
+  const combinedDim = findSpec(specs, COMBINED_DIM_KEYS);
+  if (combinedDim) {
+    const parsed = parseTitleDimensions(combinedDim);
+    if (parsed && parsed.dims.length >= 2) {
+      let area = parsed.dims[0] * parsed.dims[1];
+      const pkgQtyRaw2 = findSpec(specs, PACKAGE_QTY_KEYS);
+      const pkgQty2 = parseSpecNum(pkgQtyRaw2);
+      if (pkgQty2 && pkgQty2 > 1) area *= pkgQty2;
+
+      if (area > 0.5 && area < 10000) {
+        return {
+          coverageValue: Math.round(area * 100) / 100,
+          coverageUnit: 'SF',
+          purchaseUnitLabel: inferPurchaseUnit(product.title),
+          confidence: 'HIGH',
+          source: 'SPEC_SHEET',
+        };
+      }
+    }
   }
 
+  // 3. Package quantity only — no coverage area found in specs.
+  //    Fall through to tier 2 (title parse) which will pick up pack count.
   return null;
 }
 
@@ -312,9 +354,9 @@ function parseDimValue(numStr: string, unitStr: string): number | null {
   return val <= 48 ? val / 12 : val;
 }
 
-// Regex: matches patterns like "15 in. x 32 ft." or "4' x 8'" or "2 in x 4 in x 8 ft"
+// Regex: matches patterns like "15 in. x 32 ft.", "4' x 8'", "2 in x 4 in x 8 ft", "16 by 96"
 const DIM_PATTERN =
-  /(\d+(?:\/\d+)?(?:\.\d+)?)\s*(in\.?|inch(?:es)?|ft\.?|feet|foot|"|'|″|′)?\s*[xX×]\s*(\d+(?:\/\d+)?(?:\.\d+)?)\s*(in\.?|inch(?:es)?|ft\.?|feet|foot|"|'|″|′)?(?:\s*[xX×]\s*(\d+(?:\/\d+)?(?:\.\d+)?)\s*(in\.?|inch(?:es)?|ft\.?|feet|foot|"|'|″|′)?)?/;
+  /(\d+(?:\/\d+)?(?:\.\d+)?)\s*(in\.?|inch(?:es)?|ft\.?|feet|foot|"|'|″|′)?\s*(?:[xX×]|\bby\b)\s*(\d+(?:\/\d+)?(?:\.\d+)?)\s*(in\.?|inch(?:es)?|ft\.?|feet|foot|"|'|″|′)?(?:\s*(?:[xX×]|\bby\b)\s*(\d+(?:\/\d+)?(?:\.\d+)?)\s*(in\.?|inch(?:es)?|ft\.?|feet|foot|"|'|″|′)?)?/;
 
 function parseTitleDimensions(title: string): ParsedDimensions | null {
   const m = title.match(DIM_PATTERN);
@@ -347,6 +389,62 @@ function parseTitleDimensions(title: string): ParsedDimensions | null {
   return dims.length >= 2 ? { dims, raw: m[0] } : null;
 }
 
+/**
+ * Extract explicit total coverage stated directly in the product title.
+ * Examples:
+ *   - "Square Footage of 1173.4 FT"
+ *   - "covers 40 sq ft"
+ *   - "(40 sq. ft.)"
+ *
+ * The extracted value is treated as coverage for the full listing at the
+ * listed price (e.g., a multi-bag bundle).
+ */
+function extractExplicitCoverageFromTitle(title: string): number | null {
+  const patterns: RegExp[] = [
+    /square\s*footage\s+(?:of\s+)?([\d,]+(?:\.\d+)?)/i,
+    /covers?\s+([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft\.?|SF|square\s*feet)/i,
+    /total\s*(?:coverage|area)[:\s]+([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft\.?|SF|square\s*feet)/i,
+    /([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft\.?|SF|square\s*feet)\s+total/i,
+    /\(([\d,]+(?:\.\d+)?)\s*(?:sq\.?\s*ft\.?|SF)\)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const m = title.match(pattern);
+    if (!m) continue;
+    const value = parseFloat(m[1].replace(/,/g, ''));
+    if (value >= 5 && value <= 50000) {
+      return value;
+    }
+  }
+  return null;
+}
+
+/**
+ * Extract pack/bundle count from title.
+ * Examples:
+ *   - "a Total of 10 Bags"
+ *   - "(10-Pack)"
+ *   - "Pack of 6"
+ */
+function extractPackCountFromTitle(title: string): number | null {
+  const patterns: RegExp[] = [
+    /total\s+of\s+(\d+)\s*(?:bags?|rolls?|batts?|pieces?|packs?|sheets?|bundles?)/i,
+    /\((\d+)[- ]?(?:pack|pk|ct|count)\)/i,
+    /\b(\d+)[- ](?:pack|pk|count|ct)\b/i,
+    /(?:pack|set|box|case)\s+of\s+(\d+)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const m = title.match(pattern);
+    if (!m) continue;
+    const value = parseInt(m[1]);
+    if (value >= 2 && value <= 1000) {
+      return value;
+    }
+  }
+  return null;
+}
+
 /** Detect material type from title for coverage interpretation. */
 type MaterialType = 'insulation' | 'drywall' | 'plywood' | 'lumber' | 'roofing' | 'flooring' | 'unknown';
 
@@ -363,16 +461,32 @@ function detectMaterialType(title: string): MaterialType {
 
 function extractFromTitle(product: CatalogProduct): CoverageInfo | null {
   const title = product.title ?? '';
+
+  // Priority 1: explicit total coverage stated in listing title.
+  // This should win over dimension math for bundle listings.
+  const explicitSF = extractExplicitCoverageFromTitle(title);
+  if (explicitSF) {
+    const packCount = extractPackCountFromTitle(title);
+    return {
+      coverageValue: explicitSF,
+      coverageUnit: 'SF',
+      purchaseUnitLabel: packCount && packCount > 1 ? 'package' : inferPurchaseUnit(title),
+      confidence: 'HIGH',
+      source: 'TITLE_PARSE',
+    };
+  }
+
+  // Priority 2: infer coverage from dimensions.
   const parsed = parseTitleDimensions(title);
   if (!parsed) return null;
 
   const matType = detectMaterialType(title);
   const { dims } = parsed;
 
-  // Check specs for package quantity to multiply
+  // Check specs for package quantity to multiply (fall back to title pack count)
   const specs = product.rawJson?.specifications;
   const pkgQtyRaw = specs ? findSpec(specs, PACKAGE_QTY_KEYS) : null;
-  const pkgQty = parseSpecNum(pkgQtyRaw);
+  const pkgQty = parseSpecNum(pkgQtyRaw) ?? extractPackCountFromTitle(title);
 
   switch (matType) {
     case 'insulation': {

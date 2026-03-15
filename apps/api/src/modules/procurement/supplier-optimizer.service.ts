@@ -3,12 +3,28 @@ import type { CbaConfig } from './cba-engine.service';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+export interface SupplierProductDetail {
+  productId: string;
+  title: string;
+  modelNumber?: string;
+  productUrl?: string;
+  pricePerPurchaseUnit: number;
+  coveragePerPurchaseUnit?: number;
+  purchaseUnit?: string;
+  purchaseQty?: number;
+  coverageConfidence?: string;
+  stockQty?: number;
+  inStock?: boolean;
+}
+
 export interface ItemPricing {
   cartItemId: string;
   description: string;
   quantity: number;
   /** unitPrice per supplier (keyed by supplierKey). null = not available. */
   supplierPrices: Record<string, number | null>;
+  /** Product details per supplier for display in trip plans. */
+  supplierProducts?: Record<string, SupplierProductDetail>;
 }
 
 export interface SupplierInfo {
@@ -32,6 +48,18 @@ export interface TripPlanItem {
   quantity: number;
   unitPrice: number;
   lineTotal: number;
+  // Product detail for display
+  productId?: string;
+  productTitle?: string;
+  modelNumber?: string;
+  productUrl?: string;
+  pricePerPurchaseUnit?: number;
+  coveragePerPurchaseUnit?: number;
+  purchaseUnit?: string;
+  purchaseQty?: number;
+  coverageConfidence?: string;
+  stockQty?: number;
+  inStock?: boolean;
 }
 
 export interface TripPlanSupplier {
@@ -165,12 +193,25 @@ export class SupplierOptimizerService {
       if (bestKey != null) {
         const lineTotal = round2(bestPrice * item.quantity);
         totalItemCost += lineTotal;
+        const productDetail = item.supplierProducts?.[bestKey];
         supplierItems.get(bestKey)!.push({
           cartItemId: item.cartItemId,
           description: item.description,
           quantity: item.quantity,
           unitPrice: bestPrice,
           lineTotal,
+          // Product detail passthrough
+          productId: productDetail?.productId,
+          productTitle: productDetail?.title,
+          modelNumber: productDetail?.modelNumber,
+          productUrl: productDetail?.productUrl,
+          pricePerPurchaseUnit: productDetail?.pricePerPurchaseUnit,
+          coveragePerPurchaseUnit: productDetail?.coveragePerPurchaseUnit,
+          purchaseUnit: productDetail?.purchaseUnit,
+          purchaseQty: productDetail?.purchaseQty,
+          coverageConfidence: productDetail?.coverageConfidence,
+          stockQty: productDetail?.stockQty,
+          inStock: productDetail?.inStock,
         });
       } else {
         unfulfilledItems.push(item.cartItemId);

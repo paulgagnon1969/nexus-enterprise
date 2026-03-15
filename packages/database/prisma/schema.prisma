@@ -431,6 +431,13 @@ model Company {
 
   // Session Mirror — Remote dev oversight
   devSessions DevSession[]
+
+  // NexPRINT — Product Intelligence
+  productFingerprints    ProductFingerprint[]    @relation("ProductFingerprintCompany")
+  coverageExtractionLogs CoverageExtractionLog[] @relation("CoverageExtractionLogCompany")
+
+  // NexAGG — Bulk Procurement Opportunities
+  bulkProcurementOpportunities BulkProcurementOpportunity[]
 }
 
 model OrganizationTemplate {
@@ -923,6 +930,9 @@ model User {
   camCannedMessagesCreated CamCannedMessage[]  @relation("CamCannedMessageCreatedBy")
   camInviteGroupsCreated   CamInviteGroup[]    @relation("CamInviteGroupCreatedBy")
 
+  // CAM Announcements — global PIP broadcasts
+  camAnnouncementsCreated  CamAnnouncement[]   @relation("CamAnnouncementCreatedBy")
+
   // CNDA Templates & Secure Portal Campaigns
   cndaTemplatesCreated     CndaTemplate[]             @relation("CndaTemplateCreatedBy")
   campaignsCreated         SecurePortalCampaign[]     @relation("CampaignCreatedBy")
@@ -937,6 +947,11 @@ model User {
   devSessionsCreated            DevSession[]          @relation("DevSessionCreatedBy")
   devSessionEventsActed         DevSessionEvent[]     @relation("DevSessionEventActor")
   devApprovalRequestsResolved   DevApprovalRequest[]  @relation("DevApprovalResolvedBy")
+
+  // NexAGG — Bulk Procurement Opportunities
+  bulkOpportunitiesReviewed  BulkProcurementOpportunity[] @relation("BulkOpportunityReviewedBy")
+  bulkOpportunitiesApproved  BulkProcurementOpportunity[] @relation("BulkOpportunityApprovedBy")
+  bulkOpportunitiesDismissed BulkProcurementOpportunity[] @relation("BulkOpportunityDismissedBy")
 }
 
 /// Notification delivered to a single user
@@ -1700,6 +1715,9 @@ model Project {
   // NexCART — Shopping Carts & Material Procurement
   shoppingCarts          ShoppingCart[]
   materialDrawdownLedger MaterialDrawdownLedger[]
+
+  // NexAGG — Bulk Procurement Opportunities (cross-project)
+  bulkOpportunityLinks BulkOpportunityProject[]
 
   @@index([companyId, groupId], map: "Project_company_group_idx")
   @@index([tenantClientId], map: "Project_tenant_client_idx")
@@ -4614,6 +4632,7 @@ enum NotificationKind {
   AUTO_PAY_UPDATE
   NEW_MODULE
   CAM_DISCUSSION
+  BULK_PROCUREMENT
 }
 
 /// Delivery channel used for a notification. IN_APP is always recorded; EMAIL
@@ -9408,6 +9427,112 @@ model MaterialDrawdownLedger {
 }
 
 // ===================================================================
+// NexPRINT — Product Intelligence (receipt-verified learning loop)
+// ===================================================================
+
+enum FingerprintConfidence {
+  VERIFIED       // Receipt + bank transaction match
+  BANK_CONFIRMED // Bank transaction confirmed the purchase
+  RECEIPT        // From receipt OCR line item
+  HD_PRO_XTRA    // From HD Pro Xtra CSV import
+  HIGH           // Spec-sheet extraction (Tier 1)
+  MEDIUM         // Title dimension parsing (Tier 2)
+  LOW            // Material-type heuristic (Tier 3)
+}
+
+enum FingerprintSource {
+  RECEIPT_OCR
+  HD_PRO_XTRA
+  CBA_SCRAPE
+  BANK_CONFIRM
+  MANUAL
+}
+
+/// Core product intelligence record. Stores verified coverage, pricing, and
+/// SKU data learned from receipts, imports, and CBA scraping. Keyed per
+/// (company, supplier, productId) so each tenant builds its own product knowledge.
+model ProductFingerprint {
+  id        String @id @default(cuid())
+  companyId String
+
+  supplierKey String /// e.g. "homedepot", "lowes", "amazon"
+  productId   String /// Retailer product ID or model number
+  sku         String? /// Vendor SKU (from receipt or HD Pro Xtra)
+  title       String /// Canonical product title
+
+  /// Coverage intelligence
+  coverageValue      Float?  /// Verified coverage per purchase unit (e.g. 40 SF/roll)
+  coverageUnit       String? /// e.g. "SF", "LF", "EA"
+  purchaseUnitLabel  String? /// e.g. "roll", "bag", "bundle"
+  packCount          Int?    /// Items per package
+
+  confidence        FingerprintConfidence @default(LOW)
+  sourceType        FingerprintSource     @default(CBA_SCRAPE)
+  lastVerifiedAt    DateTime?
+  verificationCount Int                   @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company      Company               @relation("ProductFingerprintCompany", fields: [companyId], references: [id], onDelete: Cascade)
+  priceHistory ProductPriceHistory[]
+
+  @@unique([companyId, supplierKey, productId], name: "ProductFingerprint_company_supplier_product_key")
+  @@index([companyId, sku], map: "ProductFingerprint_company_sku_idx")
+  @@index([companyId, supplierKey], map: "ProductFingerprint_company_supplier_idx")
+}
+
+/// Rolling price observations for a product fingerprint.
+/// Each purchase, import, or CBA scrape creates a new observation.
+model ProductPriceHistory {
+  id            String @id @default(cuid())
+  fingerprintId String
+
+  unitPrice  Float /// Price per purchase unit at time of observation
+  totalPrice Float /// Total transaction amount
+  quantity   Float /// Number of purchase units
+
+  source          FingerprintSource
+  transactionDate DateTime? /// When the purchase occurred
+
+  /// Optional links to source records
+  receiptOcrResultId    String? /// → ReceiptOcrResult
+  importedTransactionId String? /// → ImportedTransaction
+  bankTransactionId     String? /// → BankTransaction
+
+  createdAt DateTime @default(now())
+
+  fingerprint ProductFingerprint @relation(fields: [fingerprintId], references: [id], onDelete: Cascade)
+
+  @@index([fingerprintId, createdAt], map: "ProductPriceHistory_fp_created_idx")
+  @@index([fingerprintId, transactionDate], map: "ProductPriceHistory_fp_txnDate_idx")
+}
+
+/// Telemetry log for every coverage extraction attempt.
+/// Used to measure fingerprint hit rate, extraction accuracy, and latency.
+model CoverageExtractionLog {
+  id        String @id @default(cuid())
+  companyId String
+
+  productTitle  String /// Product title at extraction time
+  supplierKey   String /// e.g. "homedepot", "amazon"
+  requestedUnit String /// Project unit requested (e.g. "SF", "LF")
+
+  tier           Int     /// 0=fingerprint, 1=spec, 2=title, 3=heuristic
+  extractedValue Float?  /// Coverage value extracted (null if failed)
+  confidence     String? /// HIGH, MEDIUM, LOW, or null
+  fingerprintHit Boolean @default(false) /// True if Tier 0 cache hit
+  durationMs     Int     @default(0) /// Extraction wall-clock time
+
+  createdAt DateTime @default(now())
+
+  company Company @relation("CoverageExtractionLogCompany", fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt], map: "CoverageExtractionLog_company_created_idx")
+  @@index([companyId, fingerprintHit], map: "CoverageExtractionLog_company_hit_idx")
+}
+
+// ===================================================================
 // Room Scanner & Assessment — LiDAR + AI Vision dual-mode
 // ===================================================================
 
@@ -11135,12 +11260,17 @@ model DocumentShareToken {
   /// Optional link to a Secure Portal Campaign (for SECURE_PORTAL tokens)
   campaignId       String?
 
+  /// Mobile push token (Expo push token registered from mobile PIP tab)
+  expoPushToken   String?
+
   /// Relations
   inviterUser     User?             @relation("ShareTokenInviter", fields: [inviterUserId], references: [id])
   inviteeUser     User?             @relation("ShareTokenInvitee", fields: [inviteeUserId], references: [id])
   parentToken     DocumentShareToken? @relation("ShareTokenChain", fields: [parentTokenId], references: [id])
   childTokens     DocumentShareToken[] @relation("ShareTokenChain")
   accessLogs      DocumentShareAccessLog[]
+  camSubscriptions CamSectionSubscription[] @relation("CamSectionSubs")
+  camReadStatuses  CamReadStatus[]           @relation("CamReadStatuses")
   camInviteGroup  CamInviteGroup?   @relation(fields: [camInviteGroupId], references: [id])
   campaign        SecurePortalCampaign? @relation("CampaignShareTokens", fields: [campaignId], references: [id])
 
@@ -11294,17 +11424,76 @@ model CamDiscussionMessage {
 /// Participant membership in a CAM discussion thread.
 /// Controls notification delivery — muted participants don't receive email alerts.
 model CamDiscussionParticipant {
-  id       String   @id @default(cuid())
-  threadId String
-  userId   String
-  muted    Boolean  @default(false) /// When true, no email/in-app notifications for this thread
-  joinedAt DateTime @default(now())
+  id         String    @id @default(cuid())
+  threadId   String
+  userId     String
+  muted      Boolean   @default(false) /// When true, no email/in-app notifications for this thread
+  lastReadAt DateTime? /// Last time the user viewed this thread — used for unread badge computation
+  joinedAt   DateTime  @default(now())
 
   thread CamDiscussionThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
   user   User                @relation("CamDiscussionParticipant", fields: [userId], references: [id])
 
   @@unique([threadId, userId], map: "CamDiscParticipant_thread_user_uk")
   @@index([userId], map: "CamDiscParticipant_user_idx")
+}
+
+/// Per-CAM subscription for a PIP viewer.
+/// Controls whether the viewer receives instant email and/or daily digest
+/// notifications for new discussion activity on a specific CAM section.
+model CamSectionSubscription {
+  id            String   @id @default(cuid())
+  tokenId       String   /// FK to DocumentShareToken — identifies the PIP viewer
+  camSection    String   /// e.g. "EST-ACC-0003" — matches CamDiscussionThread.camSection
+  notifyInstant Boolean  @default(true) /// Immediate email on new discussion message
+  notifyDigest  Boolean  @default(true) /// Include in daily CAM digest email
+  createdAt     DateTime @default(now())
+
+  token DocumentShareToken @relation("CamSectionSubs", fields: [tokenId], references: [id], onDelete: Cascade)
+
+  @@unique([tokenId, camSection], map: "CamSectionSub_token_section_uk")
+  @@index([camSection], map: "CamSectionSub_section_idx")
+}
+
+/// Per-CAM read status & favorites for a PIP viewer.
+/// Tracks when a viewer last read a specific CAM and whether they favorited it.
+model CamReadStatus {
+  id         String   @id @default(cuid())
+  tokenId    String   /// FK to DocumentShareToken — identifies the PIP viewer
+  camId      String   /// e.g. "EST-SPD-0001" — matches CamEntry.camId / CamDiscussionThread.camSection
+  lastReadAt DateTime @default(now()) /// Last time the user viewed this CAM
+  isFavorite Boolean  @default(false) /// User-pinned favorite
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  token DocumentShareToken @relation("CamReadStatuses", fields: [tokenId], references: [id], onDelete: Cascade)
+
+  @@unique([tokenId, camId], map: "CamReadStatus_token_cam_uk")
+  @@index([tokenId], map: "CamReadStatus_token_idx")
+}
+
+// =============================================================================
+// CAM Announcements — Global PIP Broadcasts
+// =============================================================================
+
+enum CamAnnouncementPriority {
+  NORMAL
+  URGENT
+}
+
+/// Global announcement broadcast to all PIP viewers.
+/// Created by admins, displayed as a banner on the PIP page and mobile app.
+model CamAnnouncement {
+  id          String                  @id @default(cuid())
+  title       String
+  body        String                  @db.Text
+  priority    CamAnnouncementPriority @default(NORMAL)
+  createdById String
+  createdAt   DateTime                @default(now())
+
+  createdBy User @relation("CamAnnouncementCreatedBy", fields: [createdById], references: [id])
+
+  @@index([createdAt], map: "CamAnnouncement_created_idx")
 }
 
 // =============================================================================
@@ -11320,6 +11509,7 @@ model DevSession {
   title         String           /// e.g. "Fix receipt OCR pipeline"
   description   String?          @db.Text
   status        DevSessionStatus @default(ACTIVE)
+  isFavorite    Boolean          @default(false) /// Pinned to top of mobile session list
   sessionCode   String           @unique /// 6-char alphanumeric join code
   lastHeartbeat DateTime?
   startedAt     DateTime?        @default(now())
@@ -11374,4 +11564,116 @@ model DevApprovalRequest {
   resolvedBy User?           @relation("DevApprovalResolvedBy", fields: [resolvedById], references: [id])
 
   @@index([sessionId, status], map: "DevApproval_session_status_idx")
+}
+
+// ===================================================================
+// NexAGG — Cross-Project Bulk Procurement Intelligence
+// ===================================================================
+
+enum BulkOpportunityStatus {
+  DETECTED    // System found an opportunity, not yet notified
+  NOTIFIED    // Stakeholders have been alerted
+  REVIEWING   // Someone opened the opportunity detail
+  APPROVED    // Leadership approved the consolidation
+  PURCHASING  // Converted to NexBUY consolidated purchase
+  COMPLETED   // All materials purchased
+  DISMISSED   // Leadership decided not to consolidate
+}
+
+/// Cross-project bulk procurement opportunity detected by NexAGG.
+/// Represents an aggregated purchasing opportunity where multiple projects
+/// in the same geographic cluster need the same materials.
+model BulkProcurementOpportunity {
+  id        String                @id @default(cuid())
+  companyId String
+  status    BulkOpportunityStatus @default(DETECTED)
+
+  /// Auto-generated title (e.g. "Drywall consolidation — 12 projects, Dallas metro")
+  title String
+
+  /// Geographic cluster identifier (e.g. "dallas-tx")
+  clusterKey String
+
+  /// Lifecycle timestamps
+  detectedAt  DateTime  @default(now())
+  notifiedAt  DateTime?
+  reviewedAt  DateTime?
+  approvedAt  DateTime?
+  dismissedAt DateTime?
+
+  /// Who acted on this opportunity
+  reviewedByUserId  String?
+  approvedByUserId  String?
+  dismissedByUserId String?
+  dismissReason     String?  @db.Text
+
+  /// Aggregated stats (denormalized for list views)
+  totalProjectCount      Int    @default(0)
+  totalLineItemCount     Int    @default(0)
+  estimatedTotalValue    Float  @default(0) /// Sum of (qty × unitCost) across all lines
+  estimatedSavingsPercent Float @default(0) /// Estimated bulk discount percentage
+
+  notes     String?  @db.Text
+  expiresAt DateTime /// Auto-expire stale opportunities (default: 30 days from detection)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company    Company                  @relation(fields: [companyId], references: [id])
+  reviewedBy User?                    @relation("BulkOpportunityReviewedBy", fields: [reviewedByUserId], references: [id])
+  approvedBy User?                    @relation("BulkOpportunityApprovedBy", fields: [approvedByUserId], references: [id])
+  dismissedBy User?                   @relation("BulkOpportunityDismissedBy", fields: [dismissedByUserId], references: [id])
+  projects   BulkOpportunityProject[]
+  lineItems  BulkOpportunityLineItem[]
+
+  @@index([companyId, status], map: "BulkOpportunity_company_status_idx")
+  @@index([companyId, clusterKey, status], map: "BulkOpportunity_company_cluster_status_idx")
+  @@index([expiresAt], map: "BulkOpportunity_expires_idx")
+}
+
+/// Join table linking a bulk opportunity to a contributing project.
+model BulkOpportunityProject {
+  id            String @id @default(cuid())
+  opportunityId String
+  projectId     String
+
+  materialLineCount Int   @default(0) /// How many materials this project contributes
+  estimatedValue    Float @default(0) /// This project's share of the opportunity
+
+  createdAt DateTime @default(now())
+
+  opportunity BulkProcurementOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  project     Project                   @relation(fields: [projectId], references: [id])
+
+  @@unique([opportunityId, projectId], name: "BulkOpportunityProject_opp_project_key")
+  @@index([projectId], map: "BulkOpportunityProject_project_idx")
+}
+
+/// Aggregated material line item within a bulk opportunity.
+/// Each row represents one canonical material needed across multiple projects.
+model BulkOpportunityLineItem {
+  id            String @id @default(cuid())
+  opportunityId String
+
+  normalizedKey  String /// Canonical material key from normalizeMaterialKey()
+  description    String /// Human-readable description (from first SowItem)
+  categoryCode   String? /// Xactimate category code
+  selectionCode  String? /// Xactimate selection code
+  activity       String? /// Xactimate activity (R&R, Remove, Install, etc.)
+  unit           String?
+
+  totalQty           Float @default(0) /// Aggregated quantity across all projects
+  avgUnitCost        Float @default(0) /// Average unit cost from PETL data
+  estimatedTotalCost Float @default(0) /// totalQty × avgUnitCost
+  projectCount       Int   @default(0) /// How many projects need this material
+
+  /// Per-project breakdown for the detail view
+  projectBreakdownJson Json? /// Array<{ projectId, projectName, qty, unitCost }>
+
+  createdAt DateTime @default(now())
+
+  opportunity BulkProcurementOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@index([opportunityId, normalizedKey], map: "BulkOpportunityLine_opp_key_idx")
+  @@index([opportunityId, estimatedTotalCost], map: "BulkOpportunityLine_opp_cost_idx")
 }

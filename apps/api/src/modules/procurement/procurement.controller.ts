@@ -14,13 +14,19 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/auth.guards';
 import { ProcurementService } from './procurement.service';
+import { ProductIntelligenceService } from './product-intelligence.service';
+import { BulkDetectionService } from './bulk-detection.service';
 import type { ShoppingCartStatus, ShoppingCartHorizon, ShoppingCartItemStatus } from '@prisma/client';
 
 @Controller('procurement')
 @UseGuards(JwtAuthGuard)
 export class ProcurementController {
   private readonly logger = new Logger(ProcurementController.name);
-  constructor(private readonly service: ProcurementService) {}
+  constructor(
+    private readonly service: ProcurementService,
+    private readonly productIntelligence: ProductIntelligenceService,
+    private readonly bulkDetection: BulkDetectionService,
+  ) {}
 
   // ── Carts ────────────────────────────────────────────────────────────────
 
@@ -188,5 +194,69 @@ export class ProcurementController {
   @Get('drawdown')
   getDrawdown(@Query('projectId') projectId: string) {
     return this.service.getDrawdown(projectId);
+  }
+
+  // ── NexPRINT: Fingerprint Enrichment ───────────────────────────────────
+
+  /** Batch-enrich items with fingerprint data (confidence + price history). */
+  @Post('fingerprints/enrich')
+  enrichFingerprints(
+    @Req() req: any,
+    @Body() body: { items: Array<{ supplierKey: string; productId: string }> },
+  ) {
+    return this.productIntelligence.enrichFingerprints(req.user.companyId, body.items ?? []);
+  }
+
+  // ── NexAGG: Bulk Procurement Opportunities ──────────────────────────────
+
+  /** List all bulk procurement opportunities for the tenant */
+  @Get('bulk-opportunities')
+  listBulkOpportunities(
+    @Req() req: any,
+    @Query('status') status?: string,
+    @Query('clusterKey') clusterKey?: string,
+  ) {
+    return this.bulkDetection.listOpportunities(req.user.companyId, { status, clusterKey });
+  }
+
+  /** Get full detail for a bulk opportunity */
+  @Get('bulk-opportunities/:id')
+  getBulkOpportunity(@Req() req: any, @Param('id') id: string) {
+    return this.bulkDetection.getOpportunityDetail(id, req.user.companyId);
+  }
+
+  /** Mark an opportunity as being reviewed */
+  @Patch('bulk-opportunities/:id/review')
+  reviewBulkOpportunity(@Req() req: any, @Param('id') id: string) {
+    return this.bulkDetection.markReviewing(id, req.user.userId);
+  }
+
+  /** Approve a bulk opportunity for purchasing */
+  @Patch('bulk-opportunities/:id/approve')
+  approveBulkOpportunity(@Req() req: any, @Param('id') id: string) {
+    return this.bulkDetection.approve(id, req.user.userId);
+  }
+
+  /** Dismiss a bulk opportunity with optional reason */
+  @Patch('bulk-opportunities/:id/dismiss')
+  dismissBulkOpportunity(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() body?: { reason?: string },
+  ) {
+    return this.bulkDetection.dismiss(id, req.user.userId, body?.reason);
+  }
+
+  /** Convert an approved opportunity to NexBUY shopping carts */
+  @Post('bulk-opportunities/:id/convert')
+  convertBulkOpportunity(@Req() req: any, @Param('id') id: string) {
+    return this.bulkDetection.convertToNexBuy(id, req.user.companyId, req.user.userId);
+  }
+
+  /** Manually trigger NexAGG detection scan for the tenant */
+  @Post('bulk-opportunities/scan')
+  async triggerBulkScan(@Req() req: any) {
+    const ids = await this.bulkDetection.detectOpportunities(req.user.companyId);
+    return { detected: ids.length, opportunityIds: ids };
   }
 }

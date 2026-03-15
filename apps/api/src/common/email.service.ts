@@ -997,17 +997,27 @@ export class EmailService {
       score: number;
       isNew: boolean;
     }>;
+    discussionEntries?: Array<{
+      camSection: string;
+      threadTitle: string;
+      newMessageCount: number;
+      authors: string[];
+    }>;
     dateLabel: string;
     shareUrl: string;
   }) {
     const name = params.recipientName || "there";
     const newCount = params.entries.filter((e) => e.isNew).length;
     const updatedCount = params.entries.length - newCount;
+    const discCount = params.discussionEntries?.length ?? 0;
 
     const subjectParts: string[] = [];
     if (newCount > 0) subjectParts.push(`${newCount} new`);
     if (updatedCount > 0) subjectParts.push(`${updatedCount} updated`);
-    const subject = `CAM Library Update — ${subjectParts.join(" & ")} module${params.entries.length > 1 ? "s" : ""}`;
+    if (discCount > 0) subjectParts.push(`${discCount} discussion${discCount > 1 ? "s" : ""}`);
+    const subject = subjectParts.length > 0
+      ? `CAM Library Update — ${subjectParts.join(" \u00B7 ")}`
+      : "CAM Library — Daily Digest";
 
     const entriesHtml = params.entries
       .map((e) => {
@@ -1037,12 +1047,17 @@ export class EmailService {
         <div style="background: #fff; border: 1px solid #e5e7eb; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
           <p style="margin: 0 0 16px;">Hello ${escapeHtml(name)},</p>
           <p style="margin: 0 0 20px;">
-            ${newCount > 0 ? `<strong>${newCount}</strong> new module${newCount > 1 ? "s" : ""} ` : ""}
-            ${newCount > 0 && updatedCount > 0 ? "and " : ""}
-            ${updatedCount > 0 ? `<strong>${updatedCount}</strong> updated module${updatedCount > 1 ? "s" : ""} ` : ""}
-            ${newCount > 0 || updatedCount > 0 ? "added to the Nexus CAM Library:" : ""}
+            ${newCount > 0 || updatedCount > 0 ? [
+              newCount > 0 ? `<strong>${newCount}</strong> new module${newCount > 1 ? "s" : ""}` : "",
+              newCount > 0 && updatedCount > 0 ? " and " : "",
+              updatedCount > 0 ? `<strong>${updatedCount}</strong> updated module${updatedCount > 1 ? "s" : ""}` : "",
+              " added to the Nexus CAM Library",
+              discCount > 0 ? `, plus <strong>${discCount}</strong> new discussion${discCount > 1 ? "s" : ""} on modules you follow` : "",
+              ":",
+            ].join("") : `New discussion activity on <strong>${discCount}</strong> module${discCount > 1 ? "s" : ""} you follow:`}
           </p>
 
+          ${params.entries.length > 0 ? `
           <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
             <thead>
               <tr style="background:#f8fafc;">
@@ -1053,7 +1068,31 @@ export class EmailService {
             <tbody>
               ${entriesHtml}
             </tbody>
-          </table>
+          </table>` : ""}
+
+          ${params.discussionEntries && params.discussionEntries.length > 0 ? `
+          <h3 style="margin:${params.entries.length > 0 ? "24px" : "0"} 0 12px;font-size:15px;color:#0f172a;">\uD83D\uDCAC Discussion Activity</h3>
+          <p style="margin:0 0 12px;font-size:13px;color:#4b5563;">New replies in discussions you're following:</p>
+          <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+            <thead>
+              <tr style="background:#f0f9ff;">
+                <th style="padding:8px 12px;text-align:left;font-size:12px;font-weight:600;color:#0369a1;border-bottom:1px solid #bae6fd;">Thread</th>
+                <th style="padding:8px 12px;text-align:center;font-size:12px;font-weight:600;color:#0369a1;border-bottom:1px solid #bae6fd;width:60px;">Replies</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${params.discussionEntries.map((d) => `
+              <tr>
+                <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;">
+                  <strong style="color:#0f172a;font-size:13px;">${escapeHtml(d.threadTitle)}</strong>
+                  <br/><span style="color:#6b7280;font-size:11px;">${escapeHtml(d.camSection)} \u00B7 by ${escapeHtml(d.authors.join(", "))}</span>
+                </td>
+                <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;text-align:center;">
+                  <span style="font-weight:700;font-size:14px;color:#2563eb;">${d.newMessageCount}</span>
+                </td>
+              </tr>`).join("")}
+            </tbody>
+          </table>` : ""}
 
           <p style="margin: 24px 0 24px; text-align: center;">
             <a href="${params.shareUrl}" style="display: inline-block; background: linear-gradient(135deg, #059669 0%, #10b981 100%); color: #fff; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">
@@ -1070,7 +1109,16 @@ export class EmailService {
     const entriesText = params.entries
       .map((e) => `  ${e.isNew ? "[NEW]" : "[UPD]"} ${e.camId} — ${e.title} (${e.score}/40)`)
       .join("\n");
-    const text = `CAM Library Daily Update — ${params.dateLabel}\n\nHello ${name},\n\n${entriesText}\n\nView in CAM Library: ${params.shareUrl}\n`;
+    const discText = params.discussionEntries
+      ? params.discussionEntries
+          .map(
+            (d) =>
+              `  [DISC] ${d.camSection} — "${d.threadTitle}" (${d.newMessageCount} new reply${d.newMessageCount > 1 ? "s" : ""} by ${d.authors.join(", ")})`,
+          )
+          .join("\n")
+      : "";
+    const textParts = [entriesText, discText].filter(Boolean).join("\n\n");
+    const text = `CAM Library Daily Update — ${params.dateLabel}\n\nHello ${name},\n\n${textParts}\n\nView in CAM Library: ${params.shareUrl}\n`;
 
     return this.sendMail({ to: params.toEmail, subject, html, text });
   }
@@ -1133,6 +1181,106 @@ export class EmailService {
   /**
    * Send device verification code for untrusted device login.
    */
+  /**
+   * Send a NexAGG bulk procurement opportunity alert to admins/executives.
+   */
+  async sendBulkOpportunityAlert(params: {
+    toEmail: string;
+    recipientName?: string;
+    opportunityTitle: string;
+    clusterLabel: string;
+    totalProjectCount: number;
+    totalMaterialCount: number;
+    estimatedTotalValue: number;
+    estimatedSavingsPercent: number;
+    topMaterials: Array<{
+      description: string;
+      totalQty: number;
+      unit: string;
+      avgUnitCost: number;
+      projectCount: number;
+    }>;
+    reviewUrl: string;
+    isUpdate: boolean;
+  }) {
+    const name = params.recipientName || "there";
+    const prefix = params.isUpdate ? "Updated" : "New";
+    const subject = `\uD83D\uDCE6 ${prefix} Bulk Procurement Opportunity — ${params.clusterLabel}`;
+    const fmtVal = params.estimatedTotalValue >= 1000
+      ? `$${(params.estimatedTotalValue / 1000).toFixed(1)}k`
+      : `$${params.estimatedTotalValue.toFixed(0)}`;
+    const fmtSavings = `$${((params.estimatedTotalValue * params.estimatedSavingsPercent) / 100).toFixed(0)}`;
+
+    const materialsHtml = params.topMaterials
+      .slice(0, 5)
+      .map(
+        (m) => `
+          <tr>
+            <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:13px;">${escapeHtml(m.description.slice(0, 60))}</td>
+            <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:13px;">${m.totalQty.toFixed(1)} ${escapeHtml(m.unit)}</td>
+            <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:13px;">${m.projectCount}</td>
+          </tr>`,
+      )
+      .join("");
+
+    const html = `
+      <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; line-height: 1.5; max-width: 600px;">
+        <div style="background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%); color: #fff; padding: 24px; border-radius: 8px 8px 0 0;">
+          <h1 style="margin: 0; font-size: 20px;">\uD83D\uDCE6 ${prefix} Bulk Buy Opportunity</h1>
+          <p style="margin: 8px 0 0; opacity: 0.9; font-size: 14px;">${escapeHtml(params.clusterLabel)}</p>
+        </div>
+        <div style="background: #fff; border: 1px solid #e5e7eb; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+          <p style="margin: 0 0 16px;">Hello ${escapeHtml(name)},</p>
+          <p style="margin: 0 0 20px;">NexAGG has detected a consolidation opportunity across <strong>${params.totalProjectCount}</strong> projects in <strong>${escapeHtml(params.clusterLabel)}</strong>.</p>
+
+          <div style="display:flex;gap:12px;margin:0 0 20px;">
+            <div style="flex:1;background:#f0fdf4;border-radius:8px;padding:12px 16px;text-align:center;">
+              <div style="font-size:24px;font-weight:700;color:#059669;">${fmtVal}</div>
+              <div style="font-size:11px;color:#6b7280;">Total Value</div>
+            </div>
+            <div style="flex:1;background:#f0f9ff;border-radius:8px;padding:12px 16px;text-align:center;">
+              <div style="font-size:24px;font-weight:700;color:#2563eb;">~${fmtSavings}</div>
+              <div style="font-size:11px;color:#6b7280;">Est. Savings (~${params.estimatedSavingsPercent}%)</div>
+            </div>
+            <div style="flex:1;background:#faf5ff;border-radius:8px;padding:12px 16px;text-align:center;">
+              <div style="font-size:24px;font-weight:700;color:#7c3aed;">${params.totalMaterialCount}</div>
+              <div style="font-size:11px;color:#6b7280;">Materials</div>
+            </div>
+          </div>
+
+          <h3 style="margin:0 0 8px;font-size:14px;color:#374151;">Top Materials</h3>
+          <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+            <thead>
+              <tr style="background:#f8fafc;">
+                <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">Material</th>
+                <th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">Total Qty</th>
+                <th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">Projects</th>
+              </tr>
+            </thead>
+            <tbody>${materialsHtml}</tbody>
+          </table>
+
+          <p style="margin: 24px 0; text-align: center;">
+            <a href="${params.reviewUrl}" style="display: inline-block; background: linear-gradient(135deg, #059669 0%, #10b981 100%); color: #fff; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">
+              Review Opportunity
+            </a>
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+          <p style="margin: 0; color: #9ca3af; font-size: 11px;">This is an automated alert from NEXUS NexAGG. Bulk procurement opportunities are detected by scanning approved PETLs across your active projects.</p>
+        </div>
+      </div>
+    `.trim();
+
+    const matText = params.topMaterials
+      .slice(0, 5)
+      .map((m) => `  - ${m.description.slice(0, 60)} — ${m.totalQty} ${m.unit} across ${m.projectCount} projects`)
+      .join("\n");
+    const text = `${prefix} Bulk Buy Opportunity — ${params.clusterLabel}\n\nHello ${name},\n\n${params.totalProjectCount} projects · ${params.totalMaterialCount} materials · Est. value: ${fmtVal} · Est. savings: ~${params.estimatedSavingsPercent}%\n\nTop materials:\n${matText}\n\nReview: ${params.reviewUrl}\n`;
+
+    return this.sendMail({ to: params.toEmail, subject, html, text });
+  }
+
   async sendDeviceVerificationCode(params: {
     toEmail: string;
     code: string;

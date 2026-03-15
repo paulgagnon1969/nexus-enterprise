@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import DOMPurify from "dompurify";
 
@@ -39,6 +39,13 @@ interface CamEntry {
   htmlContent: string;
   htmlBody?: string;
   scores: CamScores;
+  updatedAt?: string;
+}
+
+interface CamReadStatusEntry {
+  camId: string;
+  lastReadAt: string;
+  isFavorite: boolean;
 }
 
 interface CamModule {
@@ -228,7 +235,7 @@ export default function CamAccessPage() {
   const [withdrawing, setWithdrawing] = useState(false);
   const [withdrawn, setWithdrawn] = useState(false);
 
-  // Admin overlay — detect SUPER_ADMIN via /users/me (only if logged in)
+  // Admin overlay
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminEmail, setAdminEmail] = useState<string | null>(null);
   useEffect(() => {
@@ -400,7 +407,7 @@ export default function CamAccessPage() {
     }
   }
 
-  // ── IP protection for content view ────────────────────────────────
+  // ── IP protection for content view
   useEffect(() => {
     if (!handbook) return;
     const handleContextMenu = (e: Event) => e.preventDefault();
@@ -1044,6 +1051,129 @@ function ContentView({ handbook, token, isAdmin, onRefer, onWithdraw }: { handbo
   const RING_C = 2 * Math.PI * 64;
   const ringFilled = (totalScore / 40) * RING_C;
 
+  // Discussion: unread counts, subscriptions, and expanded section
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const [subscriptions, setSubscriptions] = useState<Set<string>>(new Set());
+  const [expandedDiscussion, setExpandedDiscussion] = useState<string | null>(null);
+  const [previewCam, setPreviewCam] = useState<{ code: string; title: string; content: string } | null>(null);
+
+  // CAM read statuses + favorites
+  const [camStatuses, setCamStatuses] = useState<Record<string, { lastReadAt: string; isFavorite: boolean }>>({});
+
+  useEffect(() => {
+    fetch(`${API_BASE}/cam-access/${token}/discussions/unread-counts`)
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((data: Record<string, number>) => setUnreadCounts(data))
+      .catch(() => {});
+    fetch(`${API_BASE}/cam-access/${token}/subscriptions`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: string[]) => setSubscriptions(new Set(data)))
+      .catch(() => {});
+    fetch(`${API_BASE}/cam-access/${token}/discussions/cam-statuses`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: CamReadStatusEntry[]) => {
+        const map: Record<string, { lastReadAt: string; isFavorite: boolean }> = {};
+        for (const s of data) map[s.camId] = { lastReadAt: s.lastReadAt, isFavorite: s.isFavorite };
+        setCamStatuses(map);
+      })
+      .catch(() => {});
+  }, [token]);
+
+  // Mark a CAM as read (fire-and-forget, update local state immediately)
+  const markCamRead = useCallback(
+    (camId: string) => {
+      const now = new Date().toISOString();
+      setCamStatuses((prev) => ({
+        ...prev,
+        [camId]: { lastReadAt: now, isFavorite: prev[camId]?.isFavorite ?? false },
+      }));
+      fetch(`${API_BASE}/cam-access/${token}/discussions/cam-read`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ camId }),
+      }).catch(() => {});
+    },
+    [token],
+  );
+
+  // Toggle favorite
+  const toggleFavorite = useCallback(
+    (camId: string) => {
+      const was = camStatuses[camId]?.isFavorite ?? false;
+      setCamStatuses((prev) => ({
+        ...prev,
+        [camId]: { lastReadAt: prev[camId]?.lastReadAt ?? new Date().toISOString(), isFavorite: !was },
+      }));
+      fetch(`${API_BASE}/cam-access/${token}/discussions/cam-favorite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ camId }),
+      }).catch(() => {});
+    },
+    [camStatuses, token],
+  );
+
+  /**
+   * Compute badge color for a CAM in the TOC.
+   * Priority: favorite (gold) > updated (green) > new/unread (yellow) > read (none)
+   */
+  const camBadgeColor = useCallback(
+    (camKey: string, camUpdatedAt?: string): { bg: string; border: string } | null => {
+      const status = camStatuses[camKey];
+      // Favorite = gold
+      if (status?.isFavorite) return { bg: "#fef3c7", border: "#f59e0b" };
+      // Never read = new = yellow
+      if (!status) return { bg: "#fef9c3", border: "#eab308" };
+      // Read but CAM updated since last read = green
+      if (camUpdatedAt && status.lastReadAt) {
+        const readDate = new Date(status.lastReadAt);
+        const updDate = new Date(camUpdatedAt);
+        if (updDate > readDate) return { bg: "#dcfce7", border: "#22c55e" };
+      }
+      // Read, no changes = default
+      return null;
+    },
+    [camStatuses],
+  );
+
+  const toggleDiscussion = useCallback(
+    (camSection: string) => {
+      setExpandedDiscussion((prev) => {
+        if (prev === camSection) return null;
+        setUnreadCounts((counts) => ({ ...counts, [camSection]: 0 }));
+        return camSection;
+      });
+    },
+    [],
+  );
+
+  const toggleSubscription = useCallback(
+    async (camSection: string) => {
+      const wasSubscribed = subscriptions.has(camSection);
+      setSubscriptions((prev) => {
+        const next = new Set(prev);
+        if (wasSubscribed) next.delete(camSection);
+        else next.add(camSection);
+        return next;
+      });
+      try {
+        await fetch(`${API_BASE}/cam-access/${token}/subscriptions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ camSection, enabled: !wasSubscribed }),
+        });
+      } catch {
+        setSubscriptions((prev) => {
+          const next = new Set(prev);
+          if (wasSubscribed) next.add(camSection);
+          else next.delete(camSection);
+          return next;
+        });
+      }
+    },
+    [subscriptions, token],
+  );
+
   let sectionCounter = 0;
 
   return (
@@ -1252,6 +1382,7 @@ function ContentView({ handbook, token, isAdmin, onRefer, onWithdraw }: { handbo
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginLeft: 28 }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                      <th className="no-print" style={{ width: 32, padding: "4px 4px" }} />
                       <th style={{ textAlign: "left", padding: "4px 8px", fontWeight: 600, color: "#6b7280" }}>CAM ID</th>
                       <th style={{ textAlign: "left", padding: "4px 8px", fontWeight: 600, color: "#6b7280" }}>Title</th>
                       <th style={{ textAlign: "center", padding: "4px 8px", fontWeight: 600, color: "#6b7280", width: 50 }}>Score</th>
@@ -1259,16 +1390,126 @@ function ContentView({ handbook, token, isAdmin, onRefer, onWithdraw }: { handbo
                     </tr>
                   </thead>
                   <tbody>
-                    {mod.cams.map((cam) => (
-                      <tr key={cam.code} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                        <td style={{ padding: "4px 8px", fontFamily: "monospace", fontSize: 11 }}>
-                          <a href={`#cam-${cam.code}`} style={{ color: "#2563eb", textDecoration: "none" }}>{cam.camId || cam.code}</a>
-                        </td>
-                        <td style={{ padding: "4px 8px" }}>{cam.title}</td>
-                        <td style={{ padding: "4px 8px", textAlign: "center", fontWeight: 600, color: scoreColor(cam.scores.total) }}>{cam.scores.total}</td>
-                        <td style={{ padding: "4px 8px", fontSize: 11 }}>{CATEGORY_LABELS[cam.category] || cam.category}</td>
-                      </tr>
-                    ))}
+                    {mod.cams.map((cam) => {
+                      const camKey = cam.camId || cam.code;
+                      const camUnread = unreadCounts[camKey] || 0;
+                      const isOpen = expandedDiscussion === camKey;
+                      const badge = camBadgeColor(camKey, cam.updatedAt);
+                      return (
+                        <Fragment key={cam.code}>
+                          <tr style={{ borderBottom: isOpen ? "none" : "1px solid #f3f4f6", background: isOpen ? "#f0f9ff" : undefined }}>
+                            <td className="no-print" style={{ padding: "4px 4px", textAlign: "center", verticalAlign: "middle" }}>
+                              <button
+                                onClick={() => toggleDiscussion(camKey)}
+                                title={isOpen ? "Collapse discussion" : `Discussion${camUnread > 0 ? ` (${camUnread} new)` : ""}`}
+                                style={{
+                                  position: "relative",
+                                  background: isOpen ? "#dbeafe" : badge ? badge.bg : "none",
+                                  border: isOpen ? "1px solid #93c5fd" : badge ? `1px solid ${badge.border}` : "1px solid transparent",
+                                  borderRadius: 4,
+                                  padding: "2px 5px",
+                                  cursor: "pointer",
+                                  fontSize: 13,
+                                  lineHeight: 1,
+                                }}
+                              >
+                                {"\uD83D\uDCAC"}
+                                {camUnread > 0 && (
+                                  <span
+                                    style={{
+                                      position: "absolute",
+                                      top: -5,
+                                      right: -7,
+                                      background: "#ef4444",
+                                      color: "#fff",
+                                      fontSize: 8,
+                                      fontWeight: 700,
+                                      borderRadius: 999,
+                                      minWidth: 14,
+                                      height: 14,
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      padding: "0 3px",
+                                      lineHeight: 1,
+                                    }}
+                                  >
+                                    {camUnread}
+                                  </span>
+                                )}
+                              </button>
+                            </td>
+                            <td style={{ padding: "4px 8px", fontFamily: "monospace", fontSize: 11 }}>
+                              <a
+                                href={`#cam-${cam.code}`}
+                                style={{ color: "#2563eb", textDecoration: "none" }}
+                                onClick={() => markCamRead(camKey)}
+                              >{camKey}</a>
+                            </td>
+                            <td style={{ padding: "4px 8px" }}>{cam.title}</td>
+                            <td style={{ padding: "4px 8px", textAlign: "center", fontWeight: 600, color: scoreColor(cam.scores.total) }}>{cam.scores.total}</td>
+                            <td style={{ padding: "4px 8px", fontSize: 11 }}>{CATEGORY_LABELS[cam.category] || cam.category}</td>
+                          </tr>
+                          {isOpen && (
+                            <tr>
+                              <td colSpan={5} style={{ padding: 0 }}>
+                                <div style={{ padding: "10px 16px 14px", background: "#f8fafc", borderBottom: "2px solid #e5e7eb" }}>
+                                  {/* Toolbar */}
+                                  <div className="no-print" style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center", flexWrap: "wrap" }}>
+                                    <button
+                                      onClick={() => { setPreviewCam({ code: camKey, title: cam.title, content: cam.htmlContent || cam.htmlBody || "" }); markCamRead(camKey); }}
+                                      style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 12px", borderRadius: 6, border: "1px solid #d1d5db", background: "#fff", fontSize: 11, cursor: "pointer", color: "#374151", fontWeight: 500 }}
+                                    >
+                                      📱 View CAM
+                                    </button>
+                                    <button
+                                      onClick={() => toggleFavorite(camKey)}
+                                      style={{
+                                        display: "flex", alignItems: "center", gap: 4, padding: "5px 12px", borderRadius: 6,
+                                        border: camStatuses[camKey]?.isFavorite ? "1px solid #f59e0b" : "1px solid #d1d5db",
+                                        background: camStatuses[camKey]?.isFavorite ? "#fef3c7" : "#fff",
+                                        fontSize: 11, cursor: "pointer",
+                                        color: camStatuses[camKey]?.isFavorite ? "#92400e" : "#6b7280",
+                                        fontWeight: camStatuses[camKey]?.isFavorite ? 600 : 500,
+                                      }}
+                                    >
+                                      {camStatuses[camKey]?.isFavorite ? "⭐ Favorited" : "☆ Favorite"}
+                                    </button>
+                                    <button
+                                      onClick={() => toggleSubscription(camKey)}
+                                      style={{
+                                        display: "flex", alignItems: "center", gap: 4, padding: "5px 12px", borderRadius: 6,
+                                        border: "1px solid #d1d5db",
+                                        background: subscriptions.has(camKey) ? "#eff6ff" : "#fff",
+                                        fontSize: 11, cursor: "pointer",
+                                        color: subscriptions.has(camKey) ? "#1d4ed8" : "#6b7280",
+                                        fontWeight: subscriptions.has(camKey) ? 600 : 500,
+                                      }}
+                                    >
+                                      {subscriptions.has(camKey) ? "\uD83D\uDD14 Subscribed" : "\uD83D\uDD15 Notify me"}
+                                    </button>
+                                    <div style={{ flex: 1 }} />
+                                    <button
+                                      onClick={() => setExpandedDiscussion(null)}
+                                      style={{ background: "none", border: "none", fontSize: 16, cursor: "pointer", color: "#9ca3af", padding: "2px 6px" }}
+                                      title="Close discussion"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                  <DiscussionPanel
+                                    token={token}
+                                    camSection={camKey}
+                                    isAdmin={isAdmin}
+                                    externalExpanded={true}
+                                  />
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1295,12 +1536,13 @@ function ContentView({ handbook, token, isAdmin, onRefer, onWithdraw }: { handbo
               {mod.cams.map((cam) => {
                 sectionCounter++;
                 const content = cam.htmlContent || cam.htmlBody || "";
+                const camKey = cam.camId || cam.code;
                 return (
                   <div key={cam.code} id={`cam-${cam.code}`} className="cam-section" style={{ marginBottom: 40 }}>
                     <div style={{ marginBottom: 12, paddingBottom: 8, borderBottom: "1px solid #e5e7eb" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                         <div>
-                          <div style={{ fontSize: 11, fontFamily: "monospace", color: "#6b7280", marginBottom: 2 }}>Section {sectionCounter} · {cam.camId || cam.code}</div>
+                          <div style={{ fontSize: 11, fontFamily: "monospace", color: "#6b7280", marginBottom: 2 }}>Section {sectionCounter} · {camKey}</div>
                           <h3 style={{ margin: 0, fontSize: 17, fontWeight: 600, color: "#1e293b" }}>{cam.title}</h3>
                         </div>
                         <div style={{ padding: "4px 12px", borderRadius: 999, fontSize: 12, fontWeight: 600, color: scoreColor(cam.scores.total), border: `1px solid ${scoreColor(cam.scores.total)}`, whiteSpace: "nowrap" }}>
@@ -1315,7 +1557,6 @@ function ContentView({ handbook, token, isAdmin, onRefer, onWithdraw }: { handbo
                     {content && (
                       <div className="cam-content" style={{ fontSize: 14, lineHeight: 1.6, color: "#1e293b" }} dangerouslySetInnerHTML={{ __html: sanitize(content) }} />
                     )}
-                    <DiscussionPanel token={token} camSection={cam.camId || cam.code} isAdmin={isAdmin} />
                   </div>
                 );
               })}
@@ -1365,6 +1606,48 @@ function ContentView({ handbook, token, isAdmin, onRefer, onWithdraw }: { handbo
       >
         🤝 Refer Someone
       </button>
+      {previewCam && <CamPhonePreview cam={previewCam} onClose={() => setPreviewCam(null)} />}
+
+      {/* ── Floating Legend ── */}
+      <div
+        className="no-print"
+        style={{
+          position: "fixed",
+          top: "50%",
+          left: 24,
+          transform: "translateY(-50%)",
+          background: "#fff",
+          border: "1px solid #e5e7eb",
+          borderRadius: 10,
+          padding: "10px 14px",
+          boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
+          fontSize: 11,
+          color: "#374151",
+          zIndex: 100,
+          display: "flex",
+          flexDirection: "column",
+          gap: 5,
+          lineHeight: 1,
+        }}
+      >
+        <div style={{ fontWeight: 700, fontSize: 10, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 2 }}>Legend</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ display: "inline-block", width: 14, height: 14, borderRadius: 3, background: "#fef9c3", border: "1px solid #eab308" }} />
+          New CAM
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ display: "inline-block", width: 14, height: 14, borderRadius: 3, background: "#f3f4f6", border: "1px solid #d1d5db" }} />
+          Read
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ display: "inline-block", width: 14, height: 14, borderRadius: 3, background: "#dcfce7", border: "1px solid #22c55e" }} />
+          Updated
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ display: "inline-block", width: 14, height: 14, borderRadius: 3, background: "#fef3c7", border: "1px solid #f59e0b" }} />
+          Favorite
+        </div>
+      </div>
     </>
   );
 }
@@ -1397,16 +1680,28 @@ function DiscussionPanel({
   camSection,
   isAdmin,
   generalLabel,
+  externalExpanded,
+  onClose,
+  isSubscribed,
+  onToggleSubscription,
 }: {
   token: string;
   camSection: string | undefined;
   isAdmin: boolean;
   generalLabel?: string;
+  externalExpanded?: boolean;
+  onClose?: () => void;
+  isSubscribed?: boolean;
+  onToggleSubscription?: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [internalExpanded, setInternalExpanded] = useState(false);
   const [threads, setThreads] = useState<DiscThread[]>([]);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
+
+  // Determine control mode
+  const isExternallyControlled = externalExpanded !== undefined;
+  const expanded = isExternallyControlled ? externalExpanded : internalExpanded;
 
   // Active thread view
   const [activeThread, setActiveThread] = useState<string | null>(null);
@@ -1443,9 +1738,20 @@ function DiscussionPanel({
     setLoading(false);
   };
 
+  // Auto-load threads when externally expanded
+  useEffect(() => {
+    if (isExternallyControlled && externalExpanded && !loaded) {
+      loadThreads();
+    }
+  }, [externalExpanded]);
+
   const handleExpand = () => {
-    if (!expanded && !loaded) loadThreads();
-    setExpanded(!expanded);
+    if (isExternallyControlled) {
+      if (expanded && onClose) onClose();
+      return;
+    }
+    if (!internalExpanded && !loaded) loadThreads();
+    setInternalExpanded(!internalExpanded);
   };
 
   const loadThread = async (threadId: string) => {
@@ -1567,32 +1873,83 @@ function DiscussionPanel({
 
   const label = generalLabel ?? `\uD83D\uDCAC Discussion`;
 
+  // When externally controlled and not expanded, render nothing
+  if (isExternallyControlled && !expanded) return null;
+
   return (
     <div
       className="no-print"
       id={camSection ? `discussion-${camSection}` : "discussion-general"}
       style={{ marginTop: 12, marginBottom: 8, border: "1px solid #e5e7eb", borderRadius: 8, background: "#fafafa" }}
     >
-      {/* Header / Toggle */}
-      <button
-        onClick={handleExpand}
-        style={{
-          width: "100%",
-          padding: "10px 16px",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          fontSize: 13,
-          fontWeight: 600,
-          color: "#374151",
-        }}
-      >
-        <span>{label} {loaded && threads.length > 0 ? `(${threads.length})` : ""}</span>
-        <span style={{ fontSize: 11, color: "#9ca3af" }}>{expanded ? "▲" : "▼"}</span>
-      </button>
+      {/* Header */}
+      {isExternallyControlled ? (
+        <div
+          style={{
+            padding: "10px 16px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            borderBottom: "1px solid #e5e7eb",
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>
+            {"\uD83D\uDCAC"} Discussion {loaded && threads.length > 0 ? `(${threads.length})` : ""}
+          </span>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {onToggleSubscription && (
+              <button
+                onClick={onToggleSubscription}
+                title={isSubscribed ? "Unsubscribe from notifications" : "Get notified of new discussions"}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "3px 10px",
+                  borderRadius: 4,
+                  border: "1px solid #d1d5db",
+                  background: isSubscribed ? "#eff6ff" : "#fff",
+                  fontSize: 11,
+                  cursor: "pointer",
+                  color: isSubscribed ? "#1d4ed8" : "#6b7280",
+                  fontWeight: isSubscribed ? 600 : 400,
+                }}
+              >
+                {isSubscribed ? "\uD83D\uDD14" : "\uD83D\uDD15"} {isSubscribed ? "Subscribed" : "Notify me"}
+              </button>
+            )}
+            {onClose && (
+              <button
+                onClick={onClose}
+                style={{ background: "none", border: "none", fontSize: 14, cursor: "pointer", color: "#9ca3af", padding: "2px 4px" }}
+                title="Close discussion"
+              >
+                {"\u2715"}
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={handleExpand}
+          style={{
+            width: "100%",
+            padding: "10px 16px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            fontSize: 13,
+            fontWeight: 600,
+            color: "#374151",
+          }}
+        >
+          <span>{label} {loaded && threads.length > 0 ? `(${threads.length})` : ""}</span>
+          <span style={{ fontSize: 11, color: "#9ca3af" }}>{expanded ? "▲" : "▼"}</span>
+        </button>
+      )}
 
       {expanded && (
         <div style={{ padding: "0 16px 16px" }}>
@@ -1768,6 +2125,224 @@ function DiscussionPanel({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── iPhone-Style CAM Preview Window ────────────────────────────────────────────────────
+
+function CamPhonePreview({
+  cam,
+  onClose,
+}: {
+  cam: { code: string; title: string; content: string };
+  onClose: () => void;
+}) {
+  const MIN_W = 280;
+  const MIN_H = 400;
+  const [pos, setPos] = useState(() => ({
+    x: typeof window !== "undefined" ? Math.max(window.innerWidth - 420, 20) : 100,
+    y: 16,
+  }));
+  const [size, setSize] = useState(() => ({ w: 375, h: typeof window !== "undefined" ? window.innerHeight - 32 : 680 }));
+  const dragRef = useRef<{ active: boolean; ox: number; oy: number }>({ active: false, ox: 0, oy: 0 });
+  const resizeRef = useRef<{ active: boolean; edge: string; startX: number; startY: number; startW: number; startH: number; startPosX: number; startPosY: number }>({ active: false, edge: "", startX: 0, startY: 0, startW: 0, startH: 0, startPosX: 0, startPosY: 0 });
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (resizeRef.current.active) {
+        e.preventDefault();
+        const r = resizeRef.current;
+        const dx = e.clientX - r.startX;
+        const dy = e.clientY - r.startY;
+        let newW = r.startW;
+        let newH = r.startH;
+        let newX = r.startPosX;
+        let newY = r.startPosY;
+        if (r.edge.includes("r")) newW = Math.max(MIN_W, r.startW + dx);
+        if (r.edge.includes("b")) newH = Math.max(MIN_H, r.startH + dy);
+        if (r.edge.includes("l")) { newW = Math.max(MIN_W, r.startW - dx); newX = r.startPosX + (r.startW - newW); }
+        if (r.edge.includes("t")) { newH = Math.max(MIN_H, r.startH - dy); newY = r.startPosY + (r.startH - newH); }
+        setSize({ w: newW, h: newH });
+        setPos({ x: newX, y: newY });
+        return;
+      }
+      if (!dragRef.current.active) return;
+      e.preventDefault();
+      setPos({ x: e.clientX - dragRef.current.ox, y: e.clientY - dragRef.current.oy });
+    };
+    const onUp = () => { dragRef.current.active = false; resizeRef.current.active = false; };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
+  const onGrab = (e: React.MouseEvent) => {
+    dragRef.current = { active: true, ox: e.clientX - pos.x, oy: e.clientY - pos.y };
+  };
+
+  const onResizeStart = (edge: string) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    resizeRef.current = { active: true, edge, startX: e.clientX, startY: e.clientY, startW: size.w, startH: size.h, startPosX: pos.x, startPosY: pos.y };
+  };
+
+  // Cursor for each edge/corner
+  const edgeCursor: Record<string, string> = { t: "ns-resize", b: "ns-resize", l: "ew-resize", r: "ew-resize", tl: "nwse-resize", tr: "nesw-resize", bl: "nesw-resize", br: "nwse-resize" };
+
+  // Scale border-radius proportionally (44px at 375w)
+  const radius = Math.round(44 * (size.w / 375));
+
+  const time = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+  // Resize handle positions
+  const HANDLE = 10;
+  const handleBase: React.CSSProperties = { position: "absolute", zIndex: 10000 };
+  const handles: { edge: string; style: React.CSSProperties }[] = [
+    { edge: "t",  style: { ...handleBase, top: 0, left: HANDLE, right: HANDLE, height: HANDLE, cursor: edgeCursor.t } },
+    { edge: "b",  style: { ...handleBase, bottom: 0, left: HANDLE, right: HANDLE, height: HANDLE, cursor: edgeCursor.b } },
+    { edge: "l",  style: { ...handleBase, left: 0, top: HANDLE, bottom: HANDLE, width: HANDLE, cursor: edgeCursor.l } },
+    { edge: "r",  style: { ...handleBase, right: 0, top: HANDLE, bottom: HANDLE, width: HANDLE, cursor: edgeCursor.r } },
+    { edge: "tl", style: { ...handleBase, top: 0, left: 0, width: HANDLE * 2, height: HANDLE * 2, cursor: edgeCursor.tl } },
+    { edge: "tr", style: { ...handleBase, top: 0, right: 0, width: HANDLE * 2, height: HANDLE * 2, cursor: edgeCursor.tr } },
+    { edge: "bl", style: { ...handleBase, bottom: 0, left: 0, width: HANDLE * 2, height: HANDLE * 2, cursor: edgeCursor.bl } },
+    { edge: "br", style: { ...handleBase, bottom: 0, right: 0, width: HANDLE * 2, height: HANDLE * 2, cursor: edgeCursor.br } },
+  ];
+
+  return (
+    <div
+      className="no-print"
+      style={{
+        position: "fixed",
+        left: pos.x,
+        top: pos.y,
+        zIndex: 9999,
+        width: size.w,
+        height: size.h,
+        background: "#000",
+        borderRadius: radius,
+        boxShadow: "0 25px 60px rgba(0,0,0,0.4), 0 0 0 3px #333",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
+      {/* Resize handles (invisible, on top of everything) */}
+      {handles.map((h) => (
+        <div key={h.edge} onMouseDown={onResizeStart(h.edge)} style={h.style} />
+      ))}
+      {/* Top bezel — Dynamic Island */}
+      <div
+        onMouseDown={onGrab}
+        style={{
+          height: 54,
+          background: "#000",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "grab",
+          position: "relative",
+          flexShrink: 0,
+          userSelect: "none",
+        }}
+      >
+        <div style={{
+          width: 126,
+          height: 32,
+          background: "#1a1a1a",
+          borderRadius: 20,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}>
+          <div style={{ width: 10, height: 10, borderRadius: 5, background: "#333", border: "1px solid #444" }} />
+        </div>
+        <button
+          onClick={onClose}
+          style={{
+            position: "absolute",
+            right: 14,
+            top: 14,
+            background: "rgba(255,255,255,0.15)",
+            border: "none",
+            color: "#fff",
+            fontSize: 13,
+            width: 26,
+            height: 26,
+            borderRadius: 13,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          ✕
+        </button>
+      </div>
+
+      {/* Status bar */}
+      <div style={{
+        height: 18,
+        background: "#fff",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        padding: "0 24px",
+        fontSize: 11,
+        fontWeight: 600,
+        color: "#000",
+        flexShrink: 0,
+      }}>
+        <span>{time}</span>
+        <span style={{ display: "flex", gap: 4, alignItems: "center", fontSize: 10 }}>
+          {"📶"}{" "}{"🔋"}
+        </span>
+      </div>
+
+      {/* Title bar */}
+      <div style={{
+        padding: "8px 16px",
+        background: "#f8fafc",
+        borderBottom: "1px solid #e5e7eb",
+        flexShrink: 0,
+      }}>
+        <div style={{ fontSize: 10, fontFamily: "monospace", color: "#6b7280" }}>{cam.code}</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cam.title}</div>
+      </div>
+
+      {/* Scrollable CAM content */}
+      <div
+        className="cam-content"
+        style={{
+          flex: 1,
+          overflow: "auto",
+          background: "#fff",
+          padding: "12px 16px",
+          fontSize: 12,
+          lineHeight: 1.5,
+          color: "#1e293b",
+        }}
+        dangerouslySetInnerHTML={{ __html: sanitize(cam.content) }}
+      />
+
+      {/* Home indicator */}
+      <div style={{
+        height: 28,
+        background: "#fff",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+      }}>
+        <div style={{
+          width: Math.min(134, size.w * 0.36),
+          height: 5,
+          background: "#1a1a1a",
+          borderRadius: 3,
+        }} />
+      </div>
     </div>
   );
 }

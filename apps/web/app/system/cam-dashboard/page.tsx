@@ -46,16 +46,16 @@ export default function CamDashboardPage() {
   const [tab, setTab] = useState<Tab>("analytics");
 
   return (
-    <div style={{ padding: 24, maxWidth: 1400 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+    <div style={{ padding: "16px 24px", maxWidth: 1400, height: "100%", display: "flex", flexDirection: "column", overflow: "hidden", boxSizing: "border-box" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexShrink: 0 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 22 }}>🏆 CAM Dashboard</h1>
-          <p style={{ margin: "4px 0 0", color: "#6b7280", fontSize: 13 }}>Manage CAM sharing, analytics, discussion, and invites</p>
+          <h1 style={{ margin: 0, fontSize: 20 }}>🏆 CAM Dashboard</h1>
+          <p style={{ margin: "2px 0 0", color: "#6b7280", fontSize: 12 }}>Manage CAM sharing, analytics, discussion, and invites</p>
         </div>
       </div>
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "2px solid #e5e7eb", paddingBottom: 0 }}>
+      <div style={{ display: "flex", gap: 4, marginBottom: 10, borderBottom: "2px solid #e5e7eb", paddingBottom: 0, flexShrink: 0 }}>
         {([
           ["analytics", "📊 Analytics"],
           ["handbook", "📖 Handbook"],
@@ -82,10 +82,12 @@ export default function CamDashboardPage() {
         ))}
       </div>
 
-      {tab === "analytics" && <AnalyticsTab />}
-      {tab === "handbook" && <HandbookTab />}
-      {tab === "discussion" && <DiscussionTab />}
-      {tab === "invites" && <InvitesTab />}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+        {tab === "analytics" && <AnalyticsTab />}
+        {tab === "handbook" && <HandbookTab />}
+        {tab === "discussion" && <DiscussionTab />}
+        {tab === "invites" && <InvitesTab />}
+      </div>
     </div>
   );
 }
@@ -112,10 +114,11 @@ function AnalyticsTab() {
   const f = data.funnel;
 
   return (
-    <div>
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
       {/* Funnel */}
+      <div style={{ flexShrink: 0 }}>
       <SectionTitle>Conversion Funnel</SectionTitle>
-      <div style={{ display: "flex", gap: 12, marginBottom: 24 }}>
+      <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
         {[
           ["Tokens Created", f.totalTokens, "#6366f1"],
           ["Opened", f.opened, "#0ea5e9"],
@@ -123,41 +126,42 @@ function AnalyticsTab() {
           ["Questionnaire", f.questionnaireCompleted, "#10b981"],
           ["Viewing", f.contentViewed, "#059669"],
         ].map(([label, val, color]) => (
-          <div key={label as string} style={{ flex: 1, padding: 14, borderRadius: 8, background: "#f9fafb", border: "1px solid #e5e7eb" }}>
-            <div style={{ fontSize: 11, color: "#6b7280" }}>{label as string}</div>
-            <div style={{ fontSize: 28, fontWeight: 700, color: color as string }}>{val as number}</div>
+          <div key={label as string} style={{ flex: 1, padding: "8px 12px", borderRadius: 8, background: "#f9fafb", border: "1px solid #e5e7eb" }}>
+            <div style={{ fontSize: 10, color: "#6b7280" }}>{label as string}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: color as string }}>{val as number}</div>
           </div>
         ))}
+      </div>
       </div>
 
       {/* Referral Tree Summary */}
       {tree && (
-        <>
+        <div style={{ flexShrink: 0 }}>
           <SectionTitle>Referral Network</SectionTitle>
-          <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
+          <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>
             <MiniStat label="Total Shares" value={tree.totalTokens} />
             <MiniStat label="Max Chain Depth" value={tree.maxDepth} />
             <MiniStat label="Viral Coefficient" value={tree.viralCoefficient} />
           </div>
           {tree.tree.length > 0 && (
-            <div style={{ ...cardStyle, maxHeight: 400, overflow: "auto", padding: 16 }}>
+            <div style={{ ...cardStyle, maxHeight: 120, overflow: "auto", padding: 10, fontSize: 11 }}>
               {tree.tree.map((node: any) => (
                 <ReferralNode key={node.id} node={node} depth={0} />
               ))}
             </div>
           )}
-        </>
+        </div>
       )}
 
-      {/* Repeat Visitors + Recent Activity — side by side */}
-      <div style={{ display: "flex", gap: 16, marginBottom: 0 }}>
+      {/* Repeat Visitors + Recent Activity — scroll containers filling remaining space */}
+      <div style={{ display: "flex", gap: 16, flex: 1, minHeight: 0 }}>
         {/* Repeat Visitors */}
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
           <SectionTitle>Repeat Visitors ({data.visitors.length})</SectionTitle>
           {data.visitors.length === 0 ? (
             <EmptyState msg="No visitors yet" />
           ) : (
-            <div style={{ ...cardStyle, flex: 1, overflow: "auto", maxHeight: 420, minHeight: 200 }}>
+            <div style={{ ...cardStyle, flex: 1, overflow: "auto", minHeight: 0 }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: "#f9fafb", position: "sticky", top: 0, zIndex: 1 }}>
@@ -186,7 +190,7 @@ function AnalyticsTab() {
         {/* Recent Activity */}
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
           <SectionTitle>Recent Activity</SectionTitle>
-          <div style={{ ...cardStyle, flex: 1, maxHeight: 420, minHeight: 200, overflow: "auto", padding: 12 }}>
+          <div style={{ ...cardStyle, flex: 1, minHeight: 0, overflow: "auto", padding: 12 }}>
             {data.recentActivity.length === 0 ? (
               <EmptyState msg="No recent activity" />
             ) : (

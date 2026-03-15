@@ -13,7 +13,7 @@ scores:
   value: 9
   demonstrable: 9
   defensible: 8
-  total: 34
+  total: 85
 website: true
 visibility:
   public: true

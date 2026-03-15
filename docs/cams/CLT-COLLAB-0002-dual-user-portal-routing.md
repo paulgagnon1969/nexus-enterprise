@@ -13,7 +13,7 @@ scores:
   value: 8
   demonstrable: 8
   defensible: 6
-  total: 29
+  total: 73
 tags: [cam, client-relations, collaboration, dual-user, portal, routing, cross-company]
 website: false
 visibility:

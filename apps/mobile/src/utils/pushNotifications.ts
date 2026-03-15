@@ -96,6 +96,33 @@ async function registerNotificationCategories() {
       options: { opensAppToForeground: true },
     },
   ]);
+
+  // PIP Announcements — global broadcasts to PIP viewers
+  await Notifications.setNotificationCategoryAsync("pip_announcement", [
+    {
+      identifier: "view",
+      buttonTitle: "View PIP",
+      options: { opensAppToForeground: true },
+    },
+  ]);
+
+  // Warp attention — agent needs user input (bidirectional bridge)
+  await Notifications.setNotificationCategoryAsync("warp_attention", [
+    {
+      identifier: "view",
+      buttonTitle: "View Session",
+      options: { opensAppToForeground: true },
+    },
+    {
+      identifier: "reply",
+      buttonTitle: "Reply",
+      options: { opensAppToForeground: true },
+      textInput: {
+        submitButtonTitle: "Send",
+        placeholder: "Reply to Warp…",
+      },
+    },
+  ]);
 }
 
 // Register categories immediately on module load
@@ -176,6 +203,20 @@ export async function registerForPushNotifications(): Promise<string | null> {
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       bypassDnd: true,
     });
+    await Notifications.setNotificationChannelAsync("dev-session", {
+      name: "Dev Session Mirror",
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: "#6366f1",
+      sound: "default",
+    });
+    await Notifications.setNotificationChannelAsync("pip-updates", {
+      name: "PIP Updates",
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: "#0284c7",
+      sound: "default",
+    });
   }
 
   // Get the Expo push token
@@ -237,11 +278,17 @@ export function parseNotificationData(
   scanId?: string;
   sessionId?: string;
   approvalId?: string;
-  /** The action button identifier the user pressed (e.g. "accept", "decline", "view", "approve", "reject") */
+  /** The action button identifier the user pressed (e.g. "accept", "decline", "view", "approve", "reject", "reply") */
   actionIdentifier?: string;
+  /** Text typed in an inline reply action (e.g. warp_attention → Reply) */
+  userText?: string;
 } | null {
   const data = response.notification.request.content.data;
   if (!data?.type) return null;
+
+  // Extract inline text input from category actions (e.g. "Reply to Warp…")
+  const userText = (response as any).userText as string | undefined;
+
   return {
     type: data.type as string,
     dailyLogId: data.dailyLogId as string | undefined,
@@ -254,5 +301,27 @@ export function parseNotificationData(
     actionIdentifier: response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER
       ? response.actionIdentifier
       : undefined,
+    userText,
   };
+}
+
+/**
+ * Handle inline reply from a warp_attention notification.
+ * Posts the user's reply text as a comment on the dev session.
+ */
+export async function handleWarpAttentionReply(
+  sessionId: string,
+  text: string,
+): Promise<void> {
+  if (!text.trim()) return;
+  try {
+    await apiFetch(`/dev-session/${sessionId}/comment`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: text.trim() }),
+    });
+    console.log("[push] Warp attention reply sent:", text.trim().slice(0, 50));
+  } catch (err) {
+    console.warn("[push] Failed to send warp attention reply:", err);
+  }
 }
