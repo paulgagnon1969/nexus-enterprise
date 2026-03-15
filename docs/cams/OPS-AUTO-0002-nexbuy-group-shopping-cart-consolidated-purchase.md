@@ -3,10 +3,10 @@ cam_id: OPS-AUTO-0002
 title: "NexBUY — Group Shopping Cart & Consolidated Purchase"
 mode: OPS
 category: AUTO
-revision: "1.0"
+revision: "1.1"
 status: draft
 created: 2026-03-14
-updated: 2026-03-14
+updated: 2026-03-15
 author: Warp
 website: false
 scores:
@@ -55,6 +55,12 @@ Consolidated lines carry forward the best known price and supplier from CBA resu
 
 ### 6. Cart Status Lifecycle
 Carts progress through DRAFT → READY → IN_PROGRESS → COMPLETED. The Group Cart defaults to showing open carts (the active purchasing pipeline) but retains full history. Completed carts remain accessible for audit, reconciliation, and pattern analysis.
+
+### 7. Receipt Origin Tracking
+When a purchase is made from a shopping cart, the receipt daily log captures its origin (`MANUAL` or `SHOPPING_CART`) and links back to the specific cart via `shoppingCartId`. This linkage flows through to the `ProjectBill`, creating a complete audit chain: Cart → Receipt → Bill. From the Cart Detail screen, two action buttons let users create either a standard receipt ("🧾 Receipt" — `MANUAL` origin) or a cart-linked receipt ("🛒 Receipt Shopping Cart" — `SHOPPING_CART` origin with cart linkage). This enables reconciliation of what was ordered vs. what was actually purchased.
+
+### 8. Role-Based Access (PM+ Only)
+The Group Cart tile is gated to PM, EXECUTIVE, OWNER, and ADMIN roles. Field crew see per-project Shopping Lists but not the tenant-wide consolidated view. This ensures the consolidated purchasing workflow is managed by operations leadership while individual project procurement remains accessible to all.
 
 ## Why It Matters
 
@@ -118,17 +124,26 @@ No competitor operates procurement at the tenant level. All are project-scoped.
 4. Groups by `normalizedKey`, sums quantities, picks best price/supplier
 5. Returns `ConsolidatedPurchase` with lines and allocations
 
-### Mobile Screen
+### Mobile Screens
 - `GroupShoppingCartScreen.tsx` — two-mode React Native screen
   - Mode 1 (Cart List): FlatList with status filter chips, multi-select via long-press or Select button, "Consolidated Purchase" bottom bar
   - Mode 2 (Consolidated View): Summary cards + expandable material lines with per-project allocation breakdown
-- Navigation: `GroupShoppingCart` route in ProjectsStack (no project param — tenant-wide). Accessible via "📦 Group Cart" tile in DailyLogsScreen tile grid.
+- `ShoppingCartDetailScreen.tsx` — per-cart detail view with line items, stats bar (items/purchased/est. total), and dual receipt action buttons (Manual vs. Shopping Cart origin)
+- Navigation: `GroupShoppingCart` and `ShoppingCartDetail` routes in ProjectsStack. Accessible via "🛍️ Group Cart" tile (PM+ role-gated) in DailyLogsScreen tile grid.
+- Role gating: `UserRoleContext` propagates the user's company role from `AppNavigator` → `DailyLogsScreen`. The `PM_PLUS_ROLES` set (`OWNER`, `ADMIN`, `PM`, `EXECUTIVE`) controls tile visibility.
+
+### Schema Additions (v1.1)
+- `ReceiptOrigin` enum: `MANUAL` | `SHOPPING_CART` — tracks how a receipt was created
+- `DailyLog.receiptOrigin` / `DailyLog.shoppingCartId` — links receipt logs to originating cart
+- `ProjectBill.receiptOrigin` — propagated from DailyLog during bill creation for audit trail
+- Migration: `20260314161351_add_receipt_origin_and_cart_linkage`
 
 ### Integration Points
 - **NexCART** (OPS-INTL-0002) — shares the `normalizedKey` material canonicalization and cart data model
 - **NexCBAML** (OPS-INTL-0003) — consolidated quantities feed into CBA bulk pricing tier calculations
 - **NexFIND** (OPS-INTL-0001) — best supplier info from the supplier intelligence network
 - **Receipt Bridge** (OPS-INTG-0001) — consolidated purchase receipts reconcile back to individual project carts
+- **Receipt Origin Tracking** — `DailyLog.receiptOrigin` + `shoppingCartId` → `ProjectBill.receiptOrigin` creates a complete Cart → Receipt → Bill audit chain
 
 ## Scoring Rationale
 
@@ -159,4 +174,5 @@ No competitor operates procurement at the tenant level. All are project-scoped.
 
 | Rev | Date | Changes |
 |-----|------|---------|
-| 1.0 | 2026-03-14 | Initial release — tenant-wide cart listing, multi-select consolidation, per-project allocation, mobile Group Cart screen |
+|| 1.0 | 2026-03-14 | Initial release — tenant-wide cart listing, multi-select consolidation, per-project allocation, mobile Group Cart screen |
+|| 1.1 | 2026-03-15 | Added receipt origin tracking (MANUAL/SHOPPING_CART), cart-to-bill audit chain, ShoppingCartDetailScreen with dual receipt buttons, PM+ role gating via UserRoleContext, schema migration for ReceiptOrigin enum |
