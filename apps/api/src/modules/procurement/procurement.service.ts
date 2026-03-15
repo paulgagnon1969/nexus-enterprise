@@ -60,6 +60,140 @@ export class ProcurementService {
     private readonly optimizer: SupplierOptimizerService,
   ) {}
 
+  // ─── Tenant-wide Cart Listing ──────────────────────────────────────────
+
+  async listAllCartsForCompany(
+    companyId: string,
+    filters?: { statuses?: string[]; includeCompleted?: boolean },
+  ) {
+    const statusFilter = filters?.statuses?.length
+      ? filters.statuses
+      : filters?.includeCompleted
+        ? undefined // no filter = all statuses
+        : ['DRAFT', 'READY', 'IN_PROGRESS']; // default: open carts
+
+    const carts = await this.prisma.shoppingCart.findMany({
+      where: {
+        companyId,
+        ...(statusFilter ? { status: { in: statusFilter as any } } : {}),
+      },
+      include: {
+        project: { select: { id: true, name: true, city: true, state: true } },
+        createdBy: { select: { id: true, email: true, firstName: true, lastName: true } },
+        _count: { select: { items: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    return carts.map((c) => ({
+      id: c.id,
+      companyId: c.companyId,
+      projectId: c.projectId,
+      projectName: c.project.name,
+      projectCity: c.project.city,
+      projectState: c.project.state,
+      label: c.label,
+      status: c.status,
+      horizon: c.horizon,
+      horizonDate: c.horizonDate,
+      notes: c.notes,
+      itemCount: c._count.items,
+      createdBy: c.createdBy
+        ? `${c.createdBy.firstName ?? ''} ${c.createdBy.lastName ?? ''}`.trim() || c.createdBy.email
+        : null,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+    }));
+  }
+
+  // ─── Consolidated Purchase ────────────────────────────────────────────────
+
+  async consolidatePurchase(companyId: string, cartIds: string[]) {
+    if (!cartIds.length) return { cartCount: 0, projectCount: 0, lines: [], totalItems: 0, totalEstimatedCost: 0 };
+
+    // Fetch all carts + items, verifying company ownership
+    const carts = await this.prisma.shoppingCart.findMany({
+      where: { id: { in: cartIds }, companyId },
+      include: {
+        project: { select: { id: true, name: true, postalCode: true } },
+        items: { include: { pricingSnapshots: true } },
+      },
+    });
+
+    // Build project lookup
+    const projectMap = new Map<string, string>();
+    for (const cart of carts) {
+      projectMap.set(cart.projectId, cart.project.name);
+    }
+
+    // Consolidate items by normalizedKey
+    const consolidated = new Map<string, {
+      normalizedKey: string;
+      description: string;
+      unit: string | null;
+      totalQty: number;
+      bestKnownPrice: number | null;
+      bestSupplierName: string | null;
+      allocations: Array<{
+        projectId: string;
+        projectName: string;
+        cartId: string;
+        cartLabel: string | null;
+        qty: number;
+        itemId: string;
+      }>;
+    }>();
+
+    for (const cart of carts) {
+      for (const item of cart.items) {
+        const key = item.normalizedKey;
+        const existing = consolidated.get(key);
+        const allocation = {
+          projectId: cart.projectId,
+          projectName: cart.project.name,
+          cartId: cart.id,
+          cartLabel: cart.label,
+          qty: item.cartQty,
+          itemId: item.id,
+        };
+
+        if (existing) {
+          existing.totalQty += item.cartQty;
+          existing.allocations.push(allocation);
+          // Update best price if this item has a better one
+          if (item.bestUnitPrice != null && (existing.bestKnownPrice == null || item.bestUnitPrice < existing.bestKnownPrice)) {
+            existing.bestKnownPrice = item.bestUnitPrice;
+            existing.bestSupplierName = item.bestSupplierName;
+          }
+        } else {
+          consolidated.set(key, {
+            normalizedKey: key,
+            description: item.description,
+            unit: item.unit,
+            totalQty: item.cartQty,
+            bestKnownPrice: item.bestUnitPrice,
+            bestSupplierName: item.bestSupplierName,
+            allocations: [allocation],
+          });
+        }
+      }
+    }
+
+    const lines = Array.from(consolidated.values()).sort((a, b) => b.totalQty - a.totalQty);
+    const totalEstimatedCost = lines.reduce(
+      (sum, l) => sum + (l.bestKnownPrice ?? 0) * l.totalQty,
+      0,
+    );
+
+    return {
+      cartCount: carts.length,
+      projectCount: projectMap.size,
+      totalItems: lines.length,
+      totalEstimatedCost,
+      lines,
+    };
+  }
+
   // ─── Cart CRUD ───────────────────────────────────────────────────────────
 
   async listCarts(projectId: string) {
@@ -88,9 +222,18 @@ export class ProcurementService {
   }
 
   async createCart(dto: CreateCartDto) {
+    // Always resolve companyId from the project to avoid stale JWT tokens
+    const project = await this.prisma.project.findUnique({
+      where: { id: dto.projectId },
+      select: { companyId: true },
+    });
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
     return this.prisma.shoppingCart.create({
       data: {
-        companyId: dto.companyId,
+        companyId: project.companyId,
         projectId: dto.projectId,
         createdByUserId: dto.createdByUserId,
         label: dto.label,

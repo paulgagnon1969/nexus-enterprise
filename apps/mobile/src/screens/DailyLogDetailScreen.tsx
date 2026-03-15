@@ -47,6 +47,8 @@ interface Props {
   onEdit?: (log: DailyLogDetail) => void;
   currentUserId?: string;
   currentUserProfileCode?: string;
+  /** When true, hides the header row (used in tablet three-pane layout) */
+  embedded?: boolean;
 }
 
 // Check if user is PM+ level
@@ -65,6 +67,7 @@ export function DailyLogDetailScreen({
   onEdit,
   currentUserId,
   currentUserProfileCode,
+  embedded,
 }: Props) {
   const [detail, setDetail] = useState<DailyLogDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -291,11 +294,13 @@ export function DailyLogDetailScreen({
   if (loading && !detail) {
     return (
       <View style={styles.container}>
-        <View style={styles.header}>
-          <Pressable onPress={onBack}>
-            <Text style={styles.backLink}>← Back</Text>
-          </Pressable>
-        </View>
+        {!embedded && (
+          <View style={styles.header}>
+            <Pressable onPress={onBack}>
+              <Text style={styles.backLink}>← Back</Text>
+            </Pressable>
+          </View>
+        )}
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#111827" />
         </View>
@@ -306,11 +311,13 @@ export function DailyLogDetailScreen({
   if (error && !detail) {
     return (
       <View style={styles.container}>
-        <View style={styles.header}>
-          <Pressable onPress={onBack}>
-            <Text style={styles.backLink}>← Back</Text>
-          </Pressable>
-        </View>
+        {!embedded && (
+          <View style={styles.header}>
+            <Pressable onPress={onBack}>
+              <Text style={styles.backLink}>← Back</Text>
+            </Pressable>
+          </View>
+        )}
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>{error}</Text>
         </View>
@@ -328,11 +335,13 @@ export function DailyLogDetailScreen({
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Pressable onPress={onBack}>
-          <Text style={styles.backLink}>← Back</Text>
-        </Pressable>
-      </View>
+      {!embedded && (
+        <View style={styles.header}>
+          <Pressable onPress={onBack}>
+            <Text style={styles.backLink}>← Back</Text>
+          </Pressable>
+        </View>
+      )}
 
       <ScrollView
         style={styles.scrollView}
@@ -410,7 +419,7 @@ export function DailyLogDetailScreen({
           <View style={styles.receiptSection}>
             <Text style={styles.receiptTitle}>Receipt Details</Text>
             {renderField("Vendor", fullDetail.expenseVendor)}
-            {fullDetail.expenseAmount != null && renderField("Amount", `$${fullDetail.expenseAmount.toFixed(2)}`)}
+            {fullDetail.expenseAmount != null && renderField("Amount", `$${Number(fullDetail.expenseAmount).toFixed(2)}`)}
             {fullDetail.expenseDate && renderField("Receipt Date", fullDetail.expenseDate.slice(0, 10))}
           </View>
         )}

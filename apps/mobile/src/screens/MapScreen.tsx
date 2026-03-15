@@ -8,6 +8,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Animated as RNAnimated,
+  PanResponder,
   Alert,
   Linking,
   Modal,
@@ -48,6 +49,7 @@ import {
 } from "../api/supplierCatalog";
 import { resolveUserZip } from "../utils/resolveZip";
 import { DirectionsDialog } from "../components/DirectionsDialog";
+import { getMapLayerVisibility, setMapLayerVisibility } from "../storage/settings";
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
@@ -59,6 +61,22 @@ const STATUS_CHIPS: { key: StatusKey; label: string; color: string }[] = [
   { key: "pending", label: "Pending", color: "#60a5fa" },
   { key: "completed", label: "Completed", color: "#64748b" },
   { key: "closed", label: "Closed", color: "#9ca3af" },
+];
+
+// ─── Legend layer keys (persistable toggles) ─────────────────────────────────
+
+const LEGEND_PROJECTS: { key: string; statusKey: StatusKey; label: string; color: string }[] = [
+  { key: "proj-active", statusKey: "active", label: "Active", color: "#22c55e" },
+  { key: "proj-open", statusKey: "open", label: "Open", color: "#1d4ed8" },
+  { key: "proj-pending", statusKey: "pending", label: "Pending", color: "#60a5fa" },
+  { key: "proj-completed", statusKey: "completed", label: "Completed", color: "#64748b" },
+  { key: "proj-closed", statusKey: "closed", label: "Closed", color: "#9ca3af" },
+];
+
+const LEGEND_SUPPLIERS: { key: string; supplierStatus: string; label: string; color: string }[] = [
+  { key: "sup-active", supplierStatus: "ACTIVE", label: "🏪 Active", color: "#f97316" },
+  { key: "sup-pending", supplierStatus: "PENDING_REMOVAL", label: "⚠️ Pending removal", color: "#f59e0b" },
+  { key: "sup-closed", supplierStatus: "PERMANENTLY_CLOSED", label: "❌ Closed", color: "#ef4444" },
 ];
 
 /** Statuses that should be hidden from the project list entirely */
@@ -306,19 +324,85 @@ export function MapScreen({ onSelectProject }: Props) {
 
   // Filters
   const [search, setSearch] = useState("");
-  const [statusFilters, setStatusFilters] = useState<Set<StatusKey>>(
-    new Set(["active", "open"]),
-  );
-  const [showSuppliers, setShowSuppliers] = useState(true);
+
+  // Layer visibility (persisted) — missing key = visible (default on)
+  const [layerVis, setLayerVisState] = useState<Record<string, boolean>>({});
+
+  // Derive status filters + supplier visibility from persisted layer state
+  const statusFilters = useMemo(() => {
+    const s = new Set<StatusKey>();
+    for (const lp of LEGEND_PROJECTS) {
+      if (layerVis[lp.key] !== false) s.add(lp.statusKey);
+    }
+    return s;
+  }, [layerVis]);
+
+  const showSuppliers = useMemo(() => {
+    return LEGEND_SUPPLIERS.some((ls) => layerVis[ls.key] !== false);
+  }, [layerVis]);
 
   // Location + radius (default is regional)
   const [locationEnabled, setLocationEnabled] = useState<boolean | null>(null);
   const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(null);
-  const [radiusKey, setRadiusKey] = useState<RadiusKey>("50");
+  const [radiusKey, setRadiusKey] = useState<RadiusKey>("nation");
   const [radiusPickerOpen, setRadiusPickerOpen] = useState(false);
 
   // Legend
-  const [legendOpen, setLegendOpen] = useState(true);
+  const [legendOpen, setLegendOpen] = useState(false);
+
+  // Load persisted layer visibility
+  useEffect(() => {
+    getMapLayerVisibility().then(setLayerVisState).catch(() => {});
+  }, []);
+
+  const isLayerOn = useCallback((key: string) => layerVis[key] !== false, [layerVis]);
+
+  const toggleLayer = useCallback((key: string) => {
+    setLayerVisState((prev) => {
+      const next = { ...prev, [key]: prev[key] === false };
+      void setMapLayerVisibility(next);
+      return next;
+    });
+  }, []);
+
+  const toggleSection = useCallback((keys: string[]) => {
+    setLayerVisState((prev) => {
+      const allOn = keys.every((k) => prev[k] !== false);
+      const next = { ...prev };
+      for (const k of keys) next[k] = allOn ? false : true;
+      void setMapLayerVisibility(next);
+      return next;
+    });
+  }, []);
+
+  // Legend drag-to-reposition
+  const legendPan = useRef(new RNAnimated.ValueXY()).current;
+  const legendOffset = useRef({ x: 0, y: 0 });
+  const isDragging = useRef(false);
+  const legendPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gs) =>
+        Math.abs(gs.dx) > 5 || Math.abs(gs.dy) > 5,
+      onPanResponderGrant: () => {
+        isDragging.current = false;
+      },
+      onPanResponderMove: (_, gs) => {
+        if (Math.abs(gs.dx) > 5 || Math.abs(gs.dy) > 5) isDragging.current = true;
+        legendPan.setValue({
+          x: legendOffset.current.x + gs.dx,
+          y: legendOffset.current.y + gs.dy,
+        });
+      },
+      onPanResponderRelease: (_, gs) => {
+        legendOffset.current = {
+          x: legendOffset.current.x + gs.dx,
+          y: legendOffset.current.y + gs.dy,
+        };
+        if (!isDragging.current) setLegendOpen((v) => !v);
+      },
+    })
+  ).current;
 
   // Selected pin callout
   const [selected, setSelected] = useState<ProjectListItem | null>(null);
@@ -442,12 +526,18 @@ export function MapScreen({ onSelectProject }: Props) {
   }, [projects, search, statusFilters, radiusMiles, userLoc]);
 
   const filteredSuppliers = useMemo(() => {
-    if (radiusMiles == null || !userLoc) return suppliers;
-    return suppliers.filter((s) => {
-      const dist = haversineMiles(userLoc.lat, userLoc.lng, s.lat, s.lng);
-      return dist <= radiusMiles;
+    let result = suppliers.filter((s) => {
+      const ls = LEGEND_SUPPLIERS.find((l) => l.supplierStatus === s.status);
+      return !ls || layerVis[ls.key] !== false;
     });
-  }, [suppliers, radiusMiles, userLoc]);
+    if (radiusMiles != null && userLoc) {
+      result = result.filter((s) => {
+        const dist = haversineMiles(userLoc.lat, userLoc.lng, s.lat, s.lng);
+        return dist <= radiusMiles;
+      });
+    }
+    return result;
+  }, [suppliers, radiusMiles, userLoc, layerVis]);
 
   const geoData = useMemo(() => toGeoJson(filtered), [filtered]);
   const supplierGeo = useMemo(
@@ -461,7 +551,7 @@ export function MapScreen({ onSelectProject }: Props) {
     return calcBounds(geoData);
   }, [radiusMiles, userLoc, geoData]);
 
-  const isFiltered = search.length > 0 || statusFilters.size < 5 || !showSuppliers || productResults.length > 0 || catalogResults.length > 0;
+  const isFiltered = search.length > 0 || LEGEND_PROJECTS.some((lp) => layerVis[lp.key] === false) || LEGEND_SUPPLIERS.some((ls) => layerVis[ls.key] === false) || productResults.length > 0 || catalogResults.length > 0;
 
   // ── Resolve user ZIP once location is known ──────────────────────────────
   useEffect(() => {
@@ -516,15 +606,8 @@ export function MapScreen({ onSelectProject }: Props) {
   }), [catalogResults, userLoc]);
 
   const toggleStatus = (key: StatusKey) => {
-    setStatusFilters((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        if (next.size > 1) next.delete(key); // keep at least one active
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
+    const lp = LEGEND_PROJECTS.find((l) => l.statusKey === key);
+    if (lp) toggleLayer(lp.key);
   };
 
   const clearFilters = () => {
@@ -534,8 +617,9 @@ export function MapScreen({ onSelectProject }: Props) {
     setCatalogResults([]);
     setSelectedCatalogProduct(null);
     setSearchMode("projects");
-    setStatusFilters(new Set(["active", "open", "pending", "completed", "closed"]));
-    setShowSuppliers(true);
+    // Reset all layers to visible (empty = all on)
+    setLayerVisState({});
+    void setMapLayerVisibility({});
   };
 
   // ── Dual product search (NexFIND + Supplier Catalog) ──────────────────
@@ -886,232 +970,42 @@ export function MapScreen({ onSelectProject }: Props) {
         )}
       </Mapbox.MapView>
 
-      {/* ── Filter bar ──────────────────────────────────────────────────── */}
-      <View style={styles.filterBar}>
-        <View style={styles.searchRow}>
-          {/* Mode toggle */}
-          <Pressable
-            style={[styles.searchModeBtn, searchMode === "products" && styles.searchModeBtnActive]}
-            onPress={() => setSearchMode((m) => (m === "projects" ? "products" : "projects"))}
-          >
-            <Text style={{ fontSize: 14 }}>{searchMode === "products" ? "🔍" : "📋"}</Text>
-          </Pressable>
-
-          {searchMode === "projects" ? (
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search projects…"
-              placeholderTextColor={colors.textMuted}
-              value={search}
-              onChangeText={setSearch}
-              returnKeyType="search"
-              clearButtonMode="while-editing"
-            />
-          ) : (
-            <TextInput
-              style={[styles.searchInput, { borderColor: "#f97316" }]}
-              placeholder="Search products near projects…"
-              placeholderTextColor={colors.textMuted}
-              value={productSearch}
-              onChangeText={setProductSearch}
-              returnKeyType="search"
-              onSubmitEditing={handleProductSearch}
-              clearButtonMode="while-editing"
-            />
-          )}
-          {searchingProducts && (
-            <ActivityIndicator size="small" color="#f97316" style={{ marginLeft: 4 }} />
-          )}
-          {isFiltered && (
-            <Pressable style={styles.clearBtn} onPress={clearFilters}>
-              <Text style={styles.clearBtnText}>Clear</Text>
-            </Pressable>
-          )}
+      {/* ── Legend (toggleable layers, persisted, draggable) ─────────── */}
+      <RNAnimated.View style={[styles.legendCard, { transform: legendPan.getTranslateTransform() }]}>
+        <View {...legendPanResponder.panHandlers} style={styles.legendHeader}>
+          <Text style={styles.legendDragHandle}>≡</Text>
+          <Text style={styles.legendTitle}>Legend</Text>
+          <Text style={styles.legendChevron}>{legendOpen ? "▾" : "▸"}</Text>
         </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chipRow}
-        >
-          {/* Radius selector */}
-          <Pressable
-            style={[
-              styles.chip,
-              radiusKey !== "nation" && {
-                borderColor: colors.primary,
-                backgroundColor: colors.primary + "10",
-              },
-            ]}
-            onPress={() => setRadiusPickerOpen(true)}
-          >
-            <Text style={{ fontSize: 12 }}>📏</Text>
-            <Text style={styles.chipLabel}>{radiusLabel}</Text>
-          </Pressable>
-
-          {STATUS_CHIPS.map((chip) => {
-            const active = statusFilters.has(chip.key);
-            return (
-              <Pressable
-                key={chip.key}
-                style={[
-                  styles.chip,
-                  active && { backgroundColor: chip.color, borderColor: chip.color },
-                ]}
-                onPress={() => toggleStatus(chip.key)}
-              >
-                <View
-                  style={[
-                    styles.chipDot,
-                    { backgroundColor: active ? "#fff" : chip.color },
-                  ]}
-                />
-                <Text
-                  style={[
-                    styles.chipLabel,
-                    active && { color: "#fff" },
-                  ]}
-                >
-                  {chip.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-
-          {/* Supplier toggle */}
-          <Pressable
-            style={[
-              styles.chip,
-              showSuppliers && { backgroundColor: "#f97316", borderColor: "#f97316" },
-            ]}
-            onPress={() => setShowSuppliers((v) => !v)}
-          >
-            <Text style={{ fontSize: 12 }}>🏪</Text>
-            <Text
-              style={[
-                styles.chipLabel,
-                showSuppliers && { color: "#fff" },
-              ]}
-            >
-              Suppliers{filteredSuppliers.length > 0 ? ` (${filteredSuppliers.length})` : ""}
-            </Text>
-          </Pressable>
-
-          {/* Summary count */}
-          <View style={styles.countPill}>
-            <Text style={styles.countText}>
-              {geoCount} project{geoCount !== 1 ? "s" : ""}
-            </Text>
-          </View>
-        </ScrollView>
-      </View>
-
-      {/* ── Radius picker ──────────────────────────────────────────────── */}
-      <Modal
-        visible={radiusPickerOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setRadiusPickerOpen(false)}
-      >
-        <View style={styles.radiusOverlay}>
-          <Pressable
-            style={styles.radiusBackdrop}
-            onPress={() => setRadiusPickerOpen(false)}
-          />
-          <View style={styles.radiusSheet}>
-            <Text style={styles.radiusTitle}>Map Radius</Text>
-            {RADIUS_OPTIONS.map((opt) => {
-              const active = opt.key === radiusKey;
+        {legendOpen && (
+          <View style={styles.legendBody}>
+            <Pressable onPress={() => toggleSection(LEGEND_PROJECTS.map((l) => l.key))}>
+              <Text style={styles.legendSection}>Projects</Text>
+            </Pressable>
+            {LEGEND_PROJECTS.map((item) => {
+              const on = isLayerOn(item.key);
               return (
-                <Pressable
-                  key={opt.key}
-                  style={[styles.radiusRow, active && styles.radiusRowActive]}
-                  onPress={() => {
-                    if (opt.key !== "nation" && locationEnabled === false) {
-                      Alert.alert(
-                        "Location Required",
-                        "Enable location permissions to use radius filtering.",
-                      );
-                      return;
-                    }
-                    setRadiusKey(opt.key);
-                    setRadiusPickerOpen(false);
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.radiusRowText,
-                      active && styles.radiusRowTextActive,
-                    ]}
-                  >
-                    {opt.label}
-                  </Text>
-                  {active && <Text style={styles.radiusCheck}>✓</Text>}
+                <Pressable key={item.key} style={styles.legendRow} onPress={() => toggleLayer(item.key)}>
+                  <View style={[styles.legendDot, { backgroundColor: on ? item.color : "transparent", borderWidth: 1.5, borderColor: item.color }]} />
+                  <Text style={[styles.legendLabel, !on && styles.legendLabelOff]}>{item.label}</Text>
                 </Pressable>
               );
             })}
-            <Pressable
-              style={styles.radiusCancelBtn}
-              onPress={() => setRadiusPickerOpen(false)}
-            >
-              <Text style={styles.radiusCancelText}>Cancel</Text>
+            <Pressable onPress={() => toggleSection(LEGEND_SUPPLIERS.map((l) => l.key))}>
+              <Text style={styles.legendSection}>Suppliers</Text>
             </Pressable>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ── Legend ──────────────────────────────────────────────────────── */}
-      <View style={styles.legendCard}>
-        <Pressable
-          style={styles.legendHeader}
-          onPress={() => setLegendOpen((v) => !v)}
-        >
-          <Text style={styles.legendTitle}>Legend</Text>
-          <Text style={styles.legendChevron}>{legendOpen ? "▾" : "▸"}</Text>
-        </Pressable>
-        {legendOpen && (
-          <View style={styles.legendBody}>
-            <Text style={styles.legendSection}>Projects</Text>
-            {STATUS_CHIPS.map((chip) => (
-              <View key={chip.key} style={styles.legendRow}>
-                <View
-                  style={[styles.legendDot, { backgroundColor: chip.color }]}
-                />
-                <Text style={styles.legendLabel}>{chip.label}</Text>
-              </View>
-            ))}
-
-            <Text style={styles.legendSection}>Suppliers</Text>
-            <View style={styles.legendRow}>
-              <View
-                style={[
-                  styles.legendDot,
-                  { backgroundColor: SUPPLIER_STATUS_COLORS.ACTIVE },
-                ]}
-              />
-              <Text style={styles.legendLabel}>🏪 Active</Text>
-            </View>
-            <View style={styles.legendRow}>
-              <View
-                style={[
-                  styles.legendDot,
-                  { backgroundColor: SUPPLIER_STATUS_COLORS.PENDING_REMOVAL },
-                ]}
-              />
-              <Text style={styles.legendLabel}>⚠️ Pending removal</Text>
-            </View>
-            <View style={styles.legendRow}>
-              <View
-                style={[
-                  styles.legendDot,
-                  { backgroundColor: SUPPLIER_STATUS_COLORS.PERMANENTLY_CLOSED },
-                ]}
-              />
-              <Text style={styles.legendLabel}>❌ Closed</Text>
-            </View>
+            {LEGEND_SUPPLIERS.map((item) => {
+              const on = isLayerOn(item.key);
+              return (
+                <Pressable key={item.key} style={styles.legendRow} onPress={() => toggleLayer(item.key)}>
+                  <View style={[styles.legendDot, { backgroundColor: on ? item.color : "transparent", borderWidth: 1.5, borderColor: item.color }]} />
+                  <Text style={[styles.legendLabel, !on && styles.legendLabelOff]}>{item.label}</Text>
+                </Pressable>
+              );
+            })}
           </View>
         )}
-      </View>
+      </RNAnimated.View>
 
       {/* ── Empty state ─────────────────────────────────────────────────── */}
       {geoCount === 0 && !loading && (
@@ -1624,10 +1518,15 @@ const styles = StyleSheet.create({
   },
 
   // ── Legend ───────────────────────────────────────────────────────────────
+  legendDragHandle: {
+    fontSize: 16,
+    color: colors.textMuted,
+    lineHeight: 18,
+  },
   legendCard: {
     position: "absolute",
-    top: 92,
-    right: 12,
+    bottom: 80,
+    left: 12,
     backgroundColor: "rgba(255,255,255,0.95)",
     borderRadius: 12,
     borderWidth: 1,
@@ -1679,6 +1578,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     color: colors.textSecondary,
+  },
+  legendLabelOff: {
+    textDecorationLine: "line-through",
+    color: colors.textMuted,
   },
   countPill: {
     paddingHorizontal: 10,

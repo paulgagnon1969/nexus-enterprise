@@ -25,6 +25,7 @@ export class DailyLogFeedController {
     @Query("projectIds") projectIds?: string,
     @Query("limit") limit?: string,
     @Query("offset") offset?: string,
+    @Query("allCompanies") allCompanies?: string,
   ) {
     const user = req.user as AuthenticatedUser;
     const filters = {
@@ -32,7 +33,12 @@ export class DailyLogFeedController {
       limit: limit ? parseInt(limit, 10) : undefined,
       offset: offset ? parseInt(offset, 10) : undefined,
     };
-    return this.dailyLogs.listForUser(user.companyId, user, filters);
+    // SUPER_ADMIN can query across all companies
+    const effectiveCompanyId =
+      allCompanies === "true" && user.globalRole === "SUPER_ADMIN"
+        ? null
+        : user.companyId;
+    return this.dailyLogs.listForUser(effectiveCompanyId, user, filters);
   }
 
   @UseGuards(CombinedAuthGuard)

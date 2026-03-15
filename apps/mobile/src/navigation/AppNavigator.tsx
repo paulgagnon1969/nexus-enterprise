@@ -16,6 +16,7 @@ import { DailyLogsScreen } from "../screens/DailyLogsScreen";
 import { DailyLogFeedScreen } from "../screens/DailyLogFeedScreen";
 import { DailyLogDetailScreen } from "../screens/DailyLogDetailScreen";
 import { DailyLogEditScreen } from "../screens/DailyLogEditScreen";
+import { DailyLogTabletLayout } from "../screens/DailyLogTabletLayout";
 import { FieldPetlScreen, type PetlSessionChanges } from "../screens/FieldPetlScreen";
 import { DirectoryScreen } from "../screens/DirectoryScreen";
 import { PhoneContactsScreen } from "../screens/PhoneContactsScreen";
@@ -42,19 +43,27 @@ import { PlacardScanScreen } from "../screens/PlacardScanScreen";
 import { SelectionsScreen } from "../screens/SelectionsScreen";
 import { SelectionDetailScreen } from "../screens/SelectionDetailScreen";
 import { ProductPickerScreen } from "../screens/ProductPickerScreen";
+import { ShoppingListScreen } from "../screens/ShoppingListScreen";
+import { GroupShoppingCartScreen } from "../screens/GroupShoppingCartScreen";
+import { ShoppingCartHubScreen } from "../screens/ShoppingCartHubScreen";
+import { ShoppingCartDetailScreen } from "../screens/ShoppingCartDetailScreen";
 import { BankingScreen } from "../screens/BankingScreen";
 import { DevSessionsScreen } from "../screens/DevSessionsScreen";
 import { DevSessionDetailScreen } from "../screens/DevSessionDetailScreen";
 import { ScrollableTabBar } from "../components/ScrollableTabBar";
+import { TabletSidebar } from "../components/TabletSidebar";
+import { useDeviceLayout } from "../hooks/useDeviceLayout";
 import { fetchAllTasks } from "../api/tasks";
 import { apiJson } from "../api/client";
 import { getUserMe } from "../api/user";
 import { recordTabUsage, getTopTab } from "../storage/usageTracker";
+import { getLastProject, setLastProject } from "../storage/settings";
 import type { ProjectListItem, TaskItem, PlanSheetItem, DailyLogListItem, DailyLogDetail } from "../types/api";
 
 // Type definitions for navigation
 export type RootTabParamList = {
   HomeTab: { triggerSync?: boolean } | undefined;
+  ShopTab: undefined;
   TodosTab: undefined;
   TimecardTab: undefined;
   DirectoryTab: undefined;
@@ -85,7 +94,7 @@ export type ProjectsStackParamList = {
   DailyLogEdit: { log: DailyLogDetail };
   ProjectsList: undefined;
   CreateProject: undefined;
-  DailyLogs: { project: ProjectListItem; companyName?: string; petlChanges?: PetlSessionChanges; createLogType?: string };
+  DailyLogs: { project: ProjectListItem; companyName?: string; petlChanges?: PetlSessionChanges; createLogType?: string; receiptOrigin?: "MANUAL" | "SHOPPING_CART"; shoppingCartId?: string };
   FieldPetl: { project: ProjectListItem; companyName?: string };
   PlanSheets: { project: ProjectListItem };
   PlanSheetViewer: {
@@ -99,6 +108,9 @@ export type ProjectsStackParamList = {
   Selections: { project: ProjectListItem };
   SelectionDetail: { project: ProjectListItem; roomId: string };
   ProductPicker: { project: ProjectListItem; roomId: string };
+  ShoppingList: { project: ProjectListItem; companyName?: string };
+  ShoppingCartHub: undefined;
+  ShoppingCartDetail: { cartId: string; cartLabel?: string | null; projectName?: string; projectId: string };
 };
 
 export type ScannerStackParamList = {
@@ -121,17 +133,93 @@ const DevSessionsStack = createNativeStackNavigator<DevSessionsStackParamList>()
 
 // Projects / Daily Logs stack wrappers
 function DailyLogFeedWrapper() {
-  const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
+  const { isTablet } = useDeviceLayout();
+  const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList & RootTabParamList>>();
+  const { project: filteredProject } = React.useContext(ProjectFilterContext);
+  const company = React.useContext(CompanyContext);
+  const role = React.useContext(UserRoleContext);
+
+  // Load last-used project from persistent storage (survives logout/restart)
+  const [lastProject, setLastProjectState] = React.useState<ProjectListItem | null>(null);
+  const [ready, setReady] = React.useState(false);
+  React.useEffect(() => {
+    getLastProject()
+      .then((p) => {
+        if (p) setLastProjectState(p as ProjectListItem);
+      })
+      .catch(() => {})
+      .finally(() => setReady(true));
+  }, []);
+
+  // When user changes project in this screen's dropdown — persist only, don't push to home context
+  const handleProjectChange = React.useCallback((p: ProjectListItem | null) => {
+    setLastProjectState(p);
+  }, []);
+
+  if (!ready) return null;
+
+  // ── Tablet: three-pane "Peerless View" ────────────────────────────────
+  if (isTablet) {
+    return (
+      <DailyLogTabletLayout
+        filteredProject={filteredProject}
+        lastProject={lastProject}
+        companyName={company.name ?? undefined}
+        onProjectChange={handleProjectChange}
+        onOpenPetl={(project) =>
+          navigation.navigate("FieldPetl", { project, companyName: company.name ?? undefined })
+        }
+        onOpenPlanSheets={(project) => navigation.navigate("PlanSheets", { project })}
+        onOpenRoomScan={(project) => navigation.navigate("RoomScan", { project })}
+        onOpenReceiptCapture={(project) => navigation.navigate("ReceiptCapture", { project })}
+        onOpenSelections={(project) => navigation.navigate("Selections", { project })}
+        onOpenShoppingList={(project) =>
+          navigation.navigate("ShoppingList", { project, companyName: company.name ?? undefined })
+        }
+        userRole={role ?? undefined}
+        onStartCall={async (project) => {
+          try {
+            const res = await apiJson<{ room: any; token: string; livekitUrl: string }>(
+              "/video/rooms",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ projectId: project.id }),
+              },
+            );
+            const rootNav = navigation.getParent()?.getParent?.() ?? navigation.getParent();
+            if (rootNav) {
+              rootNav.navigate("Call", {
+                roomId: res.room.id,
+                token: res.token,
+                livekitUrl: res.livekitUrl,
+                projectName: project.name,
+                callMode: "video",
+              });
+            }
+          } catch {
+            Alert.alert("Call Failed", "Could not start video call.");
+          }
+        }}
+        onEditLog={(log) => navigation.navigate("DailyLogDetail", { log })}
+      />
+    );
+  }
+
+  // ── Phone: existing single-screen feed ────────────────────────────────
   return (
     <DailyLogFeedScreen
+      filteredProject={filteredProject}
+      lastProject={lastProject}
+      onProjectChange={handleProjectChange}
       onSelectLog={(log) => navigation.navigate("DailyLogDetail", { log })}
-      onEditLog={(log) => {
-        // Navigate to detail first, then edit will be triggered from there
-        navigation.navigate("DailyLogDetail", { log });
-      }}
-      onCreateLog={() => {
-        // Navigate to project picker, then create
-        navigation.navigate("ProjectsList");
+      onEditLog={(log) => navigation.navigate("DailyLogDetail", { log })}
+      onCreateLog={(activeProject) => {
+        if (activeProject) {
+          navigation.navigate("DailyLogs", { project: activeProject, companyName: company.name ?? undefined });
+        } else {
+          navigation.navigate("ProjectsList");
+        }
       }}
     />
   );
@@ -184,21 +272,28 @@ function ProjectsListWrapper() {
 function DailyLogsWrapper() {
   const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList & RootTabParamList>>();
   const route = useRoute<RouteProp<ProjectsStackParamList, "DailyLogs">>();
+  const role = React.useContext(UserRoleContext);
   const project = route.params.project;
   const companyName = route.params.companyName;
   const petlChanges = route.params.petlChanges;
   const createLogType = route.params.createLogType;
+  const receiptOrigin = route.params.receiptOrigin;
+  const shoppingCartId = route.params.shoppingCartId;
   return (
     <DailyLogsScreen
       project={project}
       companyName={companyName}
+      receiptOrigin={receiptOrigin}
+      shoppingCartId={shoppingCartId}
+      userRole={role ?? undefined}
       onBack={() => navigation.goBack()}
       onOpenPetl={() => navigation.navigate("FieldPetl", { project, companyName })}
       onOpenPlanSheets={() => navigation.navigate("PlanSheets", { project })}
       onOpenRoomScan={() => navigation.navigate("RoomScan", { project })}
       onOpenReceiptCapture={() => navigation.navigate("ReceiptCapture", { project })}
       onOpenSelections={() => navigation.navigate("Selections", { project })}
-      onStartCall={async () => {
+      onOpenShoppingList={() => navigation.navigate("ShoppingList", { project, companyName })}
+      onStartVideoCall={async () => {
         try {
           const res = await apiJson<{ room: any; token: string; livekitUrl: string }>(
             "/video/rooms",
@@ -326,6 +421,67 @@ function ProductPickerWrapper() {
   );
 }
 
+function ShoppingListWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList & RootTabParamList>>();
+  const route = useRoute<RouteProp<ProjectsStackParamList, "ShoppingList">>();
+  const project = route.params.project;
+  const companyName = route.params.companyName;
+  return (
+    <ShoppingListScreen
+      project={project}
+      companyName={companyName}
+      onBack={() => navigation.goBack()}
+      onNavigateHome={() => {
+        navigation.getParent()?.navigate("HomeTab", { triggerSync: true });
+      }}
+    />
+  );
+}
+
+function ShopTabScreen() {
+  return <GroupShoppingCartScreen />;
+}
+
+function ShoppingCartHubWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
+  return (
+    <ShoppingCartHubScreen
+      onBack={() => navigation.goBack()}
+      onSelectCart={(cart) =>
+        navigation.navigate("ShoppingCartDetail", {
+          cartId: cart.id,
+          cartLabel: cart.label,
+          projectName: cart.projectName,
+          projectId: cart.projectId,
+        })
+      }
+    />
+  );
+}
+
+function ShoppingCartDetailWrapper() {
+  const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
+  const route = useRoute<RouteProp<ProjectsStackParamList, "ShoppingCartDetail">>();
+  const { cartId, cartLabel, projectName, projectId } = route.params;
+  return (
+    <ShoppingCartDetailScreen
+      cartId={cartId}
+      cartLabel={cartLabel}
+      projectName={projectName}
+      projectId={projectId}
+      onBack={() => navigation.goBack()}
+      onCreateReceipt={({ projectId: pid, receiptOrigin: origin, shoppingCartId: cartId }) => {
+        navigation.navigate("DailyLogs", {
+          project: { id: pid, name: projectName || "" } as ProjectListItem,
+          createLogType: "RECEIPT_EXPENSE",
+          receiptOrigin: origin,
+          shoppingCartId: cartId,
+        });
+      }}
+    />
+  );
+}
+
 function PlanSheetViewerWrapper() {
   const navigation = useNavigation<NativeStackNavigationProp<ProjectsStackParamList>>();
   const route = useRoute<RouteProp<ProjectsStackParamList, "PlanSheetViewer">>();
@@ -420,6 +576,9 @@ function ProjectsStackNavigator() {
       <ProjectsStack.Screen name="Selections" component={SelectionsWrapper} />
       <ProjectsStack.Screen name="SelectionDetail" component={SelectionDetailWrapper} />
       <ProjectsStack.Screen name="ProductPicker" component={ProductPickerWrapper} />
+      <ProjectsStack.Screen name="ShoppingList" component={ShoppingListWrapper} />
+      <ProjectsStack.Screen name="ShoppingCartHub" component={ShoppingCartHubWrapper} />
+      <ProjectsStack.Screen name="ShoppingCartDetail" component={ShoppingCartDetailWrapper} />
     </ProjectsStack.Navigator>
   );
 }
@@ -506,12 +665,14 @@ function NexiCatalogWrapper() {
 // Wrapper for MapScreen
 function MapTabScreen() {
   const navigation = useNavigation<any>();
+  const { setProject } = React.useContext(ProjectFilterContext);
   return (
     <MapScreen
-      onSelectProject={(project) => {
+      onSelectProject={(project: ProjectListItem) => {
+        setProject(project);
+        void setLastProject(project ? { id: project.id, name: project.name } : null);
         navigation.navigate("ProjectsTab", {
-          screen: "DailyLogs",
-          params: { project },
+          screen: "DailyLogFeed",
         });
       }}
     />
@@ -571,6 +732,9 @@ const CompanyContext = React.createContext<{ name: string | null; id: string | n
   refreshKey: 0,
 });
 
+/** User's company-level role (OWNER, ADMIN, PM, etc.) — used for tile gating */
+const UserRoleContext = React.createContext<string | null>(null);
+
 // Hook to get current company from context
 export function useCurrentCompany() {
   return React.useContext(CompanyContext);
@@ -579,19 +743,44 @@ export function useCurrentCompany() {
 // Callback for HomeScreen to update company context
 const SetCompanyContext = React.createContext<(company: { id: string; name: string }) => void>(() => {});
 
+// Project filter context (shared across tabs for module pre-filtering)
+export const ProjectFilterContext = React.createContext<{
+  project: ProjectListItem | null;
+  setProject: (p: ProjectListItem | null) => void;
+}>({
+  project: null,
+  setProject: () => {},
+});
+
+export function useProjectFilter() {
+  return React.useContext(ProjectFilterContext);
+}
+
 function HomeTabScreen() {
   const navigation = useNavigation<any>();
   const company = React.useContext(CompanyContext);
   const setCompany = React.useContext(SetCompanyContext);
+  const { project: filterProject, setProject: setFilterProject } = React.useContext(ProjectFilterContext);
+
+  // When home selects a project filter, also persist as last-used project
+  const handleProjectFilter = React.useCallback(
+    (p: ProjectListItem | null) => {
+      setFilterProject(p);
+      void setLastProject(p ? { id: p.id, name: p.name } : null);
+    },
+    [setFilterProject],
+  );
 
   return (
     <KpiHomeScreen
       companyName={company.name}
       onCompanyChange={setCompany}
+      onProjectFilterChange={handleProjectFilter}
+      externalFilter={filterProject}
       onOpenProject={(project) => {
+        handleProjectFilter(project);
         navigation.navigate("ProjectsTab", {
-          screen: "DailyLogs",
-          params: { project, companyName: company.name ?? undefined },
+          screen: "DailyLogFeed",
         });
       }}
       onCreateProject={() => {
@@ -607,18 +796,39 @@ function HomeTabScreen() {
 }
 
 export function AppNavigator({ onLogout }: { onLogout: () => void }) {
+  const { isTablet } = useDeviceLayout();
+
   const [company, setCompany] = React.useState<{ id: string | null; name: string | null; refreshKey: number }>({
     id: null,
     name: null,
     refreshKey: 0,
   });
 
-  // Check if user is SUPER_ADMIN (for DevSessions tab visibility)
+  // Project filter state (shared across tabs)
+  const [filterProject, setFilterProject] = React.useState<ProjectListItem | null>(null);
+  const filterCtx = React.useMemo(
+    () => ({ project: filterProject, setProject: setFilterProject }),
+    [filterProject],
+  );
+
+  // Check if user is SUPER_ADMIN (for DevSessions tab visibility) + company role
+  const PM_PLUS = new Set(["OWNER", "ADMIN", "PM", "EXECUTIVE"]);
   const [isSuperAdmin, setIsSuperAdmin] = React.useState(false);
+  const [userRole, setUserRole] = React.useState<string | null>(null);
+  const isPmPlus = PM_PLUS.has(userRole ?? "");
   React.useEffect(() => {
     getUserMe()
-      .then((me) => setIsSuperAdmin(me.globalRole === "SUPER_ADMIN"))
-      .catch(() => setIsSuperAdmin(false));
+      .then((me) => {
+        console.log(`[AppNav] getUserMe OK — globalRole=${me.globalRole}, memberships=${me.memberships?.length}`);
+        setIsSuperAdmin(me.globalRole === "SUPER_ADMIN");
+        // Extract company-level role from first membership
+        const role = me.memberships?.[0]?.role ?? null;
+        setUserRole(role);
+      })
+      .catch((err) => {
+        console.log(`[AppNav] getUserMe FAILED:`, err?.message || err);
+        setIsSuperAdmin(false);
+      });
   }, []);
 
   // Stable callback — avoids infinite re-render loop between AppNavigator ↔ KpiHomeScreen
@@ -675,43 +885,70 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
     );
   }
 
+  const tabNavigator = (
+    <Tab.Navigator
+      initialRouteName={initialTab === "DevSessionsTab" && !isSuperAdmin ? "HomeTab" : initialTab}
+      screenOptions={{
+        headerShown: false,
+        ...(isTablet ? { tabBarPosition: "left" as const } : {}),
+      }}
+      tabBar={(props) =>
+        isTablet ? (
+          <TabletSidebar {...props} todoBadgeCount={urgentCount} onLogout={onLogout} />
+        ) : (
+          <ScrollableTabBar {...props} todoBadgeCount={urgentCount} onLogout={onLogout} />
+        )
+      }
+      screenListeners={{
+        tabPress: (e) => {
+          const tabName = e.target?.split("-")[0];
+          if (tabName) void recordTabUsage(tabName);
+          // Pressing Home tab clears the project filter → shows all projects
+          if (tabName === "HomeTab") {
+            setFilterProject(null);
+          }
+        },
+      }}
+    >
+      <Tab.Screen name="HomeTab" component={HomeTabScreen} />
+      <Tab.Screen name="TodosTab" component={TodosScreen} />
+      <Tab.Screen name="TimecardTab" component={TimecardScreen} />
+      <Tab.Screen name="DirectoryTab" component={DirectoryStackNavigator} />
+      <Tab.Screen name="ProjectsTab" component={ProjectsStackNavigator} />
+      <Tab.Screen name="MapTab" component={MapTabScreen} />
+      <Tab.Screen name="ScannerTab" component={ScannerStackNavigator} />
+      <Tab.Screen name="InventoryTab" component={InventoryTabScreen} />
+      <Tab.Screen name="OutboxTab" component={OutboxTabScreen} />
+      <Tab.Screen name="BankingTab" component={BankingTabScreen} />
+      {isPmPlus && (
+        <Tab.Screen name="ShopTab" component={ShopTabScreen} />
+      )}
+      {isSuperAdmin && (
+        <Tab.Screen name="DevSessionsTab" component={DevSessionsStackNavigator} />
+      )}
+    </Tab.Navigator>
+  );
+
   return (
     <LogoutContext.Provider value={onLogout}>
     <CompanyContext.Provider value={company}>
     <SetCompanyContext.Provider value={handleSetCompany}>
-      {/* Top brand bar */}
-      <View style={navStyles.versionHeader}>
-        <Text style={navStyles.versionBrand}>NEXUS</Text>
-      </View>
-
-      <Tab.Navigator
-        initialRouteName={initialTab}
-        screenOptions={{ headerShown: false }}
-        tabBar={(props) => (
-          <ScrollableTabBar {...props} todoBadgeCount={urgentCount} onLogout={onLogout} />
-        )}
-        screenListeners={{
-          tabPress: (e) => {
-            // Record tab usage for smart default
-            const tabName = e.target?.split("-")[0];
-            if (tabName) void recordTabUsage(tabName);
-          },
-        }}
-      >
-        <Tab.Screen name="HomeTab" component={HomeTabScreen} />
-        <Tab.Screen name="TodosTab" component={TodosScreen} />
-        <Tab.Screen name="TimecardTab" component={TimecardScreen} />
-        <Tab.Screen name="DirectoryTab" component={DirectoryStackNavigator} />
-        <Tab.Screen name="ProjectsTab" component={ProjectsStackNavigator} />
-        <Tab.Screen name="MapTab" component={MapTabScreen} />
-        <Tab.Screen name="ScannerTab" component={ScannerStackNavigator} />
-        <Tab.Screen name="InventoryTab" component={InventoryTabScreen} />
-        <Tab.Screen name="OutboxTab" component={OutboxTabScreen} />
-        <Tab.Screen name="BankingTab" component={BankingTabScreen} />
-        {isSuperAdmin && (
-          <Tab.Screen name="DevSessionsTab" component={DevSessionsStackNavigator} />
-        )}
-      </Tab.Navigator>
+    <UserRoleContext.Provider value={userRole}>
+    <ProjectFilterContext.Provider value={filterCtx}>
+      {isTablet ? (
+        /* Tablet: tabBarPosition='left' handles sidebar layout */
+        tabNavigator
+      ) : (
+        /* Phone: top brand bar + bottom tab bar (unchanged) */
+        <>
+          <View style={navStyles.versionHeader}>
+            <Text style={navStyles.versionBrand}>NEXUS</Text>
+          </View>
+          {tabNavigator}
+        </>
+      )}
+    </ProjectFilterContext.Provider>
+    </UserRoleContext.Provider>
     </SetCompanyContext.Provider>
     </CompanyContext.Provider>
     </LogoutContext.Provider>
@@ -721,6 +958,7 @@ export function AppNavigator({ onLogout }: { onLogout: () => void }) {
 /** Valid tab keys for type guard */
 const TAB_KEYS: Record<string, boolean> = {
   HomeTab: true,
+  ShopTab: true,
   TodosTab: true,
   TimecardTab: true,
   DirectoryTab: true,

@@ -1151,6 +1151,9 @@ export class DailyLogService {
         receiptCaptureLat: isReceiptExpense ? (dto.receiptCaptureLat ?? null) : null,
         receiptCaptureLng: isReceiptExpense ? (dto.receiptCaptureLng ?? null) : null,
         receiptCaptureGeoAccuracy: isReceiptExpense ? (dto.receiptCaptureGeoAccuracy ?? null) : null,
+        // NexCART — receipt origin + cart linkage
+        receiptOrigin: isReceiptExpense ? (dto.receiptOrigin as any ?? 'MANUAL') : null,
+        shoppingCartId: isReceiptExpense ? (dto.shoppingCartId ?? null) : null,
         // Inventory move fields
         moveFromLocationId: isInventoryMove ? (dto.moveFromLocationId ?? null) : null,
         moveToLocationId: isInventoryMove ? (dto.moveToLocationId ?? null) : null,
@@ -1819,6 +1822,7 @@ export class DailyLogService {
           status: ProjectBillStatus.PAID,
           memo: `Auto-created from Daily Log receipt submission`,
           sourceDailyLogId: dailyLogId,
+          receiptOrigin: dto.receiptOrigin as any ?? 'MANUAL',
           createdByUserId: actor.userId,
         },
       });
@@ -2034,13 +2038,22 @@ export class DailyLogService {
    * Supports optional filtering by project IDs.
    */
   async listForUser(
-    companyId: string,
+    companyId: string | null,
     actor: AuthenticatedUser,
     filters?: { projectIds?: string[]; limit?: number; offset?: number },
   ) {
     const { userId, role } = actor;
     const limit = filters?.limit ?? 50;
     const offset = filters?.offset ?? 0;
+
+    // SUPER_ADMIN bypasses project-membership checks (same as OWNER/ADMIN)
+    const hasFullAccess =
+      role === Role.OWNER ||
+      role === Role.ADMIN ||
+      actor.globalRole === "SUPER_ADMIN";
+
+    // When companyId is null (SUPER_ADMIN cross-company mode), skip company filter
+    const companyWhere = companyId ? { companyId } : {};
 
     // Determine which projects the user can access
     let projectIds: string[];
@@ -2049,10 +2062,10 @@ export class DailyLogService {
       // User specified projects - verify access to each
       const requestedIds = filters.projectIds;
 
-      if (role === Role.OWNER || role === Role.ADMIN) {
-        // Admins can access all company projects - just verify they belong to company
+      if (hasFullAccess) {
+        // Admins / SUPER_ADMIN can access all company projects
         const projects = await this.prisma.project.findMany({
-          where: { id: { in: requestedIds }, companyId },
+          where: { id: { in: requestedIds }, ...companyWhere },
           select: { id: true },
         });
         projectIds = projects.map((p) => p.id);
@@ -2061,7 +2074,7 @@ export class DailyLogService {
         const memberships = await this.prisma.projectMembership.findMany({
           where: {
             userId,
-            companyId,
+            ...companyWhere,
             projectId: { in: requestedIds },
           },
           select: { projectId: true },
@@ -2070,15 +2083,15 @@ export class DailyLogService {
       }
     } else {
       // No filter - get all accessible projects
-      if (role === Role.OWNER || role === Role.ADMIN) {
+      if (hasFullAccess) {
         const projects = await this.prisma.project.findMany({
-          where: { companyId },
+          where: companyWhere,
           select: { id: true },
         });
         projectIds = projects.map((p) => p.id);
       } else {
         const memberships = await this.prisma.projectMembership.findMany({
-          where: { userId, companyId },
+          where: { userId, ...companyWhere },
           select: { projectId: true },
         });
         projectIds = memberships.map((m) => m.projectId);

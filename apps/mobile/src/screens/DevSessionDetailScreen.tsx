@@ -12,6 +12,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { apiJson, apiFetch } from "../api/client";
 import { colors } from "../theme/colors";
 
@@ -84,6 +85,7 @@ function elapsedTime(startStr: string): string {
 }
 
 export function DevSessionDetailScreen({ session, onBack, onOpenApproval }: Props) {
+  const insets = useSafeAreaInsets();
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -186,8 +188,8 @@ export function DevSessionDetailScreen({ session, onBack, onOpenApproval }: Prop
       keyboardVerticalOffset={0}
     >
       {/* Header */}
-      <View style={styles.header}>
-        <Pressable onPress={onBack} style={styles.backBtn}>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <Pressable onPress={onBack} style={styles.backBtn} hitSlop={12}>
           <Text style={styles.backText}>← Back</Text>
         </Pressable>
         <View style={styles.headerInfo}>
@@ -375,7 +377,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     gap: 12,
   },
-  backBtn: { paddingRight: 4 },
+  backBtn: { paddingVertical: 8, paddingHorizontal: 12 },
   backText: { color: colors.textOnPrimary, fontSize: 15, fontWeight: "600" },
   headerInfo: { flex: 1 },
   headerTitle: { fontSize: 16, fontWeight: "800", color: colors.textOnPrimary },

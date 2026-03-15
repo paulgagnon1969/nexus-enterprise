@@ -14,7 +14,7 @@ tags: [cam, library, index, portfolio, competitive-advantage]
 
 # Nexus CAM Library
 
-> **54 modules. 7 functional areas. NexOP ~6–12% of revenue recovered. NexINT 72% → 95% operational integrity.**
+> **55 modules. 7 functional areas. NexOP ~6–12% of revenue recovered. NexINT 72% → 95% operational integrity.**
 
 This document is the master index and executive summary of every Competitive Advantage Module in the Nexus platform. It is organized in three tiers:
 
@@ -42,7 +42,7 @@ Five cross-tenant collaboration mechanisms form the backbone:
 - NexNet Candidate Pool Sharing (curated talent distribution)
 - The Referral Graph (trust as the strongest intent signal)
 
-The 54 CAMs below organize into four layers of the intent system:
+The 55 CAMs below organize into four layers of the intent system:
 - **Discovery & Recruitment** — CLT-INTG-0001 (Sovereign Marketplace), CLT-COLLAB-0001/0002, NexFIND, Phantom Fleet
 - **Identity & Reputation** — NexCheck, TUCKS, NexOP, NexINT
 - **Operational Execution** — NexPLAN, BOM Pricing, Task Cascading, Auto-Posting
@@ -62,13 +62,13 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
               AUTO   INTL   INTG   VIS   SPD   ACC   COLLAB   CMP
   FIN          2      2      1      2     1     5      —       —     = 13
   EST          1      2      1      —     1     2      —       —     =  7
-  OPS          1      3      1      4     —     1      1       —     = 11
+  OPS          2      3      1      4     —     1      1       —     = 11
   TECH         2      2      3      2     2     1      1       —     = 13
   CLT          —      1      1      —     —     —      4       —     =  6
   CMP          1      —      1      —     —     —      —       1     =  3
   HR           —      —      —      —     —     —      —       —     =  0
              ───    ───    ───    ───   ───   ───    ───     ───
-              7     10      8      8     4     9      6       1     = 53+1 portfolio
+              7     10      8      8     4     9      6       1     = 54+1 portfolio
 ```
 
 **Densest cells**: FIN-ACC (5), OPS-VIS (4), CLT-COLLAB (4), TECH-INTG (3), TECH-VIS (2), TECH-INTL (2), TECH-AUTO (2), FIN-AUTO (2), FIN-INTL (2), FIN-VIS (2)
@@ -107,12 +107,13 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 | **EST-INTL-0002** | **ScanNEX Component Identity & Material Intelligence** | **36/40** | **~0.85%** | **draft** |
 | EST-SPD-0001 | Redis Price List Caching | 29/40 | ~0.13% | draft |
 
-### Operations (OPS) — 11 CAMs | Module NexOP ~3.31%
+### Operations (OPS) — 12 CAMs | Module NexOP ~3.76%
 
 | CAM ID | Title | Score | NexOP | Status |
 |--------|-------|-------|-------|--------|
 | OPS-ACC-0001 | NEXI Capture — Other Category Disposition | 26/40 | ~0.08% | draft |
 | OPS-AUTO-0001 | Group Task Cascading Completion | 26/40 | — | draft |
+|| **OPS-AUTO-0002** | **NexBUY — Group Shopping Cart & Consolidated Purchase** | **33/40** | **~0.45%** | **draft** |
 | OPS-COLLAB-0001 | Phantom Fleet — Personal Asset Sharing | 31/40 | ~0.39% | draft |
 | OPS-INTG-0001 | NexFIND Receipt Bridge — Verified Suppliers | 30/40 | ~0.26% | draft |
 | OPS-INTL-0001 | NexFIND — Supplier Intelligence Network | 35/40 | ~0.54% | draft |
@@ -386,6 +387,15 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 **Score**: 26/40 (U:6 V:7 D:8 Def:5)
 
 → [Full CAM](./OPS-AUTO-0001-group-task-cascading-completion.md)
+
+#### OPS-AUTO-0002 — NexBUY: Group Shopping Cart & Consolidated Purchase ★ New
+*"Five projects need 2×4s. One purchase order. One trip. Every site gets exactly what it needs."*
+
+**Problem**: Each PM places independent material orders per project — 5 projects buying the same lumber means 5 retail-price trips to the same supplier. No cross-project visibility, no volume leverage, no organizational buying power.
+**NCC Advantage**: Tenant-wide shopping cart view with multi-select consolidated purchasing. Material aggregation by normalized key preserves per-project allocation while unlocking bulk pricing. Integrates with NexCART normalization, NexCBAML pricing, and the receipt reconciliation pipeline.
+**Score**: 33/40 (U:8 V:9 D:9 Def:7) | **NexOP**: ~0.45%
+
+→ [Full CAM](./OPS-AUTO-0002-nexbuy-group-shopping-cart-consolidated-purchase.md)
 
 #### OPS-COLLAB-0001 — Phantom Fleet: Personal Asset Sharing
 *"Making visible what's already there."*
@@ -700,3 +710,4 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 || 1.4 | 2026-03-11 | Added CLT-COLLAB-0004 CAM Portal Viral Referral (33/40) and CMP-CMP-0001 CNDA+ Gated Access (34/40) — 49 CAMs total |
 || 1.5 | 2026-03-13 | Added TECH-COLLAB-0002 Session Mirror — Remote Dev Oversight from Mobile (33/40) — 53 CAMs total |
 || 1.6 | 2026-03-13 | Added TECH-AUTO-0002 Secure Web Portal Campaigns (33/40) — 54 CAMs total |
+|| 1.7 | 2026-03-14 | Added OPS-AUTO-0002 NexBUY — Group Shopping Cart & Consolidated Purchase (33/40) — 55 CAMs total |

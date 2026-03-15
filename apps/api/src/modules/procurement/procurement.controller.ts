@@ -7,7 +7,10 @@ import {
   Param,
   Query,
   Body,
+  Req,
   UseGuards,
+  Logger,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/auth.guards';
 import { ProcurementService } from './procurement.service';
@@ -16,9 +19,27 @@ import type { ShoppingCartStatus, ShoppingCartHorizon, ShoppingCartItemStatus } 
 @Controller('procurement')
 @UseGuards(JwtAuthGuard)
 export class ProcurementController {
+  private readonly logger = new Logger(ProcurementController.name);
   constructor(private readonly service: ProcurementService) {}
 
   // ── Carts ────────────────────────────────────────────────────────────────
+
+  /** All carts across the tenant — for Group Shopping Cart view */
+  @Get('carts/all')
+  listAllCarts(
+    @Req() req: any,
+    @Query('status') statusFilter?: string,
+    @Query('includeCompleted') includeCompleted?: string,
+  ) {
+    const user = req.user;
+    const statuses = statusFilter
+      ? (statusFilter.split(',').map(s => s.trim().toUpperCase()) as any[])
+      : undefined;
+    return this.service.listAllCartsForCompany(user.companyId, {
+      statuses,
+      includeCompleted: includeCompleted === 'true',
+    });
+  }
 
   @Get('carts')
   listCarts(@Query('projectId') projectId: string) {
@@ -31,10 +52,11 @@ export class ProcurementController {
   }
 
   @Post('carts')
-  createCart(
+  async createCart(
+    @Req() req: any,
     @Body()
     body: {
-      companyId: string;
+      companyId?: string;
       projectId: string;
       createdByUserId?: string;
       label?: string;
@@ -43,10 +65,20 @@ export class ProcurementController {
       notes?: string;
     },
   ) {
-    return this.service.createCart({
+    const user = req.user;
+    const dto = {
       ...body,
+      companyId: body.companyId || user.companyId,
+      createdByUserId: body.createdByUserId || user.userId,
       horizonDate: body.horizonDate ? new Date(body.horizonDate) : undefined,
-    });
+    };
+    this.logger.log(`createCart dto=${JSON.stringify(dto)}`);
+    try {
+      return await this.service.createCart(dto);
+    } catch (err: any) {
+      this.logger.error(`createCart FAILED: ${err?.message}`, err?.stack);
+      throw new InternalServerErrorException(err?.message ?? 'createCart failed');
+    }
   }
 
   @Patch('carts/:id')
@@ -76,7 +108,7 @@ export class ProcurementController {
   // ── Cart Items ───────────────────────────────────────────────────────────
 
   @Post('carts/:id/items')
-  addItem(
+  async addItem(
     @Param('id') cartId: string,
     @Body()
     body: {
@@ -90,7 +122,13 @@ export class ProcurementController {
       roomParticleId?: string;
     },
   ) {
-    return this.service.addItem(cartId, body);
+    this.logger.log(`addItem cartId=${cartId} body=${JSON.stringify(body)}`);
+    try {
+      return await this.service.addItem(cartId, body);
+    } catch (err: any) {
+      this.logger.error(`addItem FAILED: ${err?.message}`, err?.stack);
+      throw new InternalServerErrorException(err?.message ?? 'addItem failed');
+    }
   }
 
   @Patch('carts/:cartId/items/:itemId')
@@ -132,6 +170,17 @@ export class ProcurementController {
     @Body() body?: { zipCode?: string },
   ) {
     return this.service.runCba(cartId, body?.zipCode);
+  }
+
+  // ── Consolidated Purchase ────────────────────────────────────────────────
+
+  @Post('consolidate')
+  consolidatePurchase(
+    @Req() req: any,
+    @Body() body: { cartIds: string[] },
+  ) {
+    const user = req.user;
+    return this.service.consolidatePurchase(user.companyId, body.cartIds);
   }
 
   // ── Drawdown Ledger ──────────────────────────────────────────────────────

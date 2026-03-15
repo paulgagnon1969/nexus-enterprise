@@ -2843,6 +2843,9 @@ model ProjectBill {
   // Link to source daily log (for receipts submitted via daily log)
   sourceDailyLogId String?
 
+  /// NexCART — Receipt origin propagated from source DailyLog
+  receiptOrigin ReceiptOrigin?
+
   // Link to source imported/bank transaction (for prescreened tentative bills)
   sourceTransactionId     String? // ImportedTransaction.id or BankTransaction.id
   sourceTransactionSource String? // HD_PRO_XTRA, CHASE_BANK, APPLE_CARD, PLAID
@@ -3849,6 +3852,10 @@ model DailyLog {
   expenseDate   DateTime?
   sourceBillId  String?   @unique
 
+  /// NexCART — Receipt origin tracking
+  receiptOrigin  ReceiptOrigin?
+  shoppingCartId String?
+
   /// Receipt line item selection adjustments
   /// JSON: [{ ocrResultId: string, lineItemIndex: number }]
   excludedLineItemsJson String?
@@ -3897,6 +3904,7 @@ model DailyLog {
 
   /// Material lots created from this daily log (receipt)
   sourceMaterialLots MaterialLot[] @relation("MaterialLotSourceDailyLog")
+  shoppingCart      ShoppingCart?        @relation("ShoppingCartReceipts", fields: [shoppingCartId], references: [id])
 
   // Purchase Reconciliation
   receiptLineDispositions ReceiptLineDisposition[]
@@ -3910,6 +3918,7 @@ model DailyLog {
   @@index([isDelayedPublish], map: "DailyLog_delayed_idx")
   @@index([projectId, type], map: "DailyLog_project_type_idx")
   @@index([companyId, sequenceYear], map: "DailyLog_company_year_idx")
+  @@index([shoppingCartId], map: "DailyLog_shopping_cart_idx")
 }
 
 model DailyLogAttachment {
@@ -9221,6 +9230,11 @@ model GlobalSupplier {
 // NexCART — Intelligent Materials Procurement Engine
 // ===================================================================
 
+enum ReceiptOrigin {
+  MANUAL
+  SHOPPING_CART
+}
+
 enum ShoppingCartStatus {
   DRAFT
   READY
@@ -9261,6 +9275,7 @@ model ShoppingCart {
   project   Project  @relation(fields: [projectId], references: [id])
   createdBy User?    @relation("ShoppingCartCreatedBy", fields: [createdByUserId], references: [id])
   items     ShoppingCartItem[]
+  receiptLogs DailyLog[] @relation("ShoppingCartReceipts")
 
   @@index([companyId, projectId, status], map: "ShoppingCart_company_project_status_idx")
   @@index([projectId, status], map: "ShoppingCart_project_status_idx")

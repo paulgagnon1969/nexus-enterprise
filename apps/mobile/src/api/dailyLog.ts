@@ -16,6 +16,7 @@ export async function fetchDailyLogFeed(options?: {
   projectIds?: string[];
   limit?: number;
   offset?: number;
+  allCompanies?: boolean;
 }): Promise<DailyLogFeedResponse> {
   const params = new URLSearchParams();
 
@@ -27,6 +28,9 @@ export async function fetchDailyLogFeed(options?: {
   }
   if (options?.offset != null) {
     params.set("offset", String(options.offset));
+  }
+  if (options?.allCompanies) {
+    params.set("allCompanies", "true");
   }
 
   const query = params.toString();

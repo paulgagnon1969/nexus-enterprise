@@ -95,9 +95,9 @@ export class DevSessionService {
     return session;
   }
 
-  async listSessions(companyId: string) {
+  async listSessions(_companyId?: string) {
+    // SUPER_ADMIN sees all sessions across all companies
     return this.prisma.devSession.findMany({
-      where: { companyId },
       orderBy: [
         { status: "asc" }, // ACTIVE first
         { createdAt: "desc" },

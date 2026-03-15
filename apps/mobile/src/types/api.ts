@@ -144,6 +144,10 @@ export interface DailyLogCreateRequest {
   // Equipment usage fields (used when type = EQUIPMENT_USAGE)
   equipmentUsageJson?: EquipmentUsageEntry[];
 
+  // Receipt origin tracking
+  receiptOrigin?: "MANUAL" | "SHOPPING_CART";
+  shoppingCartId?: string | null;
+
   // Sharing flags (optional)
   shareInternal?: boolean;
   shareSubs?: boolean;

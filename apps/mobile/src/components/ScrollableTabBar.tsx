@@ -17,16 +17,21 @@ import * as Haptics from "expo-haptics";
 import { UserMenuButton } from "./UserMenuButton";
 import { CallContactPicker, type CallPickerResult } from "./CallContactPicker";
 
-/** Module metadata (everything except Home) */
+/** Module metadata — dialpad layout optimised for right-handed use
+ *  1: ToDo's     2: Scanner    3: Daily Logs
+ *  4: Timecard   5: Inventory  6: Map
+ *  7: Directory  8: Outbox     9: Dev Mirror
+ */
 const MODULES: { key: string; icon: string; label: string }[] = [
   { key: "TodosTab", icon: "✅", label: "ToDo's" },
-  { key: "TimecardTab", icon: "⏱️", label: "Timecard" },
-  { key: "DirectoryTab", icon: "👥", label: "Directory" },
-  { key: "ProjectsTab", icon: "📝", label: "Daily Logs" },
-  { key: "MapTab", icon: "🗺️", label: "Map" },
   { key: "ScannerTab", icon: "📐", label: "Scanner" },
+  { key: "ProjectsTab", icon: "📝", label: "Daily Logs" },
+  { key: "TimecardTab", icon: "⏱️", label: "Timecard" },
   { key: "InventoryTab", icon: "📦", label: "Inventory" },
+  { key: "MapTab", icon: "🗺️", label: "Map" },
+  { key: "DirectoryTab", icon: "👥", label: "Directory" },
   { key: "OutboxTab", icon: "📤", label: "Outbox" },
+  { key: "ShopTab", icon: "🛒", label: "Shop" },
   { key: "DevSessionsTab", icon: "🛠️", label: "Dev Mirror" },
 ];
 
@@ -40,6 +45,7 @@ const TAB_META: Record<string, { icon: string; label: string }> = {
   ScannerTab: { icon: "📐", label: "Scanner" },
   InventoryTab: { icon: "📦", label: "Inventory" },
   OutboxTab: { icon: "📤", label: "Outbox" },
+  ShopTab: { icon: "🛒", label: "Shop" },
   DevSessionsTab: { icon: "🛠️", label: "Dev Mirror" },
 };
 

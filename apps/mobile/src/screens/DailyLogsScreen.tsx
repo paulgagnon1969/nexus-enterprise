@@ -29,6 +29,9 @@ import { colors } from "../theme/colors";
 import type { DailyLogCreateRequest, DailyLogType, ProjectListItem } from "../types/api";
 import type { PetlSessionChanges } from "./FieldPetlScreen";
 
+/** Roles that can see the per-project Shopping Cart tile */
+const FOREMAN_PLUS = new Set(["OWNER", "ADMIN", "EXECUTIVE", "PM", "FOREMAN"]);
+
 function makeLocalId() {
   return `local_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -74,8 +77,14 @@ export function DailyLogsScreen({
   onOpenSelections,
   onStartCall,
   onNavigateHome,
+  onOpenShoppingList,
+  userRole,
+  receiptOrigin,
+  shoppingCartId,
   petlChanges,
   createLogType,
+  embedded,
+  onLogCreated,
 }: {
   project: ProjectListItem;
   companyName?: string;
@@ -87,13 +96,25 @@ export function DailyLogsScreen({
   onOpenSelections?: () => void;
   onStartCall?: () => void;
   onNavigateHome?: () => void;
+  onOpenShoppingList?: () => void;
+  userRole?: string;
+  receiptOrigin?: "MANUAL" | "SHOPPING_CART";
+  shoppingCartId?: string;
   petlChanges?: PetlSessionChanges;
   createLogType?: string;
+  /** When true, hides header/breadcrumb/previous-logs (used in tablet three-pane layout) */
+  embedded?: boolean;
+  /** Called after a log is created in embedded mode (replaces navigateHome) */
+  onLogCreated?: () => void;
 }) {
   const [logs, setLogs] = useState<any[]>([]);
   const [status, setStatus] = useState<string | null>(null);
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  // null = show tile grid, set = show form for that type
+  const [selectedType, setSelectedType] = useState<DailyLogType | null>(
+    createLogType ? (createLogType as DailyLogType) : null,
+  );
   const [logType, setLogType] = useState<DailyLogType>((createLogType as DailyLogType) || "PUDL");
   const [logDate, setLogDate] = useState(today);
   const [title, setTitle] = useState("");
@@ -433,6 +454,9 @@ export function DailyLogsScreen({
         expenseAmount: expenseAmount ? parseFloat(expenseAmount) : null,
         expenseDate: expenseDate || null,
       } : {}),
+      // Receipt origin tracking
+      ...(isReceipt && receiptOrigin ? { receiptOrigin } : {}),
+      ...(isReceipt && shoppingCartId ? { shoppingCartId } : {}),
       // Receipts are private by default
       shareInternal: isReceipt ? false : true,
       shareSubs: false,
@@ -474,6 +498,27 @@ export function DailyLogsScreen({
     // Trigger sync immediately (will work if online)
     triggerSync("daily log created");
 
+    // In embedded mode (tablet three-pane): reset form + notify parent
+    if (embedded) {
+      setLogType("PUDL");
+      setTitle("");
+      setWeatherSummary("");
+      setCrewOnSite("");
+      setWorkPerformed("");
+      setIssues("");
+      setSafetyIncidents("");
+      setManpowerOnsite("");
+      setPersonOnsite("");
+      setConfidentialNotes("");
+      setExpenseVendor("");
+      setExpenseAmount("");
+      setExpenseDate(today);
+      setAttachments([]);
+      setStatus("✅ Saved. Syncing...");
+      onLogCreated?.();
+      return;
+    }
+
     // Navigate to Home with sync feedback instead of staying on blank form
     if (onNavigateHome) {
       onNavigateHome();
@@ -503,29 +548,33 @@ export function DailyLogsScreen({
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
     >
-      {/* Header */}
-      <View style={styles.header}>
-        <Pressable onPress={onBack}>
-          <Text style={styles.link}>← Back</Text>
-        </Pressable>
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>New Daily Log</Text>
+      {/* Header — hidden in embedded tablet mode */}
+      {!embedded && (
+        <View style={styles.header}>
+          <Pressable onPress={onBack}>
+            <Text style={styles.link}>← Back</Text>
+          </Pressable>
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle}>New Daily Log</Text>
+          </View>
+          <Pressable onPress={refreshOnline}>
+            <Text style={styles.link}>⟳</Text>
+          </Pressable>
         </View>
-        <Pressable onPress={refreshOnline}>
-          <Text style={styles.link}>⟳</Text>
-        </Pressable>
-      </View>
+      )}
 
-      {/* Breadcrumb: Tenant Org / Project Name */}
-      <View style={styles.breadcrumb}>
-        {companyName && (
-          <>
-            <Text style={styles.breadcrumbOrg}>{companyName}</Text>
-            <Text style={styles.breadcrumbSep}> / </Text>
-          </>
-        )}
-        <Text style={styles.breadcrumbProject}>{project.name}</Text>
-      </View>
+      {/* Breadcrumb — hidden in embedded tablet mode */}
+      {!embedded && (
+        <View style={styles.breadcrumb}>
+          {companyName && (
+            <>
+              <Text style={styles.breadcrumbOrg}>{companyName}</Text>
+              <Text style={styles.breadcrumbSep}> / </Text>
+            </>
+          )}
+          <Text style={styles.breadcrumbProject}>{project.name}</Text>
+        </View>
+      )}
 
       <KeyboardAwareScrollView
         style={styles.scrollView}
@@ -540,37 +589,58 @@ export function DailyLogsScreen({
       >
         {status ? <Text style={styles.status}>{status}</Text> : null}
 
-        {/* 1. LOG TYPE SELECTOR */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Log Type</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.typeScroll}
-          >
+        {/* ── TILE SELECTOR (shown when no type is chosen yet) ── */}
+        {!selectedType && (
+          <View style={styles.tileGrid}>
             {([
-              { key: "PUDL" as const, label: "📝 Daily Log" },
-              { key: "RECEIPT_EXPENSE" as const, label: "🧾 Receipt" },
-              { key: "JSA" as const, label: "⚠️ Job Safety" },
-              { key: "INCIDENT" as const, label: "🚨 Incident" },
-              { key: "QUALITY" as const, label: "🔍 Quality" },
-            ]).map((t) => (
+              { key: "PUDL" as const, icon: "📝", title: "Daily Log", desc: "Field notes & progress" },
+              { key: "RECEIPT_EXPENSE" as const, icon: "🧾", title: "Receipt", desc: "Expense capture & OCR" },
+              { key: "JSA" as const, icon: "⚠️", title: "Job Safety", desc: "JSA hazard assessment" },
+              { key: "INCIDENT" as const, icon: "🚨", title: "Incident", desc: "Safety incident report" },
+              { key: "QUALITY" as const, icon: "🔍", title: "Quality", desc: "Quality inspection" },
+              ...((FOREMAN_PLUS.has(userRole ?? "")) ? [
+                { key: "SHOPPING_LIST" as const, icon: "🛒", title: "Shopping Cart", desc: "Project materials" },
+              ] : []),
+            ] as const).map((t) => (
               <Pressable
                 key={t.key}
-                style={[
-                  styles.typeChip,
-                  logType === t.key && styles.typeChipSelected,
-                ]}
-                onPress={() => setLogType(t.key)}
+                style={styles.tile}
+                onPress={() => {
+                  if (t.key === "SHOPPING_LIST") {
+                    onOpenShoppingList?.();
+                  } else {
+                    setLogType(t.key);
+                    setSelectedType(t.key);
+                  }
+                }}
               >
-                <Text
-                  style={logType === t.key ? styles.typeChipTextSelected : styles.typeChipText}
-                >
-                  {t.label}
-                </Text>
+                <Text style={styles.tileIcon}>{t.icon}</Text>
+                <Text style={styles.tileTitle}>{t.title}</Text>
+                <Text style={styles.tileDesc}>{t.desc}</Text>
               </Pressable>
             ))}
-          </ScrollView>
+          </View>
+        )}
+
+        {/* ── FORM (shown after type selection) ── */}
+        {selectedType && (
+        <>
+        {/* Type badge + change button */}
+        <View style={styles.typeBadgeRow}>
+          <Pressable
+            style={styles.typeBadge}
+            onPress={() => { setSelectedType(null); }}
+          >
+            <Text style={styles.typeBadgeText}>
+              {logType === "PUDL" ? "📝 Daily Log"
+                : logType === "RECEIPT_EXPENSE" ? "🧾 Receipt"
+                : logType === "JSA" ? "⚠️ Job Safety"
+                : logType === "INCIDENT" ? "🚨 Incident"
+                : logType === "QUALITY" ? "🔍 Quality"
+                : logType}
+            </Text>
+            <Text style={styles.typeBadgeChange}>Change ▾</Text>
+          </Pressable>
         </View>
 
         {/* 2. DATE + PETL inline */}
@@ -789,20 +859,15 @@ export function DailyLogsScreen({
           <Text style={styles.saveButtonText}>Save Daily Log</Text>
         </Pressable>
 
-        {/* Previous logs — full list, tappable */}
-        {logs.length > 0 && (
+        </>)}{/* end selectedType wrapper */}
+
+        {/* Previous logs — hidden in embedded tablet mode (middle pane handles list) */}
+        {!embedded && logs.length > 0 && (
           <View style={styles.logsSection}>
             <View style={styles.logsSectionHeader}>
               <Text style={styles.logsSectionTitle}>Previous Logs ({logs.length})</Text>
-              {logs.length > 5 && (
-                <Pressable onPress={() => setShowAllLogs((v) => !v)}>
-                  <Text style={styles.logsToggle}>
-                    {showAllLogs ? "Show Less" : `Show All ${logs.length}`}
-                  </Text>
-                </Pressable>
-              )}
             </View>
-            {(showAllLogs ? logs : logs.slice(0, 5)).map((l) => (
+            {logs.map((l) => (
               <Pressable
                 key={l.id}
                 style={styles.logCard}
@@ -1072,7 +1137,62 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
 
-  // Type selector
+  // Tile grid selector
+  tileGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    marginBottom: 16,
+  },
+  tile: {
+    width: "47%" as any,
+    backgroundColor: colors.background,
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.borderMuted,
+    alignItems: "center",
+    gap: 4,
+  },
+  tileIcon: {
+    fontSize: 28,
+    marginBottom: 4,
+  },
+  tileTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.textPrimary,
+    textAlign: "center",
+  },
+  tileDesc: {
+    fontSize: 11,
+    color: colors.textMuted,
+    textAlign: "center",
+  },
+  typeBadgeRow: {
+    marginBottom: 12,
+  },
+  typeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: colors.primary,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  typeBadgeText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.textOnPrimary,
+  },
+  typeBadgeChange: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.7)",
+  },
+
+  // Type selector (legacy chips kept for reference)
   typeScroll: {
     marginTop: 6,
     marginBottom: 4,

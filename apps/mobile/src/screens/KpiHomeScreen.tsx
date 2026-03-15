@@ -5,14 +5,12 @@ import {
   Pressable,
   StyleSheet,
   ScrollView,
+  TextInput,
   RefreshControl,
   ActivityIndicator,
-  Animated as RNAnimated,
 } from "react-native";
-import Mapbox from "@rnmapbox/maps";
-import { useOrientation } from "../hooks/useOrientation";
-import * as Location from "expo-location";
 import * as Haptics from "expo-haptics";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { apiJson } from "../api/client";
 import { fetchMyKpis, type PersonalKpis } from "../api/analytics";
@@ -20,61 +18,45 @@ import { fetchDailyLogFeed } from "../api/dailyLog";
 import { getUserMe, getUserCompanyMe } from "../api/user";
 import { switchCompany as apiSwitchCompany } from "../api/company";
 import { getCache, setCache } from "../offline/cache";
+import { getFavoriteProjectIds, toggleFavoriteProject, getLastSelectedCompanyId, setLastSelectedCompanyId } from "../storage/settings";
+import { getProjectScores, recordUsage, type ProjectScore } from "../storage/usageTracker";
 import { colors } from "../theme/colors";
-import type { ProjectListItem, DailyLogListItem } from "../types/api";
+import { useDeviceLayout } from "../hooks/useDeviceLayout";
+import { ProjectMap, type ProjectMapHandle } from "../components/ProjectMap";
+import { MapScreen } from "./MapScreen";
+import type { ApiRole, ProjectListItem, DailyLogListItem } from "../types/api";
 
-// ─── Haversine distance (miles) ───────────────────────────────────────────────
+// ─── Status filter types ──────────────────────────────────────────────────
 
-function haversineMiles(
-  lat1: number,
-  lng1: number,
-  lat2: number,
-  lng2: number,
-): number {
-  const R = 3959; // Earth radius in miles
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLng = ((lng2 - lng1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+type StatusFilter = "active" | "closed" | "all";
+
+const STATUS_META: Record<StatusFilter, { icon: string; label: string; color: string }> = {
+  active: { icon: "●", label: "Active", color: "#22c55e" },
+  closed: { icon: "●", label: "Closed", color: "#ef4444" },
+  all:    { icon: "◐", label: "All",    color: "#94a3b8" },
+};
+
+/** Display metadata for project-level statuses (used when a project is selected) */
+const PROJECT_STATUS_OPTIONS = [
+  { value: "active",    label: "Active",    icon: "●", color: "#22c55e" },
+  { value: "on-hold",   label: "On Hold",   icon: "⏸", color: "#f59e0b" },
+  { value: "completed", label: "Completed", icon: "✓", color: "#3b82f6" },
+  { value: "archived",  label: "Archived",  icon: "◉", color: "#94a3b8" },
+] as const;
+
+function projectStatusMeta(raw: string | null | undefined) {
+  const s = (raw ?? "").toLowerCase().trim();
+  return (
+    PROJECT_STATUS_OPTIONS.find((o) => o.value === s) ??
+    // "open" → active, anything unrecognized → first match
+    (s === "open" ? PROJECT_STATUS_OPTIONS[0] : { value: s || "active", label: s || "Active", icon: "●", color: "#22c55e" })
+  );
 }
 
-// ─── GeoJSON builder ──────────────────────────────────────────────────────────
+/** Roles that can change a project's status */
+const STATUS_CHANGE_ROLES = new Set<string>(["OWNER", "ADMIN"]);
 
-function toNearbyGeoJson(
-  projects: ProjectListItem[],
-): GeoJSON.FeatureCollection<GeoJSON.Point> {
-  return {
-    type: "FeatureCollection",
-    features: projects
-      .filter((p) => p.latitude != null && p.longitude != null)
-      .map((p) => ({
-        type: "Feature" as const,
-        id: p.id,
-        geometry: {
-          type: "Point" as const,
-          coordinates: [p.longitude!, p.latitude!],
-        },
-        properties: {
-          id: p.id,
-          name: p.name,
-          address: [p.addressLine1, p.city, p.state].filter(Boolean).join(", "),
-        },
-      })),
-  };
-}
-
-/** Lightweight type matching @rnmapbox/maps ShapeSource onPress event */
-interface MapPressEvent {
-  features: Array<GeoJSON.Feature<GeoJSON.Geometry>>;
-  coordinates: { latitude: number; longitude: number };
-  point: { x: number; y: number };
-}
-
-// ─── KPI color helper ─────────────────────────────────────────────────────────
+// ─── KPI color helper ─────────────────────────────────────────────────────
 
 function kpiColor(you: number, avg: number): string {
   if (avg === 0) return "#22c55e"; // no baseline → green
@@ -84,43 +66,32 @@ function kpiColor(you: number, avg: number): string {
   return "#ef4444"; // red
 }
 
-// ─── Map pin styles ───────────────────────────────────────────────────────────
+// ─── Uniform row height for visual symmetry (all cards, banners, ranking) ──
 
-const pinStyle: Mapbox.CircleLayerStyle = {
-  circleColor: colors.primary,
-  circleRadius: 9,
-  circleStrokeWidth: 2.5,
-  circleStrokeColor: "#ffffff",
-};
+const ROW_HEIGHT = 40;
 
-const pinInnerStyle: Mapbox.CircleLayerStyle = {
-  circleColor: "#ffffff",
-  circleRadius: 3,
-};
-
-// ─── Directions helper ────────────────────────────────────────────────────────
-
-import { openPreferredMap } from "../utils/openPreferredMap";
-
-function openDirections(lat: number, lng: number, address?: string | null) {
-  openPreferredMap({ latitude: lat, longitude: lng, address });
-}
-
-// ─── Component ────────────────────────────────────────────────────────────────
-
-const NEARBY_RADIUS_MILES = 15;
+// ─── Component ────────────────────────────────────────────────────────────
 
 interface Props {
   onOpenProject: (project: ProjectListItem) => void;
   onCreateProject?: () => void;
   onOpenMap?: () => void;
   onCompanyChange?: (company: { id: string; name: string }) => void;
+  onProjectFilterChange?: (project: ProjectListItem | null) => void;
+  /** External filter (from shared context) — when cleared externally, local state syncs */
+  externalFilter?: ProjectListItem | null;
   companyName?: string | null;
 }
 
-export function KpiHomeScreen({ onOpenProject, onCreateProject, onOpenMap, onCompanyChange, companyName }: Props) {
-  const { isLandscape } = useOrientation();
-
+export function KpiHomeScreen({
+  onOpenProject,
+  onCreateProject,
+  onOpenMap,
+  onCompanyChange,
+  onProjectFilterChange,
+  externalFilter,
+  companyName,
+}: Props) {
   // Data
   const [kpis, setKpis] = useState<PersonalKpis | null>(null);
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
@@ -134,22 +105,69 @@ export function KpiHomeScreen({ onOpenProject, onCreateProject, onOpenMap, onCom
   const [localCompanyName, setLocalCompanyName] = useState<string | null>(companyName ?? null);
   const [showCompanyPicker, setShowCompanyPicker] = useState(false);
   const [switchingCompanyId, setSwitchingCompanyId] = useState<string | null>(null);
-
-  // Location
-  const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(null);
+  const [isAllCompaniesMode, setIsAllCompaniesMode] = useState(false);
 
   // Project filter
   const [filteredProject, setFilteredProject] = useState<ProjectListItem | null>(null);
+
+  // Sync with external filter (e.g. cleared when Home tab pressed)
+  useEffect(() => {
+    if (externalFilter === null && filteredProject !== null) {
+      setFilteredProject(null);
+    }
+  }, [externalFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const [showProjectFilter, setShowProjectFilter] = useState(false);
+  const [projectSearch, setProjectSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
 
-  // Map callout
-  const [selectedProject, setSelectedProject] = useState<ProjectListItem | null>(null);
-  const calloutSlide = useRef(new RNAnimated.Value(200)).current;
-  const cameraRef = useRef<Mapbox.Camera>(null);
+  // Favorites & usage scores
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const [projectScoreMap, setProjectScoreMap] = useState<Map<string, number>>(new Map());
 
-  // ── Load tenant context ────────────────────────────────────────────────────
+  // Map focus (tablet)
+  const [mapFocusProject, setMapFocusProject] = useState<ProjectListItem | null>(null);
+  const [showMapPicker, setShowMapPicker] = useState(false);
+  const mapRef = useRef<ProjectMapHandle>(null);
 
-  const loadCompanies = useCallback(async () => {
+  // User role (for status-change gating)
+  const [userRole, setUserRole] = useState<ApiRole | string | null>(null);
+
+  // Project status change
+  const [showStatusChangePicker, setShowStatusChangePicker] = useState(false);
+  const [savingStatus, setSavingStatus] = useState(false);
+
+  // Device layout for tablet adaptations
+  const { isTablet } = useDeviceLayout();
+  const insets = useSafeAreaInsets();
+
+  // ── Tenant initials (logo placeholder) ──────────────────────────────────
+
+  const tenantInitials = useMemo(() => {
+    const name = localCompanyName ?? companyName ?? "N";
+    return name
+      .split(/\s+/)
+      .map((w) => w.charAt(0))
+      .join("")
+      .slice(0, 2)
+      .toUpperCase();
+  }, [localCompanyName, companyName]);
+
+  // ── Project filter handler (propagates to shared context) ───────────────
+
+  const handleProjectSelect = useCallback(
+    (project: ProjectListItem | null) => {
+      setFilteredProject(project);
+      if (project) setProjectLogsLoading(true); // show spinner immediately (before useEffect)
+      onProjectFilterChange?.(project);
+      // Track usage so frequency sorting works
+      if (project) void recordUsage(project.id, "open_project");
+    },
+    [onProjectFilterChange],
+  );
+
+  // ── Load tenant context ─────────────────────────────────────────────────
+
+  const loadCompanies = useCallback(async (skipActivation = false) => {
     try {
       const me = await getUserMe();
       const list = (me.memberships ?? []).map((m) => ({
@@ -165,221 +183,306 @@ export function KpiHomeScreen({ onOpenProject, onCreateProject, onOpenMap, onCom
       });
       setCompanies(unique);
 
-      // Determine current company
+      // Determine current company + user role (skip in All mode)
       const companyMe = await getUserCompanyMe();
-      if (companyMe?.id) {
+      if (companyMe?.id && !skipActivation) {
         setCurrentCompanyId(companyMe.id);
         setLocalCompanyName(companyMe.name ?? null);
         onCompanyChange?.({ id: companyMe.id, name: companyMe.name ?? companyMe.id });
+
+        // Extract role for the active company
+        const activeMembership = (me.memberships ?? []).find((m) => m.companyId === companyMe.id);
+        if (activeMembership?.role) setUserRole(activeMembership.role);
+      } else if (companyMe?.id && skipActivation) {
+        // Still store the server's active company ID (for API context) but don't update display
+        setCurrentCompanyId(companyMe.id);
+        const activeMembership = (me.memberships ?? []).find((m) => m.companyId === companyMe.id);
+        if (activeMembership?.role) setUserRole(activeMembership.role);
       }
     } catch {
       // Non-fatal — single-tenant users won't need the picker
     }
   }, [onCompanyChange]);
 
-  // ── Data loading ──────────────────────────────────────────────────────────
+  // ── Data loading ────────────────────────────────────────────────────────
 
-  const loadDataInner = useCallback(async () => {
+  const loadDataInner = useCallback(async (allCompanies = false) => {
     const [kpiResult, projectsResult, logsResult] = await Promise.allSettled([
       fetchMyKpis("30d").catch(() => null),
-      (async () => {
-        const cached = await getCache<ProjectListItem[]>("projects.list");
-        try {
-          const fresh = await apiJson<ProjectListItem[]>("/projects");
-          await setCache("projects.list", fresh);
-          return fresh;
-        } catch {
-          return cached ?? [];
-        }
-      })(),
-      fetchDailyLogFeed({ limit: 30 }).catch(() => ({ items: [] as DailyLogListItem[], total: 0, limit: 30, offset: 0 })),
+      allCompanies
+        ? apiJson<Array<{ companyId: string; companyName: string; projects: Array<{ id: string; name: string; status: string }> }>>(
+            "/projects/all-affiliated",
+          )
+            .then((groups) =>
+              groups.flatMap((g) =>
+                (g.projects ?? []).map(
+                  (p) => ({ id: p.id, name: p.name, status: p.status ?? null } as ProjectListItem),
+                ),
+              ),
+            )
+            .catch(async () => {
+              const cached = await getCache<ProjectListItem[]>("projects.list");
+              return cached ?? [];
+            })
+        : (async () => {
+            const cached = await getCache<ProjectListItem[]>("projects.list");
+            try {
+              const fresh = await apiJson<ProjectListItem[]>("/projects");
+              await setCache("projects.list", fresh);
+              return fresh;
+            } catch {
+              return cached ?? [];
+            }
+          })(),
+      fetchDailyLogFeed({ limit: 50, allCompanies }).catch(() => ({
+        items: [] as DailyLogListItem[],
+        total: 0,
+        limit: 50,
+        offset: 0,
+      })),
     ]);
 
     if (kpiResult.status === "fulfilled" && kpiResult.value) setKpis(kpiResult.value);
     if (projectsResult.status === "fulfilled") setProjects(projectsResult.value);
     if (logsResult.status === "fulfilled") setRecentLogs(logsResult.value.items);
+
+    // Load favorites + usage scores (non-blocking, best-effort)
+    const [favIds, scores] = await Promise.all([
+      getFavoriteProjectIds().catch(() => [] as string[]),
+      getProjectScores().catch(() => [] as ProjectScore[]),
+    ]);
+    setFavoriteIds(new Set(favIds));
+    const scoreMap = new Map<string, number>();
+    for (const s of scores) scoreMap.set(s.projectId, s.score);
+    setProjectScoreMap(scoreMap);
   }, []);
 
-  const handleSwitchCompany = useCallback(async (companyId: string) => {
-    if (companyId === currentCompanyId) {
-      setShowCompanyPicker(false);
-      return;
-    }
-    setSwitchingCompanyId(companyId);
-    try {
-      const res = await apiSwitchCompany(companyId);
-      if (res.company) {
-        setCurrentCompanyId(res.company.id);
-        setLocalCompanyName(res.company.name);
-        onCompanyChange?.(res.company);
+  const handleSwitchCompany = useCallback(
+    async (companyId: string) => {
+      if (companyId === currentCompanyId && !isAllCompaniesMode) {
+        setShowCompanyPicker(false);
+        return;
       }
-      setShowCompanyPicker(false);
-      // Reload everything for the new tenant
-      setLoading(true);
-      await loadDataInner();
-      setLoading(false);
-    } catch {
-      // stay on current company
-    } finally {
-      setSwitchingCompanyId(null);
-    }
-  }, [currentCompanyId, onCompanyChange, loadDataInner]);
+      setSwitchingCompanyId(companyId);
+      try {
+        const res = await apiSwitchCompany(companyId);
+        if (res.company) {
+          setCurrentCompanyId(res.company.id);
+          setLocalCompanyName(res.company.name);
+          onCompanyChange?.(res.company);
+          void setLastSelectedCompanyId(res.company.id);
+        }
+        setIsAllCompaniesMode(false);
+        setShowCompanyPicker(false);
+        // Reload everything for the new tenant (single-company mode)
+        setLoading(true);
+        await loadDataInner(false);
+        setLoading(false);
+      } catch {
+        // stay on current company
+      } finally {
+        setSwitchingCompanyId(null);
+      }
+    },
+    [currentCompanyId, isAllCompaniesMode, onCompanyChange, loadDataInner],
+  );
 
-  // Wrapper that also loads companies on first call
-  const loadData = useCallback(async () => {
-    await Promise.all([loadDataInner(), loadCompanies()]);
-  }, [loadDataInner, loadCompanies]);
-
-  const loadLocation = useCallback(async () => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") return;
-      const loc = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      setUserLoc({ lat: loc.coords.latitude, lng: loc.coords.longitude });
-    } catch {
-      // Location unavailable — map will show all projects
-    }
-  }, []);
+  const handleSwitchToAll = useCallback(async () => {
+    setIsAllCompaniesMode(true);
+    setLocalCompanyName("All Organizations");
+    void setLastSelectedCompanyId(null);
+    setShowCompanyPicker(false);
+    setLoading(true);
+    await loadDataInner(true);
+    setLoading(false);
+  }, [loadDataInner]);
 
   // Track whether we've already attempted an auto-switch so we don't loop.
   const autoSwitchAttempted = useRef(false);
 
   useEffect(() => {
     (async () => {
-      await Promise.all([loadDataInner(), loadCompanies(), loadLocation()]);
+      const lastId = await getLastSelectedCompanyId();
+
+      if (!lastId) {
+        // No previous selection — default to "All Organizations" mode
+        setIsAllCompaniesMode(true);
+        setLocalCompanyName("All Organizations");
+        await Promise.all([loadDataInner(true), loadCompanies(true)]);
+      } else {
+        // Restore last-selected company
+        await Promise.all([loadDataInner(false), loadCompanies(false)]);
+      }
       setLoading(false);
     })();
-  }, [loadDataInner, loadCompanies, loadLocation]);
+  }, [loadDataInner, loadCompanies]);
 
-  // Auto-switch: if the initial company returned zero projects and the user
-  // has other companies available, silently switch to the first real one.
+  // Auto-switch: if a persisted company exists but differs from server default, switch to it.
   useEffect(() => {
     if (autoSwitchAttempted.current) return;
-    if (loading) return; // wait for initial load
-    if (projects.length > 0) return; // current company has data — no switch needed
-    if (companies.length <= 1) return; // single tenant — nothing to switch to
+    if (loading) return;
+    if (isAllCompaniesMode) return; // Already in All mode — no switch needed
+    if (companies.length <= 1) return;
 
-    // Find a different company to try (skip current + "Nexus System")
-    const alt = companies.find(
-      (c) => c.id !== currentCompanyId && c.name !== "Nexus System",
-    );
-    if (!alt) return;
-
-    autoSwitchAttempted.current = true;
-    void handleSwitchCompany(alt.id);
-  }, [loading, projects, companies, currentCompanyId, handleSwitchCompany]);
+    (async () => {
+      const lastId = await getLastSelectedCompanyId();
+      if (lastId && lastId !== currentCompanyId && companies.some((c) => c.id === lastId)) {
+        autoSwitchAttempted.current = true;
+        void handleSwitchCompany(lastId);
+      }
+    })();
+  }, [loading, isAllCompaniesMode, companies, currentCompanyId, handleSwitchCompany]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadDataInner();
+    await loadDataInner(isAllCompaniesMode);
     setRefreshing(false);
-  }, [loadDataInner]);
+  }, [loadDataInner, isAllCompaniesMode]);
 
-  // ── Nearby filtering ──────────────────────────────────────────────────────
+  // ── Favorite toggle ──────────────────────────────────────────────────────
 
-  const nearbyProjects = useMemo(() => {
-    if (!userLoc) {
-      // No location → show all projects that have coords
-      return projects.filter((p) => p.latitude != null && p.longitude != null);
-    }
-    return projects.filter((p) => {
-      if (p.latitude == null || p.longitude == null) return false;
-      return haversineMiles(userLoc.lat, userLoc.lng, p.latitude, p.longitude) <= NEARBY_RADIUS_MILES;
+  const handleToggleFavorite = useCallback(async (projectId: string) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const added = await toggleFavoriteProject(projectId);
+    setFavoriteIds((prev) => {
+      const next = new Set(prev);
+      if (added) next.add(projectId);
+      else next.delete(projectId);
+      return next;
     });
-  }, [projects, userLoc]);
+  }, []);
 
-  const geoData = useMemo(() => toNearbyGeoJson(nearbyProjects), [nearbyProjects]);
+  // ── Status cycling (only used when no project is selected) ────────────
 
-  const mapBounds = useMemo(() => {
-    if (geoData.features.length === 0 && userLoc) {
-      // No nearby projects — center on user
-      const pad = 0.05;
-      return {
-        ne: [userLoc.lng + pad, userLoc.lat + pad] as [number, number],
-        sw: [userLoc.lng - pad, userLoc.lat - pad] as [number, number],
-      };
-    }
-    if (geoData.features.length === 0) return undefined;
+  const cycleStatus = useCallback(() => {
+    void Haptics.selectionAsync();
+    setStatusFilter((prev) => {
+      if (prev === "active") return "closed";
+      if (prev === "closed") return "all";
+      return "active";
+    });
+  }, []);
 
-    let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
-    for (const f of geoData.features) {
-      const [lng, lat] = f.geometry.coordinates;
-      if (lng < minLng) minLng = lng;
-      if (lng > maxLng) maxLng = lng;
-      if (lat < minLat) minLat = lat;
-      if (lat > maxLat) maxLat = lat;
-    }
-    // Include user location in bounds
-    if (userLoc) {
-      if (userLoc.lng < minLng) minLng = userLoc.lng;
-      if (userLoc.lng > maxLng) maxLng = userLoc.lng;
-      if (userLoc.lat < minLat) minLat = userLoc.lat;
-      if (userLoc.lat > maxLat) maxLat = userLoc.lat;
-    }
-    const lngPad = Math.max((maxLng - minLng) * 0.15, 0.02);
-    const latPad = Math.max((maxLat - minLat) * 0.15, 0.02);
-    return {
-      ne: [maxLng + lngPad, maxLat + latPad] as [number, number],
-      sw: [minLng - lngPad, minLat - latPad] as [number, number],
-    };
-  }, [geoData, userLoc]);
+  // ── Project status change (OWNER/ADMIN only) ────────────────────────────
 
-  // ── Pin callout ───────────────────────────────────────────────────────────
+  const canChangeStatus = STATUS_CHANGE_ROLES.has(userRole ?? "");
 
-  const showCallout = useCallback(
-    (project: ProjectListItem) => {
-      setSelectedProject(project);
-      RNAnimated.spring(calloutSlide, {
-        toValue: 0,
-        useNativeDriver: true,
-        tension: 80,
-        friction: 12,
-      }).start();
+  const handleChangeProjectStatus = useCallback(
+    async (newStatus: string) => {
+      if (!filteredProject) return;
+      setSavingStatus(true);
+      try {
+        await apiJson(`/projects/${filteredProject.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: newStatus }),
+        });
+        // Update local state so UI reflects the change immediately
+        const updated = { ...filteredProject, status: newStatus };
+        setFilteredProject(updated);
+        setProjects((prev) =>
+          prev.map((p) => (p.id === filteredProject.id ? { ...p, status: newStatus } : p)),
+        );
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      } finally {
+        setSavingStatus(false);
+        setShowStatusChangePicker(false);
+      }
     },
-    [calloutSlide],
+    [filteredProject],
   );
 
-  const hideCallout = useCallback(() => {
-    RNAnimated.timing(calloutSlide, {
-      toValue: 200,
-      duration: 200,
-      useNativeDriver: true,
-    }).start(() => setSelectedProject(null));
-  }, [calloutSlide]);
+  // ── Sorted + filtered project list for picker ───────────────────────────
 
-  const handlePinPress = useCallback(
-    (e: MapPressEvent) => {
-      const feature = e.features?.[0];
-      if (!feature) return;
-      const pid = feature.properties?.id;
-      const proj = nearbyProjects.find((p) => p.id === pid);
-      if (proj) showCallout(proj);
-    },
-    [nearbyProjects, showCallout],
-  );
+  const sortedPickerProjects = useMemo(() => {
+    // 1. Filter by status
+    //    "active" includes: active, open, null/empty (default)
+    //    "closed" includes: completed, archived, deleted, and anything else non-active
+    const ACTIVE_STATUSES = new Set(["active", "open", ""]);
+    let filtered = projects;
+    if (statusFilter === "active") {
+      filtered = projects.filter((p) => ACTIVE_STATUSES.has((p.status ?? "").toLowerCase().trim()));
+    } else if (statusFilter === "closed") {
+      filtered = projects.filter((p) => !ACTIVE_STATUSES.has((p.status ?? "").toLowerCase().trim()));
+    }
+    // 2. Filter by search query
+    const q = projectSearch.trim().toLowerCase();
+    if (q) {
+      filtered = filtered.filter((p) => p.name.toLowerCase().includes(q));
+    }
+    // 3. Build top 3: favorites first (by frequency), then fill with most-used non-favorites
+    const favs = filtered
+      .filter((p) => favoriteIds.has(p.id))
+      .sort((a, b) => (projectScoreMap.get(b.id) ?? 0) - (projectScoreMap.get(a.id) ?? 0));
+    const nonFavs = filtered.filter((p) => !favoriteIds.has(p.id));
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
+    // Take up to 3 favorites
+    const top: ProjectListItem[] = favs.slice(0, 3);
+    const topIds = new Set(top.map((p) => p.id));
+
+    // Fill remaining top slots (up to 3 total) with highest-frequency non-favorites
+    if (top.length < 3) {
+      const ranked = nonFavs
+        .filter((p) => (projectScoreMap.get(p.id) ?? 0) > 0)
+        .sort((a, b) => (projectScoreMap.get(b.id) ?? 0) - (projectScoreMap.get(a.id) ?? 0));
+      for (const p of ranked) {
+        if (top.length >= 3) break;
+        top.push(p);
+        topIds.add(p.id);
+      }
+    }
+
+    // 4. Everything not in top → alphabetical
+    const overflowFavs = favs.filter((p) => !topIds.has(p.id));
+    const alpha = [...nonFavs.filter((p) => !topIds.has(p.id)), ...overflowFavs]
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return { topFavs: top, alpha };
+  }, [projects, favoriteIds, projectScoreMap, projectSearch, statusFilter]);
+
+  // ── Helpers ─────────────────────────────────────────────────────────────
 
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr);
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
-  const getAddress = (p: ProjectListItem) =>
-    [p.addressLine1, p.city, p.state].filter(Boolean).join(", ");
+  // ── Project-specific logs (fetched when a project is selected) ──────────
 
-  // ── Filtered logs for display ─────────────────────────────────────────────
+  const [projectLogs, setProjectLogs] = useState<DailyLogListItem[]>([]);
+  const [projectLogsLoading, setProjectLogsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!filteredProject) {
+      setProjectLogs([]);
+      return;
+    }
+    let cancelled = false;
+    setProjectLogsLoading(true);
+    fetchDailyLogFeed({ projectIds: [filteredProject.id], limit: 100, allCompanies: isAllCompaniesMode })
+      .then((res) => {
+        if (!cancelled) setProjectLogs(res.items);
+      })
+      .catch(() => {
+        // Fall back to client-side filter if fetch fails
+        if (!cancelled) setProjectLogs(recentLogs.filter((l) => l.projectId === filteredProject.id));
+      })
+      .finally(() => {
+        if (!cancelled) setProjectLogsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [filteredProject, isAllCompaniesMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Filtered logs for display ───────────────────────────────────────────
 
   const displayLogs = useMemo(() => {
-    const filtered = filteredProject
-      ? recentLogs.filter((log) => log.projectId === filteredProject.id)
-      : recentLogs;
-    return filtered.slice(0, 10);
-  }, [recentLogs, filteredProject]);
+    if (filteredProject) return projectLogs;
+    // Unfiltered: cap at 20 to keep the feed manageable
+    return recentLogs.slice(0, 20);
+  }, [recentLogs, filteredProject, projectLogs]);
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -399,105 +502,211 @@ export function KpiHomeScreen({ onOpenProject, onCreateProject, onOpenMap, onCom
       ]
     : [];
 
-  return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
+  // ── Shared header + picker modals (used in both phone and tablet) ─────────
+
+  const headerBlock = (
+    <View style={[styles.header, isTablet && { paddingTop: insets.top + 16 }]}>
+      <View style={styles.headerRow1}>
         <Pressable
-          style={styles.headerTitleRow}
+          style={styles.tenantBadge}
           onPress={companies.length > 1 ? () => setShowCompanyPicker(true) : undefined}
         >
-          <Text style={styles.headerTitle} numberOfLines={1}>
+          <Text style={styles.tenantInitialsText}>{tenantInitials}</Text>
+        </Pressable>
+        <Pressable
+          style={styles.tenantNameBtn}
+          onPress={companies.length > 1 ? () => setShowCompanyPicker(true) : undefined}
+        >
+          <Text style={styles.tenantNameText} numberOfLines={1}>
             {localCompanyName ?? companyName ?? "Dashboard"}
           </Text>
-          {companies.length > 1 && (
-            <Text style={styles.headerChevron}>▾</Text>
-          )}
+          {companies.length > 1 && <Text style={styles.tenantChevron}>▾</Text>}
         </Pressable>
-
-        {/* Project filter dropdown */}
-        <Pressable
-          style={[styles.projectFilterBtn, filteredProject && styles.projectFilterBtnActive]}
-          onPress={() => {
-            void Haptics.selectionAsync();
-            setShowProjectFilter(true);
-          }}
-        >
-          <Text style={[styles.projectFilterText, filteredProject && styles.projectFilterTextActive]} numberOfLines={1}>
-            {filteredProject ? `📋 ${filteredProject.name}` : "All Projects"}
-          </Text>
-          <Text style={[styles.headerChevron, filteredProject && { color: colors.primary }]}>▾</Text>
-        </Pressable>
-
+        {!isTablet && onOpenMap && (
+          <Pressable
+            style={styles.mapBtnCompact}
+            onPress={() => {
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              onOpenMap();
+            }}
+          >
+            <Text style={styles.mapBtnCompactText}>🗺️</Text>
+          </Pressable>
+        )}
         {onCreateProject && (
           <Pressable
-            style={styles.addBtn}
+            style={styles.addBtnCompact}
             onPress={() => {
               void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
               onCreateProject();
             }}
           >
-            <Text style={styles.addBtnText}>＋ New Project</Text>
+            <Text style={styles.addBtnCompactText}>＋</Text>
           </Pressable>
         )}
       </View>
+      <View style={styles.headerRow2}>
+        <Pressable
+          style={[styles.projectDropdown, filteredProject && styles.projectDropdownActive]}
+          onPress={() => {
+            void Haptics.selectionAsync();
+            setShowProjectFilter(true);
+          }}
+        >
+          <Text
+            style={[styles.projectDropdownText, filteredProject && styles.projectDropdownTextActive]}
+            numberOfLines={1}
+          >
+            {filteredProject ? filteredProject.name : "All Projects"}
+          </Text>
+          <Text style={styles.dropdownChevron}>▾</Text>
+        </Pressable>
+        {filteredProject ? (
+          // Project selected → show that project's actual status
+          <Pressable
+            style={[styles.statusBtn, { borderColor: projectStatusMeta(filteredProject.status).color }]}
+            onPress={
+              canChangeStatus
+                ? () => {
+                    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    setShowStatusChangePicker(true);
+                  }
+                : undefined
+            }
+          >
+            <Text
+              style={[styles.statusIcon, { color: projectStatusMeta(filteredProject.status).color }]}
+            >
+              {projectStatusMeta(filteredProject.status).icon}
+            </Text>
+          </Pressable>
+        ) : (
+          // No project selected → cycle through status filter
+          <Pressable
+            style={[styles.statusBtn, { borderColor: STATUS_META[statusFilter].color }]}
+            onPress={cycleStatus}
+            onLongPress={() => {
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              setStatusFilter("active");
+            }}
+          >
+            <Text style={[styles.statusIcon, { color: STATUS_META[statusFilter].color }]}>
+              {STATUS_META[statusFilter].icon}
+            </Text>
+          </Pressable>
+        )}
+        {filteredProject && (
+          <Pressable
+            style={styles.clearBtn}
+            onPress={() => {
+              void Haptics.selectionAsync();
+              handleProjectSelect(null);
+            }}
+          >
+            <Text style={styles.clearBtnText}>✕</Text>
+          </Pressable>
+        )}
+      </View>
+    </View>
+  );
 
-      {/* Company picker modal */}
+  const pickerModals = (
+    <>
       {showCompanyPicker && (
         <View style={styles.pickerOverlay}>
           <Pressable style={styles.pickerBackdrop} onPress={() => setShowCompanyPicker(false)} />
           <View style={styles.pickerSheet}>
             <Text style={styles.pickerTitle}>Switch Organization</Text>
             <ScrollView style={{ maxHeight: 300 }}>
-              {companies.map((c) => (
-                <Pressable
-                  key={c.id}
-                  style={[
-                    styles.pickerRow,
-                    c.id === currentCompanyId && styles.pickerRowActive,
-                  ]}
-                  onPress={() => void handleSwitchCompany(c.id)}
+              {/* All Organizations option */}
+              <Pressable
+                style={[styles.pickerRow, isAllCompaniesMode && styles.pickerRowActive]}
+                onPress={() => void handleSwitchToAll()}
+              >
+                <Text
+                  style={[styles.pickerRowText, isAllCompaniesMode && styles.pickerRowTextActive]}
+                  numberOfLines={1}
                 >
-                  <Text
-                    style={[
-                      styles.pickerRowText,
-                      c.id === currentCompanyId && styles.pickerRowTextActive,
-                    ]}
-                    numberOfLines={1}
+                  🏢 All Organizations
+                </Text>
+                {isAllCompaniesMode && <Text style={styles.pickerCheck}>✓</Text>}
+              </Pressable>
+              <View style={styles.pickerDivider} />
+              {companies.map((c) => {
+                const isActive = !isAllCompaniesMode && c.id === currentCompanyId;
+                return (
+                  <Pressable
+                    key={c.id}
+                    style={[styles.pickerRow, isActive && styles.pickerRowActive]}
+                    onPress={() => void handleSwitchCompany(c.id)}
                   >
-                    {c.name}
-                  </Text>
-                  {switchingCompanyId === c.id && (
-                    <ActivityIndicator size="small" color={colors.primary} />
-                  )}
-                  {c.id === currentCompanyId && switchingCompanyId !== c.id && (
-                    <Text style={styles.pickerCheck}>✓</Text>
-                  )}
-                </Pressable>
-              ))}
+                    <Text
+                      style={[styles.pickerRowText, isActive && styles.pickerRowTextActive]}
+                      numberOfLines={1}
+                    >
+                      {c.name}
+                    </Text>
+                    {switchingCompanyId === c.id && <ActivityIndicator size="small" color={colors.primary} />}
+                    {isActive && switchingCompanyId !== c.id && (
+                      <Text style={styles.pickerCheck}>✓</Text>
+                    )}
+                  </Pressable>
+                );
+              })}
             </ScrollView>
-            <Pressable
-              style={styles.pickerCloseBtn}
-              onPress={() => setShowCompanyPicker(false)}
-            >
+            <Pressable style={styles.pickerCloseBtn} onPress={() => setShowCompanyPicker(false)}>
               <Text style={styles.pickerCloseBtnText}>Cancel</Text>
             </Pressable>
           </View>
         </View>
       )}
-
-      {/* Project filter picker */}
       {showProjectFilter && (
         <View style={styles.pickerOverlay}>
-          <Pressable style={styles.pickerBackdrop} onPress={() => setShowProjectFilter(false)} />
+          <Pressable
+            style={styles.pickerBackdrop}
+            onPress={() => { setShowProjectFilter(false); setProjectSearch(""); }}
+          />
           <View style={styles.pickerSheet}>
-            <Text style={styles.pickerTitle}>Filter by Project</Text>
-            <ScrollView style={{ maxHeight: 400 }}>
+            <Text style={styles.pickerTitle}>Select Project</Text>
+            {/* Search input */}
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search projects..."
+              placeholderTextColor={colors.textMuted}
+              value={projectSearch}
+              onChangeText={setProjectSearch}
+              autoFocus
+              autoCorrect={false}
+              clearButtonMode="while-editing"
+            />
+            {/* Status badge row */}
+            <View style={styles.statusRow}>
+              {(["active", "closed", "all"] as StatusFilter[]).map((s) => (
+                <Pressable
+                  key={s}
+                  style={[styles.statusChip, statusFilter === s && styles.statusChipActive]}
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    setStatusFilter(s);
+                  }}
+                >
+                  <Text style={[styles.statusChipDot, { color: STATUS_META[s].color }]}>
+                    {STATUS_META[s].icon}
+                  </Text>
+                  <Text style={[styles.statusChipText, statusFilter === s && styles.statusChipTextActive]}>
+                    {STATUS_META[s].label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <ScrollView style={{ maxHeight: 380 }} keyboardShouldPersistTaps="handled">
+              {/* All Projects option */}
               <Pressable
                 style={[styles.pickerRow, !filteredProject && styles.pickerRowActive]}
                 onPress={() => {
-                  setFilteredProject(null);
+                  handleProjectSelect(null);
                   setShowProjectFilter(false);
+                  setProjectSearch("");
                 }}
               >
                 <Text style={[styles.pickerRowText, !filteredProject && styles.pickerRowTextActive]}>
@@ -505,425 +714,414 @@ export function KpiHomeScreen({ onOpenProject, onCreateProject, onOpenMap, onCom
                 </Text>
                 {!filteredProject && <Text style={styles.pickerCheck}>✓</Text>}
               </Pressable>
-              {projects
-                .slice()
-                .sort((a, b) => a.name.localeCompare(b.name))
-                .map((p) => {
-                  const active = filteredProject?.id === p.id;
-                  return (
+
+              {/* Top section: favorites by frequency, then most-used */}
+              {sortedPickerProjects.topFavs.length > 0 && (
+                <Text style={styles.pickerSectionLabel}>
+                  {favoriteIds.size > 0 ? "⭐ Favorites" : "🔥 Most Used"}
+                </Text>
+              )}
+              {sortedPickerProjects.topFavs.map((p) => {
+                const isSelected = filteredProject?.id === p.id;
+                const isFav = favoriteIds.has(p.id);
+                return (
+                  <Pressable
+                    key={p.id}
+                    style={[styles.pickerRow, isSelected && styles.pickerRowActive]}
+                    onPress={() => {
+                      handleProjectSelect(p);
+                      setShowProjectFilter(false);
+                      setProjectSearch("");
+                    }}
+                  >
                     <Pressable
-                      key={p.id}
-                      style={[styles.pickerRow, active && styles.pickerRowActive]}
-                      onPress={() => {
-                        setFilteredProject(p);
-                        setShowProjectFilter(false);
-                      }}
+                      onPress={() => void handleToggleFavorite(p.id)}
+                      hitSlop={8}
+                      style={styles.favBtn}
                     >
-                      <Text
-                        style={[styles.pickerRowText, active && styles.pickerRowTextActive]}
-                        numberOfLines={1}
-                      >
-                        📋 {p.name}
-                      </Text>
-                      {active && <Text style={styles.pickerCheck}>✓</Text>}
+                      <Text style={styles.favIcon}>{isFav ? "❤️" : "🤍"}</Text>
                     </Pressable>
-                  );
-                })}
+                    <Text
+                      style={[styles.pickerRowText, isSelected && styles.pickerRowTextActive, { marginLeft: 6 }]}
+                      numberOfLines={1}
+                    >
+                      {p.name}
+                    </Text>
+                    {isSelected && <Text style={styles.pickerCheck}>✓</Text>}
+                  </Pressable>
+                );
+              })}
+
+              {/* Divider + alphabetical rest */}
+              {sortedPickerProjects.alpha.length > 0 && sortedPickerProjects.topFavs.length > 0 && (
+                <View style={styles.pickerDivider} />
+              )}
+              {sortedPickerProjects.alpha.map((p) => {
+                const isSelected = filteredProject?.id === p.id;
+                const isFav = favoriteIds.has(p.id);
+                return (
+                  <Pressable
+                    key={p.id}
+                    style={[styles.pickerRow, isSelected && styles.pickerRowActive]}
+                    onPress={() => {
+                      handleProjectSelect(p);
+                      setShowProjectFilter(false);
+                      setProjectSearch("");
+                    }}
+                  >
+                    <Pressable
+                      onPress={() => void handleToggleFavorite(p.id)}
+                      hitSlop={8}
+                      style={styles.favBtn}
+                    >
+                      <Text style={styles.favIcon}>{isFav ? "❤️" : "🤍"}</Text>
+                    </Pressable>
+                    <Text
+                      style={[styles.pickerRowText, isSelected && styles.pickerRowTextActive, { marginLeft: 6 }]}
+                      numberOfLines={1}
+                    >
+                      {p.name}
+                    </Text>
+                    {isSelected && <Text style={styles.pickerCheck}>✓</Text>}
+                  </Pressable>
+                );
+              })}
+
+              {sortedPickerProjects.topFavs.length === 0 && sortedPickerProjects.alpha.length === 0 && (
+                <View style={{ paddingVertical: 20, alignItems: "center" }}>
+                  <Text style={{ fontSize: 12, color: colors.textMuted }}>
+                    No {statusFilter === "all" ? "" : statusFilter} projects match "{projectSearch}"
+                  </Text>
+                </View>
+              )}
             </ScrollView>
             <Pressable
               style={styles.pickerCloseBtn}
-              onPress={() => setShowProjectFilter(false)}
+              onPress={() => { setShowProjectFilter(false); setProjectSearch(""); }}
             >
               <Text style={styles.pickerCloseBtnText}>Cancel</Text>
             </Pressable>
           </View>
         </View>
       )}
-
-      {/* ── Main content: side-by-side in landscape, stacked in portrait ── */}
-      {isLandscape ? (
-        <View style={styles.landscapeRow}>
-          {/* Left panel: KPI cards + ranking + activity (scrollable) */}
-          <ScrollView
-            style={styles.landscapeLeft}
-            refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-            }
-          >
-            {kpis && (
-              <>
-                <View style={styles.kpiGrid}>
-                  {kpiCards.map((card) => (
-                    <View key={card.label} style={styles.kpiCard}>
-                      <View style={styles.kpiCardHeader}>
-                        <Text style={styles.kpiIcon}>{card.icon}</Text>
-                        <Text style={styles.kpiLabel}>{card.label}</Text>
-                      </View>
-                      <Text style={[styles.kpiYou, { color: kpiColor(card.you, card.companyAvg) }]}>
-                        {card.you}
-                      </Text>
-                      <Text style={styles.kpiAvg}>avg {card.companyAvg}</Text>
-                    </View>
-                  ))}
-                </View>
-
-                <View style={styles.rankingRow}>
-                  <View style={[styles.rankingPill, { backgroundColor: kpis.ranking.dailyLogPercentile >= 70 ? "#dcfce7" : kpis.ranking.dailyLogPercentile >= 40 ? "#fef9c3" : "#fee2e2" }]}>
-                    <Text style={styles.rankingIcon}>🏆</Text>
-                    <Text style={[styles.rankingText, { color: kpis.ranking.dailyLogPercentile >= 70 ? "#166534" : kpis.ranking.dailyLogPercentile >= 40 ? "#854d0e" : "#991b1b" }]}>
-                      {kpis.ranking.label}
-                    </Text>
-                  </View>
-                  <View style={styles.completionBox}>
-                    <Text style={styles.completionLabel}>Task Completion</Text>
-                    <Text style={styles.completionValues}>
-                      <Text style={{ fontWeight: "800", color: kpiColor(kpis.completionRate.you, kpis.completionRate.companyAvg) }}>
-                        {kpis.completionRate.you}%
-                      </Text>
-                      {" vs "}
-                      <Text style={{ color: colors.textMuted }}>{kpis.completionRate.companyAvg}% avg</Text>
-                    </Text>
-                  </View>
-                </View>
-              </>
-            )}
-
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>📋 Recent Activity</Text>
-            </View>
-
-            {displayLogs.length === 0 ? (
-              <View style={styles.emptyActivity}>
-                <Text style={styles.emptyActivityText}>
-                  {filteredProject ? `No recent logs for ${filteredProject.name}` : "No recent daily logs"}
-                </Text>
-              </View>
-            ) : (
-              displayLogs.map((log) => (
+      {/* Status change picker (OWNER/ADMIN only, project selected) */}
+      {showStatusChangePicker && filteredProject && (
+        <View style={styles.pickerOverlay}>
+          <Pressable style={styles.pickerBackdrop} onPress={() => setShowStatusChangePicker(false)} />
+          <View style={styles.pickerSheet}>
+            <Text style={styles.pickerTitle}>Change Status</Text>
+            <Text style={styles.statusChangeSubtitle} numberOfLines={1}>
+              {filteredProject.name}
+            </Text>
+            {PROJECT_STATUS_OPTIONS.map((opt) => {
+              const isCurrent =
+                opt.value === (filteredProject.status ?? "active").toLowerCase().trim() ||
+                (opt.value === "active" && (filteredProject.status ?? "").toLowerCase().trim() === "open");
+              return (
                 <Pressable
-                  key={log.id}
-                  style={styles.activityRow}
+                  key={opt.value}
+                  style={[styles.pickerRow, isCurrent && styles.pickerRowActive]}
                   onPress={() => {
-                    const proj = projects.find((p) => p.id === log.projectId);
-                    if (proj) {
-                      void Haptics.selectionAsync();
-                      onOpenProject(proj);
-                    }
+                    if (!isCurrent) void handleChangeProjectStatus(opt.value);
+                    else setShowStatusChangePicker(false);
                   }}
+                  disabled={savingStatus}
                 >
-                  <View style={styles.activityLeft}>
-                    <Text style={styles.activityDate}>{formatDate(log.logDate)}</Text>
-                    {log.type && log.type !== "PUDL" && (
-                      <Text style={styles.activityType}>
-                        {log.type === "RECEIPT_EXPENSE" ? "🧾" : log.type === "JSA" ? "⚠️" : log.type === "INCIDENT" ? "🚨" : "🔍"}
-                      </Text>
-                    )}
-                  </View>
-                  <View style={styles.activityCenter}>
-                    <Text style={styles.activityProject} numberOfLines={1}>
-                      {log.projectName}
-                    </Text>
-                    <Text style={styles.activitySummary} numberOfLines={1}>
-                      {log.workPerformed || log.title || "Daily log"}
-                    </Text>
-                  </View>
-                  <Text style={styles.activityChevron}>›</Text>
+                  <Text style={[styles.statusOptionIcon, { color: opt.color }]}>
+                    {opt.icon}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.pickerRowText,
+                      isCurrent && styles.pickerRowTextActive,
+                      { marginLeft: 8 },
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                  {isCurrent && <Text style={styles.pickerCheck}>✓</Text>}
+                  {savingStatus && !isCurrent && (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  )}
                 </Pressable>
-              ))
-            )}
+              );
+            })}
+            <Pressable
+              style={styles.pickerCloseBtn}
+              onPress={() => setShowStatusChangePicker(false)}
+            >
+              <Text style={styles.pickerCloseBtnText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+    </>
+  );
 
-            <View style={{ height: 32 }} />
-          </ScrollView>
+  // ── KPI block (shared between phone and tablet) ──────────────────────────
 
-          {/* Right panel: map (full height) */}
-          <View style={styles.landscapeRight}>
-            <View style={styles.landscapeMapHeader}>
-              <Text style={styles.sectionTitle}>📍 Nearby</Text>
-              <Text style={styles.sectionCount}>
-                {nearbyProjects.length} within {NEARBY_RADIUS_MILES} mi
-              </Text>
+  const kpiBlock = kpis ? (
+    <View style={[styles.kpiSection, isTablet && styles.kpiSectionTablet]}>
+      {isTablet ? (
+        /* Tablet: 2-column × 3-row wrapped grid */
+        <View style={styles.kpiGridTablet}>
+          {kpiCards.map((card) => (
+            <View key={card.label} style={styles.kpiCardTablet}>
+              <View style={styles.kpiCardLeft}>
+                <Text style={styles.kpiIcon}>{card.icon}</Text>
+                <Text style={styles.kpiLabel}>{card.label}</Text>
+              </View>
+              <View style={styles.kpiCardRight}>
+                <Text style={[styles.kpiYou, { color: kpiColor(card.you, card.companyAvg) }]}>
+                  {card.you}
+                </Text>
+                <Text style={styles.kpiAvg}>avg {card.companyAvg}</Text>
+              </View>
             </View>
-            <View style={styles.landscapeMapContainer}>
-              <Mapbox.MapView
-                style={styles.map}
-                styleURL={Mapbox.StyleURL.Street}
-                logoEnabled={false}
-                attributionEnabled={false}
-                scaleBarEnabled={false}
-                onPress={() => { if (selectedProject) hideCallout(); }}
+          ))}
+          <View
+            style={[
+              styles.kpiCardTablet,
+              {
+                backgroundColor:
+                  kpis.ranking.dailyLogPercentile >= 70
+                    ? "#dcfce7"
+                    : kpis.ranking.dailyLogPercentile >= 40
+                      ? "#fef9c3"
+                      : "#fee2e2",
+              },
+            ]}
+          >
+            <Text style={styles.rankingIcon}>🏆</Text>
+            <Text
+              style={[
+                styles.rankingText,
+                {
+                  color:
+                    kpis.ranking.dailyLogPercentile >= 70
+                      ? "#166534"
+                      : kpis.ranking.dailyLogPercentile >= 40
+                        ? "#854d0e"
+                        : "#991b1b",
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {kpis.ranking.label}
+            </Text>
+          </View>
+          <View style={[styles.kpiCardTablet, { justifyContent: "center" }]}>
+            <Text style={styles.completionLabel}>Task Completion</Text>
+            <Text style={styles.completionValues}>
+              <Text
+                style={{
+                  fontWeight: "800",
+                  color: kpiColor(kpis.completionRate.you, kpis.completionRate.companyAvg),
+                }}
               >
-                <Mapbox.Camera
-                  ref={cameraRef}
-                  bounds={mapBounds}
-                  animationDuration={600}
-                />
-                <Mapbox.LocationPuck puckBearingEnabled pulsing={{ isEnabled: true }} />
-                <Mapbox.ShapeSource
-                  id="nearby-projects"
-                  shape={geoData}
-                  onPress={handlePinPress}
-                >
-                  <Mapbox.CircleLayer id="nearby-pin" style={pinStyle} />
-                  <Mapbox.CircleLayer id="nearby-pin-inner" style={pinInnerStyle} />
-                </Mapbox.ShapeSource>
-              </Mapbox.MapView>
-
-              {nearbyProjects.length === 0 && (
-                <View style={styles.mapEmptyOverlay}>
-                  <Text style={styles.mapEmptyText}>
-                    No projects within {NEARBY_RADIUS_MILES} miles
-                  </Text>
-                </View>
-              )}
-
-              {selectedProject && (
-                <RNAnimated.View
-                  style={[
-                    styles.callout,
-                    { transform: [{ translateY: calloutSlide }] },
-                  ]}
-                >
-                  <View style={styles.calloutHandle} />
-                  <Text style={styles.calloutName} numberOfLines={1}>
-                    {selectedProject.name}
-                  </Text>
-                  {getAddress(selectedProject) ? (
-                    <Text style={styles.calloutAddress} numberOfLines={1}>
-                      {getAddress(selectedProject)}
-                    </Text>
-                  ) : null}
-                  <View style={styles.calloutActions}>
-                    <Pressable
-                      style={styles.calloutDirectionsBtn}
-                      onPress={() => {
-                        if (selectedProject.latitude != null && selectedProject.longitude != null) {
-                          openDirections(
-                            selectedProject.latitude,
-                            selectedProject.longitude,
-                            getAddress(selectedProject) || null,
-                          );
-                        }
-                      }}
-                    >
-                      <Text style={styles.calloutDirectionsText}>🧭 Directions</Text>
-                    </Pressable>
-                    <Pressable
-                      style={styles.calloutOpenBtn}
-                      onPress={() => {
-                        hideCallout();
-                        onOpenProject(selectedProject);
-                      }}
-                    >
-                      <Text style={styles.calloutOpenText}>Open ›</Text>
-                    </Pressable>
-                    <Pressable style={styles.calloutDismissBtn} onPress={hideCallout}>
-                      <Text style={styles.calloutDismissText}>✕</Text>
-                    </Pressable>
-                  </View>
-                </RNAnimated.View>
-              )}
-            </View>
+                {kpis.completionRate.you}%
+              </Text>
+              {" vs "}
+              <Text style={{ color: colors.textMuted }}>{kpis.completionRate.companyAvg}% avg</Text>
+            </Text>
           </View>
         </View>
       ) : (
-        /* ── Portrait: original stacked layout ── */
-        <ScrollView
-          style={styles.scroll}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-        >
-          {kpis && (
-            <>
-              <View style={styles.kpiGrid}>
-                {kpiCards.map((card) => (
-                  <View key={card.label} style={styles.kpiCard}>
-                    <View style={styles.kpiCardHeader}>
-                      <Text style={styles.kpiIcon}>{card.icon}</Text>
-                      <Text style={styles.kpiLabel}>{card.label}</Text>
-                    </View>
-                    <Text style={[styles.kpiYou, { color: kpiColor(card.you, card.companyAvg) }]}>
-                      {card.you}
-                    </Text>
-                    <Text style={styles.kpiAvg}>avg {card.companyAvg}</Text>
-                  </View>
-                ))}
-              </View>
-
-              <View style={styles.rankingRow}>
-                <View style={[styles.rankingPill, { backgroundColor: kpis.ranking.dailyLogPercentile >= 70 ? "#dcfce7" : kpis.ranking.dailyLogPercentile >= 40 ? "#fef9c3" : "#fee2e2" }]}>
-                  <Text style={styles.rankingIcon}>🏆</Text>
-                  <Text style={[styles.rankingText, { color: kpis.ranking.dailyLogPercentile >= 70 ? "#166534" : kpis.ranking.dailyLogPercentile >= 40 ? "#854d0e" : "#991b1b" }]}>
-                    {kpis.ranking.label}
-                  </Text>
+        /* Phone: 2 rows of 3 (unchanged) */
+        <>
+          <View style={styles.kpiRow}>
+            {[kpiCards[0], kpiCards[1]].filter(Boolean).map((card) => (
+              <View key={card.label} style={styles.kpiCard}>
+                <View style={styles.kpiCardLeft}>
+                  <Text style={styles.kpiIcon}>{card.icon}</Text>
+                  <Text style={styles.kpiLabel}>{card.label}</Text>
                 </View>
-                <View style={styles.completionBox}>
-                  <Text style={styles.completionLabel}>Task Completion</Text>
-                  <Text style={styles.completionValues}>
-                    <Text style={{ fontWeight: "800", color: kpiColor(kpis.completionRate.you, kpis.completionRate.companyAvg) }}>
-                      {kpis.completionRate.you}%
-                    </Text>
-                    {" vs "}
-                    <Text style={{ color: colors.textMuted }}>{kpis.completionRate.companyAvg}% avg</Text>
+                <View style={styles.kpiCardRight}>
+                  <Text style={[styles.kpiYou, { color: kpiColor(card.you, card.companyAvg) }]}>
+                    {card.you}
                   </Text>
+                  <Text style={styles.kpiAvg}>avg {card.companyAvg}</Text>
                 </View>
               </View>
-            </>
-          )}
-
-          {/* ── Interactive Map Banner ──────────────────────────────── */}
-          {onOpenMap && (
-            <Pressable
-              style={styles.mapBanner}
-              onPress={() => {
-                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                onOpenMap();
-              }}
+            ))}
+            <View
+              style={[
+                styles.rankingPill,
+                {
+                  backgroundColor:
+                    kpis.ranking.dailyLogPercentile >= 70
+                      ? "#dcfce7"
+                      : kpis.ranking.dailyLogPercentile >= 40
+                        ? "#fef9c3"
+                        : "#fee2e2",
+                },
+              ]}
             >
-              <Text style={styles.mapBannerIcon}>🗺️</Text>
-              <View style={styles.mapBannerText}>
-                <Text style={styles.mapBannerTitle}>Interactive Map</Text>
-                <Text style={styles.mapBannerSub}>Projects, suppliers & directions</Text>
-              </View>
-              <Text style={styles.mapBannerChevron}>›</Text>
-            </Pressable>
-          )}
-
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>📍 Nearby Projects</Text>
-            <Text style={styles.sectionCount}>
-              {nearbyProjects.length} within {NEARBY_RADIUS_MILES} mi
-            </Text>
-          </View>
-
-          <View style={styles.mapContainer}>
-            <Mapbox.MapView
-              style={styles.map}
-              styleURL={Mapbox.StyleURL.Street}
-              logoEnabled={false}
-              attributionEnabled={false}
-              scaleBarEnabled={false}
-              onPress={() => { if (selectedProject) hideCallout(); }}
-            >
-              <Mapbox.Camera
-                ref={cameraRef}
-                bounds={mapBounds}
-                animationDuration={600}
-              />
-              <Mapbox.LocationPuck puckBearingEnabled pulsing={{ isEnabled: true }} />
-              <Mapbox.ShapeSource
-                id="nearby-projects"
-                shape={geoData}
-                onPress={handlePinPress}
-              >
-                <Mapbox.CircleLayer id="nearby-pin" style={pinStyle} />
-                <Mapbox.CircleLayer id="nearby-pin-inner" style={pinInnerStyle} />
-              </Mapbox.ShapeSource>
-            </Mapbox.MapView>
-
-            {nearbyProjects.length === 0 && (
-              <View style={styles.mapEmptyOverlay}>
-                <Text style={styles.mapEmptyText}>
-                  No projects within {NEARBY_RADIUS_MILES} miles
-                </Text>
-              </View>
-            )}
-
-            {selectedProject && (
-              <RNAnimated.View
+              <Text style={styles.rankingIcon}>🏆</Text>
+              <Text
                 style={[
-                  styles.callout,
-                  { transform: [{ translateY: calloutSlide }] },
+                  styles.rankingText,
+                  {
+                    color:
+                      kpis.ranking.dailyLogPercentile >= 70
+                        ? "#166534"
+                        : kpis.ranking.dailyLogPercentile >= 40
+                          ? "#854d0e"
+                          : "#991b1b",
+                  },
                 ]}
+                numberOfLines={1}
               >
-                <View style={styles.calloutHandle} />
-                <Text style={styles.calloutName} numberOfLines={1}>
-                  {selectedProject.name}
-                </Text>
-                {getAddress(selectedProject) ? (
-                  <Text style={styles.calloutAddress} numberOfLines={1}>
-                    {getAddress(selectedProject)}
-                  </Text>
-                ) : null}
-                <View style={styles.calloutActions}>
-                  <Pressable
-                    style={styles.calloutDirectionsBtn}
-                    onPress={() => {
-                      if (selectedProject.latitude != null && selectedProject.longitude != null) {
-                        openDirections(
-                          selectedProject.latitude,
-                          selectedProject.longitude,
-                          getAddress(selectedProject) || null,
-                        );
-                      }
-                    }}
-                  >
-                    <Text style={styles.calloutDirectionsText}>🧭 Directions</Text>
-                  </Pressable>
-                  <Pressable
-                    style={styles.calloutOpenBtn}
-                    onPress={() => {
-                      hideCallout();
-                      onOpenProject(selectedProject);
-                    }}
-                  >
-                    <Text style={styles.calloutOpenText}>Open Project ›</Text>
-                  </Pressable>
-                  <Pressable style={styles.calloutDismissBtn} onPress={hideCallout}>
-                    <Text style={styles.calloutDismissText}>✕</Text>
-                  </Pressable>
-                </View>
-              </RNAnimated.View>
-            )}
-          </View>
-
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>📋 Recent Activity</Text>
-          </View>
-
-          {displayLogs.length === 0 ? (
-            <View style={styles.emptyActivity}>
-              <Text style={styles.emptyActivityText}>
-                {filteredProject ? `No recent logs for ${filteredProject.name}` : "No recent daily logs"}
+                {kpis.ranking.label}
               </Text>
             </View>
-          ) : (
-            displayLogs.map((log) => (
-              <Pressable
-                key={log.id}
-                style={styles.activityRow}
-                onPress={() => {
-                  const proj = projects.find((p) => p.id === log.projectId);
-                  if (proj) {
-                    void Haptics.selectionAsync();
-                    onOpenProject(proj);
-                  }
-                }}
-              >
-                <View style={styles.activityLeft}>
-                  <Text style={styles.activityDate}>{formatDate(log.logDate)}</Text>
-                  {log.type && log.type !== "PUDL" && (
-                    <Text style={styles.activityType}>
-                      {log.type === "RECEIPT_EXPENSE" ? "🧾" : log.type === "JSA" ? "⚠️" : log.type === "INCIDENT" ? "🚨" : "🔍"}
-                    </Text>
-                  )}
+          </View>
+          <View style={styles.kpiRow}>
+            {[kpiCards[2], kpiCards[3]].filter(Boolean).map((card) => (
+              <View key={card.label} style={styles.kpiCard}>
+                <View style={styles.kpiCardLeft}>
+                  <Text style={styles.kpiIcon}>{card.icon}</Text>
+                  <Text style={styles.kpiLabel}>{card.label}</Text>
                 </View>
-                <View style={styles.activityCenter}>
-                  <Text style={styles.activityProject} numberOfLines={1}>
-                    {log.projectName}
+                <View style={styles.kpiCardRight}>
+                  <Text style={[styles.kpiYou, { color: kpiColor(card.you, card.companyAvg) }]}>
+                    {card.you}
                   </Text>
-                  <Text style={styles.activitySummary} numberOfLines={1}>
-                    {log.workPerformed || log.title || "Daily log"}
-                  </Text>
+                  <Text style={styles.kpiAvg}>avg {card.companyAvg}</Text>
                 </View>
-                <Text style={styles.activityChevron}>›</Text>
-              </Pressable>
-            ))
-          )}
-
-          <View style={{ height: 32 }} />
-        </ScrollView>
+              </View>
+            ))}
+            <View style={styles.completionBox}>
+              <Text style={styles.completionLabel}>Task Completion</Text>
+              <Text style={styles.completionValues}>
+                <Text
+                  style={{
+                    fontWeight: "800",
+                    color: kpiColor(kpis.completionRate.you, kpis.completionRate.companyAvg),
+                  }}
+                >
+                  {kpis.completionRate.you}%
+                </Text>
+                {" vs "}
+                <Text style={{ color: colors.textMuted }}>{kpis.completionRate.companyAvg}% avg</Text>
+              </Text>
+            </View>
+          </View>
+        </>
       )}
+    </View>
+  ) : null;
+
+  // ── Activity list (shared) ───────────────────────────────────────────────
+
+  const activityBlock = (
+    <>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>
+          📋 Recent Activity{filteredProject ? ` (${displayLogs.length})` : ""}
+        </Text>
+        {filteredProject && (
+          <Text style={styles.sectionFilter} numberOfLines={1}>
+            {filteredProject.name}
+          </Text>
+        )}
+      </View>
+      {projectLogsLoading ? (
+        <View style={styles.emptyActivity}>
+          <ActivityIndicator size="small" color={colors.primary} />
+        </View>
+      ) : displayLogs.length === 0 ? (
+        <View style={styles.emptyActivity}>
+          <Text style={styles.emptyActivityText}>
+            {filteredProject ? `No recent logs for ${filteredProject.name}` : "No recent daily logs"}
+          </Text>
+        </View>
+      ) : (
+        displayLogs.map((log) => (
+          <Pressable
+            key={log.id}
+            style={styles.activityRow}
+            onPress={() => {
+              const proj = projects.find((p) => p.id === log.projectId);
+              if (proj) {
+                void Haptics.selectionAsync();
+                void recordUsage(proj.id, "open_project");
+                onOpenProject(proj);
+              }
+            }}
+          >
+            <View style={styles.activityLeft}>
+              <Text style={styles.activityDate}>{formatDate(log.logDate)}</Text>
+              {log.type && log.type !== "PUDL" && (
+                <Text style={styles.activityType}>
+                  {log.type === "RECEIPT_EXPENSE"
+                    ? "🧾"
+                    : log.type === "JSA"
+                      ? "⚠️"
+                      : log.type === "INCIDENT"
+                        ? "🚨"
+                        : "🔍"}
+                </Text>
+              )}
+            </View>
+            <View style={styles.activityCenter}>
+              <Text style={styles.activityProject} numberOfLines={1}>
+                {log.projectName}
+              </Text>
+              <Text style={styles.activitySummary} numberOfLines={1}>
+                {log.workPerformed || log.title || "Daily log"}
+              </Text>
+            </View>
+            <Text style={styles.activityChevron}>›</Text>
+          </Pressable>
+        ))
+      )}
+    </>
+  );
+
+  // ── TABLET layout: left 1/3 (list) + right 2/3 (map) ────────────────────
+
+  if (isTablet) {
+    return (
+      <View style={styles.container}>
+        {pickerModals}
+        <View style={styles.tabletSplit}>
+          {/* Left pane: header + KPIs + compact activity list */}
+          <View style={styles.tabletLeftPane}>
+            {headerBlock}
+            <ScrollView
+              style={styles.scroll}
+              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+            >
+              {kpiBlock}
+              {activityBlock}
+              <View style={{ height: 32 }} />
+            </ScrollView>
+          </View>
+
+          {/* Right pane: full interactive map */}
+          <View style={[styles.tabletRightPane, { paddingTop: insets.top }]}>
+            <MapScreen onSelectProject={onOpenProject} />
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  // ── PHONE layout (unchanged) ─────────────────────────────────────────────
+
+  return (
+    <View style={styles.container}>
+      {headerBlock}
+      {pickerModals}
+      <ScrollView
+        style={styles.scroll}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        {kpiBlock}
+        {activityBlock}
+        <View style={{ height: 32 }} />
+      </ScrollView>
     </View>
   );
 }
@@ -938,332 +1136,287 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: colors.backgroundSecondary,
   },
-  loadingText: { marginTop: 12, fontSize: 14, color: colors.textMuted },
+  loadingText: { marginTop: 12, fontSize: 10, color: colors.textMuted },
   scroll: { flex: 1 },
 
   // ── Header ──────────────────────────────────────────────────────────────
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
     backgroundColor: "#fff",
     borderBottomWidth: 1,
     borderBottomColor: colors.borderMuted,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 8,
   },
-  headerTitleRow: {
+  headerRow1: {
     flexDirection: "row",
     alignItems: "center",
-    flexShrink: 1,
+    gap: 8,
+  },
+  tenantBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tenantInitialsText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  tenantNameBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
   },
-  headerTitle: {
-    fontSize: 18,
+  tenantNameText: {
+    fontSize: 13,
     fontWeight: "800",
     color: colors.textPrimary,
     flexShrink: 1,
   },
-  headerChevron: {
-    fontSize: 16,
+  tenantChevron: {
+    fontSize: 11,
     color: colors.textMuted,
-    marginTop: 1,
   },
-  addBtn: {
+  addBtnCompact: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: colors.primary,
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  addBtnText: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  projectFilterBtn: {
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#eff6ff",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+  },
+  addBtnCompactText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
+    lineHeight: 18,
+  },
+  headerRow2: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 6,
+  },
+  projectDropdown: {
     flex: 1,
-    marginHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#eff6ff",
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderWidth: 1,
     borderColor: "#bfdbfe",
     gap: 4,
   },
-  projectFilterBtnActive: {
+  projectDropdownActive: {
     backgroundColor: "#dbeafe",
     borderColor: "#93c5fd",
   },
-  projectFilterText: {
-    fontSize: 13,
+  projectDropdownText: {
+    fontSize: 11,
     fontWeight: "600",
     color: colors.primary,
-    flexShrink: 1,
+    flex: 1,
   },
-  projectFilterTextActive: {
-    color: colors.primary,
+  projectDropdownTextActive: {
+    fontWeight: "700",
+  },
+  dropdownChevron: {
+    fontSize: 10,
+    color: colors.textMuted,
+  },
+  statusBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+    borderWidth: 2,
+  },
+  statusIcon: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  clearBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primary,
+  },
+  clearBtnText: {
+    color: "#fff",
+    fontSize: 11,
     fontWeight: "700",
   },
 
-  // ── KPI Cards ───────────────────────────────────────────────────────────
-  kpiGrid: {
+  // ── Status change picker ────────────────────────────────────────────────
+  statusChangeSubtitle: {
+    fontSize: 12,
+    color: colors.textMuted,
+    textAlign: "center",
+    marginBottom: 12,
+  },
+  statusOptionIcon: {
+    fontSize: 14,
+    fontWeight: "700",
+    width: 22,
+    textAlign: "center",
+  },
+
+  // ── Map icon in header ──────────────────────────────────────────────────
+  mapBtnCompact: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#eff6ff",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+  },
+  mapBtnCompactText: {
+    fontSize: 14,
+  },
+
+  // ── KPI Cards (1/3 height — horizontal layout) ─────────────────────────
+  kpiSection: {
+    paddingHorizontal: 12,
+    paddingTop: 4,
+    gap: 2,
+  },
+  kpiSectionTablet: {
+    paddingHorizontal: 8,
+    paddingTop: 12,
+    gap: 0,
+  },
+  kpiGridTablet: {
     flexDirection: "row",
     flexWrap: "wrap",
-    paddingHorizontal: 12,
-    paddingTop: 14,
-    gap: 10,
+    gap: 6,
   },
-  kpiCard: {
-    width: "47%",
+  kpiCardTablet: {
+    width: "48.5%",
     backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 14,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
     borderWidth: 1,
     borderColor: colors.borderLight,
-  },
-  kpiCardHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginBottom: 8,
+    justifyContent: "space-between",
   },
-  kpiIcon: { fontSize: 16 },
+  kpiRow: {
+    flexDirection: "row",
+    gap: 2,
+  },
+  kpiCard: {
+    flex: 1,
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    height: ROW_HEIGHT,
+  },
+  kpiCardLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    flexShrink: 1,
+    overflow: "hidden",
+  },
+  kpiIcon: { fontSize: 11 },
   kpiLabel: {
-    fontSize: 12,
+    fontSize: 8,
     fontWeight: "600",
     color: colors.textSecondary,
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
+  },
+  kpiCardRight: {
+    alignItems: "flex-end",
+    flexShrink: 0,
   },
   kpiYou: {
-    fontSize: 28,
+    fontSize: 14,
     fontWeight: "800",
+    lineHeight: 16,
   },
   kpiAvg: {
-    fontSize: 12,
+    fontSize: 7,
     color: colors.textMuted,
-    marginTop: 2,
   },
 
-  // ── Ranking ─────────────────────────────────────────────────────────────
-  rankingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    gap: 10,
-  },
+  // ── Ranking (inline with KPI row) ──────────────────────────────────────
   rankingPill: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-    gap: 6,
+    paddingHorizontal: 8,
+    height: ROW_HEIGHT,
+    borderRadius: 8,
+    gap: 3,
   },
-  rankingIcon: { fontSize: 18 },
-  rankingText: { fontSize: 14, fontWeight: "700" },
+  rankingIcon: { fontSize: 14 },
+  rankingText: { fontSize: 10, fontWeight: "700" },
   completionBox: {
     flex: 1,
     backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 10,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    height: ROW_HEIGHT,
+    justifyContent: "center",
     borderWidth: 1,
     borderColor: colors.borderLight,
   },
   completionLabel: {
-    fontSize: 11,
+    fontSize: 8,
     fontWeight: "600",
     color: colors.textMuted,
     textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: 2,
+    letterSpacing: 0.3,
   },
-  completionValues: { fontSize: 15 },
+  completionValues: { fontSize: 11 },
 
   // ── Section headers ─────────────────────────────────────────────────────
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingTop: 18,
-    paddingBottom: 8,
-  },
-  sectionTitle: { fontSize: 16, fontWeight: "700", color: colors.textPrimary },
-  sectionCount: { fontSize: 12, color: colors.textMuted },
-
-  // ── Landscape layout ────────────────────────────────────────────────────
-  landscapeRow: {
-    flex: 1,
-    flexDirection: "row",
-  },
-  landscapeLeft: {
-    width: "50%",
-    borderRightWidth: 1,
-    borderRightColor: "#e5e7eb",
-  },
-  landscapeRight: {
-    width: "50%",
-  },
-  landscapeMapHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingTop: 12,
+    paddingBottom: 6,
   },
-  landscapeMapContainer: {
-    flex: 1,
-    marginHorizontal: 8,
-    marginBottom: 8,
-    borderRadius: 14,
-    overflow: "hidden",
-    position: "relative",
-  },
-
-  // ── Map ─────────────────────────────────────────────────────────────────
-  mapContainer: {
-    height: 280,
-    marginHorizontal: 12,
-    borderRadius: 14,
-    overflow: "hidden",
-    position: "relative",
-  },
-  map: { flex: 1 },
-  mapEmptyOverlay: {
-    position: "absolute",
-    top: "40%",
-    left: 24,
-    right: 24,
-    backgroundColor: "rgba(255,255,255,0.92)",
-    borderRadius: 10,
-    padding: 16,
-    alignItems: "center",
-  },
-  mapEmptyText: { fontSize: 13, color: colors.textMuted, textAlign: "center" },
-
-  // ── Pin callout ─────────────────────────────────────────────────────────
-  callout: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 14,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    elevation: 8,
-  },
-  calloutHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.borderMuted,
-    alignSelf: "center",
-    marginBottom: 8,
-  },
-  calloutName: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: colors.textPrimary,
-    marginBottom: 2,
-  },
-  calloutAddress: {
-    fontSize: 13,
-    color: colors.textMuted,
-    marginBottom: 10,
-  },
-  calloutActions: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  calloutDirectionsBtn: {
-    flex: 1,
-    backgroundColor: "#2563eb",
-    borderRadius: 10,
-    paddingVertical: 10,
-    alignItems: "center",
-  },
-  calloutDirectionsText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  calloutOpenBtn: {
-    flex: 1,
-    backgroundColor: colors.primary,
-    borderRadius: 10,
-    paddingVertical: 10,
-    alignItems: "center",
-  },
-  calloutOpenText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  calloutDismissBtn: {
-    width: 40,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  calloutDismissText: {
-    fontSize: 16,
-    color: colors.textMuted,
+  sectionTitle: { fontSize: 11, fontWeight: "700", color: colors.textPrimary },
+  sectionFilter: {
+    fontSize: 9,
+    color: colors.primary,
+    fontWeight: "600",
+    maxWidth: "50%",
   },
 
-  // ── Map banner ──────────────────────────────────────────────────────────
-  mapBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginHorizontal: 12,
-    marginTop: 14,
-    padding: 14,
-    backgroundColor: "#eff6ff",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#bfdbfe",
-    gap: 12,
-  },
-  mapBannerIcon: { fontSize: 28 },
-  mapBannerText: { flex: 1 },
-  mapBannerTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#1e40af",
-  },
-  mapBannerSub: {
-    fontSize: 12,
-    color: "#3b82f6",
-    marginTop: 1,
-  },
-  mapBannerChevron: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#93c5fd",
-  },
-
-  // ── Recent Activity ─────────────────────────────────────────────────────
+  // ── Recent Activity
   emptyActivity: {
-    paddingVertical: 24,
-    paddingHorizontal: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
     alignItems: "center",
   },
   emptyActivityText: {
-    fontSize: 14,
+    fontSize: 10,
     color: colors.textMuted,
   },
   activityRow: {
@@ -1271,41 +1424,157 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#fff",
     marginHorizontal: 12,
-    marginBottom: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 10,
+    marginBottom: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.borderLight,
   },
   activityLeft: {
-    width: 52,
+    width: 40,
     alignItems: "center",
   },
   activityDate: {
-    fontSize: 12,
+    fontSize: 9,
     fontWeight: "600",
     color: colors.textSecondary,
   },
-  activityType: { fontSize: 14, marginTop: 2 },
-  activityCenter: { flex: 1, marginLeft: 10 },
+  activityType: { fontSize: 10, marginTop: 1 },
+  activityCenter: { flex: 1, marginLeft: 8 },
   activityProject: {
-    fontSize: 14,
+    fontSize: 10,
     fontWeight: "700",
     color: colors.textPrimary,
   },
   activitySummary: {
-    fontSize: 12,
+    fontSize: 9,
     color: colors.textMuted,
     marginTop: 1,
   },
   activityChevron: {
-    fontSize: 18,
+    fontSize: 14,
     color: colors.textMuted,
-    marginLeft: 8,
+    marginLeft: 6,
   },
 
-  // ── Company picker ──────────────────────────────────────────────────────
+  // ── Tablet split layout ─────────────────────────────────────────────────
+  tabletSplit: {
+    flex: 1,
+    flexDirection: "row",
+  },
+  tabletLeftPane: {
+    width: "34%",
+    borderRightWidth: 1,
+    borderRightColor: colors.borderMuted,
+  },
+  tabletRightPane: {
+    flex: 1,
+    backgroundColor: colors.backgroundSecondary,
+  },
+  tabletMapHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    backgroundColor: "#fff",
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderMuted,
+  },
+  tabletMapTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  tabletMapTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.textPrimary,
+  },
+  tabletMapCount: {
+    fontSize: 11,
+    color: colors.textMuted,
+    fontWeight: "600",
+  },
+  tabletMapHeaderBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "#eff6ff",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+  },
+  tabletMapHeaderBtnText: {
+    fontSize: 14,
+  },
+  tabletMapDropdown: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#eff6ff",
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    gap: 4,
+    maxWidth: 200,
+  },
+  tabletMapDropdownActive: {
+    backgroundColor: "#dbeafe",
+    borderColor: "#93c5fd",
+  },
+  tabletMapDropdownText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: colors.primary,
+    flex: 1,
+  },
+  tabletMapDropdownTextActive: {
+    fontWeight: "700",
+  },
+  dropdownChev: {
+    fontSize: 10,
+    color: colors.textMuted,
+  },
+  tabletMapContainer: {
+    flex: 1,
+    margin: 8,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  mapPickerOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 100,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  mapPickerBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.35)",
+  },
+  mapPickerSheet: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 16,
+    width: "75%",
+    maxWidth: 400,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+
+  // ── Picker (company & project) ──────────────────────────────────────────
   pickerOverlay: {
     position: "absolute",
     top: 0,
@@ -1328,17 +1597,85 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   pickerTitle: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: "700",
     color: colors.textPrimary,
-    marginBottom: 12,
+    marginBottom: 8,
     textAlign: "center",
+  },
+  searchInput: {
+    backgroundColor: colors.backgroundSecondary,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 14,
+    color: colors.textPrimary,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: colors.borderMuted,
+  },
+  statusRow: {
+    flexDirection: "row",
+    gap: 6,
+    marginBottom: 10,
+  },
+  statusChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    backgroundColor: colors.backgroundSecondary,
+    borderWidth: 1,
+    borderColor: colors.borderMuted,
+  },
+  statusChipActive: {
+    backgroundColor: "#dbeafe",
+    borderColor: colors.primary,
+  },
+  statusChipDot: {
+    fontSize: 8,
+  },
+  statusChipText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: colors.textMuted,
+  },
+  statusChipTextActive: {
+    color: colors.primary,
+    fontWeight: "700",
+  },
+  pickerSectionLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 4,
+  },
+  pickerDivider: {
+    height: 1,
+    backgroundColor: colors.primary,
+    marginHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 4,
+    opacity: 0.3,
+  },
+  favBtn: {
+    width: 24,
+    alignItems: "center",
+  },
+  favIcon: {
+    fontSize: 14,
   },
   pickerRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 14,
+    paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 10,
     marginBottom: 4,
@@ -1347,7 +1684,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.backgroundTertiary,
   },
   pickerRowText: {
-    fontSize: 15,
+    fontSize: 14,
     color: colors.textPrimary,
     flex: 1,
   },
@@ -1356,7 +1693,7 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   pickerCheck: {
-    fontSize: 16,
+    fontSize: 14,
     color: colors.primary,
     fontWeight: "700",
     marginLeft: 8,
@@ -1369,7 +1706,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.backgroundSecondary,
   },
   pickerCloseBtnText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "600",
     color: colors.textMuted,
   },

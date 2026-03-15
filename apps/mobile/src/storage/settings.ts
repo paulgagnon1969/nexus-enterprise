@@ -74,6 +74,37 @@ export async function setLastSelectedProjectId(projectId: string | null): Promis
   }
 }
 
+// ---- Last-active Project (persists across sessions/restarts) ----
+
+const LAST_PROJECT_KEY = "nexus.lastProject";
+
+export interface LastProject {
+  id: string;
+  name: string;
+}
+
+export async function getLastProject(): Promise<LastProject | null> {
+  try {
+    const raw = await AsyncStorage.getItem(LAST_PROJECT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.id === "string" && typeof parsed.name === "string") {
+      return parsed as LastProject;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setLastProject(project: { id: string; name: string } | null): Promise<void> {
+  if (project) {
+    await AsyncStorage.setItem(LAST_PROJECT_KEY, JSON.stringify({ id: project.id, name: project.name }));
+  } else {
+    await AsyncStorage.removeItem(LAST_PROJECT_KEY);
+  }
+}
+
 // ---- Last-selected Company (tenant auto-select) ----
 
 const LAST_SELECTED_COMPANY_KEY = "nexus.lastSelectedCompany";
@@ -88,4 +119,41 @@ export async function setLastSelectedCompanyId(companyId: string | null): Promis
   } else {
     await AsyncStorage.removeItem(LAST_SELECTED_COMPANY_KEY);
   }
+}
+
+// ---- Default Project Zoom ----
+
+const DEFAULT_PROJECT_ZOOM_KEY = "nexus.defaultProjectZoom";
+
+/** Get the user's preferred default zoom diameter (miles) when focusing a project.
+ *  Returns null if the user has never set a default. */
+export async function getDefaultProjectZoom(): Promise<number | null> {
+  try {
+    const raw = await AsyncStorage.getItem(DEFAULT_PROJECT_ZOOM_KEY);
+    return raw != null ? Number(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setDefaultProjectZoom(miles: number): Promise<void> {
+  await AsyncStorage.setItem(DEFAULT_PROJECT_ZOOM_KEY, String(miles));
+}
+
+// ---- Map Layer Visibility ----
+
+const MAP_LAYERS_KEY = "nexus.mapLayerVisibility";
+
+/** All layers default to visible. Only disabled layers are persisted. */
+export async function getMapLayerVisibility(): Promise<Record<string, boolean>> {
+  try {
+    const raw = await AsyncStorage.getItem(MAP_LAYERS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export async function setMapLayerVisibility(layers: Record<string, boolean>): Promise<void> {
+  await AsyncStorage.setItem(MAP_LAYERS_KEY, JSON.stringify(layers));
 }

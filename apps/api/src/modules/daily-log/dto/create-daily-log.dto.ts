@@ -214,6 +214,15 @@ export class CreateDailyLogDto {
   @IsNumber()
   creditAmount?: number | null;
 
+  // NexCART — receipt origin tracking
+  @IsOptional()
+  @IsString()
+  receiptOrigin?: 'MANUAL' | 'SHOPPING_CART' | null;
+
+  @IsOptional()
+  @IsString()
+  shoppingCartId?: string | null;
+
   // Optional: project file IDs to attach (triggers OCR if receipt type)
   @IsOptional()
   @IsArray()
