@@ -16,6 +16,7 @@ interface CompanyDto {
 
 interface MeDto {
   globalRole?: string;
+  defaultCompanyId?: string | null;
 }
 
 function SystemLayoutInner({ children }: { children: React.ReactNode }) {
@@ -37,6 +38,8 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
   const [newOrgTemplate, setNewOrgTemplate] = useState("BLANK");
   const [newOrgError, setNewOrgError] = useState<string | null>(null);
   const [switchingToCompanyId, setSwitchingToCompanyId] = useState<string | null>(null);
+  const [defaultCompanyId, setDefaultCompanyId] = useState<string | null>(null);
+  const [savingDefault, setSavingDefault] = useState(false);
 
 
   function getTokenOrThrow() {
@@ -105,6 +108,7 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
       .then((me: any | null) => {
         const isSA = me?.globalRole === "SUPER_ADMIN";
         setIsSuperAdmin(isSA);
+        setDefaultCompanyId(me?.defaultCompanyId ?? null);
 
         // Determine company-level role for ADMIN+ access.
         // Always check against the NEXUS SYSTEM company — the user may have been
@@ -174,6 +178,33 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
 
   const isActiveCompany = (id: string) => pathname?.startsWith(`/system/${id}`);
   const isOverview = pathname === "/system";
+
+  /** Set (or clear) the user's default organization on the server. */
+  const handleSetDefault = async (companyId: string) => {
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    // Toggle: if already the default, clear it; otherwise set it.
+    const nextDefault = defaultCompanyId === companyId ? null : companyId;
+
+    try {
+      setSavingDefault(true);
+      const res = await fetch(`${API_BASE}/users/me/default-company`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ companyId: nextDefault }),
+      });
+      if (res.ok) {
+        setDefaultCompanyId(nextDefault);
+      }
+    } finally {
+      setSavingDefault(false);
+    }
+  };
 
   /** Switch into a tenant's context and land on their dashboard. */
   const switchToTenant = async (companyId: string) => {
@@ -465,6 +496,7 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
               {visibleCompanies.map(c => {
                 const active = isActiveCompany(c.id);
                 const isSwitching = switchingToCompanyId === c.id;
+                const isDefault = c.id === defaultCompanyId;
                 return (
                   <li key={c.id}>
                     <div
@@ -475,6 +507,26 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
                         backgroundColor: active ? "#bfdbfe" : "transparent",
                       }}
                     >
+                      {/* Default org toggle */}
+                      <button
+                        type="button"
+                        onClick={() => handleSetDefault(c.id)}
+                        disabled={savingDefault}
+                        title={isDefault ? "Remove as default" : "Set as default organization"}
+                        style={{
+                          flexShrink: 0,
+                          background: "none",
+                          border: "none",
+                          cursor: savingDefault ? "wait" : "pointer",
+                          padding: "4px 4px 4px 8px",
+                          fontSize: 13,
+                          lineHeight: 1,
+                          color: isDefault ? "#f59e0b" : "#d1d5db",
+                          opacity: savingDefault ? 0.5 : 1,
+                        }}
+                      >
+                        {isDefault ? "★" : "☆"}
+                      </button>
                       <button
                         type="button"
                         onClick={() => switchToTenant(c.id)}
@@ -482,7 +534,7 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
                         style={{
                           flex: 1,
                           display: "block",
-                          padding: "6px 12px",
+                          padding: "6px 4px 6px 2px",
                           textAlign: "left",
                           border: "none",
                           background: "transparent",
@@ -501,6 +553,9 @@ function SystemLayoutInner({ children }: { children: React.ReactNode }) {
                           }}
                         >
                           {isSwitching ? "Switching…" : c.name}
+                          {isDefault && (
+                            <span style={{ marginLeft: 4, fontSize: 10, color: "#f59e0b", fontWeight: 600 }}>DEFAULT</span>
+                          )}
                         </div>
                       </button>
                       <Link

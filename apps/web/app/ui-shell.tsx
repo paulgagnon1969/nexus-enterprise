@@ -1116,9 +1116,6 @@ function CompanySwitcher() {
   const [currentCompanyId, setCurrentCompanyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [switching, setSwitching] = useState(false);
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
-  const [defaultCompanyId, setDefaultCompanyId] = useState<string | null>(null);
-  const [savingDefault, setSavingDefault] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1143,8 +1140,6 @@ function CompanySwitcher() {
           : [];
 
         setMemberships(json.memberships ?? []);
-        setIsSuperAdmin(json.globalRole === "SUPER_ADMIN");
-        setDefaultCompanyId(json.defaultCompanyId ?? null);
 
         let visibleCompanies = membershipCompanies;
 
@@ -1231,33 +1226,6 @@ function CompanySwitcher() {
     }
   };
 
-  const isCurrentDefault = currentCompanyId === defaultCompanyId;
-
-  const handleSetDefault = async () => {
-    if (typeof window === "undefined" || !currentCompanyId) return;
-    const token = window.localStorage.getItem("accessToken");
-    if (!token) return;
-
-    try {
-      setSavingDefault(true);
-      // Toggle: if already the default, clear it; otherwise set it.
-      const nextDefault = isCurrentDefault ? null : currentCompanyId;
-      const res = await fetch(`${API_BASE}/users/me/default-company`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ companyId: nextDefault }),
-      });
-      if (res.ok) {
-        setDefaultCompanyId(nextDefault);
-      }
-    } finally {
-      setSavingDefault(false);
-    }
-  };
-
   return (
     <label style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11 }}>
       <span style={{ color: "#6b7280" }}>Company:</span>
@@ -1285,7 +1253,7 @@ function CompanySwitcher() {
                 <optgroup label="System">
                   {systemCompanies.map(c => (
                     <option key={c.id} value={c.id} title={c.id}>
-                      {c.name}{c.id === defaultCompanyId ? " ★" : ""}
+                      {c.name}
                     </option>
                   ))}
                 </optgroup>
@@ -1294,7 +1262,7 @@ function CompanySwitcher() {
                 <optgroup label="Organizations">
                   {orgCompanies.map(c => (
                     <option key={c.id} value={c.id} title={c.id}>
-                      {c.name}{c.id === defaultCompanyId ? " ★" : ""}
+                      {c.name}
                     </option>
                   ))}
                 </optgroup>
@@ -1303,27 +1271,6 @@ function CompanySwitcher() {
           );
         })()}
       </select>
-      {/* SUPER_ADMIN: toggle default org with a star button */}
-      {isSuperAdmin && (
-        <button
-          type="button"
-          onClick={handleSetDefault}
-          disabled={savingDefault}
-          title={isCurrentDefault ? "Remove as default organization" : "Set as default organization"}
-          style={{
-            background: "none",
-            border: "none",
-            cursor: savingDefault ? "wait" : "pointer",
-            padding: "0 2px",
-            fontSize: 14,
-            lineHeight: 1,
-            color: isCurrentDefault ? "#f59e0b" : "#d1d5db",
-            opacity: savingDefault ? 0.5 : 1,
-          }}
-        >
-          {isCurrentDefault ? "★" : "☆"}
-        </button>
-      )}
     </label>
   );
 }
