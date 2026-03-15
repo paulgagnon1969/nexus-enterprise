@@ -42,6 +42,12 @@ export interface ShoppingCartItem {
   bestUnitPrice?: number | null;
   cbaScore?: number | null;
   pricingSnapshots?: PricingSnapshot[];
+  // Unit normalization — coverage-based pricing
+  purchaseUnit?: string | null;
+  coveragePerPurchaseUnit?: number | null;
+  purchaseQty?: number | null;
+  effectiveUnitPrice?: number | null;
+  coverageConfidence?: string | null;
 }
 
 export interface PricingSnapshot {
@@ -57,6 +63,11 @@ export interface PricingSnapshot {
   netBenefit?: number | null;
   availabilityStatus?: string | null;
   leadTimeDays?: number | null;
+  // Unit normalization
+  purchaseUnit?: string | null;
+  coveragePerPurchaseUnit?: number | null;
+  purchaseQty?: number | null;
+  normalizedUnitPrice?: number | null;
 }
 
 export interface TripPlanItem {
@@ -305,6 +316,10 @@ export interface ConsolidatedLine {
   totalQty: number;
   bestKnownPrice: number | null;
   bestSupplierName: string | null;
+  purchaseUnit: string | null;
+  coveragePerPurchaseUnit: number | null;
+  totalPurchaseQty: number | null;
+  coverageConfidence: string | null;
   allocations: ConsolidatedAllocation[];
 }
 

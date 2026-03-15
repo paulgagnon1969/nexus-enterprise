@@ -64,6 +64,15 @@ export interface CatalogProduct {
   /** How the item reaches the jobsite. */
   fulfillmentType?: 'LOCAL_PICKUP' | 'SHIP_TO_SITE' | 'WILL_CALL';
 
+  // ── Coverage / Unit Normalization ──────────────────────────────────────────
+
+  /** Total coverage per retail purchase unit (e.g. 40 SF per roll). */
+  coverageValue?: number;
+  /** Unit of the coverage measure (e.g. "SF", "LF"). */
+  coverageUnit?: string;
+  /** Human label for the purchase unit (e.g. "roll", "bag", "sheet"). */
+  purchaseUnitLabel?: string;
+
   /** Nearest store name (e.g. "Phoenix #0409"). */
   storeName?: string;
   /** Nearest store street address. */

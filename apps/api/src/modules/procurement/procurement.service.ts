@@ -17,6 +17,7 @@ import type {
   ShoppingCartHorizon,
   ShoppingCartItemStatus,
 } from '@prisma/client';
+import { normalizePricing, type NormalizedPricing } from './coverage-extractor';
 
 // ── DTOs ─────────────────────────────────────────────────────────────────────
 
@@ -134,6 +135,10 @@ export class ProcurementService {
       totalQty: number;
       bestKnownPrice: number | null;
       bestSupplierName: string | null;
+      purchaseUnit: string | null;
+      coveragePerPurchaseUnit: number | null;
+      totalPurchaseQty: number | null;
+      coverageConfidence: string | null;
       allocations: Array<{
         projectId: string;
         projectName: string;
@@ -159,11 +164,18 @@ export class ProcurementService {
 
         if (existing) {
           existing.totalQty += item.cartQty;
+          // Accumulate purchase quantities when available
+          if (item.purchaseQty != null) {
+            existing.totalPurchaseQty = (existing.totalPurchaseQty ?? 0) + item.purchaseQty;
+          }
           existing.allocations.push(allocation);
           // Update best price if this item has a better one
           if (item.bestUnitPrice != null && (existing.bestKnownPrice == null || item.bestUnitPrice < existing.bestKnownPrice)) {
             existing.bestKnownPrice = item.bestUnitPrice;
             existing.bestSupplierName = item.bestSupplierName;
+            existing.purchaseUnit = item.purchaseUnit;
+            existing.coveragePerPurchaseUnit = item.coveragePerPurchaseUnit;
+            existing.coverageConfidence = item.coverageConfidence;
           }
         } else {
           consolidated.set(key, {
@@ -173,6 +185,10 @@ export class ProcurementService {
             totalQty: item.cartQty,
             bestKnownPrice: item.bestUnitPrice,
             bestSupplierName: item.bestSupplierName,
+            purchaseUnit: item.purchaseUnit,
+            coveragePerPurchaseUnit: item.coveragePerPurchaseUnit,
+            totalPurchaseQty: item.purchaseQty,
+            coverageConfidence: item.coverageConfidence,
             allocations: [allocation],
           });
         }
@@ -439,6 +455,7 @@ export class ProcurementService {
       const results = await this.catalogService.searchAll(searchQuery, { zipCode: zip });
 
       const supplierPrices: Record<string, number | null> = {};
+      let bestNormalized: NormalizedPricing | null = null;
 
       for (const result of results) {
         if (result.products.length === 0) continue;
@@ -450,7 +467,21 @@ export class ProcurementService {
 
         if (cheapest.price == null) continue;
 
-        supplierPrices[result.provider] = cheapest.price;
+        // ── Unit Normalization ─────────────────────────────────────────────
+        // Attempt to extract coverage from the product and compute the true
+        // purchase quantity & effective per-project-unit price.
+        const normalized = normalizePricing(cheapest, item.cartQty, item.unit);
+
+        // For the optimizer: use the effective $/project-unit when available,
+        // otherwise fall back to raw product price (pre-normalization behavior).
+        supplierPrices[result.provider] = normalized
+          ? normalized.effectiveUnitPrice
+          : cheapest.price;
+
+        // Track the best normalization result for this item
+        if (normalized && (!bestNormalized || normalized.effectiveUnitPrice < bestNormalized.effectiveUnitPrice)) {
+          bestNormalized = normalized;
+        }
 
         // Determine distance and fulfillment type
         const isOnline = cheapest.fulfillmentType === 'SHIP_TO_SITE';
@@ -474,7 +505,12 @@ export class ProcurementService {
           });
         }
 
-        // Save pricing snapshot (with online supplier fields)
+        // Save pricing snapshot with normalized data
+        const snapshotPurchaseQty = normalized?.purchaseQty ?? null;
+        const snapshotTotalPrice = normalized
+          ? normalized.totalCost
+          : cheapest.price * item.cartQty;
+
         await this.prisma.shoppingCartPricingSnapshot.create({
           data: {
             cartItemId: item.id,
@@ -483,7 +519,7 @@ export class ProcurementService {
             supplierAddress: supplierAddr,
             distanceMiles,
             unitPrice: cheapest.price,
-            totalPrice: cheapest.price * item.cartQty,
+            totalPrice: snapshotTotalPrice,
             availabilityStatus: cheapest.availabilityStatus ?? null,
             leadTimeDays: cheapest.leadTimeDays ?? null,
             shippingCost: cheapest.shippingCost ?? null,
@@ -491,19 +527,31 @@ export class ProcurementService {
             deliveryMinDays: cheapest.deliveryMinDays ?? null,
             deliveryMaxDays: cheapest.deliveryMaxDays ?? null,
             deliveryEstimate: cheapest.deliveryEstimate ?? null,
+            // Coverage normalization fields
+            purchaseUnit: normalized?.coverage.purchaseUnitLabel ?? null,
+            coveragePerPurchaseUnit: normalized?.coverage.coverageValue ?? null,
+            purchaseQty: snapshotPurchaseQty,
+            normalizedUnitPrice: normalized?.effectiveUnitPrice ?? null,
           },
         });
 
-        // Update best supplier on item if this is cheapest
-        if (!item.bestUnitPrice || cheapest.price < item.bestUnitPrice) {
+        // Update best supplier on item if this is cheapest (use effective $/unit)
+        const effectivePrice = normalized?.effectiveUnitPrice ?? cheapest.price;
+        if (!item.bestUnitPrice || effectivePrice < item.bestUnitPrice) {
           await this.prisma.shoppingCartItem.update({
             where: { id: item.id },
             data: {
               bestSupplierKey: result.provider,
               bestSupplierName: supplierDisplayName,
-              bestUnitPrice: cheapest.price,
+              bestUnitPrice: effectivePrice,
               fulfillmentType: cheapest.fulfillmentType ?? null,
               status: 'SOURCED',
+              // Coverage normalization fields
+              purchaseUnit: normalized?.coverage.purchaseUnitLabel ?? null,
+              coveragePerPurchaseUnit: normalized?.coverage.coverageValue ?? null,
+              purchaseQty: normalized?.purchaseQty ?? null,
+              effectiveUnitPrice: normalized?.effectiveUnitPrice ?? null,
+              coverageConfidence: normalized?.coverage.confidence ?? 'UNRESOLVED',
             },
           });
         }

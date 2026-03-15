@@ -18,6 +18,8 @@ interface CamEntry {
   code: string;
   title: string;
   category: string;
+  synopsis: string;
+  tags: string[];
   scores: CamScores;
   status: string;
   systemDocumentId?: string;
@@ -72,11 +74,45 @@ function scoreBg(score: number): string {
   return "#f9fafb";
 }
 
+/** Flatten all CAMs from grouped modules for search */
+function flattenCams(data: CamManualData): (CamEntry & { mode: string; modeLabel: string })[] {
+  const flat: (CamEntry & { mode: string; modeLabel: string })[] = [];
+  for (const mod of data.modules) {
+    for (const cam of mod.cams) {
+      flat.push({ ...cam, mode: mod.mode, modeLabel: mod.modeLabel });
+    }
+  }
+  return flat;
+}
+
+/** Search CAMs by keyword — matches against title, camId, synopsis, tags, category */
+function searchCams(
+  allCams: (CamEntry & { mode: string; modeLabel: string })[],
+  query: string,
+): (CamEntry & { mode: string; modeLabel: string })[] {
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return [];
+  return allCams.filter((cam) => {
+    const haystack = [
+      cam.title,
+      cam.camId,
+      cam.synopsis,
+      cam.modeLabel,
+      CATEGORY_LABELS[cam.category] || cam.category,
+      ...(cam.tags || []),
+    ]
+      .join(" ")
+      .toLowerCase();
+    return terms.every((t) => haystack.includes(t));
+  });
+}
+
 export default function CamManualPage() {
   const [data, setData] = useState<CamManualData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedModules, setExpandedModules] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Invite / vouch state
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -220,8 +256,150 @@ export default function CamManualPage() {
         </div>
       )}
 
+      {/* Search Bar */}
+      {data && data.totalCams > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ position: "relative" }}>
+            <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 16, pointerEvents: "none" }}>🔍</span>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search CAMs by keyword, module, capability..."
+              style={{
+                width: "100%",
+                padding: "10px 12px 10px 38px",
+                borderRadius: 8,
+                border: "1px solid #d1d5db",
+                fontSize: 14,
+                boxSizing: "border-box",
+                outline: "none",
+              }}
+              onFocus={(e) => (e.target.style.borderColor = "#2563eb")}
+              onBlur={(e) => (e.target.style.borderColor = "#d1d5db")}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                style={{
+                  position: "absolute",
+                  right: 10,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "#e5e7eb",
+                  border: "none",
+                  borderRadius: 999,
+                  width: 22,
+                  height: 22,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#6b7280",
+                }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Search Results */}
+      {data && searchQuery.trim() && (() => {
+        const results = searchCams(flattenCams(data), searchQuery);
+        return (
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>
+              {results.length} result{results.length !== 1 ? "s" : ""} for &ldquo;{searchQuery}&rdquo;
+            </div>
+            {results.length === 0 ? (
+              <div style={{ padding: 32, textAlign: "center", background: "#f9fafb", borderRadius: 8, border: "1px dashed #d1d5db" }}>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>🔭</div>
+                <div style={{ fontSize: 14, color: "#6b7280" }}>No CAMs match that search. Try different keywords.</div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {results.map((cam) => (
+                  <div
+                    key={cam.code}
+                    style={{
+                      padding: 16,
+                      borderRadius: 10,
+                      border: "1px solid #e5e7eb",
+                      background: "#fff",
+                      cursor: cam.systemDocumentId ? "pointer" : "default",
+                    }}
+                    onClick={() => {
+                      if (cam.systemDocumentId) window.location.href = `/system/documents/${cam.systemDocumentId}`;
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                      <div>
+                        <span style={{ fontFamily: "monospace", fontSize: 11, color: "#6b7280", marginRight: 8 }}>{cam.camId}</span>
+                        <span style={{ fontWeight: 600, fontSize: 14 }}>{cam.title}</span>
+                      </div>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+                        <span
+                          style={{
+                            padding: "2px 8px",
+                            borderRadius: 4,
+                            background: "#f3f4f6",
+                            fontSize: 10,
+                            fontWeight: 500,
+                          }}
+                        >
+                          {cam.modeLabel}
+                        </span>
+                        <span
+                          style={{
+                            padding: "2px 8px",
+                            borderRadius: 999,
+                            background: scoreBg(cam.scores.total),
+                            border: `1px solid ${scoreColor(cam.scores.total)}`,
+                            color: scoreColor(cam.scores.total),
+                            fontSize: 11,
+                            fontWeight: 600,
+                          }}
+                        >
+                          {cam.scores.total}/40
+                        </span>
+                      </div>
+                    </div>
+                    {cam.synopsis && (
+                      <div style={{ fontSize: 13, color: "#4b5563", lineHeight: 1.5, marginBottom: 6 }}>
+                        {cam.synopsis}
+                      </div>
+                    )}
+                    {cam.tags && cam.tags.length > 0 && (
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        {cam.tags.slice(0, 8).map((tag) => (
+                          <span
+                            key={tag}
+                            style={{
+                              padding: "1px 6px",
+                              borderRadius: 4,
+                              background: "#eff6ff",
+                              color: "#2563eb",
+                              fontSize: 10,
+                            }}
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Controls */}
-      {data && data.modules.length > 0 && (
+      {data && data.modules.length > 0 && !searchQuery.trim() && (
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           <button onClick={expandAll} style={btnStyle}>
             Expand All
@@ -293,8 +471,8 @@ export default function CamManualPage() {
         </div>
       )}
 
-      {/* Module Groups */}
-      {!loading &&
+      {/* Module Groups (hidden during search) */}
+      {!loading && !searchQuery.trim() &&
         data?.modules.map((mod) => {
           const isExpanded = expandedModules.has(mod.mode);
           const icon = MODE_ICONS[mod.mode] || "📦";

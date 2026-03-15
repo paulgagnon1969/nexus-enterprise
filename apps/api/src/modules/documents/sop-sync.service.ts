@@ -661,6 +661,23 @@ export class SopSyncService {
    * Get CAM data grouped by mode for the CAM System Manual.
    * Modules sorted by aggregate score (avg of total scores in group) descending.
    */
+  /**
+   * Extract a short synopsis from the CAM markdown body.
+   * Looks for the "Executive Summary" section; falls back to first paragraph.
+   */
+  private extractSynopsis(markdownBody: string, maxLen = 200): string {
+    // Try to find ## Executive Summary section
+    const execMatch = markdownBody.match(/##\s*Executive Summary\s*\n([\s\S]*?)(?=\n##\s|$)/);
+    if (execMatch) {
+      const text = execMatch[1].replace(/\n+/g, " ").replace(/\*\*/g, "").replace(/\*/g, "").trim();
+      return text.length > maxLen ? text.slice(0, maxLen).replace(/\s\S*$/, "...") : text;
+    }
+    // Fallback: first non-heading, non-empty paragraph
+    const lines = markdownBody.split("\n").filter((l) => l.trim() && !l.startsWith("#") && !l.startsWith("---"));
+    const text = lines.slice(0, 3).join(" ").replace(/\*\*/g, "").replace(/\*/g, "").trim();
+    return text.length > maxLen ? text.slice(0, maxLen).replace(/\s\S*$/, "...") : text;
+  }
+
   async getCamManualData(): Promise<{
     modules: Array<{
       mode: string;
@@ -672,6 +689,8 @@ export class SopSyncService {
         code: string;
         title: string;
         category: string;
+        synopsis: string;
+        tags: string[];
         scores: { uniqueness: number; value: number; demonstrable: number; defensible: number; total: number };
         status: string;
         systemDocumentId?: string;
@@ -705,6 +724,8 @@ export class SopSyncService {
         code: string;
         title: string;
         category: string;
+        synopsis: string;
+        tags: string[];
         scores: { uniqueness: number; value: number; demonstrable: number; defensible: number; total: number };
         status: string;
         systemDocumentId?: string;
@@ -737,6 +758,8 @@ export class SopSyncService {
         code: cam.code,
         title: fm.title,
         category: (fm.category || "UNKNOWN").toUpperCase(),
+        synopsis: this.extractSynopsis(cam.markdownBody),
+        tags: fm.tags || [],
         scores: {
           uniqueness: scores.uniqueness ?? 0,
           value: scores.value ?? 0,
