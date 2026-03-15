@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Put, Query, Req, UseGuards } from "@nestjs/common";
 import { UserService } from "./user.service";
 import { JwtAuthGuard, GlobalRolesGuard, GlobalRoles, GlobalRole } from "../auth/auth.guards";
 import { AuthenticatedUser } from "../auth/jwt.strategy";
@@ -23,6 +23,16 @@ export class UserController {
   ) {
     const user = req.user as AuthenticatedUser;
     return this.users.updateMe(user.userId, { firstName, lastName });
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put("me/default-company")
+  setDefaultCompany(
+    @Req() req: any,
+    @Body("companyId") companyId: string | null,
+  ) {
+    const user = req.user as AuthenticatedUser;
+    return this.users.setDefaultCompany(user.userId, companyId ?? null);
   }
 
   @UseGuards(JwtAuthGuard)

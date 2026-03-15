@@ -3,11 +3,11 @@ cam_id: "TECH-COLLAB-0002"
 title: "Session Mirror — Remote Dev Oversight from Mobile"
 mode: TECH
 category: COLLAB
-revision: "1.0"
+revision: "1.1"
 tags: [cam, tech, collab, mobile, dev-oversight, session-mirror, super-admin]
 status: validated
 created: 2026-03-13
-updated: 2026-03-13
+updated: 2026-03-15
 author: Warp
 score:
   uniqueness: 9
@@ -48,6 +48,9 @@ A full-stack "Session Mirror" system that bridges the Warp AI agent on the Mac S
 - **API:** NestJS module with REST controller + Socket.IO gateway, all gated by `@GlobalRoles(GlobalRole.SUPER_ADMIN)`
 - **WebSocket Security:** JWT validated on connection; non-SUPER_ADMIN sockets rejected immediately
 - **Mobile:** New "DevSessions" tab (conditionally rendered for SUPER_ADMIN only) with session list, live event feed, and inline approval/reject
+- **Cross-Company Visibility:** SUPER_ADMIN sees all sessions across all companies (not scoped to JWT company context)
+- **Race Condition Guard:** `initialRouteName` safely falls back to HomeTab when DevSessionsTab hasn't mounted yet (async role check)
+- **Safe Area Compliance:** Detail screen header respects iOS safe area insets with enlarged touch targets for iPad landscape
 - **Push:** Expo push notifications with `dev_approval` category (Approve/Reject buttons) and `dev_session` category (View button)
 - **Deep Links:** Tapping a notification navigates directly to the session detail screen
 
@@ -77,3 +80,4 @@ This capability demonstrates that NEXUS is not just software — it's a self-evo
 | Rev | Date | Changes |
 |-----|------|---------|
 | 1.0 | 2026-03-13 | Initial release — full Session Mirror implementation |
+| 1.1 | 2026-03-15 | Fixed race condition crash, cross-company visibility, safe area back button, live session demo |

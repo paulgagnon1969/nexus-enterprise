@@ -595,7 +595,7 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 
 **Problem**: Development velocity is constrained when the decision-maker must be physically present to review changes and approve deployments. Context-switching to a laptop breaks field work.
 **NCC Advantage**: Full-stack remote dev oversight via the NCC mobile app. Live event streaming (WebSocket + REST fallback), push-notification-gated deployment approvals with Approve/Reject action buttons, inline commenting, and SUPER_ADMIN-only access enforced at every layer (API, WebSocket, mobile UI). No competitor in restoration or construction offers real-time mobile command-and-control over AI-assisted development.
-**Score**: 33/40 (U:9 V:8 D:9 Def:7) | Status: validated.
+**Score**: 33/40 (U:9 V:8 D:9 Def:7) | Status: validated | Rev 1.1.
 
 → [Full CAM](./TECH-COLLAB-0002-session-mirror-remote-dev-oversight.md)
 
@@ -710,4 +710,5 @@ Distribution of CAMs by Mode × Category. Numbers indicate CAM count per cell.
 || 1.4 | 2026-03-11 | Added CLT-COLLAB-0004 CAM Portal Viral Referral (33/40) and CMP-CMP-0001 CNDA+ Gated Access (34/40) — 49 CAMs total |
 || 1.5 | 2026-03-13 | Added TECH-COLLAB-0002 Session Mirror — Remote Dev Oversight from Mobile (33/40) — 53 CAMs total |
 || 1.6 | 2026-03-13 | Added TECH-AUTO-0002 Secure Web Portal Campaigns (33/40) — 54 CAMs total |
-|| 1.7 | 2026-03-14 | Added OPS-AUTO-0002 NexBUY — Group Shopping Cart & Consolidated Purchase (33/40) — 55 CAMs total |
+||| 1.7 | 2026-03-14 | Added OPS-AUTO-0002 NexBUY — Group Shopping Cart & Consolidated Purchase (33/40) — 55 CAMs total |
+||| 1.8 | 2026-03-15 | Updated TECH-COLLAB-0002 Session Mirror to rev 1.1 — race condition fix, cross-company visibility, safe area compliance |

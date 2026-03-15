@@ -283,6 +283,9 @@ model Company {
   // Cross-Tenant Invites targeting this company
   crossTenantInvites CrossTenantInvite[]
 
+  // Users who have set this company as their default org
+  usersWithDefault User[] @relation("UserDefaultCompany")
+
   // Push notification preferences scoped to this company
   notificationPreferences NotificationPreference[]
 
@@ -612,6 +615,12 @@ model User {
   /// profileCompletionPercent < 100.
   profileReminderStartAt    DateTime?
   profileReminderLastSentAt DateTime?
+
+  /// Persistent default organization for this user. When set, the UI will
+  /// auto-switch to this company on login instead of using a hardcoded default.
+  /// Primarily useful for SUPER_ADMIN users who can see all tenants.
+  defaultCompanyId String?
+  defaultCompany   Company? @relation("UserDefaultCompany", fields: [defaultCompanyId], references: [id], onDelete: SetNull)
 
   acceptedInvites    CompanyInvite[]
   memberships        CompanyMembership[]

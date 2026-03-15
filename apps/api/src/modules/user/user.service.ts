@@ -89,6 +89,7 @@ export class UserService {
         userType: true,
         peopleToken: true,
         profileCompletionPercent: true,
+        defaultCompanyId: true,
         memberships: {
           where: {
             isActive: true,
@@ -219,6 +220,30 @@ export class UserService {
 
   async updateMe(userId: string, dto: { firstName?: string; lastName?: string }) {
     return this.updateUserNamesAndProfileCompletion(userId, dto);
+  }
+
+  /**
+   * Set (or clear) the user's persistent default organization.
+   * Validates that the target company exists and is not deleted.
+   */
+  async setDefaultCompany(userId: string, companyId: string | null) {
+    if (companyId) {
+      const company = await this.prisma.company.findUnique({
+        where: { id: companyId },
+        select: { id: true, deletedAt: true },
+      });
+      if (!company || company.deletedAt) {
+        throw new NotFoundException("Company not found or inactive");
+      }
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { defaultCompanyId: companyId },
+      select: { id: true, defaultCompanyId: true },
+    });
+
+    return updated;
   }
 
   private canViewHrPortfolio(actor: AuthenticatedUser, targetUserId: string) {
