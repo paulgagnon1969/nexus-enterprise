@@ -107,6 +107,15 @@ export class SopAdminController {
   }
 
   /**
+   * GET /admin/sops/cam-detail/:code
+   * Get a single CAM's rendered HTML content by its file code.
+   */
+  @Get("cam-detail/:code")
+  async getCamDetail(@Param("code") code: string) {
+    return this.sopSync.getCamDetailHtml(code);
+  }
+
+  /**
    * GET /admin/sops/cam-handbook-html
    * Get full CAM handbook with HTML content for print/handbook view.
    * Same grouping as cam-manual but includes rendered HTML body of each CAM.

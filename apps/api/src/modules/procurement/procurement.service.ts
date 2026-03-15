@@ -467,10 +467,32 @@ export class ProcurementService {
 
         if (cheapest.price == null) continue;
 
+        // ── Product Detail Enrichment ──────────────────────────────────────
+        // Search results lack rawJson.specifications (coverage, package qty).
+        // Fetch full product detail for the cheapest hit so the coverage
+        // extractor can use Tier 1 (spec-sheet) data.
+        let enrichedProduct = cheapest;
+        try {
+          const detail = await this.catalogService.getProduct(
+            result.provider,
+            cheapest.productId,
+            zip,
+          );
+          if (detail) {
+            // Preserve the search-result price if detail price is missing
+            enrichedProduct = {
+              ...detail,
+              price: detail.price ?? cheapest.price,
+            };
+          }
+        } catch (err) {
+          this.logger.warn(`Product detail enrichment failed for ${cheapest.productId}: ${err}`);
+        }
+
         // ── Unit Normalization ─────────────────────────────────────────────
         // Attempt to extract coverage from the product and compute the true
         // purchase quantity & effective per-project-unit price.
-        const normalized = normalizePricing(cheapest, item.cartQty, item.unit);
+        const normalized = normalizePricing(enrichedProduct, item.cartQty, item.unit);
 
         // For the optimizer: use the effective $/project-unit when available,
         // otherwise fall back to raw product price (pre-normalization behavior).

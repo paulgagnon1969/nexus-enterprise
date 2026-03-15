@@ -654,6 +654,59 @@ export class SopSyncService {
   }
 
   // ───────────────────────────────────────────────
+  // Single CAM Detail
+  // ───────────────────────────────────────────────
+
+  /**
+   * Get a single CAM's full HTML content by file code.
+   */
+  async getCamDetailHtml(code: string): Promise<{
+    code: string;
+    camId: string;
+    title: string;
+    synopsis: string;
+    tags: string[];
+    mode: string;
+    category: string;
+    scores: { uniqueness: number; value: number; demonstrable: number; defensible: number; total: number };
+    status: string;
+    revision: string;
+    created: string;
+    updated: string;
+    htmlContent: string;
+  } | null> {
+    const filePath = path.join(CAMS_DIR, `${code}.md`);
+    try {
+      const cam = parseSopFile(filePath);
+      const fm = cam.frontmatter;
+      const scores = fm.scores || {};
+      return {
+        code: cam.code,
+        camId: fm.cam_id || cam.code,
+        title: fm.title,
+        synopsis: this.extractSynopsis(cam.markdownBody),
+        tags: fm.tags || [],
+        mode: (fm.mode || "UNKNOWN").toUpperCase(),
+        category: (fm.category || "UNKNOWN").toUpperCase(),
+        scores: {
+          uniqueness: scores.uniqueness ?? 0,
+          value: scores.value ?? 0,
+          demonstrable: scores.demonstrable ?? 0,
+          defensible: scores.defensible ?? 0,
+          total: scores.total ?? 0,
+        },
+        status: fm.status,
+        revision: fm.revision,
+        created: fm.created,
+        updated: fm.updated,
+        htmlContent: cam.htmlBody,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  // ───────────────────────────────────────────────
   // CAM Manual Data
   // ───────────────────────────────────────────────
 

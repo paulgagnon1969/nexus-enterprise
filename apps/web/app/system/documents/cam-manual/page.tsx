@@ -114,6 +114,30 @@ export default function CamManualPage() {
   const [expandedModules, setExpandedModules] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
 
+  // CAM detail modal state
+  const [detailCode, setDetailCode] = useState<string | null>(null);
+  const [detailData, setDetailData] = useState<{ title: string; camId: string; scores: CamScores; tags: string[]; mode: string; category: string; revision: string; updated: string; htmlContent: string } | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  const openCamDetail = useCallback((code: string) => {
+    setDetailCode(code);
+    setDetailLoading(true);
+    setDetailData(null);
+    const token = localStorage.getItem("accessToken");
+    fetch(`${API_BASE}/admin/sops/cam-detail/${code}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => res.ok ? res.json() : null)
+      .then((d) => setDetailData(d))
+      .catch(() => setDetailData(null))
+      .finally(() => setDetailLoading(false));
+  }, []);
+
+  const closeCamDetail = useCallback(() => {
+    setDetailCode(null);
+    setDetailData(null);
+  }, []);
+
   // Invite / vouch state
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
@@ -329,11 +353,9 @@ export default function CamManualPage() {
                       borderRadius: 10,
                       border: "1px solid #e5e7eb",
                       background: "#fff",
-                      cursor: cam.systemDocumentId ? "pointer" : "default",
+                      cursor: "pointer",
                     }}
-                    onClick={() => {
-                      if (cam.systemDocumentId) window.location.href = `/system/documents/${cam.systemDocumentId}`;
-                    }}
+                    onClick={() => openCamDetail(cam.code)}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
                       <div>
@@ -599,22 +621,20 @@ export default function CamManualPage() {
                             </span>
                           </td>
                           <td style={{ padding: "8px 12px", borderBottom: "1px solid #f3f4f6", textAlign: "right" }}>
-                            {cam.systemDocumentId && (
-                              <Link
-                                href={`/system/documents/${cam.systemDocumentId}`}
-                                style={{
-                                  padding: "3px 8px",
-                                  borderRadius: 4,
-                                  border: "1px solid #2563eb",
-                                  background: "#eff6ff",
-                                  color: "#2563eb",
-                                  fontSize: 10,
-                                  textDecoration: "none",
-                                }}
-                              >
-                                View
-                              </Link>
-                            )}
+                            <button
+                              onClick={() => openCamDetail(cam.code)}
+                              style={{
+                                padding: "3px 8px",
+                                borderRadius: 4,
+                                border: "1px solid #2563eb",
+                                background: "#eff6ff",
+                                color: "#2563eb",
+                                fontSize: 10,
+                                cursor: "pointer",
+                              }}
+                            >
+                              View
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -751,6 +771,108 @@ export default function CamManualPage() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* CAM Detail Modal */}
+      {detailCode && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "stretch",
+            zIndex: 1000,
+            padding: "24px 0",
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) closeCamDetail(); }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: 12,
+              width: "90%",
+              maxWidth: 900,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              boxShadow: "0 25px 80px rgba(0,0,0,0.2)",
+            }}
+          >
+            {/* Modal Header */}
+            <div
+              style={{
+                padding: "16px 24px",
+                borderBottom: "1px solid #e5e7eb",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexShrink: 0,
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 700 }}>
+                  {detailData?.title || "Loading..."}
+                </div>
+                {detailData && (
+                  <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4, display: "flex", gap: 8, alignItems: "center" }}>
+                    <code style={{ fontSize: 11 }}>{detailData.camId}</code>
+                    <span style={{ padding: "1px 6px", borderRadius: 4, background: "#f3f4f6", fontSize: 10 }}>
+                      Rev {detailData.revision}
+                    </span>
+                    <span
+                      style={{
+                        padding: "1px 8px",
+                        borderRadius: 999,
+                        background: scoreBg(detailData.scores.total),
+                        border: `1px solid ${scoreColor(detailData.scores.total)}`,
+                        color: scoreColor(detailData.scores.total),
+                        fontSize: 11,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {detailData.scores.total}/40
+                    </span>
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={closeCamDetail}
+                style={{
+                  background: "#f3f4f6",
+                  border: "none",
+                  borderRadius: 8,
+                  width: 32,
+                  height: 32,
+                  cursor: "pointer",
+                  fontSize: 16,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#6b7280",
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ flex: 1, overflow: "auto", padding: "24px" }}>
+              {detailLoading ? (
+                <div style={{ textAlign: "center", padding: 40, color: "#6b7280" }}>Loading CAM content...</div>
+              ) : detailData ? (
+                <div
+                  className="cam-detail-content"
+                  dangerouslySetInnerHTML={{ __html: detailData.htmlContent }}
+                  style={{ fontSize: 14, lineHeight: 1.7, color: "#1f2937" }}
+                />
+              ) : (
+                <div style={{ textAlign: "center", padding: 40, color: "#b91c1c" }}>Failed to load CAM content.</div>
+              )}
+            </div>
           </div>
         </div>
       )}
