@@ -26,6 +26,7 @@ interface UserMeResponse {
   userType?: string;
   hasPortalAccess?: boolean;
   camAccessToken?: string | null;
+  defaultCompanyId?: string | null;
   memberships: {
     companyId: string;
     role: string;
@@ -398,9 +399,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // On first load after login, if we have a remembered lastCompanyId and the
-  // user has access (or is SUPER_ADMIN), auto-switch company context once so
-  // the dropdown and API context match their last selection.
+  // On first load after login, if we have a remembered lastCompanyId (or a
+  // server-side defaultCompanyId preference) and the user has access (or is
+  // SUPER_ADMIN), auto-switch company context once so the dropdown and API
+  // context match their preferred selection.
+  //
+  // Priority: localStorage lastCompanyId > server defaultCompanyId.
+  // This means manual switches within a browser session are respected, but
+  // fresh logins / cleared storage will fall back to the server preference.
   //
   // IMPORTANT: if we do switch companies, we must reload the page so any
   // already-mounted pages don't keep using a now-stale company context.
@@ -410,15 +416,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (!token) return;
     const already = window.sessionStorage.getItem("nexusAutoCompanySwitchDone");
     if (already === "1") return;
-    const lastCompanyId = window.localStorage.getItem("lastCompanyId");
-    if (!lastCompanyId) return;
-
-    const currentCompanyId = window.localStorage.getItem("companyId");
-    if (currentCompanyId && currentCompanyId === lastCompanyId) {
-      // Nothing to do; avoid switching + avoid re-running this effect on reload.
-      window.sessionStorage.setItem("nexusAutoCompanySwitchDone", "1");
-      return;
-    }
 
     (async () => {
       try {
@@ -427,6 +424,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         });
         if (!meRes.ok) return;
         const me: UserMeResponse = await meRes.json();
+
+        // Resolve target: prefer localStorage (recent manual switch) then
+        // server-side default preference.
+        const lastCompanyId =
+          window.localStorage.getItem("lastCompanyId") ||
+          me.defaultCompanyId ||
+          null;
+
+        if (!lastCompanyId) {
+          window.sessionStorage.setItem("nexusAutoCompanySwitchDone", "1");
+          return;
+        }
+
+        const currentCompanyId = window.localStorage.getItem("companyId");
+        if (currentCompanyId && currentCompanyId === lastCompanyId) {
+          window.sessionStorage.setItem("nexusAutoCompanySwitchDone", "1");
+          return;
+        }
+
         const isSuperAdmin = (me.globalRole ?? null) === "SUPER_ADMIN";
         const hasMembership = Array.isArray(me.memberships)
           ? me.memberships.some(m => m.companyId === lastCompanyId)
@@ -1100,6 +1116,9 @@ function CompanySwitcher() {
   const [currentCompanyId, setCurrentCompanyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [switching, setSwitching] = useState(false);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [defaultCompanyId, setDefaultCompanyId] = useState<string | null>(null);
+  const [savingDefault, setSavingDefault] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1124,6 +1143,8 @@ function CompanySwitcher() {
           : [];
 
         setMemberships(json.memberships ?? []);
+        setIsSuperAdmin(json.globalRole === "SUPER_ADMIN");
+        setDefaultCompanyId(json.defaultCompanyId ?? null);
 
         let visibleCompanies = membershipCompanies;
 
@@ -1210,6 +1231,33 @@ function CompanySwitcher() {
     }
   };
 
+  const isCurrentDefault = currentCompanyId === defaultCompanyId;
+
+  const handleSetDefault = async () => {
+    if (typeof window === "undefined" || !currentCompanyId) return;
+    const token = window.localStorage.getItem("accessToken");
+    if (!token) return;
+
+    try {
+      setSavingDefault(true);
+      // Toggle: if already the default, clear it; otherwise set it.
+      const nextDefault = isCurrentDefault ? null : currentCompanyId;
+      const res = await fetch(`${API_BASE}/users/me/default-company`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ companyId: nextDefault }),
+      });
+      if (res.ok) {
+        setDefaultCompanyId(nextDefault);
+      }
+    } finally {
+      setSavingDefault(false);
+    }
+  };
+
   return (
     <label style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11 }}>
       <span style={{ color: "#6b7280" }}>Company:</span>
@@ -1237,7 +1285,7 @@ function CompanySwitcher() {
                 <optgroup label="System">
                   {systemCompanies.map(c => (
                     <option key={c.id} value={c.id} title={c.id}>
-                      {c.name}
+                      {c.name}{c.id === defaultCompanyId ? " ★" : ""}
                     </option>
                   ))}
                 </optgroup>
@@ -1246,7 +1294,7 @@ function CompanySwitcher() {
                 <optgroup label="Organizations">
                   {orgCompanies.map(c => (
                     <option key={c.id} value={c.id} title={c.id}>
-                      {c.name}
+                      {c.name}{c.id === defaultCompanyId ? " ★" : ""}
                     </option>
                   ))}
                 </optgroup>
@@ -1255,6 +1303,27 @@ function CompanySwitcher() {
           );
         })()}
       </select>
+      {/* SUPER_ADMIN: toggle default org with a star button */}
+      {isSuperAdmin && (
+        <button
+          type="button"
+          onClick={handleSetDefault}
+          disabled={savingDefault}
+          title={isCurrentDefault ? "Remove as default organization" : "Set as default organization"}
+          style={{
+            background: "none",
+            border: "none",
+            cursor: savingDefault ? "wait" : "pointer",
+            padding: "0 2px",
+            fontSize: 14,
+            lineHeight: 1,
+            color: isCurrentDefault ? "#f59e0b" : "#d1d5db",
+            opacity: savingDefault ? 0.5 : 1,
+          }}
+        >
+          {isCurrentDefault ? "★" : "☆"}
+        </button>
+      )}
     </label>
   );
 }

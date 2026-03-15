@@ -9318,6 +9318,13 @@ model ShoppingCartItem {
 
   fulfillmentType String? /// LOCAL_PICKUP, SHIP_TO_SITE, WILL_CALL — chosen fulfillment for this item
 
+  /// Unit normalization — coverage-based pricing
+  purchaseUnit            String? /// Purchase unit label (roll, bag, sheet, each, …)
+  coveragePerPurchaseUnit Float?  /// Coverage per purchase unit in project units (e.g. 40 SF/roll)
+  purchaseQty             Float?  /// ceil(cartQty / coveragePerPurchaseUnit)
+  effectiveUnitPrice      Float?  /// productPrice / coveragePerPurchaseUnit ($/project-unit)
+  coverageConfidence      String? /// HIGH, MEDIUM, LOW, UNRESOLVED
+
   roomParticleId String? /// Optional room filter context
 
   createdAt DateTime @default(now())
@@ -9354,6 +9361,12 @@ model ShoppingCartPricingSnapshot {
 
   availabilityStatus String? /// IN_STOCK, SPECIAL_ORDER, ONLINE_ONLY, etc.
   leadTimeDays       Int?
+
+  /// Unit normalization — coverage-based pricing
+  purchaseUnit            String? /// Purchase unit label (roll, bag, sheet, …)
+  coveragePerPurchaseUnit Float?  /// Coverage per purchase unit in project units
+  purchaseQty             Float?  /// Number of purchase units needed
+  normalizedUnitPrice     Float?  /// $/project-unit (productPrice / coveragePerPurchaseUnit)
 
   shippingCost      Float?  /// Shipping cost in USD (0 for free shipping, null for local pickup)
   fulfillmentType   String? /// LOCAL_PICKUP, SHIP_TO_SITE, WILL_CALL

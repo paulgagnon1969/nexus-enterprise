@@ -129,16 +129,23 @@ export default function LoginPage() {
               localStorage.setItem("companyRole", currentMembership.role);
             }
 
-            // For admins and above in the Nexus System tenant, default their
-            // preferred organization to Nexus Fortified Structures on first login.
-            const isNexusSystemAdminOrAbove = memberships.some(
-              (m: any) =>
-                m?.companyId === NEXUS_SYSTEM_COMPANY_ID &&
-                (m?.role === "OWNER" || m?.role === "ADMIN"),
-            );
+            // Use the server-side default company preference if set;
+            // otherwise fall back to the hardcoded Fortified company for
+            // Nexus System admins on first login.
             const hasLastCompany = !!localStorage.getItem("lastCompanyId");
-            if (isNexusSystemAdminOrAbove && !hasLastCompany) {
-              localStorage.setItem("lastCompanyId", FORTIFIED_COMPANY_ID);
+            if (!hasLastCompany) {
+              if ((me as any).defaultCompanyId) {
+                localStorage.setItem("lastCompanyId", (me as any).defaultCompanyId);
+              } else {
+                const isNexusSystemAdminOrAbove = memberships.some(
+                  (m: any) =>
+                    m?.companyId === NEXUS_SYSTEM_COMPANY_ID &&
+                    (m?.role === "OWNER" || m?.role === "ADMIN"),
+                );
+                if (isNexusSystemAdminOrAbove) {
+                  localStorage.setItem("lastCompanyId", FORTIFIED_COMPANY_ID);
+                }
+              }
             }
           } catch {
             // best-effort only
